@@ -27,6 +27,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
+import { motion, AnimatePresence } from "framer-motion";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -66,6 +74,7 @@ import {
   Location01Icon,
   Calendar03Icon,
   UserIcon,
+  Copy01Icon,
 } from "@hugeicons/core-free-icons";
 import { fetchPatients, createPatient, updatePatient, deletePatient, type Patient } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
@@ -310,21 +319,35 @@ export function PatientsTable() {
   };
 
   const renderEmptyState = () => (
-    <div className="flex flex-col items-center justify-center py-16 text-center gap-4">
-      <div className="p-4 bg-muted/30 rounded-full">
-        <HugeiconsIcon icon={UserGroupIcon} className="size-8 text-muted-foreground" />
+    <div className="flex flex-col items-center justify-center py-24 text-center">
+      <div className="relative mb-6 group">
+        <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl scale-150 animate-pulse opacity-50 group-hover:opacity-100 transition-opacity"></div>
+        <div className="relative p-6 bg-background rounded-full border border-border shadow-lg group-hover:scale-110 transition-transform duration-300">
+          <HugeiconsIcon icon={UserGroupIcon} className="size-10 text-primary/80" />
+        </div>
       </div>
-      <div className="space-y-2">
-        <p className="font-semibold text-lg">No patients yet</p>
-        <p className="text-sm text-muted-foreground max-w-md">
-          The database is seeded with demo users and sample patient records to demonstrate table,
-          pagination, and search functionality. If the list is empty, add a patient to get started.
+      <div className="space-y-2 max-w-sm mx-auto">
+        <h3 className="font-bold text-xl tracking-tight text-foreground">No patients found</h3>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          {search ? "We couldn't find any patients matching your search query. Try adjusting your filters." : "Get started by adding your first patient to the system."}
         </p>
       </div>
-      <Button onClick={() => resetForm()} size="lg" className="mt-2">
-        <HugeiconsIcon icon={Add01Icon} className="size-4 mr-2" />
-        Add first patient
-      </Button>
+      {search && (
+        <Button
+          variant="outline"
+          className="mt-6 gap-2 rounded-full border-dashed border-primary/30 hover:bg-primary/5 hover:border-primary/60 transition-all"
+          onClick={() => setSearch("")}
+        >
+          <HugeiconsIcon icon={RefreshIcon} className="size-4" />
+          Clear Search
+        </Button>
+      )}
+      {!search && (
+        <Button onClick={() => resetForm()} size="lg" className="mt-6 shadow-md hover:shadow-lg transition-all rounded-full">
+          <HugeiconsIcon icon={Add01Icon} className="size-4 mr-2" />
+          Add first patient
+        </Button>
+      )}
     </div>
   );
 
@@ -332,41 +355,56 @@ export function PatientsTable() {
     <div className="space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Patients</CardTitle>
-            <HugeiconsIcon icon={UserGroupIcon} className="h-4 w-4 text-muted-foreground" />
+        <Card className="relative overflow-hidden border-none shadow-md bg-gradient-to-br from-background via-background to-primary/5 hover:shadow-lg transition-all duration-300 group">
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+            <HugeiconsIcon icon={UserGroupIcon} className="w-24 h-24 text-primary transform rotate-12 translate-x-4 -translate-y-4" />
+          </div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Patients</CardTitle>
+            <div className="p-2 bg-primary/10 rounded-lg group-hover:bg-primary/20 transition-colors">
+              <HugeiconsIcon icon={UserGroupIcon} className="h-4 w-4 text-primary" />
+            </div>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.total}</div>
-            <p className="text-xs text-muted-foreground">
-              Registered in system
+          <CardContent className="relative z-10">
+            <div className="text-3xl font-bold tracking-tight text-foreground">{stats.total}</div>
+            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+              <span className="text-primary font-medium">Synced</span> in system
             </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Contacts</CardTitle>
-            <HugeiconsIcon icon={AiPhone01Icon} className="h-4 w-4 text-muted-foreground" />
+        <Card className="relative overflow-hidden border-none shadow-md bg-gradient-to-br from-background via-background to-emerald-500/5 hover:shadow-lg transition-all duration-300 group">
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+            <HugeiconsIcon icon={AiPhone01Icon} className="w-24 h-24 text-emerald-500 transform rotate-12 translate-x-4 -translate-y-4" />
+          </div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Active Contacts</CardTitle>
+            <div className="p-2 bg-emerald-500/10 rounded-lg group-hover:bg-emerald-500/20 transition-colors">
+              <HugeiconsIcon icon={AiPhone01Icon} className="h-4 w-4 text-emerald-500" />
+            </div>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.active}</div>
-            <p className="text-xs text-muted-foreground">
-              With contact info
+          <CardContent className="relative z-10">
+            <div className="text-3xl font-bold tracking-tight text-foreground">{stats.active}</div>
+            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+              <span className="text-emerald-500 font-medium">{(stats.active / stats.total * 100).toFixed(0)}%</span> response rate
             </p>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Recent Additions</CardTitle>
-            <HugeiconsIcon icon={CalendarAddIcon} className="h-4 w-4 text-muted-foreground" />
+        <Card className="relative overflow-hidden border-none shadow-md bg-gradient-to-br from-background via-background to-amber-500/5 hover:shadow-lg transition-all duration-300 group">
+          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+            <HugeiconsIcon icon={CalendarAddIcon} className="w-24 h-24 text-amber-500 transform rotate-12 translate-x-4 -translate-y-4" />
+          </div>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+            <CardTitle className="text-sm font-medium text-muted-foreground">New This Week</CardTitle>
+            <div className="p-2 bg-amber-500/10 rounded-lg group-hover:bg-amber-500/20 transition-colors">
+              <HugeiconsIcon icon={CalendarAddIcon} className="h-4 w-4 text-amber-500" />
+            </div>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.recent}</div>
-            <p className="text-xs text-muted-foreground">
-              Added this week
+          <CardContent className="relative z-10">
+            <div className="text-3xl font-bold tracking-tight text-foreground">{stats.recent}</div>
+            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+              <span className="text-amber-500 font-medium">+{stats.recent}</span> last 7 days
             </p>
           </CardContent>
         </Card>
@@ -374,41 +412,45 @@ export function PatientsTable() {
 
       {/* Main Patient Table */}
       <Card className="flex flex-col overflow-hidden">
-        <CardHeader>
+        <CardHeader className="pb-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-1">
-              <CardTitle className="flex items-center gap-2">
-                <HugeiconsIcon icon={MedicalMaskIcon} className="size-5 text-primary" />
-                Patient Management
+              <CardTitle className="flex items-center gap-2 text-xl tracking-tight">
+                <div className="flex items-center justify-center p-2 rounded-lg bg-primary/10">
+                  <HugeiconsIcon icon={MedicalMaskIcon} className="size-5 text-primary" />
+                </div>
+                Patient Directory
               </CardTitle>
-              <CardDescription>
-                Search, paginate, and manage patient records with secure authentication.
+              <CardDescription className="ml-11">
+                Manage your patient records, appointments, and contact details.
               </CardDescription>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative flex-1 sm:flex-none">
+              <div className="relative flex-1 sm:flex-none group">
                 <HugeiconsIcon
                   icon={Search01Icon}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground group-focus-within:text-primary transition-colors"
                 />
                 <Input
-                  placeholder="Search patients by name, email, phone..."
+                  placeholder="Search patients..."
                   value={search}
                   onChange={(e) => {
                     setSearch(e.target.value);
                     setPage(1);
                   }}
-                  className="pl-9 w-full sm:w-[280px] h-10"
+                  className="pl-9 w-full sm:w-[280px] h-10 bg-background/50 border-input/60 hover:border-input focus-visible:ring-primary/20 transition-all shadow-sm"
                 />
               </div>
-              <Button className="gap-2" onClick={() => resetForm()}>
+              <Button className="gap-2 shadow-md hover:shadow-lg transition-all" onClick={() => resetForm()}>
                 <HugeiconsIcon icon={Add01Icon} className="size-4" />
                 Add Patient
               </Button>
               <Button
                 variant="outline"
-                className="gap-2"
+                size="icon"
+                className="size-10 shadow-sm"
+                title="Reset Filters"
                 onClick={async () => {
                   setSearch("");
                   setDebouncedSearch("");
@@ -439,7 +481,6 @@ export function PatientsTable() {
                 }}
               >
                 <HugeiconsIcon icon={RefreshIcon} className="size-4" />
-                Reset
               </Button>
             </div>
           </div>
@@ -460,241 +501,279 @@ export function PatientsTable() {
           ) : null}
 
           <div className="overflow-x-auto max-h-[500px] lg:max-h-[600px] overflow-y-auto scroll-smooth border-b">
-            <table className={cn("w-full caption-bottom text-sm", isRefetching && "opacity-90 transition-opacity duration-150")}>
-              <TableHeader>
-                <TableRow className="sticky top-0 z-20 bg-background hover:bg-background shadow-sm">
-                  <TableHead className="w-[60px] font-medium text-center text-muted-foreground">
+            <table className={cn("w-full caption-bottom text-sm border-separate border-spacing-0", isRefetching && "opacity-60 grayscale transition-all duration-300")}>
+              <TableHeader className="[&_tr]:border-b">
+                <TableRow className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 hover:bg-transparent shadow-sm border-b transition-colors data-[state=selected]:bg-muted">
+                  <TableHead className="h-12 px-4 text-center align-middle font-medium text-muted-foreground w-[60px]">
                     #
                   </TableHead>
-                  <TableHead className="min-w-[200px] font-medium">
+                  <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground min-w-[200px]">
                     <div className="flex items-center gap-2">
                       <HugeiconsIcon icon={UserIcon} className="size-4" />
                       Patient
                     </div>
                   </TableHead>
-                  <TableHead className="min-w-[120px] font-medium">
+                  <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground min-w-[120px]">
                     <div className="flex items-center gap-2">
                       <HugeiconsIcon icon={Calendar03Icon} className="size-4" />
                       Age & DOB
                     </div>
                   </TableHead>
-                  <TableHead className="hidden md:table-cell min-w-[100px] font-medium">
+                  <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden md:table-cell min-w-[100px]">
                     Gender
                   </TableHead>
-                  <TableHead className="hidden lg:table-cell min-w-[180px] font-medium">
+                  <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden lg:table-cell min-w-[180px]">
                     <div className="flex items-center gap-2">
                       <HugeiconsIcon icon={AiPhone01Icon} className="size-4" />
                       Contact
                     </div>
                   </TableHead>
-                  <TableHead className="hidden xl:table-cell min-w-[200px] font-medium">
+                  <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden xl:table-cell min-w-[200px]">
                     <div className="flex items-center gap-2">
                       <HugeiconsIcon icon={Location01Icon} className="size-4" />
                       Address
                     </div>
                   </TableHead>
-                  <TableHead className="min-w-[100px] font-medium text-right">
+                  <TableHead className="h-12 px-4 align-middle font-medium text-muted-foreground text-right min-w-[100px]">
                     Actions
                   </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody
-                className="transition-opacity duration-200"
+                className="[&_tr:last-child]:border-0 transition-opacity duration-200"
               >
                 {isInitialLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                      Loading patients...
-                    </TableCell>
-                  </TableRow>
+                  Array.from({ length: 10 }).map((_, i) => (
+                    <TableRow key={`skeleton-${i}`} className="hover:bg-muted/5">
+                      <TableCell className="p-4"><Skeleton className="h-4 w-8 mx-auto" /></TableCell>
+                      <TableCell className="p-4">
+                        <div className="flex items-center gap-3">
+                          <Skeleton className="h-10 w-10 rounded-full" />
+                          <div className="space-y-2">
+                            <Skeleton className="h-4 w-24" />
+                            <Skeleton className="h-3 w-16" />
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="p-4">
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-12" />
+                          <Skeleton className="h-3 w-20" />
+                        </div>
+                      </TableCell>
+                      <TableCell className="p-4 hidden md:table-cell"><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
+                      <TableCell className="p-4 hidden lg:table-cell">
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-24" />
+                          <Skeleton className="h-3 w-32" />
+                        </div>
+                      </TableCell>
+                      <TableCell className="p-4 hidden xl:table-cell"><Skeleton className="h-4 w-40" /></TableCell>
+                      <TableCell className="p-4 text-right"><Skeleton className="h-8 w-8 ml-auto rounded-md" /></TableCell>
+                    </TableRow>
+                  ))
                 ) : patients.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7}>{renderEmptyState()}</TableCell>
                   </TableRow>
                 ) : (
-                  patients.map((patient, index) => {
-                    const age = getAgeFromDOB(patient.date_of_birth);
-                    const hasContact = !!(patient.phone || patient.email);
-                    const rowNumber = (page - 1) * limit + index + 1;
+                  <AnimatePresence mode="wait">
+                    {patients.map((patient, index) => {
+                      const age = getAgeFromDOB(patient.date_of_birth);
+                      const hasContact = !!(patient.phone || patient.email);
+                      const rowNumber = (page - 1) * limit + index + 1;
 
-                    return (
-                      <TableRow key={patient.id} className="hover:bg-muted/30">
-                        <TableCell className="text-center font-medium text-muted-foreground">
-                          {rowNumber}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <Avatar className="size-10">
-                              <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-                                {getPatientInitials(patient)}
-                              </AvatarFallback>
-                            </Avatar>
+                      return (
+                        <motion.tr
+                          key={patient.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          transition={{ duration: 0.2, delay: index * 0.05 }}
+                          className="border-b transition-colors hover:bg-muted/40 data-[state=selected]:bg-muted group"
+                        >
+                          <TableCell className="p-4 align-middle text-center font-medium text-muted-foreground">
+                            {rowNumber}
+                          </TableCell>
+                          <TableCell className="p-4 align-middle">
+                            <div className="flex items-center gap-3">
+                              <Avatar className="size-10 ring-2 ring-background transition-shadow group-hover:ring-primary/20">
+                                <AvatarFallback className="bg-primary/5 text-primary font-semibold group-hover:bg-primary/10 transition-colors">
+                                  {getPatientInitials(patient)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <div className="font-semibold text-foreground">
+                                  {patient.first_name} {patient.last_name}
+                                </div>
+                              </div>
+                            </div>
+                          </TableCell>
+
+                          <TableCell className="p-4 align-middle">
                             <div className="space-y-1">
-                              <div className="font-semibold">
-                                {patient.first_name} {patient.last_name}
-                              </div>
+                              <div className="font-medium text-foreground">{age} years <span className="text-muted-foreground font-normal">old</span></div>
                               <div className="text-xs text-muted-foreground">
-                                ID: {patient.id.slice(0, 8)}...
+                                {new Date(patient.date_of_birth).toLocaleDateString('en-GB')}
                               </div>
                             </div>
-                          </div>
-                        </TableCell>
+                          </TableCell>
 
-                        <TableCell>
-                          <div className="space-y-1">
-                            <div className="font-medium">{age} years old</div>
-                            <div className="text-xs text-muted-foreground">
-                              {new Date(patient.date_of_birth).toLocaleDateString('en-GB')}
+                          <TableCell className="p-4 align-middle hidden md:table-cell">
+                            {patient.gender ? (
+                              <Badge variant="secondary" className="capitalize font-normal border-transparent bg-secondary/50 hover:bg-secondary">
+                                {patient.gender}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+
+                          <TableCell className="p-4 align-middle hidden lg:table-cell">
+                            <div className="space-y-1.5">
+                              {patient.phone ? (
+                                <div className="flex items-center gap-2 text-sm text-foreground/90">
+                                  <div className="p-1 rounded-sm bg-primary/5 text-primary">
+                                    <HugeiconsIcon icon={AiPhone01Icon} className="size-3" />
+                                  </div>
+                                  {patient.phone}
+                                </div>
+                              ) : null}
+                              {patient.email ? (
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <div className="p-1 rounded-sm bg-muted text-muted-foreground">
+                                    <HugeiconsIcon icon={Mail01Icon} className="size-3" />
+                                  </div>
+                                  {patient.email}
+                                </div>
+                              ) : null}
+                              {!hasContact && <span className="text-muted-foreground text-sm">—</span>}
                             </div>
-                          </div>
-                        </TableCell>
+                          </TableCell>
 
-                        <TableCell className="hidden md:table-cell">
-                          {patient.gender ? (
-                            <Badge variant="outline" className="capitalize">
-                              {patient.gender}
-                            </Badge>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
+                          <TableCell className="p-4 align-middle hidden xl:table-cell">
+                            <div className="text-sm text-muted-foreground max-w-[200px] truncate" title={patient.address || undefined}>
+                              {patient.address || <span className="text-muted-foreground/50">—</span>}
+                            </div>
+                          </TableCell>
 
-                        <TableCell className="hidden lg:table-cell">
-                          <div className="space-y-1">
-                            {patient.phone ? (
-                              <div className="flex items-center gap-2 text-sm">
-                                <HugeiconsIcon icon={AiPhone01Icon} className="size-3 text-muted-foreground" />
-                                {patient.phone}
-                              </div>
-                            ) : null}
-                            {patient.email ? (
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <HugeiconsIcon icon={Mail01Icon} className="size-3" />
-                                {patient.email}
-                              </div>
-                            ) : null}
-                            {!hasContact && <span className="text-muted-foreground text-sm">—</span>}
-                          </div>
-                        </TableCell>
-
-                        <TableCell className="hidden xl:table-cell">
-                          <div className="text-sm">
-                            {patient.address || <span className="text-muted-foreground">—</span>}
-                          </div>
-                        </TableCell>
-
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background transition-colors">
-                              <span className="sr-only">Open menu</span>
-                              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4">
-                                <circle cx="12" cy="12" r="1" />
-                                <circle cx="19" cy="12" r="1" />
-                                <circle cx="5" cy="12" r="1" />
-                              </svg>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-40">
-                              <DropdownMenuItem onClick={() => resetForm(patient)}>
-                                <HugeiconsIcon icon={Edit01Icon} className="size-4 mr-2" />
-                                Edit Patient
-                              </DropdownMenuItem>
-                              {role === "admin" && (
-                                <DropdownMenuItem
-                                  onClick={() => handleDelete(patient.id)}
-                                  className="text-destructive focus:text-destructive"
-                                >
-                                  <HugeiconsIcon icon={Delete01Icon} className="size-4 mr-2" />
-                                  Delete
+                          <TableCell className="p-4 align-middle text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background transition-colors data-[state=open]:bg-muted">
+                                <span className="sr-only">Open menu</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4 text-muted-foreground">
+                                  <circle cx="12" cy="12" r="1" />
+                                  <circle cx="19" cy="12" r="1" />
+                                  <circle cx="5" cy="12" r="1" />
+                                </svg>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem onClick={() => {
+                                  navigator.clipboard.writeText(patient.id);
+                                  toast.success("ID copied to clipboard");
+                                }}>
+                                  <HugeiconsIcon icon={Copy01Icon} className="size-4 mr-2" />
+                                  Copy ID
                                 </DropdownMenuItem>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
+                                <DropdownMenuItem onClick={() => resetForm(patient)}>
+                                  <HugeiconsIcon icon={Edit01Icon} className="size-4 mr-2" />
+                                  Edit Patient
+                                </DropdownMenuItem>
+                                {role === "admin" && (
+                                  <DropdownMenuItem
+                                    onClick={() => handleDelete(patient.id)}
+                                    className="text-destructive focus:text-destructive"
+                                  >
+                                    <HugeiconsIcon icon={Delete01Icon} className="size-4 mr-2" />
+                                    Delete
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </motion.tr>
+                      );
+                    })}
+                  </AnimatePresence>
                 )}
               </TableBody>
             </table>
           </div>
         </CardContent>
 
-        <div className="flex flex-col gap-4 border-t px-6 py-4 bg-muted/20 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-6">
-            <button
-              type="button"
-              tabIndex={0}
-              data-slot="button"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1 || loading}
-              className="focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 border bg-clip-padding text-sm font-medium focus-visible:ring-[3px] aria-invalid:ring-[3px] [&_svg:not([class*='size-'])]:size-4 inline-flex items-center justify-center whitespace-nowrap transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none shrink-0 [&_svg]:shrink-0 outline-none group/button select-none border-border bg-background hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground shadow-sm size-8 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-md"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" color="currentColor" className="size-4"><path d="M15 6C15 6 9.00001 10.4189 9 12C8.99999 13.5812 15 18 15 18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"></path></svg>
-            </button>
+        <div className="sticky bottom-0 z-20 flex flex-col gap-4 border-t px-6 py-4 bg-background/80 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between transition-all">
+          <div className="flex items-center gap-2 sm:gap-6 w-full sm:w-auto justify-between sm:justify-start">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1 || loading}
+                className="size-8 rounded-full shadow-sm"
+              >
+                <HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
+              </Button>
 
-            <div className="flex items-center gap-1">
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                let pageNum: number;
-                if (totalPages <= 5) {
-                  pageNum = i + 1;
-                } else if (page <= 3) {
-                  pageNum = i + 1;
-                } else if (page >= totalPages - 2) {
-                  pageNum = totalPages - 4 + i;
-                } else {
-                  pageNum = page - 2 + i;
-                }
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum: number;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (page <= 3) {
+                    pageNum = i + 1;
+                  } else if (page >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = page - 2 + i;
+                  }
 
-                if (i === 3 && totalPages > 5 && page < totalPages - 2) {
+                  if (i === 3 && totalPages > 5 && page < totalPages - 2) {
+                    return (
+                      <span key="ellipsis" className="px-2 py-1 text-xs text-muted-foreground">
+                        ...
+                      </span>
+                    );
+                  }
+
+                  if (i === 4 && totalPages > 5) {
+                    pageNum = totalPages;
+                  }
+
+                  const isActive = page === pageNum;
+
                   return (
-                    <span key="ellipsis" className="px-3 py-1 text-sm">
-                      ...
-                    </span>
+                    <Button
+                      key={pageNum}
+                      variant={isActive ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setPage(pageNum)}
+                      disabled={loading}
+                      className={cn(
+                        "size-8 rounded-full p-0 text-xs font-medium transition-all",
+                        isActive ? "shadow-md scale-105" : "hover:bg-muted/80"
+                      )}
+                    >
+                      {pageNum}
+                    </Button>
                   );
-                }
+                })}
+              </div>
 
-                if (i === 4 && totalPages > 5) {
-                  pageNum = totalPages;
-                }
-
-                const isActive = page === pageNum;
-
-                return (
-                  <button
-                    key={pageNum}
-                    type="button"
-                    tabIndex={0}
-                    data-slot="button"
-                    onClick={() => setPage(pageNum)}
-                    disabled={loading}
-                    className={cn(
-                      "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 border border-transparent bg-clip-padding text-sm font-medium focus-visible:ring-[3px] aria-invalid:ring-[3px] [&_svg:not([class*='size-'])]:size-4 inline-flex items-center justify-center whitespace-nowrap transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none shrink-0 [&_svg]:shrink-0 outline-none group/button select-none size-8 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-md",
-                      isActive
-                        ? "text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground bg-muted"
-                        : "hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 aria-expanded:bg-muted aria-expanded:text-foreground"
-                    )}
-                  >
-                    {pageNum}
-                  </button>
-                );
-              })}
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages || loading}
+                className="size-8 rounded-full shadow-sm"
+              >
+                <HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />
+              </Button>
             </div>
-
-            <button
-              type="button"
-              tabIndex={0}
-              data-slot="button"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages || loading}
-              className="focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 border bg-clip-padding text-sm font-medium focus-visible:ring-[3px] aria-invalid:ring-[3px] [&_svg:not([class*='size-'])]:size-4 inline-flex items-center justify-center whitespace-nowrap transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none shrink-0 [&_svg]:shrink-0 outline-none group/button select-none border-border bg-background hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground shadow-sm size-8 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-md"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" color="currentColor" className="size-4"><path d="M9.00005 6C9.00005 6 15 10.4189 15 12C15 13.5812 9 18 9 18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"></path></svg>
-            </button>
           </div>
 
-          <div className="flex items-center gap-4">
-            <span className="text-xs text-muted-foreground">
-              Showing {startEntry} to {endEntry} of {total} entries
+          <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
+            <span className="text-xs text-muted-foreground font-medium bg-muted/30 px-3 py-1 rounded-full">
+              {startEntry}-{endEntry} of {total}
             </span>
 
             <div className="flex items-center gap-2">
@@ -704,7 +783,7 @@ export function PatientsTable() {
                 setSort(newSort);
                 setOrder(newOrder as "asc" | "desc");
               }}>
-                <SelectTrigger className="w-[180px] h-9">
+                <SelectTrigger className="w-[140px] h-8 text-xs bg-background/50 rounded-full border-input/60 focus:ring-primary/20">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -716,11 +795,11 @@ export function PatientsTable() {
               </Select>
 
               <DropdownMenu>
-                <DropdownMenuTrigger className="inline-flex items-center justify-center gap-2 h-8 px-2.5 rounded-md border border-border bg-background hover:bg-muted shadow-xs text-sm font-medium">
-                  Show {limit === 10000 ? "All" : limit}
-                  <HugeiconsIcon icon={ArrowRight01Icon} className="size-3 rotate-90" />
+                <DropdownMenuTrigger className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-full border border-input/60 bg-background/50 hover:bg-muted shadow-sm text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">
+                  {limit === 10000 ? "All" : limit} / page
+                  <HugeiconsIcon icon={ArrowRight01Icon} className="size-2.5 rotate-90" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" className="min-w-[4rem]">
                   {PAGE_SIZE_OPTIONS.map((size) => (
                     <DropdownMenuItem
                       key={size}
@@ -728,9 +807,9 @@ export function PatientsTable() {
                         setLimit(size);
                         setPage(1);
                       }}
-                      className={cn(limit === size && "bg-muted")}
+                      className={cn(limit === size && "bg-muted", "text-xs justify-center cursor-pointer")}
                     >
-                      Show {size === 10000 ? "All" : size}
+                      {size === 10000 ? "All" : size}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
