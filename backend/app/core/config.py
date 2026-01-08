@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import List, Union
 
-from pydantic import AnyHttpUrl, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     database_url: str
     jwt_secret: str
     jwt_expires_in: int
-    cors_origins: Union[List[AnyHttpUrl], str] = ["http://localhost:3000", "http://localhost:8080"]
+    cors_origins: Union[List[str], str] = ["http://localhost:3000", "http://localhost:8080"]
     default_page: int = 1
     default_limit: int = 20
     max_limit: int = 10000
@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     @classmethod
     def split_origins(cls, v):
         if isinstance(v, str):
+            # Split by comma and strip whitespace, return as plain strings
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
 
