@@ -46,6 +46,9 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  SelectGroup,
+  SelectLabel,
+  SelectSeparator,
 } from "@/components/ui/select";
 import {
   AlertDialog,
@@ -75,6 +78,9 @@ import {
   Calendar03Icon,
   UserIcon,
   Copy01Icon,
+  ArrowUp01Icon,
+  ArrowDown01Icon,
+  FilterHorizontalIcon,
 } from "@hugeicons/core-free-icons";
 import { fetchPatients, createPatient, updatePatient, deletePatient, type Patient } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
@@ -783,14 +789,53 @@ export function PatientsTable() {
                 setSort(newSort);
                 setOrder(newOrder as "asc" | "desc");
               }}>
-                <SelectTrigger className="w-[140px] h-8 text-xs bg-background/50 rounded-full border-input/60 focus:ring-primary/20">
-                  <SelectValue />
+                <SelectTrigger className="w-[160px] h-9 text-xs font-medium bg-background/50 rounded-full border-input/60 focus:ring-primary/20 transition-all hover:bg-muted/50 hover:border-input shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <HugeiconsIcon icon={FilterHorizontalIcon} className="size-3.5 text-muted-foreground" />
+                    <span className="truncate">
+                      {sort === 'created_at' && order === 'desc' && "Newest First"}
+                      {sort === 'created_at' && order === 'asc' && "Oldest First"}
+                      {sort === 'first_name' && order === 'asc' && "Name (A-Z)"}
+                      {sort === 'first_name' && order === 'desc' && "Name (Z-A)"}
+                    </span>
+                  </div>
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="created_at-desc">Newest First</SelectItem>
-                  <SelectItem value="created_at-asc">Oldest First</SelectItem>
-                  <SelectItem value="first_name-asc">Name (A-Z)</SelectItem>
-                  <SelectItem value="first_name-desc">Name (Z-A)</SelectItem>
+                <SelectContent align="end" className="w-[200px]">
+                  <SelectGroup>
+                    <SelectLabel>Date Added</SelectLabel>
+                    <SelectItem value="created_at-desc" className="cursor-pointer">
+                      <div className="flex items-center gap-2">
+                        <HugeiconsIcon icon={CalendarAddIcon} className="size-4 text-muted-foreground" />
+                        <span className="flex-1">Newest First</span>
+                        <HugeiconsIcon icon={ArrowDown01Icon} className="size-3 text-muted-foreground/50" />
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="created_at-asc" className="cursor-pointer">
+                      <div className="flex items-center gap-2">
+                        <HugeiconsIcon icon={Calendar03Icon} className="size-4 text-muted-foreground" />
+                        <span className="flex-1">Oldest First</span>
+                        <HugeiconsIcon icon={ArrowUp01Icon} className="size-3 text-muted-foreground/50" />
+                      </div>
+                    </SelectItem>
+                  </SelectGroup>
+                  <SelectSeparator />
+                  <SelectGroup>
+                    <SelectLabel>Patient Name</SelectLabel>
+                    <SelectItem value="first_name-asc" className="cursor-pointer">
+                      <div className="flex items-center gap-2">
+                        <HugeiconsIcon icon={UserIcon} className="size-4 text-muted-foreground" />
+                        <span className="flex-1">Name (A-Z)</span>
+                        <HugeiconsIcon icon={ArrowDown01Icon} className="size-3 text-muted-foreground/50" />
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="first_name-desc" className="cursor-pointer">
+                      <div className="flex items-center gap-2">
+                        <HugeiconsIcon icon={UserIcon} className="size-4 text-muted-foreground" />
+                        <span className="flex-1">Name (Z-A)</span>
+                        <HugeiconsIcon icon={ArrowUp01Icon} className="size-3 text-muted-foreground/50" />
+                      </div>
+                    </SelectItem>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
 
