@@ -45,7 +45,7 @@ const dashboardRoutes: Route[] = [
     id: "overview",
     title: "Overview",
     icon: <Home className="size-4" />,
-    link: "/patients",
+    link: "/overview",
   },
   {
     id: "patients",
@@ -77,7 +77,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
           <Logo className="h-8 w-8" />
           {!isCollapsed && (
             <span className="font-semibold text-black dark:text-white">
-              Acme
+              Patient
             </span>
           )}
         </a>
@@ -102,6 +102,6 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
       <SidebarFooter className="px-2">
         <TeamSwitcher teams={teams} />
       </SidebarFooter>
-    </Sidebar>
+    </Sidebar >
   );
 }
