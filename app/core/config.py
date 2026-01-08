@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     cors_origins: Union[List[AnyHttpUrl], str] = ["http://localhost:3000", "http://localhost:8080"]
     default_page: int = 1
     default_limit: int = 20
-    max_limit: int = 100
+    max_limit: int = 10000
 
     @field_validator("cors_origins", mode="before")
     @classmethod
