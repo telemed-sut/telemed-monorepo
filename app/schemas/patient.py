@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from typing import List, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -29,7 +30,7 @@ class PatientUpdate(BaseModel):
 
 
 class PatientOut(PatientBase):
-    id: str
+    id: UUID
     created_at: datetime
     updated_at: datetime
 
