@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.security import create_access_token, decode_token, verify_password
 from app.db.session import SessionLocal
-from app.models.user import User
+from app.models.user import User, UserRole
 
 settings = get_settings()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -61,3 +61,20 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if user is None:
         raise credentials_exception
     return user
+
+
+def require_roles(allowed_roles: List[UserRole]):
+    """Dependency to require specific roles"""
+    def role_checker(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied. Required roles: {[role.value for role in allowed_roles]}"
+            )
+        return current_user
+    return role_checker
+
+
+# Common role dependencies
+get_admin_user = require_roles([UserRole.admin])
+get_admin_or_staff_user = require_roles([UserRole.admin, UserRole.staff])

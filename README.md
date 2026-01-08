@@ -47,22 +47,34 @@ See [.env.example](.env.example) for a starter file.
 
 ### Auth and demo users
 - Login endpoint: POST /auth/login with {"email", "password"}.
+- Refresh endpoint: POST /auth/refresh (requires valid JWT token).
+- Logout endpoint: POST /auth/logout (stateless JWT - client should discard token).
 - Demo credentials:
 	- admin@example.com / AdminPass123
 	- staff@example.com / StaffPass123
 
 JWT payload: sub (user id), role, exp. Token type bearer.
 
+### Role-based Access Control
+- **Admin users**: Full access to all patient operations (create, read, update, delete)
+- **Staff users**: Can create, read, and update patients, but cannot delete
+- Delete operations require admin role (403 Forbidden for staff users)
+
 ### Patients API
-- POST /patients (create)
-- GET /patients?page=1&limit=20&q=term&sort=created_at&order=desc
+- POST /patients (create) - Admin/Staff
+- GET /patients?page=1&limit=20&q=term&sort=created_at&order=desc - Admin/Staff
 	- Search q matches first_name, last_name, email, phone (ILIKE)
 	- Sort: created_at|updated_at|last_name; order asc|desc
-- GET /patients/{id}
-- PUT /patients/{id}
-- DELETE /patients/{id} (hard delete)
+- GET /patients/{id} - Admin/Staff
+- PUT /patients/{id} - Admin/Staff
+- DELETE /patients/{id} (hard delete) - **Admin only**
 
-Pagination response: {items, page, limit, total}. Validation -> 422; missing -> 404; auth -> 401 with detail.
+Pagination response: {items, page, limit, total}. Validation -> 422; missing -> 404; auth -> 401; forbidden -> 403 with detail.
+
+### Testing
+- Unit tests: `pytest` (requires test dependencies)
+- API tests: Import `Patient_Management_API.postman_collection.json` into Postman
+- Test coverage includes auth, patients CRUD, role-based access, and error handling
 
 ### Seeds
 `python -m scripts.seed` inserts demo users and ~15 realistic patients if tables are empty. In Docker Compose this runs automatically after alembic upgrade.
