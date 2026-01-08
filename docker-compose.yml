@@ -1,34 +1,51 @@
-version: "3.9"
+version: '3.8'
 
 services:
-  backend:
+  # Frontend service (Next.js)
+  frontend:
+    # Build from the 'frontend' directory (rename dashboard-3 to frontend)
     build:
-      context: .
-      dockerfile: backend/Dockerfile
-    env_file:
-      - .env
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: patient-frontend
+    ports:
+      - "3000:3000"
     environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - JWT_SECRET=${JWT_SECRET}
-      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN}
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8080}
+      # Connect to backend service internally on docker network
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
     depends_on:
-      - db
+      - backend
+    restart: always
+
+  # Backend service (Python/Rust)
+  backend:
+    # Assuming backend code is in 'backend' directory
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: patient-backend
     ports:
       - "8000:8000"
-    command: /bin/sh -c "alembic upgrade head && python -m scripts.seed && uvicorn app.main:app --host 0.0.0.0 --port 8000"
-
-  db:
-    image: postgres:15
-    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: postgres
+      - DATABASE_URL=postgresql://user:password@db:5432/patient_db
+      - JWT_SECRET=supersecretkey
+      - JWT_EXPIRES_IN=3600
+    depends_on:
+      - db
+    restart: always
+
+  # Database service (PostgreSQL)
+  db:
+    image: postgres:15-alpine
+    container_name: patient-db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=patient_db
     ports:
       - "5432:5432"
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
 
 volumes:
-  db_data:
+  postgres_data:
