@@ -460,7 +460,7 @@ export function PatientsTable() {
           ) : null}
 
           <div className="overflow-x-auto max-h-[500px] lg:max-h-[600px] overflow-y-auto scroll-smooth border-b">
-            <Table className={cn(isRefetching && "opacity-90 transition-opacity duration-150")}>
+            <table className={cn("w-full caption-bottom text-sm", isRefetching && "opacity-90 transition-opacity duration-150")}>
               <TableHeader>
                 <TableRow className="sticky top-0 z-20 bg-background hover:bg-background shadow-sm">
                   <TableHead className="w-[60px] font-medium text-center text-muted-foreground">
@@ -615,7 +615,7 @@ export function PatientsTable() {
                   })
                 )}
               </TableBody>
-            </Table>
+            </table>
           </div>
         </CardContent>
 
