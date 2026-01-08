@@ -28,7 +28,7 @@ def list_patients(
     page: int = Query(default=settings.default_page, ge=1),
     limit: int = Query(default=settings.default_limit, ge=1),
     q: Optional[str] = Query(default=None, description="Search term"),
-    sort: str = Query(default="created_at", pattern="^(created_at|updated_at|last_name)$"),
+    sort: str = Query(default="created_at", pattern="^(created_at|updated_at|last_name|first_name)$"),
     order: str = Query(default="desc", pattern="^(asc|desc)$", description="Sort order"),
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_admin_or_staff_user),

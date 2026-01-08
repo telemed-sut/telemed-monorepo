@@ -70,6 +70,7 @@ def list_patients(
         "created_at": Patient.created_at,
         "updated_at": Patient.updated_at,
         "last_name": Patient.last_name,
+        "first_name": Patient.first_name,
     }.get(sort, Patient.created_at)
 
     sort_clause = sort_field.desc() if order.lower() == "desc" else sort_field.asc()
