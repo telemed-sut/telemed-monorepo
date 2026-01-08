@@ -1,13 +1,23 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+} from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card } from "@/components/ui/card";
+import { Eye, EyeOff } from "lucide-react";
+import Link from "next/link";
+import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { login as loginRequest } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
+import { Logo } from "@/components/ui/logo";
+
+
 
 export default function LoginPage() {
   const router = useRouter();
@@ -20,6 +30,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isPasswordVisible, setIsPasswordVisible] = useState<boolean>(false);
 
   useEffect(() => {
     hydrate();
@@ -47,60 +58,96 @@ export default function LoginPage() {
     }
   };
 
+  const togglePasswordVisibility = () => setIsPasswordVisible((prev) => !prev);
+
   if (!hydrated) {
     return null;
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-background dark:via-background dark:to-background px-4">
-      <Card className="w-full max-w-md p-8 shadow-xl border-border">
-        <div className="space-y-2 mb-6 text-center">
-          <h1 className="text-2xl font-semibold">Patient Management</h1>
-          <p className="text-sm text-muted-foreground">
-            Sign in with your staff credentials to access patients.
-          </p>
-        </div>
-
-        <form className="space-y-4" onSubmit={onSubmit}>
-          <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@example.com"
-              required
-            />
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <Card className="w-full max-w-md mx-4 pb-8 shadow-xl border-border">
+        <CardHeader className="space-y-1 text-center mb-2 mt-4">
+          <div className="flex justify-center mb-4">
+            <Logo className="size-10" />
           </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-            />
-          </div>
-
-          {error ? (
-            <p className="text-sm text-destructive" role="alert">
-              {error}
+          <div>
+            <h2 className="text-2xl font-semibold">Sign in to Patient Admin</h2>
+            <p className="text-muted-foreground text-sm">
+              Welcome back! Please enter your details.
             </p>
-          ) : null}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <form onSubmit={onSubmit} className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email address</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="admin@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-0">
+              <div className="flex items-center justify-between mb-2">
+                <Label htmlFor="password">Password</Label>
+                <Link
+                  href="#"
+                  className="text-sm text-primary hover:underline"
+                  onClick={(e) => e.preventDefault()}
+                >
+                  Forgot password?
+                </Link>
+              </div>
+              <div className="relative">
+                <Input
+                  id="password"
+                  className="pe-9"
+                  placeholder="Enter your password"
+                  type={isPasswordVisible ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+                <button
+                  className="text-muted-foreground/80 hover:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 absolute inset-y-0 end-0 flex h-full w-9 items-center justify-center rounded-e-md transition-[color,box-shadow] outline-none focus:z-10 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+                  type="button"
+                  onClick={togglePasswordVisibility}
+                  aria-label={
+                    isPasswordVisible ? "Hide password" : "Show password"
+                  }
+                  aria-pressed={isPasswordVisible}
+                  aria-controls="password"
+                >
+                  {isPasswordVisible ? (
+                    <EyeOff size={16} aria-hidden="true" />
+                  ) : (
+                    <Eye size={16} aria-hidden="true" />
+                  )}
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox id="remember" defaultChecked />
+              <Label htmlFor="remember" className="text-sm font-normal">
+                Remember me
+              </Label>
+            </div>
 
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "Signing in..." : "Sign in"}
-          </Button>
-        </form>
+            {error && (
+              <p className="text-sm text-destructive" role="alert">
+                {error}
+              </p>
+            )}
 
-        <p className="text-xs text-muted-foreground mt-6 text-center">
-          Demo accounts are seeded by the backend (admin and staff). See README
-          for credentials.
-        </p>
+            <Button className="w-full" type="submit" disabled={loading}>
+              {loading ? "Signing in..." : "Sign In"}
+            </Button>
+          </form>
+        </CardContent>
       </Card>
     </div>
   );

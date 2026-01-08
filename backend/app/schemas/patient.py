@@ -38,15 +38,15 @@ class PatientBase(BaseModel):
         if v is None:
             return v
         
-        # Remove all spaces and dashes
+        # Remove only spaces and dashes (keep dots and x for extensions)
         cleaned = re.sub(r'[\s-]', '', v)
         
         # Check if it's too long (max 25 chars)
         if len(cleaned) > 25:
             raise ValueError('Phone number is too long (max 25 characters)')
         
-        # Check if it contains only valid phone characters
-        if not re.match(r'^[\d+()x]+$', cleaned, re.IGNORECASE):
+        # Check if it contains only valid phone characters (digits, +, (), x, and .)
+        if not re.match(r'^[\d+().x]+$', cleaned, re.IGNORECASE):
             raise ValueError('Phone number contains invalid characters')
         
         return cleaned

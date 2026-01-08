@@ -1,93 +1,106 @@
 "use client";
 
-import * as React from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
+  SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import { HugeiconsIcon } from "@hugeicons/react";
+import { cn } from "@/lib/utils";
+import { motion } from "framer-motion";
 import {
-  DashboardSquare01Icon,
-  UserGroupIcon,
-  Logout01Icon,
-  Settings01Icon,
-  Globe02Icon,
-} from "@hugeicons/core-free-icons";
-import { useAuthStore } from "@/store/auth-store";
+  Home,
+  Users,
+} from "lucide-react";
+import { SVGProps } from "react";
+import DashboardNavigation, { Route } from "./nav-main";
+import { NotificationsPopover } from "./nav-notifications";
+import { TeamSwitcher } from "./team-switcher";
+import { Logo } from "@/components/ui/logo";
+import { AdminLogo } from "@/components/ui/admin-logo";
 
-const menuItems = [
-  { icon: DashboardSquare01Icon, label: "Overview", href: "/patients", active: true },
-  { icon: UserGroupIcon, label: "Patients", href: "/patients", active: true },
+
+
+const sampleNotifications = [
+  {
+    id: "1",
+    avatar: "https://api.dicebear.com/9.x/glass/svg?seed=staff",
+    fallback: "OM",
+    text: "New patient registered.",
+    time: "10m ago",
+  },
+  {
+    id: "2",
+    avatar: "https://api.dicebear.com/9.x/glass/svg?seed=admin",
+    fallback: "JL",
+    text: "System maintenance scheduled.",
+    time: "1h ago",
+  },
+];
+
+const dashboardRoutes: Route[] = [
+  {
+    id: "overview",
+    title: "Overview",
+    icon: <Home className="size-4" />,
+    link: "/patients",
+  },
+  {
+    id: "patients",
+    title: "Patients",
+    icon: <Users className="size-4" />,
+    link: "/patients",
+  },
+];
+
+const teams = [
+  { id: "1", name: "Patient Admin", logo: AdminLogo, plan: "Pro" },
 ];
 
 export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
-  const clearToken = useAuthStore((state) => state.clearToken);
-  const router = useRouter();
+  const { state } = useSidebar();
+  const isCollapsed = state === "collapsed";
 
   return (
-    <Sidebar collapsible="offExamples" className="lg:border-r-0!" {...props}>
-      <SidebarHeader className="p-5 pb-0">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="size-7 rounded-full bg-linear-to-br from-sky-500 to-blue-700" />
-            <span className="font-medium text-muted-foreground">Patient Admin</span>
-          </div>
-          <Avatar className="size-7">
-            <AvatarImage src="https://api.dicebear.com/9.x/glass/svg?seed=staff" />
-            <AvatarFallback>ST</AvatarFallback>
-          </Avatar>
-        </div>
-      </SidebarHeader>
+    <Sidebar variant="inset" collapsible="icon" {...props}>
+      <SidebarHeader
+        className={cn(
+          "flex md:pt-3.5",
+          isCollapsed
+            ? "flex-row items-center justify-between gap-y-4 md:flex-col md:items-start md:justify-start"
+            : "flex-row items-center justify-between"
+        )}
+      >
+        <a href="/patients" className="flex items-center gap-2">
+          <Logo className="h-8 w-8" />
+          {!isCollapsed && (
+            <span className="font-semibold text-black dark:text-white">
+              Acme
+            </span>
+          )}
+        </a>
 
-      <SidebarContent className="px-5 pt-5">
-        <SidebarGroup className="p-0">
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {menuItems.map((item) => (
-                <SidebarMenuItem key={item.label}>
-                  <SidebarMenuButton
-                    isActive={item.active}
-                    className="h-[38px]"
-                    onClick={() => router.push(item.href)}
-                  >
-                    <HugeiconsIcon icon={item.icon} className="size-5" />
-                    <span className="flex-1">{item.label}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      </SidebarContent>
-
-      <SidebarFooter className="px-5 pb-5 space-y-3">
-        <Button
-          variant="outline"
-          className="w-full justify-start gap-2"
-          onClick={() => {
-            clearToken();
-            router.replace("/login");
-          }}
+        <motion.div
+          key={isCollapsed ? "header-collapsed" : "header-expanded"}
+          className={cn(
+            "flex items-center gap-2",
+            isCollapsed ? "flex-row md:flex-col-reverse" : "flex-row"
+          )}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8 }}
         >
-          <HugeiconsIcon icon={Logout01Icon} className="size-4" />
-          Logout
-        </Button>
-
-        <Button variant="ghost" className="w-full justify-start gap-2">
-          <HugeiconsIcon icon={Settings01Icon} className="size-4" />
-          Settings
-        </Button>
+          <NotificationsPopover notifications={sampleNotifications} />
+          <SidebarTrigger />
+        </motion.div>
+      </SidebarHeader>
+      <SidebarContent className="gap-4 px-2 py-4">
+        <DashboardNavigation routes={dashboardRoutes} />
+      </SidebarContent>
+      <SidebarFooter className="px-2">
+        <TeamSwitcher teams={teams} />
       </SidebarFooter>
     </Sidebar>
   );
