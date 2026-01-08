@@ -17,15 +17,22 @@ depends_on = None
 
 
 def upgrade() -> None:
-    user_role = postgresql.ENUM("admin", "staff", name="user_role")
-    user_role.create(op.get_bind(), checkfirst=True)
+    op.execute("DROP TYPE IF EXISTS user_role")
+    user_role_for_create = postgresql.ENUM("admin", "staff", name="user_role")
+    user_role_for_create.create(op.get_bind(), checkfirst=True)
+    user_role = postgresql.ENUM("admin", "staff", name="user_role", create_type=False)
 
     op.create_table(
         "users",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
         sa.Column("email", sa.String(length=255), nullable=False),
         sa.Column("password_hash", sa.String(length=255), nullable=False),
-        sa.Column("role", user_role, nullable=False, server_default="staff"),
+        sa.Column(
+            "role",
+            postgresql.ENUM("admin", "staff", name="user_role", create_type=False),
+            nullable=False,
+            server_default="staff",
+        ),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.PrimaryKeyConstraint("id"),

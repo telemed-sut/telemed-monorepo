@@ -1,11 +1,11 @@
 ## Patient Management API (FastAPI)
 
-FastAPI backend with JWT auth, Supabase/Postgres, patient CRUD, Alembic migrations, and seed data. Default CORS origin is http://localhost:8080 and backend port mapping is 8000:8000.
+FastAPI backend with JWT auth, PostgreSQL (Neon/Supabase), patient CRUD, Alembic migrations, and seed data. Default CORS origins are http://localhost:3000 and http://localhost:8080, backend runs on port 8000.
 
 ### Stack
 - FastAPI, Pydantic v2
 - SQLAlchemy 2.x, Alembic
-- PostgreSQL (Supabase-compatible) via psycopg
+- PostgreSQL (via psycopg)
 - JWT (python-jose), passlib[bcrypt]
 
 ### Project layout
@@ -20,12 +20,18 @@ FastAPI backend with JWT auth, Supabase/Postgres, patient CRUD, Alembic migratio
 - [backend/Dockerfile](backend/Dockerfile), [docker-compose.yml](docker-compose.yml)
 
 ### Environment variables
-- DATABASE_URL: Supabase/Postgres URL (include sslmode=require when needed)
+- DATABASE_URL: Postgres connection URL (Neon/Supabase)
 - JWT_SECRET: HMAC secret for HS256 tokens
 - JWT_EXPIRES_IN: token lifetime in seconds (e.g., 3600)
-- CORS_ORIGINS: comma-separated origins (default http://localhost:8080)
+- CORS_ORIGINS: comma-separated origins (default http://localhost:3000,http://localhost:8080)
 
 See [.env.example](.env.example) for a starter file.
+
+### Frontend Integration
+- Backend URL: `http://localhost:8000`
+- Frontend Env: `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`
+- Allowed Origins: Frontend must run on port **3000** or **8080** (e.g. `http://localhost:3000`).
+  - Note: Other ports (like 3001) will fail CORS checks unless added to `.env`.
 
 ### Running locally (without Docker)
 1) Create and activate a Python 3.11+ venv.

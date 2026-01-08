@@ -1,4 +1,5 @@
 from typing import List, Optional, Tuple
+from uuid import UUID
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -19,8 +20,12 @@ def create_patient(db: Session, payload: PatientCreate) -> Patient:
 
 
 def get_patient(db: Session, patient_id: str) -> Optional[Patient]:
-    stmt = select(Patient).where(Patient.id == patient_id)
-    return db.scalar(stmt)
+    try:
+        uuid_id = UUID(patient_id)
+        stmt = select(Patient).where(Patient.id == uuid_id)
+        return db.scalar(stmt)
+    except ValueError:
+        return None
 
 
 def update_patient(db: Session, patient: Patient, payload: PatientUpdate) -> Patient:
