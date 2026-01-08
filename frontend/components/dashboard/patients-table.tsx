@@ -409,10 +409,33 @@ export function PatientsTable() {
               <Button
                 variant="outline"
                 className="gap-2"
-                onClick={() => {
+                onClick={async () => {
                   setSearch("");
                   setDebouncedSearch("");
                   setPage(1);
+
+                  // Force reload data
+                  if (token) {
+                    setLoading(true);
+                    try {
+                      const res = await fetchPatients(
+                        { page: 1, limit, q: "", sort, order },
+                        token
+                      );
+                      setPatients(res.items);
+                      setTotal(res.total);
+                    } catch (err) {
+                      const status = (err as { status?: number }).status;
+                      if (status === 401) {
+                        clearToken();
+                        router.replace("/login");
+                      } else {
+                        console.error("Reset error:", err);
+                      }
+                    } finally {
+                      setLoading(false);
+                    }
+                  }
                 }}
               >
                 <HugeiconsIcon icon={RefreshIcon} className="size-4" />
