@@ -10,7 +10,6 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
     SidebarMenuSub,
-    SidebarMenuSubButton,
     SidebarMenuItem as SidebarMenuSubItem,
     useSidebar,
 } from "@/components/ui/sidebar";
