@@ -1,0 +1,21 @@
+{
+    "version": 2,
+    "builds": [
+        {
+            "src": "app/main.py",
+            "use": "@vercel/python"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/(.*)",
+            "dest": "app/main.py"
+        }
+    ],
+    "env": {
+        "DATABASE_URL": "@database_url",
+        "SECRET_KEY": "@secret_key",
+        "ALGORITHM": "HS256",
+        "ACCESS_TOKEN_EXPIRE_MINUTES": "30"
+    }
+}
