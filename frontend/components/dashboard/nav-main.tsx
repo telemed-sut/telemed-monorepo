@@ -53,32 +53,30 @@ export default function DashboardNavigation({ routes }: { routes: Route[] }) {
                                 }
                                 className="w-full"
                             >
-                                <CollapsibleTrigger asChild>
-                                    <SidebarMenuButton
-                                        className={cn(
-                                            "flex w-full items-center rounded-lg px-2 transition-colors",
-                                            isOpen
-                                                ? "bg-sidebar-muted text-foreground"
-                                                : "text-muted-foreground hover:bg-sidebar-muted hover:text-foreground",
-                                            isCollapsed && "justify-center"
-                                        )}
-                                    >
-                                        {route.icon}
-                                        {!isCollapsed && (
-                                            <span className="ml-2 flex-1 text-sm font-medium">
-                                                {route.title}
-                                            </span>
-                                        )}
-                                        {!isCollapsed && hasSubRoutes && (
-                                            <span className="ml-auto">
-                                                {isOpen ? (
-                                                    <ChevronUp className="size-4" />
-                                                ) : (
-                                                    <ChevronDown className="size-4" />
-                                                )}
-                                            </span>
-                                        )}
-                                    </SidebarMenuButton>
+                                <CollapsibleTrigger
+                                    className={cn(
+                                        "flex w-full items-center rounded-lg px-2 transition-colors",
+                                        isOpen
+                                            ? "bg-sidebar-muted text-foreground"
+                                            : "text-muted-foreground hover:bg-sidebar-muted hover:text-foreground",
+                                        isCollapsed && "justify-center"
+                                    )}
+                                >
+                                    {route.icon}
+                                    {!isCollapsed && (
+                                        <span className="ml-2 flex-1 text-sm font-medium">
+                                            {route.title}
+                                        </span>
+                                    )}
+                                    {!isCollapsed && hasSubRoutes && (
+                                        <span className="ml-auto">
+                                            {isOpen ? (
+                                                <ChevronUp className="size-4" />
+                                            ) : (
+                                                <ChevronDown className="size-4" />
+                                            )}
+                                        </span>
+                                    )}
                                 </CollapsibleTrigger>
 
                                 {!isCollapsed && (
@@ -89,15 +87,13 @@ export default function DashboardNavigation({ routes }: { routes: Route[] }) {
                                                     key={`${route.id}-${subRoute.title}`}
                                                     className="h-auto"
                                                 >
-                                                    <SidebarMenuSubButton asChild>
-                                                        <Link
-                                                            href={subRoute.link}
-                                                            prefetch={true}
-                                                            className="flex items-center rounded-md px-4 py-1.5 text-sm font-medium text-muted-foreground hover:bg-sidebar-muted hover:text-foreground"
-                                                        >
-                                                            {subRoute.title}
-                                                        </Link>
-                                                    </SidebarMenuSubButton>
+                                                    <Link
+                                                        href={subRoute.link}
+                                                        prefetch={true}
+                                                        className="flex items-center rounded-md px-4 py-1.5 text-sm font-medium text-muted-foreground hover:bg-sidebar-muted hover:text-foreground"
+                                                    >
+                                                        {subRoute.title}
+                                                    </Link>
                                                 </SidebarMenuSubItem>
                                             ))}
                                         </SidebarMenuSub>
@@ -105,23 +101,21 @@ export default function DashboardNavigation({ routes }: { routes: Route[] }) {
                                 )}
                             </Collapsible>
                         ) : (
-                            <SidebarMenuButton tooltip={route.title} asChild>
-                                <Link
-                                    href={route.link}
-                                    prefetch={true}
-                                    className={cn(
-                                        "flex items-center rounded-lg px-2 transition-colors text-muted-foreground hover:bg-sidebar-muted hover:text-foreground",
-                                        isCollapsed && "justify-center"
-                                    )}
-                                >
-                                    {route.icon}
-                                    {!isCollapsed && (
-                                        <span className="ml-2 text-sm font-medium">
-                                            {route.title}
-                                        </span>
-                                    )}
-                                </Link>
-                            </SidebarMenuButton>
+                            <Link
+                                href={route.link}
+                                prefetch={true}
+                                className={cn(
+                                    "flex items-center rounded-lg px-2 transition-colors text-muted-foreground hover:bg-sidebar-muted hover:text-foreground h-8",
+                                    isCollapsed && "justify-center"
+                                )}
+                            >
+                                {route.icon}
+                                {!isCollapsed && (
+                                    <span className="ml-2 text-sm font-medium">
+                                        {route.title}
+                                    </span>
+                                )}
+                            </Link>
                         )}
                     </SidebarMenuItem>
                 );
