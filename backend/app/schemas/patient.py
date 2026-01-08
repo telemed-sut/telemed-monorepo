@@ -1,18 +1,85 @@
 from datetime import date, datetime
 from typing import List, Optional
 from uuid import UUID
+import re
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class PatientBase(BaseModel):
-    first_name: str = Field(min_length=1, max_length=100)
-    last_name: str = Field(min_length=1, max_length=100)
+    first_name: str = Field(min_length=2, max_length=100)
+    last_name: str = Field(min_length=2, max_length=100)
     date_of_birth: date
     gender: Optional[str] = Field(default=None, max_length=20)
-    phone: Optional[str] = Field(default=None, max_length=50)
+    phone: Optional[str] = Field(default=None, min_length=8, max_length=20)
     email: Optional[EmailStr] = None
-    address: Optional[str] = Field(default=None, max_length=255)
+    address: Optional[str] = Field(default=None, min_length=5, max_length=255)
+
+    @field_validator('first_name', 'last_name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        # Remove leading/trailing whitespace
+        v = v.strip()
+        
+        # Check if name is too short after stripping
+        if len(v) < 2:
+            raise ValueError('Name must be at least 2 characters long')
+        
+        # Just ensure it's not empty and contains some valid characters
+        # Allow any letters, numbers, spaces, hyphens, and apostrophes
+        if not re.match(r"^[a-zA-Z0-9\u0E00-\u0E7F\s'-]+$", v):
+            raise ValueError('Name contains invalid characters')
+        
+        return v.title()  # Capitalize first letter of each word
+
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        
+        # Remove all spaces and dashes
+        cleaned = re.sub(r'[\s-]', '', v)
+        
+        # Check if it's too long (max 25 chars)
+        if len(cleaned) > 25:
+            raise ValueError('Phone number is too long (max 25 characters)')
+        
+        # Check if it contains only valid phone characters
+        if not re.match(r'^[\d+()x]+$', cleaned, re.IGNORECASE):
+            raise ValueError('Phone number contains invalid characters')
+        
+        return cleaned
+
+    @field_validator('address')
+    @classmethod
+    def validate_address(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        
+        v = v.strip()
+        
+        # Check minimum length
+        if len(v) < 5:
+            raise ValueError('Address must be at least 5 characters long')
+        
+        return v
+
+    @field_validator('date_of_birth')
+    @classmethod
+    def validate_date_of_birth(cls, v: date) -> date:
+        today = date.today()
+        
+        # Check if date is in the future
+        if v > today:
+            raise ValueError('Date of birth cannot be in the future')
+        
+        # Check if age is reasonable (0-150 years old)
+        age = (today - v).days // 365
+        if age > 150:
+            raise ValueError('Date of birth is too far in the past')
+        
+        return v
 
 
 class PatientCreate(PatientBase):
