@@ -13,9 +13,9 @@
         }
     ],
     "env": {
-        "DATABASE_URL": "@database_url",
-        "JWT_SECRET": "@jwt_secret",
-        "JWT_EXPIRES_IN": "@jwt_expires_in",
-        "CORS_ORIGINS": "@cors_origins"
+        "DATABASE_URL": "$DATABASE_URL",
+        "JWT_SECRET": "$JWT_SECRET", 
+        "JWT_EXPIRES_IN": "$JWT_EXPIRES_IN",
+        "CORS_ORIGINS": "$CORS_ORIGINS"
     }
 }
