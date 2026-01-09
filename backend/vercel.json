@@ -14,8 +14,8 @@
     ],
     "env": {
         "DATABASE_URL": "@database_url",
-        "SECRET_KEY": "@secret_key",
-        "ALGORITHM": "HS256",
-        "ACCESS_TOKEN_EXPIRE_MINUTES": "30"
+        "JWT_SECRET": "@jwt_secret",
+        "JWT_EXPIRES_IN": "@jwt_expires_in",
+        "CORS_ORIGINS": "@cors_origins"
     }
 }
