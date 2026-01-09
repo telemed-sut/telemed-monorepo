@@ -23,3 +23,7 @@ app.include_router(patients.router)
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+@app.get("/")
+def root():
+    return {"message": "Patient Management API", "status": "running"}
