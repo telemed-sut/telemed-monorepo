@@ -11,11 +11,5 @@
             "src": "/(.*)",
             "dest": "app/main.py"
         }
-    ],
-    "env": {
-        "DATABASE_URL": "$DATABASE_URL",
-        "JWT_SECRET": "$JWT_SECRET", 
-        "JWT_EXPIRES_IN": "$JWT_EXPIRES_IN",
-        "CORS_ORIGINS": "$CORS_ORIGINS"
-    }
+    ]
 }
