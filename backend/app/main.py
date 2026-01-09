@@ -1,12 +1,21 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, patients
-from app.core.config import get_settings
+try:
+    from app.api import auth, patients
+    from app.core.config import get_settings
+    HAS_DEPENDENCIES = True
+    settings = get_settings()
+except ImportError as e:
+    print(f"Import error: {e}")
+    HAS_DEPENDENCIES = False
+    settings = None
+except Exception as e:
+    print(f"Config error: {e}")
+    HAS_DEPENDENCIES = False
+    settings = None
 
-settings = get_settings()
-
-app = FastAPI(title=settings.app_name)
+app = FastAPI(title=settings.app_name if settings else "Patient Management API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,9 +25,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)
-app.include_router(patients.router)
-
+if HAS_DEPENDENCIES and settings:
+    try:
+        app.include_router(auth.router)
+        app.include_router(patients.router)
+    except Exception as e:
+        print(f"Router error: {e}")
 
 @app.get("/health")
 def health_check():
@@ -26,4 +38,4 @@ def health_check():
 
 @app.get("/")
 def root():
-    return {"message": "Patient Management API", "status": "running"}
+    return {"message": "Patient Management API", "status": "running", "dependencies": HAS_DEPENDENCIES}
