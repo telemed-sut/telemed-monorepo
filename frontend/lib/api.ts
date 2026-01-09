@@ -27,7 +27,11 @@ export interface PatientListResponse {
 type SortOrder = "asc" | "desc";
 
 // Use environment variable for API URL or default to localhost:8000
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+// In production, if deployed on same domain, use relative path
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ||
+  (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+    ? '' // Use same domain in production
+    : "http://localhost:8000"); // Use localhost in development
 type ApiError = Error & { status?: number };
 
 async function apiFetch<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
