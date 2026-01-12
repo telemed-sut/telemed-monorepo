@@ -12,7 +12,7 @@ services:
       - "3000:3000"
     environment:
       # Connect to backend service internally on docker network
-      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_BASE_URL=http://backend:8000
     depends_on:
       - backend
     restart: always
