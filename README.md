@@ -433,6 +433,22 @@ To add more origins, update `CORS_ORIGINS` in backend `.env`
 
 ---
 
+## 📸 Screenshots
+
+### Login Page
+![Login Page](screenshots/login-page.png)
+*Secure authentication with JWT tokens*
+
+### Patient Directory
+![Patient List](screenshots/patient-list.png)
+*Advanced patient list with pagination, search, and sorting capabilities*
+
+### Add/Edit Patient Form
+![Patient Form](screenshots/patient-form.png)
+*Comprehensive patient data entry with validation*
+
+---
+
 ## 🤝 Contributing
 
 1. Fork the repository
