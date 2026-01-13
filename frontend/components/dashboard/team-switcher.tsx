@@ -48,75 +48,77 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
     const Logo = activeTeam.logo;
 
     return (
-        <SidebarMenu>
-            <SidebarMenuItem>
-                <DropdownMenu>
-                    <DropdownMenuTrigger
-                        className="ring-sidebar-ring hover:bg-sidebar-accent hover:text-sidebar-accent-foreground active:bg-sidebar-accent active:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:text-sidebar-accent-foreground data-open:hover:bg-sidebar-accent data-open:hover:text-sidebar-accent-foreground gap-2 rounded-md p-2 text-left text-sm transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 data-active:font-medium peer/menu-button flex w-full items-center overflow-hidden outline-hidden group/menu-button disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&_svg]:size-4 [&_svg]:shrink-0 h-12 group-data-[collapsible=icon]:p-0! data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-                    >
-                        <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-background text-foreground">
-                            <Logo className="size-4" />
-                        </div>
-                        <div className="grid flex-1 text-left text-sm leading-tight">
-                            <span className="truncate font-semibold">
-                                {activeTeam.name}
-                            </span>
-                            <span className="truncate text-xs">{activeTeam.plan}</span>
-                        </div>
-                        <ChevronsUpDown className="ml-auto" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                        className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg mb-4"
-                        align="start"
-                        side={isMobile ? "bottom" : "right"}
-                        sideOffset={4}
-                    >
-                        <DropdownMenuGroup>
-                            <DropdownMenuLabel className="text-xs text-muted-foreground">
-                                Teams
-                            </DropdownMenuLabel>
-                            {teams.map((team, index) => (
-                                <DropdownMenuItem
-                                    key={team.name}
-                                    onClick={() => setActiveTeam(team)}
-                                    className="gap-2 p-2"
-                                >
-                                    <div className="flex size-6 items-center justify-center rounded-sm border">
-                                        <team.logo className="size-4 shrink-0" />
-                                    </div>
-                                    {team.name}
-                                    <DropdownMenuShortcut>⌘{index + 1}</DropdownMenuShortcut>
-                                </DropdownMenuItem>
-                            ))}
-                        </DropdownMenuGroup>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                            className="gap-2 p-2 cursor-pointer"
-                            onClick={() => {
-                                // Placeholder for Settings
-                            }}
+        <div className="relative overflow-hidden rounded-xl bg-white/10 dark:bg-white/5 backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-[4px_4px_12px_rgba(0,0,0,0.06),-4px_-4px_12px_rgba(255,255,255,0.05),inset_0_1px_0_rgba(255,255,255,0.25),inset_0_-1px_0_rgba(255,255,255,0.08)]">
+            <SidebarMenu>
+                <SidebarMenuItem>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger
+                            className="ring-sidebar-ring hover:bg-white/10 dark:hover:bg-white/5 active:bg-white/15 data-active:bg-white/10 data-open:hover:bg-white/10 gap-2 rounded-md p-2 text-left text-sm transition-all group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 data-active:font-medium peer/menu-button flex w-full items-center overflow-hidden outline-hidden group/menu-button disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&_svg]:size-4 [&_svg]:shrink-0 h-12 group-data-[collapsible=icon]:p-0! data-[state=open]:bg-white/10"
                         >
-                            <div className="flex size-6 items-center justify-center rounded-md border bg-background">
-                                <HugeiconsIcon icon={Settings01Icon} className="size-4" />
+                            <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-white/15 dark:bg-white/10 backdrop-blur-sm border border-white/20 text-foreground">
+                                <Logo className="size-4" />
                             </div>
-                            <div className="font-medium text-muted-foreground">Settings</div>
-                        </DropdownMenuItem>
+                            <div className="grid flex-1 text-left text-sm leading-tight">
+                                <span className="truncate font-semibold">
+                                    {activeTeam.name}
+                                </span>
+                                <span className="truncate text-xs text-muted-foreground">{activeTeam.plan}</span>
+                            </div>
+                            <ChevronsUpDown className="ml-auto" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg mb-4"
+                            align="start"
+                            side={isMobile ? "bottom" : "right"}
+                            sideOffset={4}
+                        >
+                            <DropdownMenuGroup>
+                                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                                    Teams
+                                </DropdownMenuLabel>
+                                {teams.map((team, index) => (
+                                    <DropdownMenuItem
+                                        key={team.name}
+                                        onClick={() => setActiveTeam(team)}
+                                        className="gap-2 p-2"
+                                    >
+                                        <div className="flex size-6 items-center justify-center rounded-sm border">
+                                            <team.logo className="size-4 shrink-0" />
+                                        </div>
+                                        {team.name}
+                                        <DropdownMenuShortcut>⌘{index + 1}</DropdownMenuShortcut>
+                                    </DropdownMenuItem>
+                                ))}
+                            </DropdownMenuGroup>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                className="gap-2 p-2 cursor-pointer"
+                                onClick={() => {
+                                    // Placeholder for Settings
+                                }}
+                            >
+                                <div className="flex size-6 items-center justify-center rounded-md border bg-background">
+                                    <HugeiconsIcon icon={Settings01Icon} className="size-4" />
+                                </div>
+                                <div className="font-medium text-muted-foreground">Settings</div>
+                            </DropdownMenuItem>
 
-                        <DropdownMenuItem
-                            className="gap-2 p-2 cursor-pointer text-destructive focus:text-destructive"
-                            onClick={() => {
-                                clearToken();
-                                router.replace("/login");
-                            }}
-                        >
-                            <div className="flex size-6 items-center justify-center rounded-md border bg-background">
-                                <HugeiconsIcon icon={Logout01Icon} className="size-4" />
-                            </div>
-                            <div className="font-medium">Logout</div>
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </SidebarMenuItem>
-        </SidebarMenu>
+                            <DropdownMenuItem
+                                className="gap-2 p-2 cursor-pointer text-destructive focus:text-destructive"
+                                onClick={() => {
+                                    clearToken();
+                                    router.replace("/login");
+                                }}
+                            >
+                                <div className="flex size-6 items-center justify-center rounded-md border bg-background">
+                                    <HugeiconsIcon icon={Logout01Icon} className="size-4" />
+                                </div>
+                                <div className="font-medium">Logout</div>
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </SidebarMenuItem>
+            </SidebarMenu>
+        </div>
     );
 }

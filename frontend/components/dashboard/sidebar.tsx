@@ -97,7 +97,17 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
         </motion.div>
       </SidebarHeader>
       <SidebarContent className="gap-4 px-2 py-4">
-        <DashboardNavigation routes={dashboardRoutes} />
+        {/* Frosted Glass Navigation - Individual Frames */}
+        <div className="flex flex-col gap-2">
+          {dashboardRoutes.map((route) => (
+            <div
+              key={route.id}
+              className="relative overflow-hidden rounded-xl bg-white/10 dark:bg-white/5 backdrop-blur-xl border border-white/20 dark:border-white/10 shadow-[4px_4px_12px_rgba(0,0,0,0.06),-4px_-4px_12px_rgba(255,255,255,0.05),inset_0_1px_0_rgba(255,255,255,0.25),inset_0_-1px_0_rgba(255,255,255,0.08)] hover:bg-white/15 dark:hover:bg-white/8 hover:shadow-[6px_6px_16px_rgba(0,0,0,0.08),-6px_-6px_16px_rgba(255,255,255,0.06)] transition-all duration-200"
+            >
+              <DashboardNavigation routes={[route]} />
+            </div>
+          ))}
+        </div>
       </SidebarContent>
       <SidebarFooter className="px-2">
         <TeamSwitcher teams={teams} />

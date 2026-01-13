@@ -31,7 +31,7 @@ export function DashboardHeader() {
 
       <div className="flex items-center gap-2 ml-auto">
         <ThemeToggle />
-        <Button variant="outline" size="sm" className="gap-2" onClick={handleLogout}>
+        <Button variant="glass-outline" size="sm" className="gap-2" onClick={handleLogout}>
           <HugeiconsIcon icon={Logout01Icon} className="size-4" />
           Logout
         </Button>
