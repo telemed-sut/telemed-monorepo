@@ -412,6 +412,29 @@ npm run build  # Verify production build
 - ✅ **SQL Injection Prevention:** Parameterized queries via ORM
 - ✅ **Input Validation:** Pydantic schema validation on all endpoints
 - ✅ **Role-Based Access:** Granular permissions (admin/staff)
+- ✅ **Rate Limiting:** API request throttling to prevent abuse (see table below)
+
+### Rate Limits
+
+| Endpoint | Limit | Purpose |
+|----------|-------|---------|
+| `POST /auth/login` | 10/minute | Prevent brute force attacks |
+| `POST /auth/refresh` | 30/minute | Token refresh protection |
+| `POST /auth/logout` | 30/minute | Logout protection |
+| `GET /patients` | 60/minute | Read operations |
+| `GET /patients/:id` | 60/minute | Read operations |
+| `POST /patients` | 30/minute | Write protection |
+| `PUT /patients/:id` | 30/minute | Write protection |
+| `DELETE /patients/:id` | 20/minute | Delete protection (strictest) |
+
+When rate limit is exceeded, API returns:
+```json
+{
+  "error": "Too Many Requests",
+  "detail": "Rate limit exceeded. Please try again later.",
+  "retry_after": "10 per 1 minute"
+}
+```
 
 ---
 

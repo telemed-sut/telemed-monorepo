@@ -1,5 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 try:
     from app.api import auth, patients
@@ -15,7 +19,26 @@ except Exception as e:
     HAS_DEPENDENCIES = False
     settings = None
 
+# Initialize rate limiter with in-memory storage
+# Key function uses client IP address for rate limiting
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+
 app = FastAPI(title=settings.app_name if settings else "Patient Management API")
+
+# Add rate limiter to app state for use in routes
+app.state.limiter = limiter
+
+# Custom rate limit exceeded handler with informative message
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": "Too Many Requests",
+            "detail": f"Rate limit exceeded. Please try again later.",
+            "retry_after": exc.detail
+        }
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,9 +56,11 @@ if HAS_DEPENDENCIES and settings:
         print(f"Router error: {e}")
 
 @app.get("/health")
-def health_check():
+@limiter.limit("200/minute")  # Health check can be called more frequently
+def health_check(request: Request):
     return {"status": "ok"}
 
 @app.get("/")
-def root():
+@limiter.limit("100/minute")
+def root(request: Request):
     return {"message": "Patient Management API", "status": "running", "dependencies": HAS_DEPENDENCIES}
