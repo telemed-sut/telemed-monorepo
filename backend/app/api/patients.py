@@ -1,6 +1,8 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -12,9 +14,14 @@ from app.services import patient as patient_service
 router = APIRouter(prefix="/patients", tags=["patients"])
 settings = get_settings()
 
+# Create limiter for patient endpoints
+limiter = Limiter(key_func=get_remote_address)
+
 
 @router.post("", response_model=PatientOut, status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")  # Write operations have stricter limits
 def create_patient(
+    request: Request,
     payload: PatientCreate,
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_admin_or_staff_user),
@@ -24,7 +31,9 @@ def create_patient(
 
 
 @router.get("", response_model=PatientListResponse)
+@limiter.limit("60/minute")  # Read operations are more permissive
 def list_patients(
+    request: Request,
     page: int = Query(default=settings.default_page, ge=1),
     limit: int = Query(default=settings.default_limit, ge=1),
     q: Optional[str] = Query(default=None, description="Search term"),
@@ -41,7 +50,9 @@ def list_patients(
 
 
 @router.get("/{patient_id}", response_model=PatientOut)
+@limiter.limit("60/minute")
 def get_patient(
+    request: Request,
     patient_id: str,
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_admin_or_staff_user),
@@ -54,7 +65,9 @@ def get_patient(
 
 
 @router.put("/{patient_id}", response_model=PatientOut)
+@limiter.limit("30/minute")
 def update_patient(
+    request: Request,
     patient_id: str,
     payload: PatientUpdate,
     db: Session = Depends(auth_service.get_db),
@@ -68,7 +81,9 @@ def update_patient(
 
 
 @router.delete("/{patient_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("20/minute")  # Delete is most restricted
 def delete_patient(
+    request: Request,
     patient_id: str,
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_admin_user),  # Admin only for delete
