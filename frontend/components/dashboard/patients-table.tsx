@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,6 +40,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns";
 import {
   Select,
   SelectContent,
@@ -123,6 +130,7 @@ export function PatientsTable() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Patient | null>(null);
   const [formData, setFormData] = useState<PatientFormState>(emptyForm);
@@ -165,6 +173,11 @@ export function PatientsTable() {
     return () => clearTimeout(id);
   }, [search]);
 
+  // Cache for pages to enable instant navigation
+  const cacheRef = useRef<Map<string, { items: Patient[]; total: number }>>(new Map());
+
+  const getCacheKey = (p: number) => `${p}-${limit}-${debouncedSearch}-${sort}-${order}`;
+
   // Track when a fetch finishes to animate new rows without hiding existing ones
   useEffect(() => {
     if (loadingRef.current && !loading) {
@@ -178,8 +191,22 @@ export function PatientsTable() {
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
+
+    const cacheKey = getCacheKey(page);
+    const cached = cacheRef.current.get(cacheKey);
+
+    // If we have cached data, show it immediately
+    if (cached) {
+      setPatients(cached.items);
+      setTotal(cached.total);
+      setLoading(false);
+    }
+
     const loadPatients = async () => {
-      setLoading(true);
+      // Only show loading if we don't have cached data
+      if (!cached) {
+        setLoading(true);
+      }
       setError(null);
       try {
         const res = await fetchPatients(
@@ -189,6 +216,23 @@ export function PatientsTable() {
         if (!cancelled) {
           setPatients(res.items);
           setTotal(res.total);
+          // Cache this page
+          cacheRef.current.set(cacheKey, { items: res.items, total: res.total });
+
+          // Prefetch adjacent pages in background (next and previous)
+          const maxPages = Math.ceil(res.total / limit);
+          const pagesToPrefetch = [page - 1, page + 1].filter(p => p >= 1 && p <= maxPages);
+
+          pagesToPrefetch.forEach(prefetchPage => {
+            const prefetchCacheKey = getCacheKey(prefetchPage);
+            if (!cacheRef.current.has(prefetchCacheKey)) {
+              fetchPatients({ page: prefetchPage, limit, q: debouncedSearch, sort, order }, token)
+                .then((prefetchRes) => {
+                  cacheRef.current.set(prefetchCacheKey, { items: prefetchRes.items, total: prefetchRes.total });
+                })
+                .catch(() => { }); // Silently fail prefetch
+            }
+          });
         }
       } catch (err) {
         if (!cancelled) {
@@ -231,7 +275,37 @@ export function PatientsTable() {
       setFormData(emptyForm);
       setEditing(null);
     }
+    setFormErrors({});
     setFormOpen(true);
+  };
+
+  const validateForm = () => {
+    const errors: Record<string, string> = {};
+    if (!formData.first_name.trim()) errors.first_name = "First name is required";
+    if (!formData.last_name.trim()) errors.last_name = "Last name is required";
+    if (!formData.date_of_birth) errors.date_of_birth = "Date of birth is required";
+
+    if (formData.email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(formData.email)) {
+        errors.email = "Invalid email format";
+      }
+    }
+
+    if (formData.phone) {
+      if (formData.phone.length < 8) {
+        errors.phone = "Phone number must be at least 8 characters";
+      }
+    }
+
+    if (formData.address) {
+      if (formData.address.length < 5) {
+        errors.address = "Address must be at least 5 characters";
+      }
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const closeForm = () => {
@@ -243,13 +317,31 @@ export function PatientsTable() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
+
+    if (!validateForm()) {
+      toast.error("Please fix the errors in the form");
+      return;
+    }
+
     setSaving(true);
     setError(null);
+
+    // Clean up optional fields - send undefined instead of empty strings
+    const cleanedData = {
+      first_name: formData.first_name,
+      last_name: formData.last_name,
+      date_of_birth: formData.date_of_birth,
+      gender: formData.gender || undefined,
+      phone: formData.phone || undefined,
+      email: formData.email || undefined,
+      address: formData.address || undefined,
+    };
+
     try {
       if (editing) {
-        await updatePatient(editing.id, formData, token);
+        await updatePatient(editing.id, cleanedData, token);
       } else {
-        await createPatient(formData, token);
+        await createPatient(cleanedData, token);
       }
       toast.success(editing ? "Patient updated successfully" : "Patient created successfully");
       closeForm();
@@ -266,8 +358,31 @@ export function PatientsTable() {
         return;
       }
 
+      // Try to parse backend validation errors and map them to form fields
       const message = err instanceof Error ? err.message : "Save failed";
-      setError(message);
+      try {
+        const parsed = JSON.parse(message);
+        if (Array.isArray(parsed)) {
+          const newFormErrors: Record<string, string> = {};
+          parsed.forEach((item: { loc?: string[]; msg?: string }) => {
+            if (item.loc && item.loc.length >= 2) {
+              const field = item.loc[1]; // e.g., "phone", "email", "address"
+              newFormErrors[field] = item.msg || "Invalid value";
+            }
+          });
+          if (Object.keys(newFormErrors).length > 0) {
+            setFormErrors(prev => ({ ...prev, ...newFormErrors }));
+            toast.error("Please fix the validation errors");
+          } else {
+            toast.error("Validation failed. Please check your input.");
+          }
+        } else {
+          toast.error(message);
+        }
+      } catch {
+        // If parsing fails, show a generic toast error instead of setting error state
+        toast.error(message);
+      }
     } finally {
       setSaving(false);
     }
@@ -592,10 +707,10 @@ export function PatientsTable() {
                       return (
                         <motion.tr
                           key={patient.id}
-                          initial={{ opacity: 0, y: 10 }}
+                          initial={{ opacity: 0, y: 5 }}
                           animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          transition={{ duration: 0.2, delay: index * 0.05 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.12, delay: index * 0.02 }}
                           className="border-b transition-colors hover:bg-muted/40 data-[state=selected]:bg-muted group"
                         >
                           <TableCell className="p-4 align-middle text-center font-medium text-muted-foreground">
@@ -879,7 +994,7 @@ export function PatientsTable() {
           <SheetHeader>
             <SheetTitle>{editing ? "Edit patient" : "Add patient"}</SheetTitle>
             <SheetDescription>
-              Required fields: first name, last name, date of birth.
+              Fields marked with <span className="text-red-500 font-medium">*</span> are required. Other fields are optional.
             </SheetDescription>
           </SheetHeader>
 
@@ -897,12 +1012,18 @@ export function PatientsTable() {
                   <Input
                     id="first_name"
                     value={formData.first_name}
-                    onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, first_name: e.target.value });
+                      if (formErrors.first_name) setFormErrors({ ...formErrors, first_name: "" });
+                    }}
                     placeholder="Enter first name"
-                    required
-                    className="h-11"
+                    className={cn("h-11", formErrors.first_name && "border-red-500 focus-visible:ring-red-500")}
                   />
-                  <p className="text-xs text-muted-foreground">Patient's given name</p>
+                  {formErrors.first_name ? (
+                    <p className="text-xs text-red-500">{formErrors.first_name}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Patient's given name</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -915,12 +1036,18 @@ export function PatientsTable() {
                   <Input
                     id="last_name"
                     value={formData.last_name}
-                    onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, last_name: e.target.value });
+                      if (formErrors.last_name) setFormErrors({ ...formErrors, last_name: "" });
+                    }}
                     placeholder="Enter last name"
-                    required
-                    className="h-11"
+                    className={cn("h-11", formErrors.last_name && "border-red-500 focus-visible:ring-red-500")}
                   />
-                  <p className="text-xs text-muted-foreground">Patient's family name</p>
+                  {formErrors.last_name ? (
+                    <p className="text-xs text-red-500">{formErrors.last_name}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Patient's family name</p>
+                  )}
                 </div>
               </div>
 
@@ -933,15 +1060,51 @@ export function PatientsTable() {
                     </svg>
                     Date of birth <span className="text-red-500">*</span>
                   </Label>
-                  <Input
-                    id="date_of_birth"
-                    type="date"
-                    value={formData.date_of_birth}
-                    onChange={(e) => setFormData({ ...formData, date_of_birth: e.target.value })}
-                    required
-                    className="h-11"
-                  />
-                  <p className="text-xs text-muted-foreground">Patient's date of birth</p>
+                  <div className="relative">
+                    <Input
+                      value={formData.date_of_birth ? format(new Date(formData.date_of_birth), "PPP") : ""}
+                      readOnly
+                      placeholder="Pick a date"
+                      className={cn(
+                        "h-11 pr-12 cursor-pointer",
+                        formErrors.date_of_birth && "border-red-500 focus-visible:ring-red-500"
+                      )}
+                      onClick={() => document.getElementById("calendar-trigger")?.click()}
+                    />
+                    <Popover>
+                      <PopoverTrigger
+                        id="calendar-trigger"
+                        className={cn(
+                          buttonVariants({ variant: "ghost", size: "icon" }),
+                          "absolute right-1 top-1 h-9 w-9 text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <HugeiconsIcon icon={Calendar03Icon} className="size-4" />
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="end">
+                        <Calendar
+                          mode="single"
+                          selected={formData.date_of_birth ? new Date(formData.date_of_birth) : undefined}
+                          onSelect={(date) => {
+                            setFormData({ ...formData, date_of_birth: date ? format(date, "yyyy-MM-dd") : "" });
+                            if (date) setFormErrors({ ...formErrors, date_of_birth: "" });
+                          }}
+                          disabled={(date) =>
+                            date > new Date() || date < new Date("1900-01-01")
+                          }
+                          captionLayout="dropdown"
+                          fromYear={1900}
+                          toYear={new Date().getFullYear()}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  {formErrors.date_of_birth ? (
+                    <p className="text-xs text-red-500">{formErrors.date_of_birth}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Patient's date of birth</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -952,13 +1115,20 @@ export function PatientsTable() {
                     </svg>
                     Gender
                   </Label>
-                  <Input
-                    id="gender"
-                    value={formData.gender}
-                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                    placeholder="e.g., Male, Female, Other"
-                    className="h-11"
-                  />
+                  <Select
+                    value={formData.gender || ""}
+                    onValueChange={(value) => setFormData({ ...formData, gender: value })}
+                  >
+                    <SelectTrigger id="gender" className="h-11">
+                      {/* Manual placeholder handling since SelectValue might not support it in this version */}
+                      {formData.gender ? <SelectValue /> : <span className="text-muted-foreground">Select gender</span>}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Male">Male</SelectItem>
+                      <SelectItem value="Female">Female</SelectItem>
+                      <SelectItem value="Other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <p className="text-xs text-muted-foreground">Optional: Patient's gender identity</p>
                 </div>
               </div>
@@ -975,12 +1145,19 @@ export function PatientsTable() {
                   <Input
                     id="phone"
                     value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, phone: e.target.value });
+                      if (formErrors.phone) setFormErrors({ ...formErrors, phone: "" });
+                    }}
                     placeholder="e.g., +66 12-345-6789"
                     type="tel"
-                    className="h-11"
+                    className={cn("h-11", formErrors.phone && "border-red-500 focus-visible:ring-red-500")}
                   />
-                  <p className="text-xs text-muted-foreground">Contact phone number</p>
+                  {formErrors.phone ? (
+                    <p className="text-xs text-red-500">{formErrors.phone}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Contact phone number</p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -994,11 +1171,18 @@ export function PatientsTable() {
                     id="email"
                     type="email"
                     value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, email: e.target.value });
+                      if (formErrors.email) setFormErrors({ ...formErrors, email: "" });
+                    }}
                     placeholder="patient@example.com"
-                    className="h-11"
+                    className={cn("h-11", formErrors.email && "border-red-500 focus-visible:ring-red-500")}
                   />
-                  <p className="text-xs text-muted-foreground">Email address for contact</p>
+                  {formErrors.email ? (
+                    <p className="text-xs text-red-500">{formErrors.email}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Email address for contact</p>
+                  )}
                 </div>
               </div>
 
@@ -1014,28 +1198,19 @@ export function PatientsTable() {
                 <Textarea
                   id="address"
                   value={formData.address}
-                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, address: e.target.value });
+                    if (formErrors.address) setFormErrors({ ...formErrors, address: "" });
+                  }}
                   placeholder="Enter full address including street, city, postal code..."
-                  rows={3}
-                  className="resize-none"
+                  className={cn("resize-none min-h-[100px] max-h-[150px] overflow-y-auto", formErrors.address && "border-red-500 focus-visible:ring-red-500")}
                 />
-                <p className="text-xs text-muted-foreground">Complete residential address</p>
+                {formErrors.address ? (
+                  <p className="text-xs text-red-500">{formErrors.address}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Complete residential address</p>
+                )}
               </div>
-
-              {/* Error Message */}
-              {error && (
-                <div className="rounded-lg bg-red-50 dark:bg-red-950/20 p-4 border border-red-200 dark:border-red-900">
-                  <div className="flex items-start gap-3">
-                    <svg className="w-5 h-5 text-red-600 dark:text-red-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div className="flex-1">
-                      <h4 className="text-sm font-medium text-red-800 dark:text-red-300">Validation Error</h4>
-                      <p className="mt-1 text-sm text-red-700 dark:text-red-400">{error}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* Action Buttons */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t">
