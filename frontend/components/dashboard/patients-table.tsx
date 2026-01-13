@@ -448,7 +448,7 @@ export function PatientsTable() {
                   className="pl-9 w-full sm:w-[280px] h-10 bg-background/50 border-input/60 hover:border-input focus-visible:ring-primary/20 transition-all shadow-sm"
                 />
               </div>
-              <Button className="gap-2 shadow-md hover:shadow-lg transition-all" onClick={() => resetForm()}>
+              <Button variant="glass-primary" className="gap-2" onClick={() => resetForm()}>
                 <HugeiconsIcon icon={Add01Icon} className="size-4" />
                 Add Patient
               </Button>
@@ -789,7 +789,7 @@ export function PatientsTable() {
                 setSort(newSort);
                 setOrder(newOrder as "asc" | "desc");
               }}>
-                <SelectTrigger className="w-[160px] h-9 text-xs font-medium bg-background/50 rounded-full border-input/60 focus:ring-primary/20 transition-all hover:bg-muted/50 hover:border-input shadow-sm">
+                <SelectTrigger variant="glass" className="w-[160px] h-9 text-xs font-medium rounded-full focus:ring-primary/20 transition-all shadow-sm">
                   <div className="flex items-center gap-2">
                     <HugeiconsIcon icon={FilterHorizontalIcon} className="size-3.5 text-muted-foreground" />
                     <span className="truncate">
@@ -840,7 +840,7 @@ export function PatientsTable() {
               </Select>
 
               <DropdownMenu>
-                <DropdownMenuTrigger className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-full border border-input/60 bg-background/50 hover:bg-muted shadow-sm text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">
+                <DropdownMenuTrigger className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl border border-white/25 dark:border-white/15 bg-white/10 dark:bg-white/5 backdrop-blur-xl shadow-[4px_4px_12px_rgba(0,0,0,0.08),-4px_-4px_12px_rgba(255,255,255,0.06),inset_0_1px_0_rgba(255,255,255,0.3)] hover:bg-white/20 dark:hover:bg-white/10 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">
                   {limit === 10000 ? "All" : limit} / page
                   <HugeiconsIcon icon={ArrowRight01Icon} className="size-2.5 rotate-90" />
                 </DropdownMenuTrigger>
