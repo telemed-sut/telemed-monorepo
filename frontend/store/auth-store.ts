@@ -4,6 +4,7 @@ import { jwtDecode } from "jwt-decode";
 const STORAGE_KEY = "patient-app.token";
 
 interface AuthPayload {
+  sub?: string;  // user ID
   role?: string;
   exp?: number;
   [key: string]: any;
@@ -12,6 +13,7 @@ interface AuthPayload {
 interface AuthState {
   token: string | null;
   role: string | null;
+  userId: string | null;
   hydrated: boolean;
   setToken: (token: string) => void;
   clearToken: () => void;
@@ -23,36 +25,41 @@ const readStoredToken = () => {
   return localStorage.getItem(STORAGE_KEY);
 };
 
-const getRoleFromToken = (token: string | null): string | null => {
-  if (!token) return null;
+const getPayloadFromToken = (token: string | null): { role: string | null; userId: string | null } => {
+  if (!token) return { role: null, userId: null };
   try {
     const decoded = jwtDecode<AuthPayload>(token);
-    return decoded.role || null;
+    return {
+      role: decoded.role || null,
+      userId: decoded.sub || null,
+    };
   } catch (error) {
-    return null;
+    return { role: null, userId: null };
   }
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   token: null,
   role: null,
+  userId: null,
   hydrated: false,
   setToken: (token) => {
     if (typeof window !== "undefined") {
       localStorage.setItem(STORAGE_KEY, token);
     }
-    const role = getRoleFromToken(token);
-    set({ token, role, hydrated: true });
+    const { role, userId } = getPayloadFromToken(token);
+    set({ token, role, userId, hydrated: true });
   },
   clearToken: () => {
     if (typeof window !== "undefined") {
       localStorage.removeItem(STORAGE_KEY);
     }
-    set({ token: null, role: null, hydrated: true });
+    set({ token: null, role: null, userId: null, hydrated: true });
   },
   hydrate: () => {
     const stored = readStoredToken();
-    const role = getRoleFromToken(stored);
-    set({ token: stored, role, hydrated: true });
+    const { role, userId } = getPayloadFromToken(stored);
+    set({ token: stored, role, userId, hydrated: true });
   },
 }));
+

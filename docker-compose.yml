@@ -1,28 +1,19 @@
 version: '3.8'
 
 services:
-  # Frontend service (Next.js)
   frontend:
-    # Build from the 'frontend' directory (rename dashboard-3 to frontend)
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    build: ./frontend
     container_name: patient-frontend
     ports:
       - "3000:3000"
     environment:
-      # Connect to backend service internally on docker network
       - NEXT_PUBLIC_API_BASE_URL=http://backend:8000
     depends_on:
       - backend
     restart: always
 
-  # Backend service (Python/Rust)
   backend:
-    # Assuming backend code is in 'backend' directory
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     container_name: patient-backend
     ports:
       - "8000:8000"
@@ -34,7 +25,6 @@ services:
       - db
     restart: always
 
-  # Database service (PostgreSQL)
   db:
     image: postgres:15-alpine
     container_name: patient-db
