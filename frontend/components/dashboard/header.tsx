@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { NovuInbox } from "@/components/dashboard/novu-inbox";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { DashboardSquare01Icon, SidebarLeft01Icon, Logout01Icon } from "@hugeicons/core-free-icons";
 import { useAuthStore } from "@/store/auth-store";
@@ -30,6 +31,7 @@ export function DashboardHeader() {
       </div>
 
       <div className="flex items-center gap-2 ml-auto">
+        <NovuInbox />
         <ThemeToggle />
         <Button variant="glass-outline" size="sm" className="gap-2" onClick={handleLogout}>
           <HugeiconsIcon icon={Logout01Icon} className="size-4" />

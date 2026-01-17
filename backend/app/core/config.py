@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     default_page: int = 1
     default_limit: int = 20
     max_limit: int = 10000
+    # Novu settings
+    novu_api_key: str = ""
+    novu_enabled: bool = False
 
     @field_validator("cors_origins", mode="before")
     @classmethod
