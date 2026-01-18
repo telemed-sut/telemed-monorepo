@@ -11,7 +11,7 @@ class PatientBase(BaseModel):
     last_name: str = Field(min_length=2, max_length=100)
     date_of_birth: date
     gender: Optional[str] = Field(default=None, max_length=20)
-    phone: Optional[str] = Field(default=None, min_length=8, max_length=20)
+    phone: Optional[str] = Field(default=None, min_length=8, max_length=50)
     email: Optional[EmailStr] = None
     address: Optional[str] = Field(default=None, min_length=5, max_length=255)
 
@@ -41,9 +41,9 @@ class PatientBase(BaseModel):
         # Remove only spaces and dashes (keep dots and x for extensions)
         cleaned = re.sub(r'[\s-]', '', v)
         
-        # Check if it's too long (max 25 chars)
-        if len(cleaned) > 25:
-            raise ValueError('Phone number is too long (max 25 characters)')
+        # Check if it's too long (max 50 chars)
+        if len(cleaned) > 50:
+            raise ValueError('Phone number is too long (max 50 characters)')
         
         # Check if it contains only valid phone characters (digits, +, (), x, and .)
         if not re.match(r'^[\d+().x]+$', cleaned, re.IGNORECASE):

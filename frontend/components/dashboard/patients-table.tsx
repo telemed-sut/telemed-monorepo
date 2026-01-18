@@ -1117,7 +1117,7 @@ export function PatientsTable() {
                   </Label>
                   <Select
                     value={formData.gender || ""}
-                    onValueChange={(value) => setFormData({ ...formData, gender: value })}
+                    onValueChange={(value) => setFormData({ ...formData, gender: value || "" })}
                   >
                     <SelectTrigger id="gender" className="h-11">
                       {/* Manual placeholder handling since SelectValue might not support it in this version */}
