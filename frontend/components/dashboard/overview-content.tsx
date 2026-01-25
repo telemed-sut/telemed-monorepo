@@ -37,11 +37,11 @@ export function OverviewContent() {
         const loadStats = async () => {
             setLoading(true);
             try {
-                // Fetch total patients
-                const allPatients = await fetchPatients({ page: 1, limit: 10000 }, token);
-
-                // Fetch recent patients (last 7 days)
-                const recentData = await fetchPatients({ page: 1, limit: 5, sort: "created_at", order: "desc" }, token);
+                // Fetch total patients and recent patients in parallel
+                const [allPatients, recentData] = await Promise.all([
+                    fetchPatients({ page: 1, limit: 10000 }, token),
+                    fetchPatients({ page: 1, limit: 5, sort: "created_at", order: "desc" }, token)
+                ]);
 
                 const totalPatients = allPatients.total;
                 const activePatients = allPatients.items.filter(p => !!p.phone || !!p.email).length;
