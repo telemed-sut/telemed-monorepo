@@ -4,6 +4,14 @@ export interface LoginResponse {
   expires_in: number;
 }
 
+export interface UserMe {
+  id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  role: string;
+}
+
 export interface Patient {
   id: string;
   first_name: string;
@@ -50,8 +58,23 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
     headers,
   });
 
+  // Handle 204 No Content (e.g. DELETE responses)
+  if (res.status === 204) {
+    return null as T;
+  }
+
+  const contentLength = res.headers.get("content-length");
   const isJson = res.headers.get("content-type")?.includes("application/json");
-  const data = isJson ? await res.json() : null;
+  const hasBody = contentLength !== "0" && contentLength !== null ? true : isJson;
+
+  let data: any = null;
+  if (hasBody && isJson) {
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+  }
 
   if (!res.ok) {
     const msgData = data?.detail || data?.message || res.statusText;
@@ -69,6 +92,10 @@ export async function login(email: string, password: string) {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
+}
+
+export async function fetchCurrentUser(token: string) {
+  return apiFetch<UserMe>("/auth/me", {}, token);
 }
 
 interface FetchPatientsParams {
@@ -123,3 +150,190 @@ export async function deletePatient(id: string, token: string) {
     token
   );
 }
+
+// ── Meetings ──────────────────────────────────────────
+
+export interface DoctorBrief {
+  id: string;
+  email: string;
+  first_name?: string | null;
+  last_name?: string | null;
+}
+
+export interface PatientBrief {
+  id: string;
+  first_name: string;
+  last_name: string;
+  people_id?: string | null;
+}
+
+export interface Meeting {
+  id: string;
+  date_time: string;
+  description?: string | null;
+  doctor_id?: string | null;
+  note?: string | null;
+  room?: string | null;
+  user_id?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  doctor?: DoctorBrief | null;
+  patient?: PatientBrief | null;
+}
+
+export interface MeetingListResponse {
+  items: Meeting[];
+  page: number;
+  limit: number;
+  total: number;
+}
+
+interface FetchMeetingsParams {
+  page?: number;
+  limit?: number;
+  q?: string;
+  doctor_id?: string;
+  patient_id?: string;
+  sort?: string;
+  order?: SortOrder;
+}
+
+export async function fetchMeetings(params: FetchMeetingsParams, token: string) {
+  const search = new URLSearchParams();
+  if (params.page) search.set("page", params.page.toString());
+  if (params.limit) search.set("limit", params.limit.toString());
+  if (params.q) search.set("q", params.q);
+  if (params.doctor_id) search.set("doctor_id", params.doctor_id);
+  if (params.patient_id) search.set("patient_id", params.patient_id);
+  if (params.sort) search.set("sort", params.sort);
+  if (params.order) search.set("order", params.order);
+
+  const qs = search.toString();
+  const path = `/meetings${qs ? `?${qs}` : ""}`;
+  return apiFetch<MeetingListResponse>(path, { method: "GET" }, token);
+}
+
+export interface MeetingCreatePayload {
+  date_time: string;
+  description?: string;
+  doctor_id: string;
+  note?: string;
+  room?: string;
+  user_id: string;
+}
+
+export interface MeetingUpdatePayload {
+  date_time?: string;
+  description?: string;
+  doctor_id?: string;
+  note?: string;
+  room?: string;
+  user_id?: string;
+}
+
+export async function createMeeting(payload: MeetingCreatePayload, token: string) {
+  return apiFetch<Meeting>(
+    "/meetings",
+    { method: "POST", body: JSON.stringify(payload) },
+    token
+  );
+}
+
+export async function updateMeeting(id: string, payload: MeetingUpdatePayload, token: string) {
+  return apiFetch<Meeting>(
+    `/meetings/${id}`,
+    { method: "PUT", body: JSON.stringify(payload) },
+    token
+  );
+}
+
+export async function deleteMeeting(id: string, token: string) {
+  return apiFetch<void>(
+    `/meetings/${id}`,
+    { method: "DELETE" },
+    token
+  );
+}
+
+// User Management API
+
+export interface User {
+  id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  role: string;
+  is_active: boolean;
+  is_superuser: boolean;
+  created_at?: string;
+}
+
+export interface UserCreate {
+  email: string;
+  password: string;
+  first_name?: string;
+  last_name?: string;
+  role?: string;
+}
+
+export interface UserUpdate {
+  email?: string;
+  password?: string;
+  first_name?: string;
+  last_name?: string;
+  role?: string;
+  is_active?: boolean;
+}
+
+export interface UserListResponse {
+  items: User[];
+  page: number;
+  limit: number;
+  total: number;
+}
+
+export async function fetchUsers(params: { page?: number; limit?: number; q?: string; sort?: string; order?: "asc" | "desc"; role?: string }, token: string) {
+  const query = new URLSearchParams();
+  if (params.page) query.append("page", params.page.toString());
+  if (params.limit) query.append("limit", params.limit.toString());
+  if (params.q) query.append("q", params.q);
+  if (params.sort) query.append("sort", params.sort);
+  if (params.order) query.append("order", params.order);
+  if (params.role) query.append("role", params.role);
+
+  return apiFetch<UserListResponse>(`/users?${query.toString()}`, {}, token);
+}
+
+export async function createUser(data: UserCreate, token: string) {
+  return apiFetch<User>(
+    "/users",
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    token
+  );
+}
+
+export async function updateUser(id: string, data: UserUpdate, token: string) {
+  return apiFetch<User>(
+    `/users/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(data),
+    },
+    token
+  );
+}
+
+export async function deleteUser(id: string, token: string) {
+  return apiFetch<void>(
+    `/users/${id}`,
+    {
+      method: "DELETE",
+    },
+    token
+  );
+}
+
+
