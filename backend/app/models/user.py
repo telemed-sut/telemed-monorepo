@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from sqlalchemy import Column, DateTime, Enum, String, func
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 
 from app.db.base import Base
 
@@ -17,6 +18,8 @@ class User(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     email = Column(String(255), unique=True, nullable=False, index=True)
+    first_name = Column(String(100), nullable=True)
+    last_name = Column(String(100), nullable=True)
     password_hash = Column(String(255), nullable=False)
     role = Column(
         Enum(UserRole, name="user_role", create_type=False),
@@ -25,3 +28,6 @@ class User(Base):
     )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    meetings_as_doctor = relationship("Meeting", back_populates="doctor", foreign_keys="Meeting.doctor_id")

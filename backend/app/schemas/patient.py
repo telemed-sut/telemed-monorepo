@@ -3,17 +3,31 @@ from typing import List, Optional
 from uuid import UUID
 import re
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
 class PatientBase(BaseModel):
     first_name: str = Field(min_length=2, max_length=100)
     last_name: str = Field(min_length=2, max_length=100)
+    name: Optional[str] = Field(default=None, max_length=200)
+    people_id: Optional[str] = Field(default=None, max_length=20)
+    age: Optional[int] = Field(default=None, ge=0, le=200)
+    status: Optional[str] = Field(default="active", max_length=50)
+    doctor: Optional[str] = Field(default=None, max_length=200)
     date_of_birth: date
     gender: Optional[str] = Field(default=None, max_length=20)
     phone: Optional[str] = Field(default=None, min_length=8, max_length=50)
     email: Optional[EmailStr] = None
     address: Optional[str] = Field(default=None, min_length=5, max_length=255)
+
+    @model_validator(mode="before")
+    @classmethod
+    def auto_fill_name(cls, data):
+        """Auto-generate name from first_name + last_name if not provided"""
+        if isinstance(data, dict):
+            if not data.get("name") and data.get("first_name") and data.get("last_name"):
+                data["name"] = f"{data['first_name']} {data['last_name']}"
+        return data
 
     @field_validator('first_name', 'last_name')
     @classmethod
@@ -89,6 +103,11 @@ class PatientCreate(PatientBase):
 class PatientUpdate(BaseModel):
     first_name: Optional[str] = Field(default=None, max_length=100)
     last_name: Optional[str] = Field(default=None, max_length=100)
+    name: Optional[str] = Field(default=None, max_length=200)
+    people_id: Optional[str] = Field(default=None, max_length=20)
+    age: Optional[int] = Field(default=None, ge=0, le=200)
+    status: Optional[str] = Field(default=None, max_length=50)
+    doctor: Optional[str] = Field(default=None, max_length=200)
     date_of_birth: Optional[date] = None
     gender: Optional[str] = Field(default=None, max_length=20)
     phone: Optional[str] = Field(default=None, max_length=50)

@@ -13,13 +13,17 @@ import { motion } from "framer-motion";
 import {
   Home,
   Users,
+  CalendarDays,
+  UserCog,
 } from "lucide-react";
-import { SVGProps } from "react";
+import { SVGProps, useEffect, useState } from "react";
 import DashboardNavigation, { Route } from "./nav-main";
 import { NotificationsPopover } from "./nav-notifications";
 import { TeamSwitcher } from "./team-switcher";
 import { Logo } from "@/components/ui/logo";
 import { AdminLogo } from "@/components/ui/admin-logo";
+import { useAuthStore } from "@/store/auth-store";
+import { fetchCurrentUser, UserMe } from "@/lib/api";
 
 
 
@@ -53,15 +57,59 @@ const dashboardRoutes: Route[] = [
     icon: <Users className="size-4" />,
     link: "/patients",
   },
+  {
+    id: "meetings",
+    title: "Meetings",
+    icon: <CalendarDays className="size-4" />,
+    link: "/meetings",
+  },
+  {
+    id: "users",
+    title: "Users",
+    icon: <UserCog className="size-4" />,
+    link: "/users",
+  },
 ];
 
 const teams = [
   { id: "1", name: "Patient Admin", logo: AdminLogo, plan: "Pro" },
 ];
 
+function getRoleLabel(role: string): string {
+  const labels: Record<string, string> = {
+    admin: "Admin",
+    staff: "Staff",
+    doctor: "Doctor",
+  };
+  return labels[role] || role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+function getUserDisplayName(user: UserMe): string {
+  if (user.first_name || user.last_name) {
+    return [user.first_name, user.last_name].filter(Boolean).join(" ");
+  }
+  // Fallback: use email prefix
+  return user.email.split("@")[0];
+}
+
 export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const { state } = useSidebar();
   const isCollapsed = state === "collapsed";
+  const token = useAuthStore((state) => state.token);
+  const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    fetchCurrentUser(token)
+      .then((user) => { if (!cancelled) setCurrentUser(user); })
+      .catch(() => { /* silent */ });
+    return () => { cancelled = true; };
+  }, [token]);
+
+  const dynamicTeams = currentUser
+    ? [{ id: "1", name: getUserDisplayName(currentUser), logo: AdminLogo, plan: getRoleLabel(currentUser.role) }]
+    : teams;
 
   return (
     <Sidebar variant="inset" collapsible="icon" {...props}>
@@ -110,7 +158,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
         </div>
       </SidebarContent>
       <SidebarFooter className="px-2">
-        <TeamSwitcher teams={teams} />
+        <TeamSwitcher teams={dynamicTeams} />
       </SidebarFooter>
     </Sidebar >
   );
