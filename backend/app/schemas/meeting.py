@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.models.enums import MeetingStatus
+
 
 class MeetingBase(BaseModel):
     date_time: Optional[datetime] = None
@@ -12,12 +14,14 @@ class MeetingBase(BaseModel):
     note: Optional[str] = Field(default=None, max_length=5000)
     room: Optional[str] = Field(default=None, max_length=100)
     user_id: Optional[UUID] = None
+    status: MeetingStatus = MeetingStatus.scheduled
 
 
 class MeetingCreate(MeetingBase):
     date_time: datetime
     doctor_id: UUID
     user_id: UUID
+    status: MeetingStatus = MeetingStatus.scheduled
 
 
 class MeetingUpdate(BaseModel):
@@ -27,6 +31,8 @@ class MeetingUpdate(BaseModel):
     note: Optional[str] = Field(default=None, max_length=5000)
     room: Optional[str] = Field(default=None, max_length=100)
     user_id: Optional[UUID] = None
+    status: Optional[MeetingStatus] = None
+    reason: Optional[str] = Field(default=None, max_length=2000)
 
 
 class DoctorBrief(BaseModel):
@@ -51,6 +57,9 @@ class MeetingOut(MeetingBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
+    reason: Optional[str] = None
+    cancelled_at: Optional[datetime] = None
+    cancelled_by: Optional[UUID] = None
     doctor: Optional[DoctorBrief] = None
     patient: Optional[PatientBrief] = None
 

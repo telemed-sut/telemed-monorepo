@@ -1,9 +1,10 @@
 import pytest
 from datetime import date
-from uuid import uuid4
+from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.patient import Patient
 from app.models.user import User, UserRole
 from app.core.security import get_password_hash
@@ -29,6 +30,20 @@ def get_auth_headers(user: User) -> dict:
     """Helper to get auth headers for user"""
     token_response = create_login_response(user)
     return {"Authorization": f"Bearer {token_response['access_token']}"}
+
+
+def assign_doctor_to_patient(db: Session, doctor_id, patient_id, role: str = "primary") -> DoctorPatientAssignment:
+    doctor_uuid = doctor_id if isinstance(doctor_id, UUID) else UUID(str(doctor_id))
+    patient_uuid = patient_id if isinstance(patient_id, UUID) else UUID(str(patient_id))
+    assignment = DoctorPatientAssignment(
+        doctor_id=doctor_uuid,
+        patient_id=patient_uuid,
+        role=role,
+    )
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+    return assignment
 
 
 def test_create_patient(db: Session):
@@ -88,42 +103,44 @@ def test_list_patients(db: Session):
 
 def test_patient_api_endpoints(client: TestClient, db: Session):
     """Test patient API endpoints with authentication"""
-    user = create_test_user(db)
-    headers = get_auth_headers(user)
-    
-    # Test create patient
+    staff = create_test_user(db)
+    admin = create_test_user(db, UserRole.admin)
+    headers = get_auth_headers(staff)
+    admin_headers = get_auth_headers(admin)
+
+    # Test create patient (staff can create)
     patient_data = {
         "first_name": "API",
         "last_name": "Test",
         "date_of_birth": "1992-06-15",
         "email": "api.test@example.com"
     }
-    
+
     response = client.post("/patients", json=patient_data, headers=headers)
     assert response.status_code == 201
     created_patient = response.json()
     patient_id = created_patient["id"]
-    
-    # Test get patient
+
+    # Test get patient (staff can read)
     response = client.get(f"/patients/{patient_id}", headers=headers)
     assert response.status_code == 200
     assert response.json()["first_name"] == "API"
-    
-    # Test list patients
+
+    # Test list patients (staff can list)
     response = client.get("/patients", headers=headers)
     assert response.status_code == 200
     data = response.json()
     assert "items" in data
     assert "total" in data
-    
-    # Test update patient
+
+    # Test update patient (staff can update)
     update_data = {"first_name": "Updated"}
     response = client.put(f"/patients/{patient_id}", json=update_data, headers=headers)
     assert response.status_code == 200
     assert response.json()["first_name"] == "Updated"
-    
-    # Test delete patient
-    response = client.delete(f"/patients/{patient_id}", headers=headers)
+
+    # Test delete patient (only admin can delete)
+    response = client.delete(f"/patients/{patient_id}", headers=admin_headers)
     assert response.status_code == 204
 
 
@@ -135,3 +152,54 @@ def test_patient_api_unauthorized(client: TestClient):
     
     response = client.post("/patients", json={"first_name": "Test", "last_name": "User"})
     assert response.status_code == 401
+
+
+def test_doctor_list_only_assigned_patients(client: TestClient, db: Session):
+    doctor = create_test_user(db, UserRole.doctor)
+    staff = create_test_user(db, UserRole.staff)
+
+    headers_staff = get_auth_headers(staff)
+    headers_doctor = get_auth_headers(doctor)
+
+    first = client.post(
+        "/patients",
+        json={"first_name": "Assigned", "last_name": "Patient", "date_of_birth": "1990-01-01"},
+        headers=headers_staff,
+    )
+    second = client.post(
+        "/patients",
+        json={"first_name": "Unassigned", "last_name": "Patient", "date_of_birth": "1991-01-01"},
+        headers=headers_staff,
+    )
+    assert first.status_code == 201
+    assert second.status_code == 201
+
+    assigned_id = first.json()["id"]
+    unassigned_id = second.json()["id"]
+    assign_doctor_to_patient(db, doctor.id, assigned_id)
+
+    list_response = client.get("/patients", headers=headers_doctor)
+    assert list_response.status_code == 200
+    items = list_response.json()["items"]
+    ids = {item["id"] for item in items}
+    assert assigned_id in ids
+    assert unassigned_id not in ids
+
+
+def test_doctor_get_unassigned_patient_is_blocked(client: TestClient, db: Session):
+    doctor = create_test_user(db, UserRole.doctor)
+    staff = create_test_user(db, UserRole.staff)
+    headers_staff = get_auth_headers(staff)
+    headers_doctor = get_auth_headers(doctor)
+
+    created = client.post(
+        "/patients",
+        json={"first_name": "No", "last_name": "Assignment", "date_of_birth": "1989-10-01"},
+        headers=headers_staff,
+    )
+    assert created.status_code == 201
+    patient_id = created.json()["id"]
+
+    response = client.get(f"/patients/{patient_id}", headers=headers_doctor)
+    assert response.status_code == 403
+    assert "not assigned" in response.json()["detail"].lower()

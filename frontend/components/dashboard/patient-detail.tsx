@@ -1,0 +1,409 @@
+"use client";
+
+import * as React from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { motion, AnimatePresence } from "framer-motion";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+    UserIcon,
+    Calendar03Icon,
+    AiPhone01Icon,
+    Mail01Icon,
+    Location01Icon,
+    MedicalMaskIcon,
+    CalendarAddIcon,
+    Stethoscope02Icon,
+} from "@hugeicons/core-free-icons";
+import {
+    fetchPatient,
+    fetchMeetings,
+    type Patient,
+    type Meeting,
+} from "@/lib/api";
+import { useAuthStore } from "@/store/auth-store";
+
+interface PatientDetailContentProps {
+    patientId: string;
+}
+
+export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
+    const token = useAuthStore((state) => state.token);
+    const clearToken = useAuthStore((state) => state.clearToken);
+    const router = useRouter();
+
+    const [patient, setPatient] = useState<Patient | null>(null);
+    const [meetings, setMeetings] = useState<Meeting[]>([]);
+    const [meetingsTotal, setMeetingsTotal] = useState(0);
+    const [loadingPatient, setLoadingPatient] = useState(true);
+    const [loadingMeetings, setLoadingMeetings] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!token) return;
+        let cancelled = false;
+
+        const loadPatient = async () => {
+            setLoadingPatient(true);
+            setError(null);
+            try {
+                const data = await fetchPatient(patientId, token);
+                if (!cancelled) setPatient(data);
+            } catch (err) {
+                if (cancelled) return;
+                const status = (err as { status?: number }).status;
+                if (status === 401) {
+                    clearToken();
+                    router.replace("/login");
+                    return;
+                }
+                setError(
+                    status === 404
+                        ? "Patient not found"
+                        : err instanceof Error
+                            ? err.message
+                            : "Failed to load patient"
+                );
+            } finally {
+                if (!cancelled) setLoadingPatient(false);
+            }
+        };
+
+        loadPatient();
+        return () => { cancelled = true; };
+    }, [token, patientId]);
+
+    useEffect(() => {
+        if (!token) return;
+        let cancelled = false;
+
+        const loadMeetings = async () => {
+            setLoadingMeetings(true);
+            try {
+                const res = await fetchMeetings(
+                    { patient_id: patientId, limit: 100, sort: "date_time", order: "desc" },
+                    token
+                );
+                if (!cancelled) {
+                    setMeetings(res.items);
+                    setMeetingsTotal(res.total);
+                }
+            } catch (err) {
+                if (cancelled) return;
+                const status = (err as { status?: number }).status;
+                if (status === 401) {
+                    clearToken();
+                    router.replace("/login");
+                }
+            } finally {
+                if (!cancelled) setLoadingMeetings(false);
+            }
+        };
+
+        loadMeetings();
+        return () => { cancelled = true; };
+    }, [token, patientId]);
+
+    const getAge = (dateOfBirth: string) => {
+        const dob = new Date(dateOfBirth);
+        const today = new Date();
+        let age = today.getFullYear() - dob.getFullYear();
+        const m = today.getMonth() - dob.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+        return age;
+    };
+
+    const formatDate = (dateStr: string) =>
+        new Date(dateStr).toLocaleDateString("en-GB", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+        });
+
+    const formatDateTime = (dateStr: string) =>
+        new Date(dateStr).toLocaleString("en-GB", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+
+    // ── Loading ──
+    if (loadingPatient) {
+        return (
+            <div className="space-y-6 py-2">
+                <div className="flex items-center gap-3">
+                    <Skeleton className="size-12 rounded-full" />
+                    <div className="space-y-2">
+                        <Skeleton className="h-5 w-32" />
+                        <Skeleton className="h-4 w-20" />
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                        <Skeleton key={i} className="h-20 w-full rounded-xl" />
+                    ))}
+                </div>
+                <Skeleton className="h-40 w-full rounded-xl" />
+            </div>
+        );
+    }
+
+    // ── Error ──
+    if (error || !patient) {
+        return (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="p-5 bg-background rounded-full border border-border shadow-sm mb-4">
+                    <HugeiconsIcon icon={MedicalMaskIcon} className="size-8 text-destructive/60" />
+                </div>
+                <h3 className="font-bold text-lg text-foreground mb-1">
+                    {error || "Patient not found"}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                    Unable to load patient data.
+                </p>
+            </div>
+        );
+    }
+
+    const age = getAge(patient.date_of_birth);
+    const hasContact = !!(patient.phone || patient.email);
+
+    return (
+        <div className="space-y-6 py-2 overflow-y-auto">
+            {/* Patient Header */}
+            <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+                className="flex items-center gap-3"
+            >
+                <Avatar className="size-12 ring-2 ring-primary/20">
+                    <AvatarFallback className="bg-primary/10 text-primary font-semibold text-lg">
+                        {(patient.first_name?.charAt(0) || "") + (patient.last_name?.charAt(0) || "")}
+                    </AvatarFallback>
+                </Avatar>
+                <div>
+                    <h2 className="text-lg font-bold tracking-tight text-foreground">
+                        {patient.first_name} {patient.last_name}
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                        {age} years old • {patient.gender ? patient.gender : "N/A"}
+                    </p>
+                </div>
+            </motion.div>
+
+            {/* Clinical View Link */}
+            <motion.div
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.03 }}
+            >
+                <button
+                    onClick={() => router.push(`/patients/${patientId}/dense`)}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors text-left group"
+                >
+                    <div className="p-2 bg-primary/10 rounded-lg group-hover:bg-primary/20 transition-colors">
+                        <HugeiconsIcon icon={Stethoscope02Icon} className="size-4 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                        <p className="text-sm font-semibold text-foreground">Open Clinical View</p>
+                        <p className="text-xs text-muted-foreground">View full clinical dashboard with timeline, orders & notes</p>
+                    </div>
+                    <svg className="size-4 text-muted-foreground group-hover:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                </button>
+            </motion.div>
+
+            {/* Info Sections */}
+            <motion.div
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.05 }}
+                className="space-y-3"
+            >
+                {/* Personal Info */}
+                <div className="rounded-xl border bg-gradient-to-r from-primary/5 to-transparent p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
+                        <div className="p-1.5 bg-primary/10 rounded-md">
+                            <HugeiconsIcon icon={UserIcon} className="size-3.5 text-primary" />
+                        </div>
+                        Personal Info
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                            <span className="text-muted-foreground text-xs">Date of Birth</span>
+                            <p className="font-medium text-foreground">{formatDate(patient.date_of_birth)}</p>
+                        </div>
+                        <div>
+                            <span className="text-muted-foreground text-xs">Age</span>
+                            <p className="font-medium text-foreground">{age} years</p>
+                        </div>
+                        <div>
+                            <span className="text-muted-foreground text-xs">Gender</span>
+                            <p className="font-medium text-foreground capitalize">{patient.gender || "—"}</p>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Contact */}
+                <div className="rounded-xl border bg-gradient-to-r from-emerald-500/5 to-transparent p-4 space-y-2">
+                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
+                        <div className="p-1.5 bg-emerald-500/10 rounded-md">
+                            <HugeiconsIcon icon={AiPhone01Icon} className="size-3.5 text-emerald-500" />
+                        </div>
+                        Contact
+                    </div>
+                    <div className="space-y-2 text-sm">
+                        {patient.phone && (
+                            <div className="flex items-center gap-2">
+                                <HugeiconsIcon icon={AiPhone01Icon} className="size-3.5 text-muted-foreground" />
+                                <span className="text-foreground">{patient.phone}</span>
+                            </div>
+                        )}
+                        {patient.email && (
+                            <div className="flex items-center gap-2">
+                                <HugeiconsIcon icon={Mail01Icon} className="size-3.5 text-muted-foreground" />
+                                <span className="text-foreground truncate">{patient.email}</span>
+                            </div>
+                        )}
+                        {!hasContact && (
+                            <p className="text-muted-foreground/60 text-xs">No contact info available</p>
+                        )}
+                    </div>
+                </div>
+
+                {/* Address */}
+                <div className="rounded-xl border bg-gradient-to-r from-amber-500/5 to-transparent p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
+                        <div className="p-1.5 bg-amber-500/10 rounded-md">
+                            <HugeiconsIcon icon={Location01Icon} className="size-3.5 text-amber-500" />
+                        </div>
+                        Address
+                    </div>
+                    <p className="text-sm text-foreground leading-relaxed">
+                        {patient.address || <span className="text-muted-foreground/60">No address recorded</span>}
+                    </p>
+                </div>
+            </motion.div>
+
+            {/* Meetings History */}
+            <motion.div
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, delay: 0.1 }}
+            >
+                <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                        <div className="p-1.5 bg-primary/10 rounded-md">
+                            <HugeiconsIcon icon={CalendarAddIcon} className="size-3.5 text-primary" />
+                        </div>
+                        Appointment History
+                    </div>
+                    {meetingsTotal > 0 && (
+                        <Badge variant="secondary" className="text-xs bg-primary/10 text-primary border-transparent">
+                            {meetingsTotal}
+                        </Badge>
+                    )}
+                </div>
+
+                {loadingMeetings ? (
+                    <div className="space-y-2">
+                        {Array.from({ length: 2 }).map((_, i) => (
+                            <Skeleton key={i} className="h-16 w-full rounded-xl" />
+                        ))}
+                    </div>
+                ) : meetings.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-center rounded-xl border border-dashed border-border/60">
+                        <HugeiconsIcon icon={CalendarAddIcon} className="size-6 text-muted-foreground/40 mb-2" />
+                        <p className="text-sm font-medium text-muted-foreground">No appointments yet</p>
+                        <p className="text-xs text-muted-foreground/60 mt-0.5">
+                            Appointments will appear here
+                        </p>
+                    </div>
+                ) : (
+                    <div className="space-y-2">
+                        <AnimatePresence mode="wait">
+                            {meetings.map((meeting, index) => {
+                                const isPast = new Date(meeting.date_time) < new Date();
+                                const doctorName = meeting.doctor
+                                    ? [meeting.doctor.first_name, meeting.doctor.last_name].filter(Boolean).join(" ") || meeting.doctor.email
+                                    : null;
+
+                                return (
+                                    <motion.div
+                                        key={meeting.id}
+                                        initial={{ opacity: 0, y: 3 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ duration: 0.1, delay: index * 0.02 }}
+                                        className={`relative p-3 rounded-xl border transition-all ${isPast
+                                                ? "bg-muted/20 border-border/40"
+                                                : "bg-gradient-to-r from-primary/5 to-transparent border-primary/20"
+                                            }`}
+                                    >
+                                        <div className="flex items-start gap-2.5">
+                                            <div
+                                                className={`mt-1.5 flex-shrink-0 size-2.5 rounded-full ring-3 ${isPast
+                                                        ? "bg-muted-foreground/30 ring-muted/40"
+                                                        : "bg-primary ring-primary/20"
+                                                    }`}
+                                            />
+                                            <div className="min-w-0 flex-1 space-y-1">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="font-semibold text-xs text-foreground">
+                                                        {formatDateTime(meeting.date_time)}
+                                                    </span>
+                                                    <Badge
+                                                        variant={isPast ? "secondary" : "default"}
+                                                        className={`text-[10px] px-1.5 py-0 h-4 font-normal ${isPast
+                                                                ? "bg-muted text-muted-foreground"
+                                                                : "bg-primary/10 text-primary border-transparent"
+                                                            }`}
+                                                    >
+                                                        {isPast ? "Completed" : "Upcoming"}
+                                                    </Badge>
+                                                </div>
+
+                                                {meeting.description && (
+                                                    <p className="text-xs text-foreground/80 line-clamp-2">
+                                                        {meeting.description}
+                                                    </p>
+                                                )}
+
+                                                <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                                                    {doctorName && (
+                                                        <span className="flex items-center gap-1">
+                                                            <HugeiconsIcon icon={UserIcon} className="size-2.5" />
+                                                            Dr. {doctorName}
+                                                        </span>
+                                                    )}
+                                                    {meeting.room && (
+                                                        <span className="flex items-center gap-1">
+                                                            <HugeiconsIcon icon={Location01Icon} className="size-2.5" />
+                                                            Room {meeting.room}
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {meeting.note && (
+                                                    <p className="text-[11px] text-muted-foreground/70 italic border-l-2 border-muted-foreground/20 pl-2">
+                                                        {meeting.note}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                );
+                            })}
+                        </AnimatePresence>
+                    </div>
+                )}
+            </motion.div>
+        </div>
+    );
+}

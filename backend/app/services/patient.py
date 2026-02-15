@@ -5,15 +5,23 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.patient import Patient
 from app.schemas.patient import PatientCreate, PatientUpdate
 
 settings = get_settings()
 
 
-def create_patient(db: Session, payload: PatientCreate) -> Patient:
+def create_patient(db: Session, payload: PatientCreate, doctor_id: Optional[UUID] = None) -> Patient:
     patient = Patient(**payload.model_dump())
     db.add(patient)
+    db.flush()
+
+    # Auto-assign to doctor if created by a doctor
+    if doctor_id:
+        assignment = DoctorPatientAssignment(doctor_id=doctor_id, patient_id=patient.id, role="primary")
+        db.add(assignment)
+
     db.commit()
     db.refresh(patient)
     return patient
@@ -50,8 +58,15 @@ def list_patients(
     q: Optional[str],
     sort: str,
     order: str,
+    doctor_id: Optional[UUID] = None,
 ) -> Tuple[List[Patient], int]:
     stmt = select(Patient)
+
+    if doctor_id:
+        stmt = stmt.join(
+            DoctorPatientAssignment,
+            DoctorPatientAssignment.patient_id == Patient.id,
+        ).where(DoctorPatientAssignment.doctor_id == doctor_id).distinct()
 
     if q:
         pattern = f"%{q}%"

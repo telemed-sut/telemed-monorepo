@@ -4,13 +4,51 @@ export interface LoginResponse {
   expires_in: number;
 }
 
+export interface ForgotPasswordResponse {
+  message: string;
+  reset_token?: string | null;
+}
+
+export interface UserInviteCreateResponse {
+  invite_url: string;
+  expires_at: string;
+}
+
+export interface InviteInfoResponse {
+  email: string;
+  role: string;
+  expires_at: string;
+}
+
 export interface UserMe {
   id: string;
   email: string;
   first_name: string | null;
   last_name: string | null;
   role: string;
+  verification_status?: string | null;
 }
+
+// ── Role Constants ──────────────────────────────────────────
+
+export const ROLE_OPTIONS = [
+  { value: "admin", label: "Admin" },
+  { value: "staff", label: "Staff" },
+  { value: "doctor", label: "Doctor" },
+  { value: "nurse", label: "Nurse" },
+  { value: "pharmacist", label: "Pharmacist" },
+  { value: "medical_technologist", label: "Medical Technologist" },
+  { value: "psychologist", label: "Psychologist" },
+] as const;
+
+export const ROLE_LABEL_MAP: Record<string, string> = Object.fromEntries(
+  ROLE_OPTIONS.map((r) => [r.value, r.label])
+);
+
+/** Roles that are considered clinical (require license verification) */
+export const CLINICAL_ROLES = new Set([
+  "doctor", "nurse", "pharmacist", "medical_technologist", "psychologist",
+]);
 
 export interface Patient {
   id: string;
@@ -42,7 +80,25 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ||
     : "http://localhost:8000"); // Use localhost in development
 type ApiError = Error & { status?: number };
 
-async function apiFetch<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+// Token refresh state to prevent multiple simultaneous refresh calls
+let refreshPromise: Promise<string | null> | null = null;
+
+/** Check if a JWT token is expiring within the given buffer (seconds). */
+function isTokenExpiring(token: string, bufferSeconds = 300): boolean {
+  try {
+    // Decode payload without verification (just need exp)
+    const parts = token.split(".");
+    if (parts.length !== 3) return false;
+    const payload = JSON.parse(atob(parts[1]));
+    if (!payload.exp) return false;
+    const now = Math.floor(Date.now() / 1000);
+    return payload.exp - now < bufferSeconds;
+  } catch {
+    return false;
+  }
+}
+
+async function rawFetch<T>(path: string, options: RequestInit = {}, token?: string): Promise<{ ok: boolean; status: number; data: T | null; error?: ApiError }> {
   const url = `${API_BASE_URL}${path}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -53,14 +109,23 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, {
-    ...options,
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers,
+    });
+  } catch (err) {
+    const error: ApiError = new Error(
+      err instanceof TypeError ? `Network error: ${err.message}` : "Network request failed"
+    );
+    error.status = 0;
+    return { ok: false, status: 0, data: null, error };
+  }
 
   // Handle 204 No Content (e.g. DELETE responses)
   if (res.status === 204) {
-    return null as T;
+    return { ok: true, status: 204, data: null as T };
   }
 
   const contentLength = res.headers.get("content-length");
@@ -81,16 +146,114 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
     const message = typeof msgData === 'object' ? JSON.stringify(msgData) : msgData;
     const error: ApiError = new Error(message || "Request failed");
     error.status = res.status;
-    throw error;
+    return { ok: false, status: res.status, data: null, error };
   }
 
-  return data as T;
+  return { ok: true, status: res.status, data: data as T };
+}
+
+async function apiFetch<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+  let activeToken = token;
+
+  // Proactive refresh: if token is about to expire, refresh before making the request
+  if (activeToken && path !== "/auth/refresh" && path !== "/auth/login" && isTokenExpiring(activeToken)) {
+    const refreshed = await tryRefreshToken(activeToken);
+    if (refreshed) {
+      activeToken = refreshed;
+    }
+  }
+
+  const result = await rawFetch<T>(path, options, activeToken);
+
+  if (result.ok) return result.data as T;
+
+  // If 401 and we have a token, try to refresh
+  if (result.status === 401 && activeToken && path !== "/auth/refresh" && path !== "/auth/login") {
+    const newToken = await tryRefreshToken(activeToken);
+    if (newToken) {
+      // Retry the original request with the new token
+      const retry = await rawFetch<T>(path, options, newToken);
+      if (retry.ok) return retry.data as T;
+      if (retry.error) throw retry.error;
+    }
+    // Refresh failed — force logout
+    forceLogout();
+  }
+
+  throw result.error!;
+}
+
+/** Refresh the token using the /auth/refresh endpoint */
+export async function refreshToken(token: string): Promise<LoginResponse> {
+  return apiFetch<LoginResponse>("/auth/refresh", { method: "POST" }, token);
+}
+
+/** Force logout: clear token and redirect to login. */
+function forceLogout() {
+  // Dynamic import to avoid circular dependency
+  import("@/store/auth-store").then(({ useAuthStore }) => {
+    useAuthStore.getState().clearToken();
+  });
+  if (typeof window !== "undefined") {
+    window.location.href = "/login";
+  }
+}
+
+/** Try to refresh the token, updating the auth store. Deduplicates concurrent calls. */
+async function tryRefreshToken(currentToken: string): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      // Dynamic import to avoid circular dependency
+      const { useAuthStore } = await import("@/store/auth-store");
+      const res = await rawFetch<LoginResponse>("/auth/refresh", { method: "POST" }, currentToken);
+      if (res.ok && res.data?.access_token) {
+        useAuthStore.getState().setToken(res.data.access_token);
+        return res.data.access_token;
+      }
+      return null;
+    } catch {
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
 }
 
 export async function login(email: string, password: string) {
   return apiFetch<LoginResponse>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function requestPasswordReset(email: string) {
+  return apiFetch<ForgotPasswordResponse>("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetPassword(token: string, newPassword: string) {
+  return apiFetch<{ message: string }>("/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password: newPassword }),
+  });
+}
+
+export async function getInviteInfo(token: string) {
+  return apiFetch<InviteInfoResponse>(`/auth/invite/${token}`, {
+    method: "GET",
+  });
+}
+
+export async function acceptInvite(token: string, payload: { first_name?: string; last_name?: string; password: string; license_no?: string }) {
+  return apiFetch<{ message: string }>("/auth/invite/accept", {
+    method: "POST",
+    body: JSON.stringify({ token, ...payload }),
   });
 }
 
@@ -151,7 +314,39 @@ export async function deletePatient(id: string, token: string) {
   );
 }
 
+export async function fetchPatient(id: string, token: string) {
+  return apiFetch<Patient>(`/patients/${id}`, { method: "GET" }, token);
+}
+
 // ── Meetings ──────────────────────────────────────────
+
+export const MEETING_STATUSES = [
+  "scheduled",
+  "waiting",
+  "in_progress",
+  "overtime",
+  "completed",
+  "cancelled",
+] as const;
+export type MeetingStatus = (typeof MEETING_STATUSES)[number];
+
+export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
+  scheduled: "Scheduled",
+  waiting: "Waiting",
+  in_progress: "In Progress",
+  overtime: "Overtime",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+export const MEETING_STATUS_LABELS_TH: Record<MeetingStatus, string> = {
+  scheduled: "นัดหมายแล้ว",
+  waiting: "รอพบแพทย์",
+  in_progress: "กำลังตรวจ",
+  overtime: "เกินเวลา",
+  completed: "เสร็จแล้ว",
+  cancelled: "ยกเลิก",
+};
 
 export interface DoctorBrief {
   id: string;
@@ -175,6 +370,10 @@ export interface Meeting {
   note?: string | null;
   room?: string | null;
   user_id?: string | null;
+  status: MeetingStatus;
+  reason?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
   created_at?: string;
   updated_at?: string;
   doctor?: DoctorBrief | null;
@@ -194,6 +393,7 @@ interface FetchMeetingsParams {
   q?: string;
   doctor_id?: string;
   patient_id?: string;
+  status?: MeetingStatus;
   sort?: string;
   order?: SortOrder;
 }
@@ -205,6 +405,7 @@ export async function fetchMeetings(params: FetchMeetingsParams, token: string) 
   if (params.q) search.set("q", params.q);
   if (params.doctor_id) search.set("doctor_id", params.doctor_id);
   if (params.patient_id) search.set("patient_id", params.patient_id);
+  if (params.status) search.set("status", params.status);
   if (params.sort) search.set("sort", params.sort);
   if (params.order) search.set("order", params.order);
 
@@ -220,6 +421,7 @@ export interface MeetingCreatePayload {
   note?: string;
   room?: string;
   user_id: string;
+  status?: MeetingStatus;
 }
 
 export interface MeetingUpdatePayload {
@@ -229,6 +431,8 @@ export interface MeetingUpdatePayload {
   note?: string;
   room?: string;
   user_id?: string;
+  status?: MeetingStatus;
+  reason?: string;
 }
 
 export async function createMeeting(payload: MeetingCreatePayload, token: string) {
@@ -264,8 +468,15 @@ export interface User {
   last_name: string | null;
   role: string;
   is_active: boolean;
-  is_superuser: boolean;
+  avatar_url?: string | null;
   created_at?: string;
+  updated_at?: string;
+  deleted_at?: string | null;
+  specialty?: string | null;
+  department?: string | null;
+  license_no?: string | null;
+  license_expiry?: string | null;
+  verification_status?: string | null;
 }
 
 export interface UserCreate {
@@ -274,6 +485,12 @@ export interface UserCreate {
   first_name?: string;
   last_name?: string;
   role?: string;
+  is_active?: boolean;
+  specialty?: string;
+  department?: string;
+  license_no?: string;
+  license_expiry?: string;
+  verification_status?: string;
 }
 
 export interface UserUpdate {
@@ -283,6 +500,11 @@ export interface UserUpdate {
   last_name?: string;
   role?: string;
   is_active?: boolean;
+  specialty?: string;
+  department?: string;
+  license_no?: string;
+  license_expiry?: string;
+  verification_status?: string;
 }
 
 export interface UserListResponse {
@@ -292,7 +514,7 @@ export interface UserListResponse {
   total: number;
 }
 
-export async function fetchUsers(params: { page?: number; limit?: number; q?: string; sort?: string; order?: "asc" | "desc"; role?: string }, token: string) {
+export async function fetchUsers(params: { page?: number; limit?: number; q?: string; sort?: string; order?: "asc" | "desc"; role?: string; verification_status?: string }, token: string) {
   const query = new URLSearchParams();
   if (params.page) query.append("page", params.page.toString());
   if (params.limit) query.append("limit", params.limit.toString());
@@ -300,6 +522,7 @@ export async function fetchUsers(params: { page?: number; limit?: number; q?: st
   if (params.sort) query.append("sort", params.sort);
   if (params.order) query.append("order", params.order);
   if (params.role) query.append("role", params.role);
+  if (params.verification_status) query.append("verification_status", params.verification_status);
 
   return apiFetch<UserListResponse>(`/users?${query.toString()}`, {}, token);
 }
@@ -307,6 +530,20 @@ export async function fetchUsers(params: { page?: number; limit?: number; q?: st
 export async function createUser(data: UserCreate, token: string) {
   return apiFetch<User>(
     "/users",
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    token
+  );
+}
+
+export async function createUserInvite(
+  data: { email: string; role: string },
+  token: string
+) {
+  return apiFetch<UserInviteCreateResponse>(
+    "/users/invites",
     {
       method: "POST",
       body: JSON.stringify(data),
@@ -336,4 +573,378 @@ export async function deleteUser(id: string, token: string) {
   );
 }
 
+export async function verifyUser(id: string, token: string) {
+  return apiFetch<User>(
+    `/users/${id}/verify`,
+    {
+      method: "POST",
+    },
+    token
+  );
+}
 
+// ── Stats ──────────────────────────────────────────────────────
+
+export interface MonthlyStats {
+  month: string;
+  new_patients: number;
+  consultations: number;
+}
+
+export interface OverviewStatsResponse {
+  year: number;
+  monthly: MonthlyStats[];
+  totals: { patients: number; meetings: number };
+}
+
+export async function fetchOverviewStats(token: string, year?: number) {
+  const query = year ? `?year=${year}` : "";
+  return apiFetch<OverviewStatsResponse>(`/stats/overview${query}`, {}, token);
+}
+
+// ── Dense Mode Types ──────────────────────────────────────────
+
+export interface PatientHeader {
+  id: string;
+  first_name: string;
+  last_name: string;
+  date_of_birth: string;
+  age: number | null;
+  gender: string | null;
+  allergies: string | null;
+  blood_group: string | null;
+  risk_score: number | null;
+  primary_diagnosis: string | null;
+  ward: string | null;
+  bed_number: string | null;
+  people_id: string | null;
+}
+
+export interface ActiveEncounter {
+  id: string;
+  encounter_type: string;
+  status: string;
+  admitted_at: string;
+  ward: string | null;
+  bed_number: string | null;
+  chief_complaint: string | null;
+}
+
+export interface ActiveMedication {
+  id: string;
+  name: string;
+  dosage: string | null;
+  frequency: string | null;
+  route: string | null;
+  status: string;
+}
+
+export interface PendingLab {
+  id: string;
+  test_name: string;
+  category: string | null;
+  status: string;
+  ordered_at: string;
+}
+
+export interface ClinicalAlert {
+  id: string;
+  severity: "critical" | "warning" | "info";
+  category: string;
+  title: string;
+  message: string | null;
+  created_at: string;
+  is_acknowledged: boolean;
+}
+
+export interface CurrentConditionBrief {
+  id: string;
+  condition: string;
+  severity: string | null;
+}
+
+export interface TreatmentBrief {
+  id: string;
+  name: string;
+  is_active: boolean;
+}
+
+export interface AssignedDoctor {
+  id: string;
+  name: string;
+  role: string | null;
+}
+
+export interface PatientDenseSummary {
+  patient: PatientHeader;
+  active_encounter: ActiveEncounter | null;
+  active_medications: ActiveMedication[];
+  pending_labs: PendingLab[];
+  active_alerts: ClinicalAlert[];
+  current_conditions: CurrentConditionBrief[];
+  active_treatments: TreatmentBrief[];
+  assigned_doctors: AssignedDoctor[];
+}
+
+export interface TimelineEvent {
+  id: string;
+  patient_id: string;
+  event_type: string;
+  event_time: string;
+  title: string;
+  summary: string | null;
+  details: string | null;
+  is_abnormal: boolean;
+  author_id: string | null;
+  author_name: string | null;
+  reference_id: string | null;
+  reference_type: string | null;
+  created_at: string;
+}
+
+export interface TimelineResponse {
+  items: TimelineEvent[];
+  next_cursor: string | null;
+  has_more: boolean;
+}
+
+export interface LabTrendPoint {
+  id: string;
+  test_name: string;
+  result_value: string;
+  result_unit: string | null;
+  reference_range: string | null;
+  is_abnormal: boolean;
+  resulted_at: string | null;
+}
+
+export interface OrderCreatePayload {
+  order_type: "medication" | "lab" | "imaging";
+  name: string;
+  dosage?: string;
+  frequency?: string;
+  route?: string;
+  category?: string;
+  notes?: string;
+  start_date?: string;
+}
+
+export interface NoteCreatePayload {
+  note_type?: string;
+  subjective?: string;
+  objective?: string;
+  assessment?: string;
+  plan?: string;
+  title?: string;
+}
+
+// ── Dense Mode API Functions ──────────────────────────────────
+
+export async function fetchPatientSummary(patientId: string, token: string) {
+  return apiFetch<PatientDenseSummary>(`/patients/${patientId}/summary`, { method: "GET" }, token);
+}
+
+export async function fetchPatientTimeline(patientId: string, token: string, cursor?: string, limit?: number) {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  if (limit) params.set("limit", limit.toString());
+  const qs = params.toString();
+  return apiFetch<TimelineResponse>(`/patients/${patientId}/timeline${qs ? `?${qs}` : ""}`, { method: "GET" }, token);
+}
+
+export async function fetchActiveOrders(patientId: string, token: string) {
+  return apiFetch<{ medications: ActiveMedication[]; labs: PendingLab[] }>(
+    `/patients/${patientId}/active-orders`,
+    { method: "GET" },
+    token
+  );
+}
+
+export async function fetchLabTrends(patientId: string, token: string, testName?: string) {
+  const params = new URLSearchParams();
+  if (testName) params.set("test_name", testName);
+  const qs = params.toString();
+  return apiFetch<{ results: LabTrendPoint[] }>(
+    `/patients/${patientId}/results/trends${qs ? `?${qs}` : ""}`,
+    { method: "GET" },
+    token
+  );
+}
+
+export async function createOrder(patientId: string, payload: OrderCreatePayload, token: string) {
+  return apiFetch<ActiveMedication | PendingLab>(
+    `/patients/${patientId}/orders`,
+    { method: "POST", body: JSON.stringify(payload) },
+    token
+  );
+}
+
+export async function createNote(patientId: string, payload: NoteCreatePayload, token: string) {
+  return apiFetch<TimelineEvent>(
+    `/patients/${patientId}/notes`,
+    { method: "POST", body: JSON.stringify(payload) },
+    token
+  );
+}
+
+export async function acknowledgeAlert(alertId: string, token: string, reason?: string) {
+  return apiFetch<{ message: string }>(
+    `/alerts/${alertId}/acknowledge`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+    token
+  );
+}
+
+export async function breakGlassAccess(patientId: string, reason: string, token: string) {
+  return apiFetch<PatientDenseSummary>(
+    `/patients/${patientId}/break-glass`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+    token
+  );
+}
+
+// ── Audit Logs ──────────────────────────────────────────────────
+
+export interface AuditLog {
+  id: string;
+  user_id: string | null;
+  user_email: string | null;
+  user_name: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  details: string | null;
+  ip_address: string | null;
+  is_break_glass: boolean;
+  break_glass_reason: string | null;
+  created_at: string;
+}
+
+export interface AuditLogListResponse {
+  items: AuditLog[];
+  page: number;
+  limit: number;
+  total: number;
+}
+
+interface FetchAuditLogsParams {
+  page?: number;
+  limit?: number;
+  action?: string;
+  resource_type?: string;
+  user_id?: string;
+  is_break_glass?: boolean;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+}
+
+export async function fetchAuditLogs(params: FetchAuditLogsParams, token: string) {
+  const query = new URLSearchParams();
+  if (params.page) query.set("page", params.page.toString());
+  if (params.limit) query.set("limit", params.limit.toString());
+  if (params.action) query.set("action", params.action);
+  if (params.resource_type) query.set("resource_type", params.resource_type);
+  if (params.user_id) query.set("user_id", params.user_id);
+  if (params.is_break_glass !== undefined) query.set("is_break_glass", params.is_break_glass.toString());
+  if (params.date_from) query.set("date_from", params.date_from);
+  if (params.date_to) query.set("date_to", params.date_to);
+  if (params.search) query.set("search", params.search);
+
+  const qs = query.toString();
+  return apiFetch<AuditLogListResponse>(`/audit/logs${qs ? `?${qs}` : ""}`, {}, token);
+}
+
+// ── Security API ──────────────────────────────────────────
+
+export interface IPBan {
+  id: string;
+  ip_address: string;
+  reason: string | null;
+  failed_attempts: number;
+  banned_until: string | null;
+  created_at: string;
+}
+
+export interface IPBanListResponse {
+  items: IPBan[];
+  total: number;
+}
+
+export interface LoginAttemptRecord {
+  id: string;
+  ip_address: string;
+  email: string;
+  success: boolean;
+  created_at: string;
+}
+
+export interface LoginAttemptListResponse {
+  items: LoginAttemptRecord[];
+  total: number;
+}
+
+export interface SecurityStats {
+  active_ip_bans: number;
+  failed_logins_24h: number;
+  locked_accounts: number;
+  total_attempts_24h: number;
+}
+
+export async function fetchSecurityStats(token: string) {
+  return apiFetch<SecurityStats>("/security/stats", {}, token);
+}
+
+export async function fetchIPBans(params: { page?: number; limit?: number }, token: string) {
+  const query = new URLSearchParams();
+  if (params.page) query.set("page", params.page.toString());
+  if (params.limit) query.set("limit", params.limit.toString());
+  const qs = query.toString();
+  return apiFetch<IPBanListResponse>(`/security/ip-bans${qs ? `?${qs}` : ""}`, {}, token);
+}
+
+export async function deleteIPBan(ipAddress: string, token: string) {
+  return apiFetch<{ message: string }>(`/security/ip-bans/${encodeURIComponent(ipAddress)}`, { method: "DELETE" }, token);
+}
+
+export async function fetchLoginAttempts(
+  params: { page?: number; limit?: number; ip_address?: string; email?: string; success?: boolean },
+  token: string,
+) {
+  const query = new URLSearchParams();
+  if (params.page) query.set("page", params.page.toString());
+  if (params.limit) query.set("limit", params.limit.toString());
+  if (params.ip_address) query.set("ip_address", params.ip_address);
+  if (params.email) query.set("email", params.email);
+  if (params.success !== undefined) query.set("success", params.success.toString());
+  const qs = query.toString();
+  return apiFetch<LoginAttemptListResponse>(`/security/login-attempts${qs ? `?${qs}` : ""}`, {}, token);
+}
+
+// ── Bulk Delete ──────────────────────────────────────────
+
+export interface BulkDeletePatientsResponse {
+  deleted: number;
+  errors: string[];
+}
+
+export interface BulkDeleteUsersResponse {
+  deleted: number;
+  skipped: string[];
+}
+
+export async function bulkDeletePatients(ids: string[], token: string) {
+  return apiFetch<BulkDeletePatientsResponse>(
+    "/patients/bulk-delete",
+    { method: "POST", body: JSON.stringify({ ids }) },
+    token,
+  );
+}
+
+export async function bulkDeleteUsers(ids: string[], token: string) {
+  return apiFetch<BulkDeleteUsersResponse>(
+    "/users/bulk-delete",
+    { method: "POST", body: JSON.stringify({ ids }) },
+    token,
+  );
+}

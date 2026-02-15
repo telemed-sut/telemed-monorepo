@@ -76,6 +76,9 @@ export default function LoginPage() {
             <p className="text-muted-foreground text-sm">
               Welcome back! Please enter your details.
             </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Access is limited to approved healthcare staff. Accounts are created by administrators.
+            </p>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -95,9 +98,8 @@ export default function LoginPage() {
               <div className="flex items-center justify-between mb-2">
                 <Label htmlFor="password">Password</Label>
                 <Link
-                  href="#"
+                  href="/forgot-password"
                   className="text-sm text-primary hover:underline"
-                  onClick={(e) => e.preventDefault()}
                 >
                   Forgot password?
                 </Link>

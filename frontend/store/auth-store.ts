@@ -3,6 +3,9 @@ import { jwtDecode } from "jwt-decode";
 
 const STORAGE_KEY = "patient-app.token";
 
+/** Refresh token 5 minutes before expiry */
+const REFRESH_BUFFER_SECONDS = 300;
+
 interface AuthPayload {
   sub?: string;  // user ID
   role?: string;
@@ -18,6 +21,10 @@ interface AuthState {
   setToken: (token: string) => void;
   clearToken: () => void;
   hydrate: () => void;
+  /** Returns seconds until token expires, or 0 if expired/missing */
+  getTokenTTL: () => number;
+  /** Returns true if the token will expire within REFRESH_BUFFER_SECONDS */
+  isTokenExpiringSoon: () => boolean;
 }
 
 const readStoredToken = () => {
@@ -38,7 +45,7 @@ const getPayloadFromToken = (token: string | null): { role: string | null; userI
   }
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   role: null,
   userId: null,
@@ -60,6 +67,21 @@ export const useAuthStore = create<AuthState>((set) => ({
     const stored = readStoredToken();
     const { role, userId } = getPayloadFromToken(stored);
     set({ token: stored, role, userId, hydrated: true });
+  },
+  getTokenTTL: () => {
+    const { token } = get();
+    if (!token) return 0;
+    try {
+      const decoded = jwtDecode<AuthPayload>(token);
+      if (!decoded.exp) return 0;
+      const now = Math.floor(Date.now() / 1000);
+      return Math.max(decoded.exp - now, 0);
+    } catch {
+      return 0;
+    }
+  },
+  isTokenExpiringSoon: () => {
+    return get().getTokenTTL() < REFRESH_BUFFER_SECONDS;
   },
 }));
 

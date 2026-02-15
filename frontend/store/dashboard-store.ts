@@ -10,8 +10,8 @@ interface DashboardState {
   setDepartmentFilter: (filter: string) => void;
   setStatusFilter: (filter: string) => void;
   clearFilters: () => void;
-  
-  // Layout options
+
+  // Overview layout options
   showAlertBanner: boolean;
   showStatsCards: boolean;
   showChart: boolean;
@@ -23,6 +23,22 @@ interface DashboardState {
   setShowTable: (show: boolean) => void;
   setLayoutDensity: (density: LayoutDensity) => void;
   resetLayout: () => void;
+
+  // Patients page layout
+  showPatientStats: boolean;
+  showPatientTable: boolean;
+  setShowPatientStats: (show: boolean) => void;
+  setShowPatientTable: (show: boolean) => void;
+  resetPatientsLayout: () => void;
+
+  // Users page layout
+  showUserStats: boolean;
+  showUserCharts: boolean;
+  showUserTable: boolean;
+  setShowUserStats: (show: boolean) => void;
+  setShowUserCharts: (show: boolean) => void;
+  setShowUserTable: (show: boolean) => void;
+  resetUsersLayout: () => void;
 }
 
 export const useDashboardStore = create<DashboardState>((set) => ({
@@ -38,8 +54,8 @@ export const useDashboardStore = create<DashboardState>((set) => ({
       departmentFilter: "all",
       statusFilter: "all",
     }),
-    
-  // Layout options
+
+  // Overview layout options
   showAlertBanner: true,
   showStatsCards: true,
   showChart: true,
@@ -58,5 +74,29 @@ export const useDashboardStore = create<DashboardState>((set) => ({
       showTable: true,
       layoutDensity: "default",
     }),
-}));
 
+  // Patients page layout
+  showPatientStats: true,
+  showPatientTable: true,
+  setShowPatientStats: (show) => set({ showPatientStats: show }),
+  setShowPatientTable: (show) => set({ showPatientTable: show }),
+  resetPatientsLayout: () =>
+    set({
+      showPatientStats: true,
+      showPatientTable: true,
+    }),
+
+  // Users page layout
+  showUserStats: true,
+  showUserCharts: true,
+  showUserTable: true,
+  setShowUserStats: (show) => set({ showUserStats: show }),
+  setShowUserCharts: (show) => set({ showUserCharts: show }),
+  setShowUserTable: (show) => set({ showUserTable: show }),
+  resetUsersLayout: () =>
+    set({
+      showUserStats: true,
+      showUserCharts: true,
+      showUserTable: true,
+    }),
+}));

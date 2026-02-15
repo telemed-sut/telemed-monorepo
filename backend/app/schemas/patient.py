@@ -20,6 +20,14 @@ class PatientBase(BaseModel):
     email: Optional[EmailStr] = None
     address: Optional[str] = Field(default=None, min_length=5, max_length=255)
 
+    # Dense mode clinical fields
+    allergies: Optional[str] = None
+    blood_group: Optional[str] = Field(default=None, max_length=10)
+    risk_score: Optional[int] = Field(default=None, ge=0, le=10)
+    primary_diagnosis: Optional[str] = Field(default=None, max_length=500)
+    ward: Optional[str] = Field(default=None, max_length=100)
+    bed_number: Optional[str] = Field(default=None, max_length=20)
+
     @model_validator(mode="before")
     @classmethod
     def auto_fill_name(cls, data):
@@ -113,6 +121,12 @@ class PatientUpdate(BaseModel):
     phone: Optional[str] = Field(default=None, max_length=50)
     email: Optional[EmailStr] = None
     address: Optional[str] = Field(default=None, max_length=255)
+    allergies: Optional[str] = None
+    blood_group: Optional[str] = Field(default=None, max_length=10)
+    risk_score: Optional[int] = Field(default=None, ge=0, le=10)
+    primary_diagnosis: Optional[str] = Field(default=None, max_length=500)
+    ward: Optional[str] = Field(default=None, max_length=100)
+    bed_number: Optional[str] = Field(default=None, max_length=20)
 
 
 class PatientOut(PatientBase):

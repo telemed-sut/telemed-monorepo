@@ -1,9 +1,23 @@
+import re
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from app.models.user import UserRole
+from app.models.enums import UserRole, VerificationStatus
+
+# Roles considered clinical (require license info)
+CLINICAL_ROLES = {
+    UserRole.doctor,
+    UserRole.nurse,
+    UserRole.pharmacist,
+    UserRole.medical_technologist,
+    UserRole.psychologist,
+}
+
+# Thai medical license pattern: ว.NNNNN, พ.NNNNN, MD12345, or plain digits
+LICENSE_NO_PATTERN = re.compile(r"^([A-Za-z\u0E00-\u0E7F]{1,5}\.?\d{4,6}|\d{4,6})$")
 
 
 class UserBase(BaseModel):
@@ -12,7 +26,31 @@ class UserBase(BaseModel):
     last_name: Optional[str] = None
     role: UserRole = UserRole.staff
     is_active: bool = True
-    is_superuser: bool = False
+    specialty: Optional[str] = None
+    department: Optional[str] = None
+    license_no: Optional[str] = None
+    license_expiry: Optional[datetime] = None
+    verification_status: VerificationStatus = VerificationStatus.unverified
+
+    @field_validator("license_no")
+    @classmethod
+    def validate_license_no(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v.strip() != "" and not LICENSE_NO_PATTERN.match(v):
+            raise ValueError(
+                "Invalid license number format. Expected pattern like ว.12345 or MD12345."
+            )
+        return v
+
+    @field_validator("license_expiry")
+    @classmethod
+    def validate_license_expiry(cls, v: Optional[datetime]) -> Optional[datetime]:
+        if v is not None:
+            from datetime import timezone
+            # Treat naive datetimes as UTC
+            aware_v = v if v.tzinfo is not None else v.replace(tzinfo=timezone.utc)
+            if aware_v < datetime.now(timezone.utc):
+                raise ValueError("License expiry date must be in the future.")
+        return v
 
 
 class UserCreate(UserBase):
@@ -26,11 +64,37 @@ class UserUpdate(BaseModel):
     last_name: Optional[str] = None
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None
-    is_superuser: Optional[bool] = None
+    specialty: Optional[str] = None
+    department: Optional[str] = None
+    license_no: Optional[str] = None
+    license_expiry: Optional[datetime] = None
+    verification_status: Optional[VerificationStatus] = None
+
+    @field_validator("license_no")
+    @classmethod
+    def validate_license_no(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v.strip() != "" and not LICENSE_NO_PATTERN.match(v):
+            raise ValueError(
+                "Invalid license number format. Expected pattern like ว.12345 or MD12345."
+            )
+        return v
 
 
-class UserOut(UserBase):
+class UserOut(BaseModel):
     id: UUID
+    email: EmailStr
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    role: UserRole
+    is_active: bool = True
+    specialty: Optional[str] = None
+    department: Optional[str] = None
+    license_no: Optional[str] = None
+    license_expiry: Optional[datetime] = None
+    verification_status: VerificationStatus = VerificationStatus.unverified
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    deleted_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
@@ -40,3 +104,13 @@ class UserListResponse(BaseModel):
     page: int
     limit: int
     total: int
+
+
+class UserInviteCreateRequest(BaseModel):
+    email: EmailStr
+    role: UserRole = UserRole.staff
+
+
+class UserInviteCreateResponse(BaseModel):
+    invite_url: str
+    expires_at: datetime
