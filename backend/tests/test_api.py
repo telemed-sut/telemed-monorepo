@@ -102,3 +102,138 @@ def test_protected_endpoint_without_token(client: TestClient):
     
     response = client.post("/auth/logout")
     assert response.status_code == 401
+
+
+def test_forgot_password_endpoint(client: TestClient, db: Session):
+    """Forgot password should return a generic success response"""
+    user = User(
+        email="forgot@example.com",
+        password_hash=get_password_hash("TestPassword123"),
+        role=UserRole.staff
+    )
+    db.add(user)
+    db.commit()
+
+    response = client.post("/auth/forgot-password", json={"email": "forgot@example.com"})
+    assert response.status_code == 200
+    assert "message" in response.json()
+
+
+def test_reset_password_with_valid_token(client: TestClient, db: Session, monkeypatch):
+    """Reset password should update stored password hash when token is valid"""
+    user = User(
+        email="reset@example.com",
+        password_hash=get_password_hash("OldPassword123"),
+        role=UserRole.staff
+    )
+    db.add(user)
+    db.commit()
+
+    monkeypatch.setenv("PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE", "true")
+    from app.core.config import get_settings
+    get_settings.cache_clear()
+
+    forgot_response = client.post("/auth/forgot-password", json={"email": "reset@example.com"})
+    reset_token = forgot_response.json().get("reset_token")
+    assert reset_token
+
+    reset_response = client.post(
+        "/auth/reset-password",
+        json={"token": reset_token, "new_password": "NewPassword123"},
+    )
+    assert reset_response.status_code == 200
+
+    login_response = client.post("/auth/login", json={"email": "reset@example.com", "password": "NewPassword123"})
+    assert login_response.status_code == 200
+    get_settings.cache_clear()
+
+
+def test_reset_password_with_invalid_token(client: TestClient):
+    response = client.post(
+        "/auth/reset-password",
+        json={"token": "invalid-token", "new_password": "NewPassword123"},
+    )
+    assert response.status_code == 400
+
+
+def test_admin_can_create_invite_and_accept_it(client: TestClient, db: Session):
+    admin = User(
+        email="invite-admin@example.com",
+        password_hash=get_password_hash("AdminPass123"),
+        role=UserRole.admin,
+    )
+    db.add(admin)
+    db.commit()
+
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "invite-admin@example.com", "password": "AdminPass123"},
+    )
+    token = login_response.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    invite_response = client.post(
+        "/users/invites",
+        json={"email": "doctor@example.com", "role": "staff"},
+        headers=headers,
+    )
+    assert invite_response.status_code == 200
+    invite_url = invite_response.json()["invite_url"]
+    invite_token = invite_url.rsplit("/", 1)[-1]
+    assert invite_token
+
+    invite_info_response = client.get(f"/auth/invite/{invite_token}")
+    assert invite_info_response.status_code == 200
+    assert invite_info_response.json()["email"] == "doctor@example.com"
+
+    accept_response = client.post(
+        "/auth/invite/accept",
+        json={
+            "token": invite_token,
+            "first_name": "Doctor",
+            "last_name": "One",
+            "password": "DoctorPass123",
+        },
+    )
+    assert accept_response.status_code == 200
+
+    login_new_user = client.post(
+        "/auth/login",
+        json={"email": "doctor@example.com", "password": "DoctorPass123"},
+    )
+    assert login_new_user.status_code == 200
+
+
+def test_invite_link_is_single_use(client: TestClient, db: Session):
+    admin = User(
+        email="single-admin@example.com",
+        password_hash=get_password_hash("AdminPass123"),
+        role=UserRole.admin,
+    )
+    db.add(admin)
+    db.commit()
+
+    token = client.post(
+        "/auth/login",
+        json={"email": "single-admin@example.com", "password": "AdminPass123"},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    invite_url = client.post(
+        "/users/invites",
+        json={"email": "single-use@example.com", "role": "staff"},
+        headers=headers,
+    ).json()["invite_url"]
+    invite_token = invite_url.rsplit("/", 1)[-1]
+
+    first_accept = client.post(
+        "/auth/invite/accept",
+        json={"token": invite_token, "password": "Password123"},
+    )
+    assert first_accept.status_code == 200
+
+    second_accept = client.post(
+        "/auth/invite/accept",
+        json={"token": invite_token, "password": "Password123"},
+    )
+    assert second_accept.status_code == 400

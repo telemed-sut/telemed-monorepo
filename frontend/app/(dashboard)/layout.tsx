@@ -2,17 +2,26 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { DashboardHeader } from "@/components/dashboard/header";
-import { DashboardContent } from "@/components/dashboard/content";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { PageTransition } from "@/components/dashboard/page-transition";
 import { useAuthStore } from "@/store/auth-store";
+import { useTokenRefresh } from "@/hooks/use-token-refresh";
+import DashboardLoading from "./loading";
 
-export default function PatientsPage() {
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const router = useRouter();
   const token = useAuthStore((state) => state.token);
   const hydrate = useAuthStore((state) => state.hydrate);
   const hydrated = useAuthStore((state) => state.hydrated);
+
+  // Proactively refresh token before it expires
+  useTokenRefresh();
 
   useEffect(() => {
     hydrate();
@@ -24,9 +33,7 @@ export default function PatientsPage() {
     }
   }, [hydrated, token, router]);
 
-  if (!hydrated) {
-    return null;
-  }
+  const ready = hydrated && !!token;
 
   return (
     <SidebarProvider className="bg-sidebar">
@@ -34,7 +41,11 @@ export default function PatientsPage() {
       <div className="h-svh overflow-hidden lg:p-2 w-full">
         <div className="lg:border lg:rounded-md overflow-hidden flex flex-col items-center justify-start bg-container h-full w-full bg-background">
           <DashboardHeader />
-          <DashboardContent />
+          {ready ? (
+            <PageTransition>{children}</PageTransition>
+          ) : (
+            <DashboardLoading />
+          )}
         </div>
       </div>
     </SidebarProvider>

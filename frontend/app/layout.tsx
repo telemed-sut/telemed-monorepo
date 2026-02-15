@@ -4,6 +4,8 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthInitializer } from "@/components/auth-initializer";
+import { ProgressBar } from "@/components/progress-bar";
+import { TranslationSafeguard } from "@/components/translation-safeguard";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -18,8 +20,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Dashboard 3 - Square UI",
-  description: "HR Dashboard template built with Next.js and shadcn/ui",
+  title: "E Med Help SUT — Telemedicine Dashboard",
+  description: "ระบบจัดการผู้ป่วยและนัดหมายแพทย์ทางไกล — E Med Help SUT",
 };
 
 export default function RootLayout({
@@ -30,7 +32,8 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#f3f3f3] dark:bg-background`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background`}
+        suppressHydrationWarning
       >
         <ThemeProvider
           attribute="class"
@@ -38,6 +41,8 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
+          <ProgressBar />
+          <TranslationSafeguard />
           <AuthInitializer />
           {children}
           <Toaster />

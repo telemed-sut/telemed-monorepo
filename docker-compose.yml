@@ -7,7 +7,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_API_BASE_URL=http://backend:8000
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
     depends_on:
       - backend
     restart: always
@@ -21,6 +21,8 @@ services:
       - DATABASE_URL=postgresql://user:password@db:5432/patient_db
       - JWT_SECRET=supersecretkey
       - JWT_EXPIRES_IN=3600
+    volumes:
+      - ./backend:/app
     depends_on:
       - db
     restart: always

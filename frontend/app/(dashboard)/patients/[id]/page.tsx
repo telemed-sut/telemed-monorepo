@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 import { DashboardHeader } from "@/components/dashboard/header";
+import { PatientDetailContent } from "@/components/dashboard/patient-detail";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { useAuthStore } from "@/store/auth-store";
-import { OverviewContent } from "@/components/dashboard/overview-content";
 
-export default function OverviewPage() {
+export default function PatientDetailPage() {
     const router = useRouter();
+    const params = useParams();
+    const patientId = params.id as string;
     const token = useAuthStore((state) => state.token);
     const hydrate = useAuthStore((state) => state.hydrate);
     const hydrated = useAuthStore((state) => state.hydrated);
@@ -34,7 +36,7 @@ export default function OverviewPage() {
             <div className="h-svh overflow-hidden lg:p-2 w-full">
                 <div className="lg:border lg:rounded-md overflow-hidden flex flex-col items-center justify-start bg-container h-full w-full bg-background">
                     <DashboardHeader />
-                    <OverviewContent />
+                    <PatientDetailContent patientId={patientId} />
                 </div>
             </div>
         </SidebarProvider>

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 from uuid import UUID
 
@@ -5,6 +6,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
+from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
 from app.models.patient import Patient
 from app.models.user import User
@@ -35,8 +37,20 @@ def get_meeting(db: Session, meeting_id: str) -> Optional[Meeting]:
         return None
 
 
-def update_meeting(db: Session, meeting: Meeting, payload: MeetingUpdate) -> Meeting:
+def update_meeting(
+    db: Session,
+    meeting: Meeting,
+    payload: MeetingUpdate,
+    actor_id: Optional[UUID] = None,
+) -> Meeting:
     data = payload.model_dump(exclude_unset=True)
+
+    # Handle cancellation metadata
+    if data.get("status") == MeetingStatus.cancelled and meeting.status != MeetingStatus.cancelled:
+        data["cancelled_at"] = datetime.now(timezone.utc)
+        if actor_id:
+            data["cancelled_by"] = actor_id
+
     for key, value in data.items():
         setattr(meeting, key, value)
     db.add(meeting)
@@ -60,6 +74,7 @@ def list_meetings(
     patient_id: Optional[str] = None,
     sort: str = "date_time",
     order: str = "desc",
+    status_filter: Optional[str] = None,
 ) -> Tuple[List[Meeting], int]:
     stmt = select(Meeting).options(
         joinedload(Meeting.doctor),
@@ -80,6 +95,14 @@ def list_meetings(
         except ValueError:
             pass
 
+    # Filter by status
+    if status_filter:
+        try:
+            status_enum = MeetingStatus(status_filter)
+            stmt = stmt.where(Meeting.status == status_enum)
+        except ValueError:
+            pass
+
     # Search in description, note, room
     if q:
         pattern = f"%{q}%"
@@ -91,13 +114,7 @@ def list_meetings(
             )
         )
 
-    # Count total (without joins for performance)
-    count_stmt = select(func.count()).select_from(
-        select(Meeting.id)
-        .where(*[c for c in stmt.whereclause.clauses] if stmt.whereclause is not None else [])
-        .subquery()
-    )
-    # Simpler count approach
+    # Count total
     count_base = select(Meeting)
     if doctor_id:
         try:
@@ -107,6 +124,12 @@ def list_meetings(
     if patient_id:
         try:
             count_base = count_base.where(Meeting.user_id == UUID(patient_id))
+        except ValueError:
+            pass
+    if status_filter:
+        try:
+            status_enum = MeetingStatus(status_filter)
+            count_base = count_base.where(Meeting.status == status_enum)
         except ValueError:
             pass
     if q:

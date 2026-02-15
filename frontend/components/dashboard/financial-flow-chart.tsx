@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Invoice01Icon,
+  Stethoscope02Icon,
   MoreHorizontalIcon,
   ChartBarLineIcon,
   ChartLineData01Icon,
@@ -40,21 +40,9 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
-
-const fullYearData = [
-  { month: "Jan", moneyIn: 155000, moneyOut: 25000, moneyInChange: 8.5, moneyOutChange: -5.2 },
-  { month: "Feb", moneyIn: 200000, moneyOut: 100000, moneyInChange: 12.3, moneyOutChange: 8.7 },
-  { month: "Mar", moneyIn: 210000, moneyOut: 100000, moneyInChange: 5.0, moneyOutChange: 0.0 },
-  { month: "Apr", moneyIn: 280000, moneyOut: 175000, moneyInChange: 15.2, moneyOutChange: 12.7 },
-  { month: "May", moneyIn: 265000, moneyOut: 120000, moneyInChange: -5.4, moneyOutChange: -8.3 },
-  { month: "Jun", moneyIn: 210000, moneyOut: 100000, moneyInChange: -10.2, moneyOutChange: -6.5 },
-  { month: "Jul", moneyIn: 210000, moneyOut: 170000, moneyInChange: 0.0, moneyOutChange: 14.2 },
-  { month: "Aug", moneyIn: 265000, moneyOut: 175000, moneyInChange: 11.8, moneyOutChange: 2.9 },
-  { month: "Sep", moneyIn: 265000, moneyOut: 135000, moneyInChange: 0.0, moneyOutChange: -9.1 },
-  { month: "Oct", moneyIn: 265000, moneyOut: 135000, moneyInChange: 0.0, moneyOutChange: 0.0 },
-  { month: "Nov", moneyIn: 265000, moneyOut: 135000, moneyInChange: 0.0, moneyOutChange: 0.0 },
-  { month: "Dec", moneyIn: 210000, moneyOut: 100000, moneyInChange: -7.5, moneyOutChange: -6.2 },
-];
+import { Skeleton } from "@/components/ui/skeleton";
+import { fetchOverviewStats, type MonthlyStats } from "@/lib/api";
+import { useAuthStore } from "@/store/auth-store";
 
 type ChartType = "bar" | "line" | "area";
 type TimePeriod = "3months" | "6months" | "year" | "q1" | "q2" | "q3" | "q4";
@@ -69,22 +57,22 @@ const periodLabels: Record<TimePeriod, string> = {
   q4: "Q4 (Oct-Dec)",
 };
 
-function getDataForPeriod(period: TimePeriod) {
+function getDataForPeriod(data: MonthlyStats[], period: TimePeriod) {
   switch (period) {
     case "3months":
-      return fullYearData.slice(-3);
+      return data.slice(-3);
     case "6months":
-      return fullYearData.slice(-6);
+      return data.slice(-6);
     case "q1":
-      return fullYearData.slice(0, 3);
+      return data.slice(0, 3);
     case "q2":
-      return fullYearData.slice(3, 6);
+      return data.slice(3, 6);
     case "q3":
-      return fullYearData.slice(6, 9);
+      return data.slice(6, 9);
     case "q4":
-      return fullYearData.slice(9, 12);
+      return data.slice(9, 12);
     default:
-      return fullYearData;
+      return data;
   }
 }
 
@@ -95,38 +83,30 @@ function CustomTooltip({
 }: TooltipProps<number, string>) {
   if (!active || !payload?.length) return null;
 
-  const moneyInData = payload.find((p) => p.dataKey === "moneyIn");
-  const moneyOutData = payload.find((p) => p.dataKey === "moneyOut");
-  const moneyIn = moneyInData?.value || 0;
-  const moneyOut = moneyOutData?.value || 0;
-  const moneyInChange = (moneyInData?.payload as { moneyInChange?: number })?.moneyInChange || 0;
-  const moneyOutChange = (moneyOutData?.payload as { moneyOutChange?: number })?.moneyOutChange || 0;
+  const patientsData = payload.find((p) => p.dataKey === "new_patients");
+  const consultationsData = payload.find((p) => p.dataKey === "consultations");
+  const patients = patientsData?.value || 0;
+  const consultations = consultationsData?.value || 0;
 
   return (
     <div className="bg-popover border border-border rounded-lg p-3 shadow-lg min-w-[160px]">
-      <p className="text-sm font-medium text-foreground mb-3">{label}, 2024</p>
+      <p className="text-sm font-medium text-foreground mb-3">{label}</p>
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="size-2 rounded-full bg-emerald-500" />
+            <div className="size-2 rounded-full bg-[#7ac2f0]" />
             <span className="text-sm font-semibold text-foreground">
-              ${(Number(moneyIn) / 1000).toFixed(0)}k
+              {Number(patients)} new patients
             </span>
           </div>
-          <span className={`text-xs font-medium ${moneyInChange >= 0 ? "text-red-500" : "text-emerald-500"}`}>
-            {moneyInChange >= 0 ? "↘" : "↗"} {Math.abs(moneyInChange).toFixed(1)}%
-          </span>
         </div>
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="size-2 rounded-full bg-[#162664] dark:bg-indigo-500" />
+            <div className="size-2 rounded-full bg-[#5aade0]" />
             <span className="text-sm font-semibold text-foreground">
-              ${(Number(moneyOut) / 1000).toFixed(0)}k
+              {Number(consultations)} consultations
             </span>
           </div>
-          <span className={`text-xs font-medium ${moneyOutChange >= 0 ? "text-emerald-500" : "text-red-500"}`}>
-            {moneyOutChange >= 0 ? "↗" : "↘"} {Math.abs(moneyOutChange).toFixed(1)}%
-          </span>
         </div>
       </div>
     </div>
@@ -135,54 +115,79 @@ function CustomTooltip({
 
 export function FinancialFlowChart() {
   const { theme } = useTheme();
-  const [chartType, setChartType] = useState<ChartType>("line");
+  const token = useAuthStore((state) => state.token);
+  const [chartType, setChartType] = useState<ChartType>("area");
   const [period, setPeriod] = useState<TimePeriod>("year");
   const [showGrid, setShowGrid] = useState(true);
-  const [showMoneyIn, setShowMoneyIn] = useState(true);
-  const [showMoneyOut, setShowMoneyOut] = useState(true);
-  const [smoothCurve, setSmoothCurve] = useState(false);
+  const [showPatients, setShowPatients] = useState(true);
+  const [showConsultations, setShowConsultations] = useState(true);
+  const [smoothCurve, setSmoothCurve] = useState(true);
+  const [monthlyData, setMonthlyData] = useState<MonthlyStats[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const isDark = theme === "dark";
   const axisColor = isDark ? "#71717a" : "#a1a1aa";
   const gridColor = isDark ? "#27272a" : "#e5e7eb";
-  const moneyOutColor = isDark ? "#6366f1" : "#162664";
+  const consultationsColor = "#5aade0";
 
-  const chartData = getDataForPeriod(period);
+  useEffect(() => {
+    if (!token) return;
+    setLoading(true);
+    fetchOverviewStats(token)
+      .then((res) => setMonthlyData(res.monthly))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  const chartData = getDataForPeriod(monthlyData, period);
 
   const resetToDefault = () => {
-    setChartType("line");
+    setChartType("area");
     setPeriod("year");
     setShowGrid(true);
-    setShowMoneyIn(true);
-    setShowMoneyOut(true);
-    setSmoothCurve(false);
+    setShowPatients(true);
+    setShowConsultations(true);
+    setSmoothCurve(true);
   };
+
+  if (loading) {
+    return (
+      <div className="rounded-xl border bg-card overflow-hidden">
+        <div className="px-5 py-4">
+          <Skeleton className="h-5 w-48" />
+        </div>
+        <div className="h-[250px] sm:h-[280px] px-5 pb-4">
+          <Skeleton className="h-full w-full rounded-lg" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4">
         <div className="flex items-center gap-2">
           <HugeiconsIcon
-            icon={Invoice01Icon}
-            className="size-5 text-muted-foreground"
+            icon={Stethoscope02Icon}
+            className="size-5 text-[#7ac2f0]"
           />
           <span className="font-medium text-muted-foreground">
-            Financial Flow
+            Patient &amp; Consultation Trends
           </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-4 sm:gap-6">
           <div className="hidden sm:flex items-center gap-4">
             <div className="flex items-center gap-1.5">
-              <div className="size-3 rounded-full bg-emerald-500" />
+              <div className="size-3 rounded-full bg-[#7ac2f0]" />
               <span className="text-xs font-medium text-muted-foreground">
-                Money in
+                New Patients
               </span>
             </div>
             <div className="flex items-center gap-1.5">
-              <div className="size-3 rounded-full bg-[#162664] dark:bg-indigo-500" />
+              <div className="size-3 rounded-full bg-[#5aade0]" />
               <span className="text-xs font-medium text-muted-foreground">
-                Money Out
+                Consultations
               </span>
             </div>
           </div>
@@ -270,19 +275,19 @@ export function FinancialFlowChart() {
                   Data Series
                 </p>
                 <DropdownMenuCheckboxItem
-                  checked={showMoneyIn}
-                  onCheckedChange={setShowMoneyIn}
+                  checked={showPatients}
+                  onCheckedChange={setShowPatients}
                 >
-                  <div className="size-3 rounded-full bg-emerald-500 mr-2" />
-                  Show Money In
+                  <div className="size-3 rounded-full bg-[#7ac2f0] mr-2" />
+                  Show New Patients
                 </DropdownMenuCheckboxItem>
 
                 <DropdownMenuCheckboxItem
-                  checked={showMoneyOut}
-                  onCheckedChange={setShowMoneyOut}
+                  checked={showConsultations}
+                  onCheckedChange={setShowConsultations}
                 >
-                  <div className="size-3 rounded-full bg-[#162664] dark:bg-indigo-500 mr-2" />
-                  Show Money Out
+                  <div className="size-3 rounded-full bg-[#5aade0] mr-2" />
+                  Show Consultations
                 </DropdownMenuCheckboxItem>
               </DropdownMenuGroup>
 
@@ -302,192 +307,91 @@ export function FinancialFlowChart() {
           {chartType === "bar" ? (
             <BarChart data={chartData} barGap={4}>
               <defs>
-                <linearGradient
-                  id="moneyInGradient"
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
-                  <stop offset="0%" stopColor="#2d9f75" stopOpacity={1} />
-                  <stop offset="100%" stopColor="#2d9f75" stopOpacity={0.6} />
+                <linearGradient id="patientsGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#7ac2f0" stopOpacity={1} />
+                  <stop offset="100%" stopColor="#7ac2f0" stopOpacity={0.6} />
                 </linearGradient>
-                <linearGradient
-                  id="moneyOutGradient"
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
-                  <stop offset="0%" stopColor={moneyOutColor} stopOpacity={1} />
-                  <stop offset="100%" stopColor={moneyOutColor} stopOpacity={0.6} />
+                <linearGradient id="consultationsGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={consultationsColor} stopOpacity={1} />
+                  <stop offset="100%" stopColor={consultationsColor} stopOpacity={0.6} />
                 </linearGradient>
               </defs>
               {showGrid && (
-                <CartesianGrid
-                  strokeDasharray="0"
-                  stroke={gridColor}
-                  vertical={false}
-                />
+                <CartesianGrid strokeDasharray="0" stroke={gridColor} vertical={false} />
               )}
-              <XAxis
-                dataKey="month"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: axisColor, fontSize: 12 }}
-                dy={10}
-              />
-              <YAxis
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: axisColor, fontSize: 10 }}
-                tickFormatter={(value) => `$${value / 1000}k`}
-                width={50}
-              />
-              <Tooltip
-                content={<CustomTooltip />}
-                cursor={{ fill: "#f4f4f5", radius: 4 }}
-              />
-              {showMoneyIn && (
-                <Bar
-                  dataKey="moneyIn"
-                  fill="url(#moneyInGradient)"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={22}
-                />
+              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 10 }} width={40} />
+              <Tooltip content={<CustomTooltip />} cursor={{ fill: "#f4f4f5", radius: 4 }} />
+              {showPatients && (
+                <Bar dataKey="new_patients" fill="url(#patientsGradient)" radius={[4, 4, 0, 0]} maxBarSize={22} />
               )}
-              {showMoneyOut && (
-                <Bar
-                  dataKey="moneyOut"
-                  fill="url(#moneyOutGradient)"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={22}
-                />
+              {showConsultations && (
+                <Bar dataKey="consultations" fill="url(#consultationsGradient)" radius={[4, 4, 0, 0]} maxBarSize={22} />
               )}
             </BarChart>
           ) : chartType === "line" ? (
             <LineChart data={chartData}>
               {showGrid && (
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke={gridColor}
-                  vertical={true}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={true} />
               )}
-              <XAxis
-                dataKey="month"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: axisColor, fontSize: 12 }}
-                dy={10}
-              />
-              <YAxis
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: axisColor, fontSize: 10 }}
-                tickFormatter={(value) => `$${value / 1000}k`}
-                width={50}
-              />
-              <Tooltip
-                content={<CustomTooltip />}
-                cursor={{ stroke: "#d4d4d8" }}
-              />
-              {showMoneyIn && (
+              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 10 }} width={40} />
+              <Tooltip content={<CustomTooltip />} cursor={{ stroke: "#d4d4d8" }} />
+              {showPatients && (
                 <Line
                   type={smoothCurve ? "monotone" : "linear"}
-                  dataKey="moneyIn"
-                  stroke="#2d9f75"
+                  dataKey="new_patients"
+                  stroke="#7ac2f0"
                   strokeWidth={2}
                   dot={false}
-                  activeDot={{
-                    r: 6,
-                    fill: "#2d9f75",
-                    stroke: "white",
-                    strokeWidth: 2,
-                  }}
+                  activeDot={{ r: 6, fill: "#7ac2f0", stroke: "white", strokeWidth: 2 }}
                 />
               )}
-              {showMoneyOut && (
+              {showConsultations && (
                 <Line
                   type={smoothCurve ? "monotone" : "linear"}
-                  dataKey="moneyOut"
-                  stroke={moneyOutColor}
+                  dataKey="consultations"
+                  stroke={consultationsColor}
                   strokeWidth={2}
                   dot={false}
-                  activeDot={{
-                    r: 6,
-                    fill: moneyOutColor,
-                    stroke: "white",
-                    strokeWidth: 2,
-                  }}
+                  activeDot={{ r: 6, fill: consultationsColor, stroke: "white", strokeWidth: 2 }}
                 />
               )}
             </LineChart>
           ) : (
             <AreaChart data={chartData}>
               <defs>
-                <linearGradient
-                  id="moneyInAreaGradient"
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
-                  <stop offset="0%" stopColor="#2d9f75" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#2d9f75" stopOpacity={0.05} />
+                <linearGradient id="patientsAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#7ac2f0" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#7ac2f0" stopOpacity={0.05} />
                 </linearGradient>
-                <linearGradient
-                  id="moneyOutAreaGradient"
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
-                  <stop offset="0%" stopColor={moneyOutColor} stopOpacity={0.3} />
-                  <stop offset="100%" stopColor={moneyOutColor} stopOpacity={0.05} />
+                <linearGradient id="consultationsAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={consultationsColor} stopOpacity={0.3} />
+                  <stop offset="100%" stopColor={consultationsColor} stopOpacity={0.05} />
                 </linearGradient>
               </defs>
               {showGrid && (
-                <CartesianGrid
-                  strokeDasharray="0"
-                  stroke={gridColor}
-                  vertical={false}
-                />
+                <CartesianGrid strokeDasharray="0" stroke={gridColor} vertical={false} />
               )}
-              <XAxis
-                dataKey="month"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: axisColor, fontSize: 12 }}
-                dy={10}
-              />
-              <YAxis
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: axisColor, fontSize: 10 }}
-                tickFormatter={(value) => `$${value / 1000}k`}
-                width={50}
-              />
-              <Tooltip
-                content={<CustomTooltip />}
-                cursor={{ stroke: "#d4d4d8" }}
-              />
-              {showMoneyIn && (
+              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 10 }} width={40} />
+              <Tooltip content={<CustomTooltip />} cursor={{ stroke: "#d4d4d8" }} />
+              {showPatients && (
                 <Area
                   type={smoothCurve ? "monotone" : "linear"}
-                  dataKey="moneyIn"
-                  stroke="#2d9f75"
+                  dataKey="new_patients"
+                  stroke="#7ac2f0"
                   strokeWidth={2}
-                  fill="url(#moneyInAreaGradient)"
+                  fill="url(#patientsAreaGradient)"
                 />
               )}
-              {showMoneyOut && (
+              {showConsultations && (
                 <Area
                   type={smoothCurve ? "monotone" : "linear"}
-                  dataKey="moneyOut"
-                  stroke={moneyOutColor}
+                  dataKey="consultations"
+                  stroke={consultationsColor}
                   strokeWidth={2}
-                  fill="url(#moneyOutAreaGradient)"
+                  fill="url(#consultationsAreaGradient)"
                 />
               )}
             </AreaChart>

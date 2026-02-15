@@ -18,10 +18,11 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(data: Dict[str, Any]) -> str:
+def create_access_token(data: Dict[str, Any], expires_in: int | None = None) -> str:
     settings = get_settings()
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(seconds=settings.jwt_expires_in)
+    ttl = expires_in if expires_in is not None else settings.jwt_expires_in
+    expire = datetime.now(timezone.utc) + timedelta(seconds=ttl)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.jwt_secret, algorithm=ALGORITHM)
     return encoded_jwt
