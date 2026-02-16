@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     ip_ban_duration_minutes: int = 30
     ip_attempt_window_minutes: int = 15
     security_whitelisted_ips: str = "127.0.0.1,::1"
+    
+    # Device API Security
+    device_api_secret: str = "change_this_to_a_strong_secret"
 
     @field_validator("cors_origins", mode="before")
     @classmethod
