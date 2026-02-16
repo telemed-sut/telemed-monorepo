@@ -5,7 +5,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from app.api import alerts, audit, auth, dense_mode, meetings, patients, stats, users
+from app.api import alerts, audit, auth, dense_mode, meetings, patients, stats, users, pressure
 from app.api import security as security_api
 from app.core.config import get_settings
 from app.middleware import SecurityHeadersMiddleware, IPBanMiddleware
@@ -45,6 +45,7 @@ app.include_router(dense_mode.router)
 app.include_router(alerts.router)
 app.include_router(audit.router)
 app.include_router(stats.router)
+app.include_router(pressure.router)
 app.include_router(security_api.router)
 
 @app.get("/health")

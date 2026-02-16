@@ -1,0 +1,75 @@
+{
+    "info": {
+        "_postman_id": "b7d8f9e0-1a2b-4c3d-5e6f-7g8h9i0j1k2l",
+        "name": "Telemed Device API",
+        "description": "Collection for testing the Physical Device Blood Pressure API with HMAC security.",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Submit Pressure (HMAC)",
+            "event": [
+                {
+                    "listen": "prerequest",
+                    "script": {
+                        "exec": [
+                            "// Configuration",
+                            "const secret = 'change_this_to_a_strong_secret';",
+                            "const deviceId = 'test_device_001';",
+                            "",
+                            "// Generate Timestamp",
+                            "const timestamp = Math.floor(Date.now() / 1000).toString();",
+                            "",
+                            "// Generate Signature: HMAC-SHA256(secret, timestamp + deviceId)",
+                            "const message = timestamp + deviceId;",
+                            "const signature = CryptoJS.HmacSHA256(message, secret).toString(CryptoJS.enc.Hex);",
+                            "",
+                            "// Set Headers",
+                            "pm.request.headers.add({key: 'X-Timestamp', value: timestamp});",
+                            "pm.request.headers.add({key: 'X-Signature', value: signature});",
+                            "pm.request.headers.add({key: 'X-Device-Id', value: deviceId});",
+                            "",
+                            "console.log('Timestamp:', timestamp);",
+                            "console.log('Signature:', signature);"
+                        ],
+                        "type": "text/javascript"
+                    }
+                }
+            ],
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"patient_id\": \"721e584f-f3f9-4beb-81b0-bfc688e487ce\",\n    \"device_id\": \"test_device_001\",\n    \"heart_rate\": 75,\n    \"sys_rate\": 120,\n    \"dia_rate\": 80,\n    \"wave_a\": [1, 2, 3, 4, 5],\n    \"wave_b\": [5, 4, 3, 2, 1],\n    \"measured_at\": \"{{$isoTimestamp}}\"\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "http://localhost:8000/device/v1/pressure",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8000",
+                    "path": [
+                        "device",
+                        "v1",
+                        "pressure"
+                    ]
+                },
+                "description": "Sends blood pressure data with simulated HMAC headers."
+            },
+            "response": []
+        }
+    ]
+}
