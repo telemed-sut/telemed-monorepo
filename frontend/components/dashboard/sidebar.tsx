@@ -151,7 +151,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                       isActive={active}
                       tooltip={route.title}
                       className={cn(
-                        "h-9 transition-[padding] duration-200 sm:h-[38px]",
+                        "h-9 border border-sidebar-border/60 transition-[padding,border-color,background-color] duration-200 hover:border-sidebar-border sm:h-[38px] data-[active=true]:border-sidebar-border data-[active=true]:shadow-[0_0_0_1px_hsl(var(--sidebar-border))]",
                         isCollapsed && "justify-center px-0"
                       )}
                     >
