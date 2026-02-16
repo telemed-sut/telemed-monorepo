@@ -23,6 +23,8 @@ const pageTitles: Record<string, string> = {
   "/meetings": "Meetings",
   "/audit-logs": "Audit Logs",
   "/security": "Security",
+  "/profile": "Profile",
+  "/settings": "Settings",
 };
 
 export function DashboardHeader() {

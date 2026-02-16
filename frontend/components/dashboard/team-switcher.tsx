@@ -12,15 +12,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
     SidebarMenu,
-    SidebarMenuButton,
     SidebarMenuItem,
     useSidebar,
 } from "@/components/ui/sidebar";
-import { ChevronsUpDown, Plus } from "lucide-react";
+import { ChevronsUpDown } from "lucide-react";
 import * as React from "react";
 import { useAuthStore } from "@/store/auth-store";
 import { useRouter } from "next/navigation";
-import { Settings01Icon, Logout01Icon } from "@hugeicons/core-free-icons";
+import { Logout01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 
@@ -91,18 +90,6 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
                                 ))}
                             </DropdownMenuGroup>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                                className="gap-2 p-2 cursor-pointer"
-                                onClick={() => {
-                                    // Placeholder for Settings
-                                }}
-                            >
-                                <div className="flex size-6 items-center justify-center rounded-md border bg-background">
-                                    <HugeiconsIcon icon={Settings01Icon} className="size-4" />
-                                </div>
-                                <div className="font-medium text-muted-foreground">Settings</div>
-                            </DropdownMenuItem>
-
                             <DropdownMenuItem
                                 className="gap-2 p-2 cursor-pointer text-destructive focus:text-destructive"
                                 onClick={() => {

@@ -12,12 +12,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -979,8 +980,8 @@ export function PatientsTable() {
         </div>
       </Card>
 
-      {/* Patient Form Sheet */}
-      <Sheet
+      {/* Patient Form Dialog */}
+      <Dialog
         open={formOpen}
         onOpenChange={(open) => {
           if (!open) {
@@ -990,13 +991,13 @@ export function PatientsTable() {
           }
         }}
       >
-        <SheetContent side="center">
-          <SheetHeader>
-            <SheetTitle>{editing ? "Edit patient" : "Add patient"}</SheetTitle>
-            <SheetDescription>
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Edit patient" : "Add patient"}</DialogTitle>
+            <DialogDescription>
               Fields marked with <span className="text-red-500 font-medium">*</span> are required. Other fields are optional.
-            </SheetDescription>
-          </SheetHeader>
+            </DialogDescription>
+          </DialogHeader>
 
           <div className="px-6 pb-6 pt-2">
             <form className="space-y-6" onSubmit={handleSubmit}>
@@ -1238,8 +1239,8 @@ export function PatientsTable() {
               </div>
             </form>
           </div>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
