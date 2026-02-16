@@ -72,7 +72,7 @@ export function DashboardHeader() {
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
         {hasEditLayout && (
           <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex items-center justify-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground h-8 sm:h-9">
+            <DropdownMenuTrigger id="header-edit-layout-button" className="inline-flex items-center justify-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground h-8 sm:h-9">
               <Settings className="size-4" />
               <span className="hidden sm:inline">Edit Layout</span>
             </DropdownMenuTrigger>

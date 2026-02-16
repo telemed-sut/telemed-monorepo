@@ -147,6 +147,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                     className={cn(isCollapsed && "flex justify-center")}
                   >
                     <SidebarMenuButton
+                      id={`sidebar-item-${route.id}`}
                       isActive={active}
                       tooltip={route.title}
                       className={cn(
@@ -185,6 +186,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
         <SidebarMenu>
           <SidebarMenuItem className={cn(isCollapsed && "flex justify-center")}>
             <SidebarMenuButton
+              id="sidebar-help-button"
               tooltip="Help Center"
               className={cn("h-9 sm:h-[38px]", isCollapsed && "justify-center px-0")}
             >
@@ -197,6 +199,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
         {/* User profile dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger
+            id="sidebar-user-menu-button"
             className={cn(
               "w-full cursor-pointer rounded-lg p-2 transition-colors hover:bg-accent sm:p-3",
               isCollapsed ? "flex justify-center" : "flex items-center gap-2 sm:gap-3"
