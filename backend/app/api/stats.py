@@ -1,11 +1,10 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import extract, func, select
 from sqlalchemy.orm import Session
 
+from app.core.limiter import limiter
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole
 from app.models.meeting import Meeting
@@ -14,11 +13,10 @@ from app.models.user import User
 from app.services import auth as auth_service
 
 router = APIRouter(prefix="/stats", tags=["stats"])
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.get("/overview")
-@limiter.limit("60/minute")
+@limiter.limit("200/minute")
 def get_overview_stats(
     request: Request,
     year: int = Query(default=None, description="Year to aggregate (defaults to current year)"),

@@ -3,18 +3,16 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.limiter import limiter
 from app.models.ip_ban import IPBan
 from app.models.login_attempt import LoginAttempt
 from app.models.user import User
 from app.services.auth import get_admin_user, get_db
 
 router = APIRouter(prefix="/security", tags=["security"])
-limiter = Limiter(key_func=get_remote_address)
 
 
 # ── Schemas ──

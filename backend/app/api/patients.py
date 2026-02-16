@@ -3,12 +3,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, BackgroundTasks
 from pydantic import BaseModel
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.limiter import limiter
 from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.patient import PatientCreate, PatientListResponse, PatientOut, PatientUpdate
@@ -18,7 +17,6 @@ from app.services import novu as novu_service
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 settings = get_settings()
-limiter = Limiter(key_func=get_remote_address)
 
 
 def notify_staff(db: Session, current_user: User, background_tasks: BackgroundTasks, 
@@ -41,7 +39,7 @@ def notify_staff(db: Session, current_user: User, background_tasks: BackgroundTa
 
 
 @router.post("", response_model=PatientOut, status_code=status.HTTP_201_CREATED)
-@limiter.limit("30/minute")
+@limiter.limit("60/minute")
 def create_patient(
     request: Request,
     payload: PatientCreate,
@@ -59,7 +57,7 @@ def create_patient(
 
 
 @router.get("", response_model=PatientListResponse)
-@limiter.limit("60/minute")
+@limiter.limit("200/minute")
 def list_patients(
     request: Request,
     page: int = Query(default=settings.default_page, ge=1),
@@ -102,7 +100,7 @@ def list_patients(
 
 
 @router.get("/{patient_id}", response_model=PatientOut)
-@limiter.limit("60/minute")
+@limiter.limit("200/minute")
 def get_patient(
     request: Request,
     patient_id: str,
@@ -139,7 +137,7 @@ def get_patient(
 
 
 @router.put("/{patient_id}", response_model=PatientOut)
-@limiter.limit("30/minute")
+@limiter.limit("60/minute")
 def update_patient(
     request: Request,
     patient_id: str,
@@ -174,7 +172,7 @@ def update_patient(
 
 
 @router.delete("/{patient_id}", status_code=status.HTTP_204_NO_CONTENT)
-@limiter.limit("20/minute")
+@limiter.limit("60/minute")
 def delete_patient(
     request: Request,
     patient_id: str,
@@ -203,7 +201,7 @@ class BulkDeleteResponse(BaseModel):
 
 
 @router.post("/bulk-delete", response_model=BulkDeleteResponse)
-@limiter.limit("10/minute")
+@limiter.limit("60/minute")
 def bulk_delete_patients(
     request: Request,
     payload: BulkDeleteRequest,

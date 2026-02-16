@@ -2,12 +2,11 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.limiter import limiter
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
 from app.models.user import User
@@ -27,9 +26,6 @@ from app.services import security as security_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
-
-# Create limiter for auth endpoints
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.get("/me", response_model=UserMeResponse)

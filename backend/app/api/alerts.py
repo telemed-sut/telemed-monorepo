@@ -2,11 +2,10 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.limiter import limiter
 from app.models.alert import Alert
 from app.models.enums import UserRole
 from app.models.user import User
@@ -15,7 +14,6 @@ from app.services import audit as audit_service
 from app.services.auth import get_clinical_user, get_db, _has_active_assignment, _has_active_break_glass
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/{alert_id}/acknowledge", status_code=status.HTTP_200_OK)

@@ -2,11 +2,10 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
+from app.core.limiter import limiter
 from app.models.enums import OrderStatus
 from app.models.lab import Lab
 from app.models.medication import Medication
@@ -27,7 +26,6 @@ from app.services.auth import (
 )
 
 router = APIRouter(prefix="/patients", tags=["dense-mode"])
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.get("/{patient_id}/summary", response_model=PatientDenseSummary)
