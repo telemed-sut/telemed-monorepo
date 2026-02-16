@@ -177,7 +177,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* ── Footer: Help, Settings, User Profile ── */}
+      {/* ── Footer: Help, User Profile ── */}
       <SidebarFooter className={cn(
         "pb-3 transition-[padding] duration-200 sm:pb-4 lg:pb-5",
         isCollapsed ? "px-2" : "px-3 sm:px-4 lg:px-5"
@@ -190,15 +190,6 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
             >
               <HelpCircle className="size-4 sm:size-5" />
               {!isCollapsed && <span className="text-sm">Help Center</span>}
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem className={cn(isCollapsed && "flex justify-center")}>
-            <SidebarMenuButton
-              tooltip="Settings"
-              className={cn("h-9 sm:h-[38px]", isCollapsed && "justify-center px-0")}
-            >
-              <Settings className="size-4 sm:size-5" />
-              {!isCollapsed && <span className="text-sm">Settings</span>}
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -239,11 +230,11 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                 {currentUser ? getRoleLabel(currentUser.role) : "Account"}
               </DropdownMenuLabel>
             </DropdownMenuGroup>
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push("/profile")}>
               <UserCircle className="size-4 mr-2" />
               Profile
             </DropdownMenuItem>
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push("/settings")}>
               <Settings className="size-4 mr-2" />
               Settings
             </DropdownMenuItem>

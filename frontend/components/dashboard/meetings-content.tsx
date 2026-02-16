@@ -694,46 +694,41 @@ export function MeetingsContent() {
 
   const hasActiveFilters = eventTypeFilter !== "all";
 
-  const loadMeetings = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
-    try {
-      const res = await fetchMeetings({ page: 1, limit: 1000 }, token);
-      setMeetings(res.items);
-    } catch (err) {
-      const status = (err as { status?: number }).status;
-      if (status === 401) {
-        clearToken();
-        router.replace("/login");
+  const loadMeetings = useCallback(
+    async (background = false) => {
+      if (!token) return;
+      if (!background) setLoading(true);
+      try {
+        const res = await fetchMeetings({ page: 1, limit: 1000 }, token);
+        setMeetings(res.items);
+      } catch (err) {
+        const status = (err as { status?: number }).status;
+        if (status === 401) {
+          clearToken();
+          router.replace("/login");
+        }
+      } finally {
+        if (!background) setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  }, [token, setMeetings, clearToken, router]);
+    },
+    [token, setMeetings, clearToken, router]
+  );
 
   const handleMeetingCreated = useCallback(
     async (meeting?: Meeting) => {
-      if (meeting?.date_time) {
+      // If we have a date (new meeting), go to it
+      // But if we just edited an existing one, user might want to stay in current view
+      if (meeting?.date_time && viewMode === "calendar") {
         goToDate(new Date(meeting.date_time));
       }
 
-      if (searchQuery) {
-        setSearchQuery("");
-      }
-      if (eventTypeFilter !== "all") {
-        setEventTypeFilter("all");
-      }
+      // We do NOT reset search/filter here anymore to preserve context
+      // unless it's a brand new navigation
 
-      await loadMeetings();
+      // Refresh list in background so view doesn't flicker/reset
+      await loadMeetings(true);
     },
-    [
-      goToDate,
-      searchQuery,
-      setSearchQuery,
-      eventTypeFilter,
-      setEventTypeFilter,
-      loadMeetings,
-    ]
+    [goToDate, viewMode, loadMeetings]
   );
 
   const handleSlotSelect = useCallback((slot: CalendarSlotSelection) => {
@@ -771,167 +766,167 @@ export function MeetingsContent() {
             ══════════════════════════════════════════════════ */}
         <div className="border-b border-border bg-background">
           <div className="px-3 md:px-6 py-2.5 md:py-3">
-          <div className="flex items-center justify-between gap-2 md:gap-3 flex-nowrap">
-            {/* Left: title area */}
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <div className="flex-1 min-w-0">
-                <h1 className="text-sm md:text-base lg:text-lg font-semibold text-foreground truncate mb-0 md:mb-1">
-                  {format(currentWeekStart, "MMMM dd, yyyy")}
-                </h1>
-                <p className="hidden md:block text-xs text-muted-foreground">
-                  You have {todayMeetingsCount} meeting
-                  {todayMeetingsCount !== 1 ? "s" : ""} and{" "}
-                  {totalEventsCount} event
-                  {totalEventsCount !== 1 ? "s" : ""} today 🗓️
-                </p>
-              </div>
-            </div>
-
-            {/* Right: actions */}
-            <div className="flex items-center gap-1 md:gap-1.5 lg:gap-2 shrink-0">
-              {/* Notification bell */}
-              <Popover>
-                <PopoverTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="relative size-7 md:size-8 shrink-0"
-                    >
-                      <HugeiconsIcon
-                        icon={Notification01Icon}
-                        className="size-4"
-                      />
-                      {todayMeetingsCount > 0 && (
-                        <span className="absolute top-1 right-1 size-1 bg-red-500 rounded-full" />
-                      )}
-                    </Button>
-                  }
-                />
-                <PopoverContent align="end" className="w-80 p-0">
-                  <div className="p-3 border-b border-border">
-                    <p className="text-sm font-semibold">Notifications</p>
-                  </div>
-                  <div className="divide-y divide-border">
-                    <div className="flex flex-col items-start gap-1 p-3">
-                      <div className="flex items-center gap-2 w-full">
-                        <HugeiconsIcon
-                          icon={Tick02Icon}
-                          className="size-4 text-green-500"
-                        />
-                        <span className="text-sm font-medium flex-1">
-                          Meeting confirmed
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          2m ago
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground pl-6">
-                        Daily checkin has been confirmed for tomorrow at 9:00 AM
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-start gap-1 p-3">
-                      <div className="flex items-center gap-2 w-full">
-                        <HugeiconsIcon
-                          icon={Clock01Icon}
-                          className="size-4 text-blue-500"
-                        />
-                        <span className="text-sm font-medium flex-1">
-                          Reminder
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          15m ago
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground pl-6">
-                        Team Standup starts in 30 minutes
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-start gap-1 p-3">
-                      <div className="flex items-center gap-2 w-full">
-                        <HugeiconsIcon
-                          icon={Calendar01Icon}
-                          className="size-4 text-orange-500"
-                        />
-                        <span className="text-sm font-medium flex-1">
-                          Event updated
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          1h ago
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground pl-6">
-                        Design Workshop time has been changed to 2:00 PM
-                      </p>
-                    </div>
-                  </div>
-                  <div className="p-2 border-t border-border text-center">
-                    <span className="text-xs text-muted-foreground">
-                      View all notifications
-                    </span>
-                  </div>
-                </PopoverContent>
-              </Popover>
-
-              {/* Schedule popover */}
-              <SchedulePopover
-                onSchedule={() => {
-                  setCreateInitialSlot(null);
-                  setCreateOpen(true);
-                }}
-              >
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-7 md:size-8 shrink-0 md:w-auto md:px-2 md:gap-1.5"
-                >
-                  <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
-                  <span className="hidden lg:inline text-xs">Schedule</span>
-                </Button>
-              </SchedulePopover>
-
-              {/* View mode toggle: Calendar / Queue */}
-              <div className="flex items-center rounded-lg border border-border p-0.5 gap-0.5">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "size-7 md:size-8 rounded-md transition-colors",
-                    viewMode === "calendar" && "bg-muted text-foreground"
-                  )}
-                  onClick={() => setViewMode("calendar")}
-                  title="Calendar view"
-                >
-                  <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "size-7 md:size-8 rounded-md transition-colors",
-                    viewMode === "queue" && "bg-muted text-foreground"
-                  )}
-                  onClick={() => setViewMode("queue")}
-                  title="Queue view"
-                >
-                  <HugeiconsIcon icon={UserGroupIcon} className="size-4" />
-                </Button>
+            <div className="flex items-center justify-between gap-2 md:gap-3 flex-nowrap">
+              {/* Left: title area */}
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <div className="flex-1 min-w-0">
+                  <h1 className="text-sm md:text-base lg:text-lg font-semibold text-foreground truncate mb-0 md:mb-1">
+                    {format(currentWeekStart, "MMMM dd, yyyy")}
+                  </h1>
+                  <p className="hidden md:block text-xs text-muted-foreground">
+                    You have {todayMeetingsCount} meeting
+                    {todayMeetingsCount !== 1 ? "s" : ""} and{" "}
+                    {totalEventsCount} event
+                    {totalEventsCount !== 1 ? "s" : ""} today 🗓️
+                  </p>
+                </div>
               </div>
 
-              {/* + Create Event */}
-              <Button
-                size="icon"
-                className="size-7 md:size-8 shrink-0 md:w-auto md:px-2 md:gap-1.5 bg-foreground text-background hover:bg-foreground/90"
-                onClick={() => {
-                  setCreateInitialSlot(null);
-                  setCreateOpen(true);
-                }}
-              >
-                <HugeiconsIcon icon={Add01Icon} className="size-4" />
-                <span className="hidden lg:inline text-xs">Create Event</span>
-              </Button>
+              {/* Right: actions */}
+              <div className="flex items-center gap-1 md:gap-1.5 lg:gap-2 shrink-0">
+                {/* Notification bell */}
+                <Popover>
+                  <PopoverTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="relative size-7 md:size-8 shrink-0"
+                      >
+                        <HugeiconsIcon
+                          icon={Notification01Icon}
+                          className="size-4"
+                        />
+                        {todayMeetingsCount > 0 && (
+                          <span className="absolute top-1 right-1 size-1 bg-red-500 rounded-full" />
+                        )}
+                      </Button>
+                    }
+                  />
+                  <PopoverContent align="end" className="w-80 p-0">
+                    <div className="p-3 border-b border-border">
+                      <p className="text-sm font-semibold">Notifications</p>
+                    </div>
+                    <div className="divide-y divide-border">
+                      <div className="flex flex-col items-start gap-1 p-3">
+                        <div className="flex items-center gap-2 w-full">
+                          <HugeiconsIcon
+                            icon={Tick02Icon}
+                            className="size-4 text-green-500"
+                          />
+                          <span className="text-sm font-medium flex-1">
+                            Meeting confirmed
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            2m ago
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground pl-6">
+                          Daily checkin has been confirmed for tomorrow at 9:00 AM
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-start gap-1 p-3">
+                        <div className="flex items-center gap-2 w-full">
+                          <HugeiconsIcon
+                            icon={Clock01Icon}
+                            className="size-4 text-blue-500"
+                          />
+                          <span className="text-sm font-medium flex-1">
+                            Reminder
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            15m ago
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground pl-6">
+                          Team Standup starts in 30 minutes
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-start gap-1 p-3">
+                        <div className="flex items-center gap-2 w-full">
+                          <HugeiconsIcon
+                            icon={Calendar01Icon}
+                            className="size-4 text-orange-500"
+                          />
+                          <span className="text-sm font-medium flex-1">
+                            Event updated
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            1h ago
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground pl-6">
+                          Design Workshop time has been changed to 2:00 PM
+                        </p>
+                      </div>
+                    </div>
+                    <div className="p-2 border-t border-border text-center">
+                      <span className="text-xs text-muted-foreground">
+                        View all notifications
+                      </span>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                {/* Schedule popover */}
+                <SchedulePopover
+                  onSchedule={() => {
+                    setCreateInitialSlot(null);
+                    setCreateOpen(true);
+                  }}
+                >
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-7 md:size-8 shrink-0 md:w-auto md:px-2 md:gap-1.5"
+                  >
+                    <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
+                    <span className="hidden lg:inline text-xs">Schedule</span>
+                  </Button>
+                </SchedulePopover>
+
+                {/* View mode toggle: Calendar / Queue */}
+                <div className="flex items-center rounded-lg border border-border p-0.5 gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "size-7 md:size-8 rounded-md transition-colors",
+                      viewMode === "calendar" && "bg-muted text-foreground"
+                    )}
+                    onClick={() => setViewMode("calendar")}
+                    title="Calendar view"
+                  >
+                    <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "size-7 md:size-8 rounded-md transition-colors",
+                      viewMode === "queue" && "bg-muted text-foreground"
+                    )}
+                    onClick={() => setViewMode("queue")}
+                    title="Queue view"
+                  >
+                    <HugeiconsIcon icon={UserGroupIcon} className="size-4" />
+                  </Button>
+                </div>
+
+                {/* + Create Event */}
+                <Button
+                  size="icon"
+                  className="size-7 md:size-8 shrink-0 md:w-auto md:px-2 md:gap-1.5 bg-foreground text-background hover:bg-foreground/90"
+                  onClick={() => {
+                    setCreateInitialSlot(null);
+                    setCreateOpen(true);
+                  }}
+                >
+                  <HugeiconsIcon icon={Add01Icon} className="size-4" />
+                  <span className="hidden lg:inline text-xs">Create Event</span>
+                </Button>
+              </div>
             </div>
-          </div>
           </div>
         </div>
 
@@ -941,182 +936,182 @@ export function MeetingsContent() {
         {viewMode === "calendar" && (
           <div className="px-3 md:px-6 py-4 border-b border-border bg-background">
             <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-          {/* Search with settings icon */}
-          <div className="relative flex-1 min-w-[200px] max-w-[280px] shrink-0">
-            <HugeiconsIcon
-              icon={Search01Icon}
-              className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
-            />
-            <Input
-              placeholder="Search in calendar..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 pr-9 h-8 bg-background"
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-1 top-1/2 -translate-y-1/2 size-6"
-            >
-              <HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
-            </Button>
-          </div>
-
-          {/* Today button */}
-          <Button
-            variant="outline"
-            className="h-8 px-3 shrink-0"
-            onClick={goToToday}
-          >
-            Today
-          </Button>
-
-          {/* Date range picker */}
-          <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-            <PopoverTrigger
-              render={
+              {/* Search with settings icon */}
+              <div className="relative flex-1 min-w-[200px] max-w-[280px] shrink-0">
+                <HugeiconsIcon
+                  icon={Search01Icon}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
+                />
+                <Input
+                  placeholder="Search in calendar..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 pr-9 h-8 bg-background"
+                />
                 <Button
-                  variant="outline"
-                  className={cn(
-                    "h-8 px-3 gap-2 justify-start text-left font-normal shrink-0",
-                    "hover:bg-accent"
-                  )}
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 size-6"
                 >
-                  <HugeiconsIcon
-                    icon={Calendar01Icon}
-                    className="size-4 text-muted-foreground"
-                  />
-                  <span className="text-xs text-foreground">
-                    {weekStart} - {weekEndLabel}
-                  </span>
+                  <HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
                 </Button>
-              }
-            />
-            <PopoverContent className="w-auto p-0" align="start">
-              <Calendar
-                mode="single"
-                selected={currentWeekStart}
-                onSelect={(date) => {
-                  if (date) {
-                    goToDate(date);
-                    setDatePickerOpen(false);
-                  }
-                }}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>
+              </div>
 
-          <div className="ml-auto" />
+              {/* Today button */}
+              <Button
+                variant="outline"
+                className="h-8 px-3 shrink-0"
+                onClick={goToToday}
+              >
+                Today
+              </Button>
 
-          {/* Filter button */}
-          <Popover open={filterOpen} onOpenChange={setFilterOpen}>
-            <PopoverTrigger
-              render={
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "h-8 px-3 gap-2",
-                    hasActiveFilters && "bg-accent"
-                  )}
-                >
-                  <HugeiconsIcon icon={FilterIcon} className="size-4" />
-                  <span className="hidden sm:inline text-xs">Filter</span>
-                  {hasActiveFilters && (
-                    <span className="size-1.5 rounded-full bg-primary" />
-                  )}
-                </Button>
-              }
-            />
-            <PopoverContent
-              className="p-4 w-[288px]"
-              align="end"
-            >
-              <div className="space-y-4 w-full">
-                <div>
-                  <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
-                    <HugeiconsIcon
-                      icon={Calendar01Icon}
-                      className="size-4 text-muted-foreground"
-                    />
-                    Room Assignment
-                  </h4>
-                  <div className="space-y-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-between h-9 px-3"
-                      onClick={() => setEventTypeFilter("all")}
-                    >
-                      <span className="text-sm">All events</span>
-                      {eventTypeFilter === "all" && (
-                        <HugeiconsIcon
-                          icon={Tick02Icon}
-                          className="size-4 text-primary"
-                        />
-                      )}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-between h-9 px-3"
-                      onClick={() => setEventTypeFilter("with-room")}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <HugeiconsIcon
-                          icon={DoorIcon}
-                          className="size-4 text-cyan-500"
-                        />
-                        <span className="text-sm">With room</span>
-                      </div>
-                      {eventTypeFilter === "with-room" && (
-                        <HugeiconsIcon
-                          icon={Tick02Icon}
-                          className="size-4 text-primary"
-                        />
-                      )}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-full justify-between h-9 px-3"
-                      onClick={() => setEventTypeFilter("without-room")}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <HugeiconsIcon
-                          icon={DoorIcon}
-                          className="size-4 text-muted-foreground"
-                        />
-                        <span className="text-sm">Without room</span>
-                      </div>
-                      {eventTypeFilter === "without-room" && (
-                        <HugeiconsIcon
-                          icon={Tick02Icon}
-                          className="size-4 text-primary"
-                        />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-
-                {hasActiveFilters && (
-                  <>
-                    <Separator />
+              {/* Date range picker */}
+              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+                <PopoverTrigger
+                  render={
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="w-full h-9"
-                      onClick={() => {
-                        setEventTypeFilter("all");
-                      }}
+                      className={cn(
+                        "h-8 px-3 gap-2 justify-start text-left font-normal shrink-0",
+                        "hover:bg-accent"
+                      )}
                     >
-                      Clear all filters
+                      <HugeiconsIcon
+                        icon={Calendar01Icon}
+                        className="size-4 text-muted-foreground"
+                      />
+                      <span className="text-xs text-foreground">
+                        {weekStart} - {weekEndLabel}
+                      </span>
                     </Button>
-                  </>
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
+                  }
+                />
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={currentWeekStart}
+                    onSelect={(date) => {
+                      if (date) {
+                        goToDate(date);
+                        setDatePickerOpen(false);
+                      }
+                    }}
+                    initialFocus
+                  />
+                </PopoverContent>
+              </Popover>
+
+              <div className="ml-auto" />
+
+              {/* Filter button */}
+              <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+                <PopoverTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "h-8 px-3 gap-2",
+                        hasActiveFilters && "bg-accent"
+                      )}
+                    >
+                      <HugeiconsIcon icon={FilterIcon} className="size-4" />
+                      <span className="hidden sm:inline text-xs">Filter</span>
+                      {hasActiveFilters && (
+                        <span className="size-1.5 rounded-full bg-primary" />
+                      )}
+                    </Button>
+                  }
+                />
+                <PopoverContent
+                  className="p-4 w-[288px]"
+                  align="end"
+                >
+                  <div className="space-y-4 w-full">
+                    <div>
+                      <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                        <HugeiconsIcon
+                          icon={Calendar01Icon}
+                          className="size-4 text-muted-foreground"
+                        />
+                        Room Assignment
+                      </h4>
+                      <div className="space-y-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-between h-9 px-3"
+                          onClick={() => setEventTypeFilter("all")}
+                        >
+                          <span className="text-sm">All events</span>
+                          {eventTypeFilter === "all" && (
+                            <HugeiconsIcon
+                              icon={Tick02Icon}
+                              className="size-4 text-primary"
+                            />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-between h-9 px-3"
+                          onClick={() => setEventTypeFilter("with-room")}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <HugeiconsIcon
+                              icon={DoorIcon}
+                              className="size-4 text-cyan-500"
+                            />
+                            <span className="text-sm">With room</span>
+                          </div>
+                          {eventTypeFilter === "with-room" && (
+                            <HugeiconsIcon
+                              icon={Tick02Icon}
+                              className="size-4 text-primary"
+                            />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full justify-between h-9 px-3"
+                          onClick={() => setEventTypeFilter("without-room")}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <HugeiconsIcon
+                              icon={DoorIcon}
+                              className="size-4 text-muted-foreground"
+                            />
+                            <span className="text-sm">Without room</span>
+                          </div>
+                          {eventTypeFilter === "without-room" && (
+                            <HugeiconsIcon
+                              icon={Tick02Icon}
+                              className="size-4 text-primary"
+                            />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {hasActiveFilters && (
+                      <>
+                        <Separator />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full h-9"
+                          onClick={() => {
+                            setEventTypeFilter("all");
+                          }}
+                        >
+                          Clear all filters
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
         )}
