@@ -72,12 +72,12 @@ export default function LoginPage() {
             <Logo className="size-10" />
           </div>
           <div>
-            <h2 className="text-2xl font-semibold">Sign in to Patient Admin</h2>
+            <h2 className="text-2xl font-semibold">Welcome Back</h2>
             <p className="text-muted-foreground text-sm">
-              Welcome back! Please enter your details.
+              Sign in to continue to your secure workspace.
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              Access is limited to approved healthcare staff. Accounts are created by administrators.
+              Authorized users only.
             </p>
           </div>
         </CardHeader>
@@ -85,14 +85,14 @@ export default function LoginPage() {
           <form onSubmit={onSubmit} className="space-y-6">
             <div className="space-y-2">
               <Label htmlFor="email">Email address</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="admin@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="Enter your email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
             </div>
             <div className="space-y-0">
               <div className="flex items-center justify-between mb-2">
@@ -101,7 +101,7 @@ export default function LoginPage() {
                   href="/forgot-password"
                   className="text-sm text-primary hover:underline"
                 >
-                  Forgot password?
+                  Need help signing in?
                 </Link>
               </div>
               <div className="relative">
