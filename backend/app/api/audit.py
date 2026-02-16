@@ -3,18 +3,16 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.limiter import limiter
 from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.schemas.audit import AuditLogListResponse, AuditLogResponse
 from app.services.auth import get_admin_user, get_db
 
 router = APIRouter(prefix="/audit", tags=["audit"])
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.get("/logs", response_model=AuditLogListResponse)

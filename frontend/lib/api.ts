@@ -803,6 +803,33 @@ export async function breakGlassAccess(patientId: string, reason: string, token:
   );
 }
 
+// ── Device Monitor ──────────────────────────────────────────
+
+export interface DeviceStats {
+  period_hours: number;
+  success_count: number;
+  error_count: number;
+  error_rate: number;
+  errors_by_device: { device_id: string; count: number }[];
+}
+
+export interface DeviceErrorLog {
+  id: number;
+  device_id: string;
+  error_message: string;
+  ip_address: string;
+  endpoint: string;
+  occurred_at: string;
+}
+
+export async function fetchDeviceStats(token: string, hours: number = 24) {
+  return apiFetch<DeviceStats>(`/device/v1/stats?hours=${hours}`, { method: "GET" }, token);
+}
+
+export async function fetchDeviceErrors(token: string, limit: number = 50) {
+  return apiFetch<DeviceErrorLog[]>(`/device/v1/errors?limit=${limit}`, { method: "GET" }, token);
+}
+
 // ── Audit Logs ──────────────────────────────────────────────────
 
 export interface AuditLog {

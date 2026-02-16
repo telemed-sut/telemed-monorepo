@@ -1,11 +1,10 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.limiter import limiter
 from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.meeting import MeetingCreate, MeetingListResponse, MeetingOut, MeetingUpdate
@@ -14,7 +13,6 @@ from app.services import meeting as meeting_service
 
 router = APIRouter(prefix="/meetings", tags=["meetings"])
 settings = get_settings()
-limiter = Limiter(key_func=get_remote_address)
 
 get_current_user = auth_service.get_current_user
 get_admin_user = auth_service.get_admin_user

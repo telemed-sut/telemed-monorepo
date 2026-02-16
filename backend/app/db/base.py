@@ -11,5 +11,5 @@ from app.models import (  # noqa: F401,E402
     doctor_patient_assignment, encounter, medical_history,
     current_condition, treatment, medication, lab,
     timeline_event, alert, audit_log,
-    ip_ban, login_attempt, pressure_record,
+    ip_ban, login_attempt, pressure_record, device_error_log,
 )

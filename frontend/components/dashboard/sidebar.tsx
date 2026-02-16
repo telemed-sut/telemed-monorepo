@@ -39,6 +39,7 @@ import {
   LogOut,
   UserCircle,
   ChevronRight,
+  Activity,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/ui/logo";
@@ -61,6 +62,7 @@ const baseRoutes: NavItem[] = [
 
 const adminOnlyRoutes: NavItem[] = [
   { id: "users", title: "Users", icon: UserCog, link: "/users" },
+  { id: "device-monitor", title: "Device Monitor", icon: Activity, link: "/device-monitor" }, // Updated
   { id: "audit-logs", title: "Audit Logs", icon: ScrollText, link: "/audit-logs" },
   { id: "security", title: "Security", icon: Shield, link: "/security" },
 ];
