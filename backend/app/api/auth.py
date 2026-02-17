@@ -83,7 +83,7 @@ def login(request: Request, payload: LoginRequest, db: Session = Depends(auth_se
             action="login_failed",
             resource_type="user",
             resource_id=user.id if user else None,
-            details=f"Failed login attempt from IP {ip}",
+            details=f"Failed login attempt for {payload.email} from IP {ip}",
             ip_address=ip,
             is_break_glass=False,
         )

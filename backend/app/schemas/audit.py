@@ -15,6 +15,8 @@ class AuditLogResponse(BaseModel):
     ip_address: str | None = None
     is_break_glass: bool
     break_glass_reason: str | None = None
+    old_values: dict | None = None
+    new_values: dict | None = None
     created_at: datetime
 
 

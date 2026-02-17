@@ -16,6 +16,8 @@ def log_action(
     ip_address: Optional[str] = None,
     is_break_glass: bool = False,
     break_glass_reason: Optional[str] = None,
+    old_values: Optional[dict] = None,
+    new_values: Optional[dict] = None,
 ) -> AuditLog:
     """Write an entry to the audit log."""
     entry = AuditLog(
@@ -27,6 +29,8 @@ def log_action(
         ip_address=ip_address,
         is_break_glass=is_break_glass,
         break_glass_reason=break_glass_reason,
+        old_values=old_values,
+        new_values=new_values,
     )
     db.add(entry)
     db.commit()

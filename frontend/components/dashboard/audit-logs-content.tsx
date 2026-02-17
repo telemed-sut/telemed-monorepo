@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
-import { fetchAuditLogs, type AuditLog, type AuditLogListResponse } from "@/lib/api";
+import { fetchAuditLogs, exportAuditLogs, type AuditLogItem, type AuditLogListResponse } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +49,7 @@ import {
     Clock,
     Eye,
     ChevronRight,
+    Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -141,8 +142,9 @@ function AuditStatsCards({
     total,
     logs,
 }: {
+
     total: number;
-    logs: AuditLog[];
+    logs: AuditLogItem[];
 }) {
     const breakGlassCount = logs.filter((l) => l.is_break_glass).length;
     const uniqueUsers = new Set(logs.map((l) => l.user_id).filter(Boolean)).size;
@@ -222,7 +224,7 @@ export function AuditLogsContent() {
     const clearToken = useAuthStore((state) => state.clearToken);
 
     // Data
-    const [logs, setLogs] = useState<AuditLog[]>([]);
+    const [logs, setLogs] = useState<AuditLogItem[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
@@ -237,8 +239,9 @@ export function AuditLogsContent() {
     const [dateTo, setDateTo] = useState("");
 
     // UI
-    const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
+    const [selectedLog, setSelectedLog] = useState<AuditLogItem | null>(null);
     const [isPolling, setIsPolling] = useState(true);
+    const [isExporting, setIsExporting] = useState(false);
 
     // Auth guard
     useEffect(() => {
@@ -261,7 +264,7 @@ export function AuditLogsContent() {
             if (dateFrom) params.date_from = dateFrom;
             if (dateTo) params.date_to = dateTo;
 
-            const response = await fetchAuditLogs(params, token);
+            const response = await fetchAuditLogs(token, params);
             setLogs(response.items);
             setTotal(response.total);
         } catch (err: any) {
@@ -314,6 +317,39 @@ export function AuditLogsContent() {
             document.removeEventListener("visibilitychange", handleVisibility);
         };
     }, [isPolling, token, loadLogs]);
+
+    const handleExport = async () => {
+        if (!token) return;
+        try {
+            setIsExporting(true);
+            const blob = await exportAuditLogs(token, {
+                user_id: undefined, // Filters not implemented yet for export in UI, but API supports it. 
+                // Let's pass current filters
+                search: search || undefined,
+                action: actionFilter !== "all" ? actionFilter : undefined,
+                resource_type: resourceTypeFilter !== "all" ? resourceTypeFilter : undefined,
+                is_break_glass: breakGlassFilter === "true" ? true : undefined,
+                date_from: dateFrom || undefined,
+                date_to: dateTo || undefined,
+            });
+
+            // Create download link
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `audit_logs_${new Date().toISOString().replace(/[:.]/g, "-")}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            toast.success("Audit logs exported successfully");
+        } catch (err) {
+            toast.error("Failed to export logs");
+        } finally {
+            setIsExporting(false);
+        }
+    };
 
     if (!hydrated || !token) {
         return null;
@@ -438,108 +474,123 @@ export function AuditLogsContent() {
                         >
                             {isPolling ? "Pause" : "Resume"} auto-refresh
                         </Button>
+
+                        <Button
+                            variant="default"
+                            size="sm"
+                            className="text-xs gap-2 ml-auto lg:ml-0"
+                            onClick={handleExport}
+                            disabled={isExporting || total === 0}
+                        >
+                            {isExporting ? (
+                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                                <Download className="h-3.5 w-3.5" />
+                            )}
+                            Export CSV
+                        </Button>
                     </div>
                 </CardHeader>
 
                 <CardContent>
                     <div className="rounded-md border border-white/10 overflow-hidden">
                         <div className="max-h-[500px] overflow-auto lg:max-h-[620px]">
-                        <Table>
-                            <TableHeader className="sticky top-0 z-20 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-                                <TableRow className="hover:bg-transparent border-white/10">
-                                    <TableHead className="w-[120px]">Time</TableHead>
-                                    <TableHead>User</TableHead>
-                                    <TableHead>Action</TableHead>
-                                    <TableHead>Resource</TableHead>
-                                    <TableHead>IP Address</TableHead>
-                                    <TableHead>Break Glass</TableHead>
-                                    <TableHead className="w-[40px]"></TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {loading && logs.length === 0 ? (
-                                    Array.from({ length: 8 }).map((_, i) => (
-                                        <TableRow key={i} className="border-white/10">
-                                            <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[150px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[20px]" /></TableCell>
-                                        </TableRow>
-                                    ))
-                                ) : logs.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                                            No audit logs found.
-                                        </TableCell>
+                            <Table>
+                                <TableHeader className="sticky top-0 z-20 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+                                    <TableRow className="hover:bg-transparent border-white/10">
+                                        <TableHead className="w-[120px]">Time</TableHead>
+                                        <TableHead>User</TableHead>
+                                        <TableHead>Action</TableHead>
+                                        <TableHead>Resource</TableHead>
+                                        <TableHead>IP Address</TableHead>
+                                        <TableHead>Break Glass</TableHead>
+                                        <TableHead className="w-[40px]"></TableHead>
                                     </TableRow>
-                                ) : (
-                                    <AnimatePresence mode="popLayout">
-                                        {logs.map((log) => (
-                                            <motion.tr
-                                                key={log.id}
-                                                initial={{ opacity: 0, y: 10 }}
-                                                animate={{ opacity: 1, y: 0 }}
-                                                exit={{ opacity: 0, y: -10 }}
-                                                transition={{ duration: 0.15 }}
-                                                className={cn(
-                                                    "group border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer",
-                                                    log.is_break_glass && "bg-red-500/5 hover:bg-red-500/10"
-                                                )}
-                                                onClick={() => setSelectedLog(log)}
-                                            >
-                                                <TableCell className="text-sm">
-                                                    <div title={new Date(log.created_at).toLocaleString()}>
-                                                        <span className="text-muted-foreground">{timeAgo(log.created_at)}</span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="min-w-0">
-                                                        <span className="block text-sm font-medium truncate">
-                                                            {log.user_name || "-"}
-                                                        </span>
-                                                        <span className="block text-xs text-muted-foreground truncate">
-                                                            {log.user_email || "-"}
-                                                        </span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge variant="outline" className={cn("text-xs", getActionColor(log.action))}>
-                                                        {formatActionLabel(log.action)}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="min-w-0">
-                                                        <span className="block text-sm">{log.resource_type || "-"}</span>
-                                                        <span className="block text-xs text-muted-foreground font-mono">
-                                                            {shortenId(log.resource_id)}
-                                                        </span>
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className="text-sm text-muted-foreground font-mono">
-                                                    {log.ip_address || "-"}
-                                                </TableCell>
-                                                <TableCell>
-                                                    {log.is_break_glass ? (
-                                                        <Badge variant="outline" className="border-red-500/20 text-red-500 bg-red-500/10 flex items-center gap-1 w-fit">
-                                                            <ShieldAlert className="w-3 h-3" />
-                                                            Yes
-                                                        </Badge>
-                                                    ) : (
-                                                        <span className="text-xs text-muted-foreground">-</span>
+                                </TableHeader>
+                                <TableBody>
+                                    {loading && logs.length === 0 ? (
+                                        Array.from({ length: 8 }).map((_, i) => (
+                                            <TableRow key={i} className="border-white/10">
+                                                <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[150px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[20px]" /></TableCell>
+                                            </TableRow>
+                                        ))
+                                    ) : logs.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                                                No audit logs found.
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        <AnimatePresence mode="popLayout">
+                                            {logs.map((log) => (
+                                                <motion.tr
+                                                    key={log.id}
+                                                    initial={{ opacity: 0, y: 10 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    exit={{ opacity: 0, y: -10 }}
+                                                    transition={{ duration: 0.15 }}
+                                                    className={cn(
+                                                        "group border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer",
+                                                        log.is_break_glass && "bg-red-500/5 hover:bg-red-500/10"
                                                     )}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                                                </TableCell>
-                                            </motion.tr>
-                                        ))}
-                                    </AnimatePresence>
-                                )}
-                            </TableBody>
-                        </Table>
+                                                    onClick={() => setSelectedLog(log)}
+                                                >
+                                                    <TableCell className="text-sm">
+                                                        <div title={new Date(log.created_at).toLocaleString()}>
+                                                            <span className="text-muted-foreground">{timeAgo(log.created_at)}</span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="min-w-0">
+                                                            <span className="block text-sm font-medium truncate">
+                                                                {log.user_name || "-"}
+                                                            </span>
+                                                            <span className="block text-xs text-muted-foreground truncate">
+                                                                {log.user_email || "-"}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="outline" className={cn("text-xs", getActionColor(log.action))}>
+                                                            {formatActionLabel(log.action)}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="min-w-0">
+                                                            <span className="block text-sm">{log.resource_type || "-"}</span>
+                                                            <span className="block text-xs text-muted-foreground font-mono">
+                                                                {shortenId(log.resource_id)}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm text-muted-foreground font-mono">
+                                                        {log.ip_address || "-"}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {log.is_break_glass ? (
+                                                            <Badge variant="outline" className="border-red-500/20 text-red-500 bg-red-500/10 flex items-center gap-1 w-fit">
+                                                                <ShieldAlert className="w-3 h-3" />
+                                                                Yes
+                                                            </Badge>
+                                                        ) : (
+                                                            <span className="text-xs text-muted-foreground">-</span>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                    </TableCell>
+                                                </motion.tr>
+                                            ))}
+                                        </AnimatePresence>
+                                    )}
+                                </TableBody>
+                            </Table>
                         </div>
                     </div>
 
@@ -570,24 +621,24 @@ export function AuditLogsContent() {
                             <span className="text-xs text-muted-foreground">/ page</span>
                         </div>
                         <div className="flex items-center space-x-2">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 rounded-full border-white/20 bg-white/5 px-4 text-xs shadow-sm hover:bg-white/10"
-                                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                                    disabled={page === 1 || loading}
-                                >
-                                    Previous
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 rounded-full border-white/20 bg-white/5 px-4 text-xs shadow-sm hover:bg-white/10"
-                                    onClick={() => setPage((p) => p + 1)}
-                                    disabled={page >= totalPages || loading}
-                                >
-                                    Next
-                                </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 rounded-full border-white/20 bg-white/5 px-4 text-xs shadow-sm hover:bg-white/10"
+                                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                disabled={page === 1 || loading}
+                            >
+                                Previous
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 rounded-full border-white/20 bg-white/5 px-4 text-xs shadow-sm hover:bg-white/10"
+                                onClick={() => setPage((p) => p + 1)}
+                                disabled={page >= totalPages || loading}
+                            >
+                                Next
+                            </Button>
                         </div>
                     </div>
                 </CardContent>
@@ -705,6 +756,59 @@ export function AuditLogsContent() {
                                     </div>
                                 )}
 
+                                {/* Change History Section */}
+                                {(selectedLog.old_values || selectedLog.new_values) && (
+                                    <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
+                                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                                            <Activity className="w-3.5 h-3.5" />
+                                            Change History
+                                        </p>
+                                        <div className="space-y-4">
+                                            {(() => {
+                                                const oldVals = selectedLog.old_values || {};
+                                                const newVals = selectedLog.new_values || {};
+                                                // Find all keys that exist in either
+                                                const allKeys = Array.from(new Set([...Object.keys(oldVals), ...Object.keys(newVals)]));
+                                                // Filter keys where values are different
+                                                const changedKeys = allKeys.filter(key => JSON.stringify(oldVals[key]) !== JSON.stringify(newVals[key]));
+
+                                                if (changedKeys.length === 0) {
+                                                    return <p className="text-sm text-muted-foreground italic">No specific changes detected.</p>;
+                                                }
+
+                                                return (
+                                                    <div className="rounded-md border border-border/40 overflow-hidden">
+                                                        <Table>
+                                                            <TableHeader className="bg-muted/30">
+                                                                <TableRow className="border-border/40 hover:bg-transparent">
+                                                                    <TableHead className="h-8 text-xs font-medium">Field</TableHead>
+                                                                    <TableHead className="h-8 text-xs font-medium text-red-500/80">Old Value</TableHead>
+                                                                    <TableHead className="h-8 text-xs font-medium text-emerald-500/80">New Value</TableHead>
+                                                                </TableRow>
+                                                            </TableHeader>
+                                                            <TableBody>
+                                                                {changedKeys.map((key) => (
+                                                                    <TableRow key={key} className="border-border/40 hover:bg-transparent">
+                                                                        <TableCell className="py-2 text-xs font-medium font-mono text-muted-foreground">
+                                                                            {key}
+                                                                        </TableCell>
+                                                                        <TableCell className="py-2 text-xs font-mono text-red-600/90 break-all bg-red-500/5">
+                                                                            {typeof oldVals[key] === 'object' ? JSON.stringify(oldVals[key]) : String(oldVals[key] ?? "-")}
+                                                                        </TableCell>
+                                                                        <TableCell className="py-2 text-xs font-mono text-emerald-600/90 break-all bg-emerald-500/5">
+                                                                            {typeof newVals[key] === 'object' ? JSON.stringify(newVals[key]) : String(newVals[key] ?? "-")}
+                                                                        </TableCell>
+                                                                    </TableRow>
+                                                                ))}
+                                                            </TableBody>
+                                                        </Table>
+                                                    </div>
+                                                );
+                                            })()}
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Metadata Footer */}
                                 <div className="pt-2 border-t border-border/40">
                                     <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Log ID</p>
@@ -714,7 +818,7 @@ export function AuditLogsContent() {
                         </>
                     )}
                 </SheetContent>
-            </Sheet>
-        </main>
+            </Sheet >
+        </main >
     );
 }
