@@ -8,6 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Activity, AlertTriangle, CheckCircle, RefreshCw } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 export default function DeviceMonitorPage() {
     const token = useAuthStore((state) => state.token);
@@ -15,6 +17,8 @@ export default function DeviceMonitorPage() {
     const [errors, setErrors] = useState<DeviceErrorLog[]>([]);
     const [loading, setLoading] = useState(false);
     const [errorObj, setErrorObj] = useState<Error | null>(null);
+    const [isAutoRefresh, setIsAutoRefresh] = useState(true);
+    const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
     const loadData = async () => {
         if (!token) return;
@@ -36,6 +40,22 @@ export default function DeviceMonitorPage() {
     useEffect(() => {
         loadData();
     }, [token]);
+
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (isAutoRefresh && token) {
+            interval = setInterval(() => {
+                loadData();
+            }, 5000);
+        }
+        return () => clearInterval(interval);
+    }, [isAutoRefresh, token]);
+
+    useEffect(() => {
+        if (stats) {
+            setLastUpdated(new Date());
+        }
+    }, [stats]);
 
     if (loading && !stats) return <div className="p-8">Loading device data...</div>;
     if (errorObj) return (
@@ -67,10 +87,21 @@ export default function DeviceMonitorPage() {
                     <h1 className="text-2xl font-bold tracking-tight">Device Monitor</h1>
                     <p className="text-muted-foreground">Real-time status of physical device API ingestion.</p>
                 </div>
-                <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
-                    <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                    Refresh
-                </Button>
+                <div className="flex items-center gap-4">
+                    {lastUpdated && (
+                        <span className="text-xs text-muted-foreground">
+                            Last updated: {lastUpdated.toLocaleTimeString()}
+                        </span>
+                    )}
+                    <div className="flex items-center space-x-2">
+                        <Switch id="auto-refresh" checked={isAutoRefresh} onCheckedChange={setIsAutoRefresh} />
+                        <Label htmlFor="auto-refresh">Auto-refresh</Label>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
+                        <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                        Refresh
+                    </Button>
+                </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
