@@ -831,7 +831,7 @@ export async function fetchDeviceErrors(token: string, limit: number = 50) {
 
 // ── Audit Logs ──────────────────────────────────────────────────
 
-export interface AuditLog {
+export interface AuditLogItem {
   id: string;
   user_id: string | null;
   user_email: string | null;
@@ -843,42 +843,81 @@ export interface AuditLog {
   ip_address: string | null;
   is_break_glass: boolean;
   break_glass_reason: string | null;
+  old_values?: Record<string, any> | null;
+  new_values?: Record<string, any> | null;
   created_at: string;
 }
 
 export interface AuditLogListResponse {
-  items: AuditLog[];
+  items: AuditLogItem[];
   page: number;
   limit: number;
   total: number;
 }
 
-interface FetchAuditLogsParams {
-  page?: number;
-  limit?: number;
-  action?: string;
-  resource_type?: string;
-  user_id?: string;
-  is_break_glass?: boolean;
-  date_from?: string;
-  date_to?: string;
-  search?: string;
+export async function fetchAuditLogs(
+  token: string,
+  params: {
+    page?: number;
+    limit?: number;
+    user_id?: string;
+    action?: string;
+    resource_type?: string;
+    is_break_glass?: boolean;
+    date_from?: string;
+    date_to?: string;
+    search?: string;
+  }
+) {
+  const query = new URLSearchParams();
+  if (params.page) query.append("page", params.page.toString());
+  if (params.limit) query.append("limit", params.limit.toString());
+  if (params.user_id) query.append("user_id", params.user_id);
+  if (params.action) query.append("action", params.action);
+  if (params.resource_type) query.append("resource_type", params.resource_type);
+  if (params.is_break_glass !== undefined) query.append("is_break_glass", params.is_break_glass.toString());
+  if (params.date_from) query.append("date_from", params.date_from);
+  if (params.date_to) query.append("date_to", params.date_to);
+  if (params.search) query.append("search", params.search);
+
+  return apiFetch<AuditLogListResponse>(`/audit/logs?${query.toString()}`, {}, token);
 }
 
-export async function fetchAuditLogs(params: FetchAuditLogsParams, token: string) {
+export async function exportAuditLogs(
+  token: string,
+  params: {
+    user_id?: string;
+    action?: string;
+    resource_type?: string;
+    is_break_glass?: boolean;
+    date_from?: string;
+    date_to?: string;
+    search?: string;
+  }
+) {
   const query = new URLSearchParams();
-  if (params.page) query.set("page", params.page.toString());
-  if (params.limit) query.set("limit", params.limit.toString());
-  if (params.action) query.set("action", params.action);
-  if (params.resource_type) query.set("resource_type", params.resource_type);
-  if (params.user_id) query.set("user_id", params.user_id);
-  if (params.is_break_glass !== undefined) query.set("is_break_glass", params.is_break_glass.toString());
-  if (params.date_from) query.set("date_from", params.date_from);
-  if (params.date_to) query.set("date_to", params.date_to);
-  if (params.search) query.set("search", params.search);
+  if (params.user_id) query.append("user_id", params.user_id);
+  if (params.action) query.append("action", params.action);
+  if (params.resource_type) query.append("resource_type", params.resource_type);
+  if (params.is_break_glass !== undefined) query.append("is_break_glass", params.is_break_glass.toString());
+  if (params.date_from) query.append("date_from", params.date_from);
+  if (params.date_to) query.append("date_to", params.date_to);
+  if (params.search) query.append("search", params.search);
 
-  const qs = query.toString();
-  return apiFetch<AuditLogListResponse>(`/audit/logs${qs ? `?${qs}` : ""}`, {}, token);
+  // Use rawFetch to handle blob/file download
+  const url = `${API_BASE_URL}/audit/export?${query.toString()}`;
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error("Failed to export logs");
+  }
+
+  return res.blob();
 }
 
 // ── Security API ──────────────────────────────────────────

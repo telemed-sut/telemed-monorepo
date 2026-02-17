@@ -30,6 +30,7 @@ def _get_client_ip(request: Request) -> str:
     if cf_ip:
         return cf_ip
         
+    x_forwarded = request.headers.get("x-forwarded-for")
     if x_forwarded:
         return x_forwarded.split(",")[0].strip()
     if request.client:

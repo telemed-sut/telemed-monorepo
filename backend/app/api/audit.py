@@ -102,8 +102,123 @@ def get_audit_logs(
                 ip_address=log.ip_address,
                 is_break_glass=log.is_break_glass,
                 break_glass_reason=log.break_glass_reason,
+                old_values=log.old_values,
+                new_values=log.new_values,
                 created_at=log.created_at,
             )
         )
 
     return AuditLogListResponse(items=items, page=page, limit=limit, total=total)
+
+
+@router.get("/export")
+@limiter.limit("5/minute")
+def export_audit_logs(
+    request: Request,
+    user_id: Optional[UUID] = None,
+    action: Optional[str] = None,
+    resource_type: Optional[str] = None,
+    is_break_glass: Optional[bool] = None,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    """Export audit logs to CSV (admin only)."""
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    # Base query with LEFT JOIN on User details
+    stmt = (
+        select(
+            AuditLog,
+            User.email.label("user_email"),
+            User.first_name.label("user_first_name"),
+            User.last_name.label("user_last_name"),
+        )
+        .outerjoin(User, AuditLog.user_id == User.id)
+    )
+
+    # Apply filters (same as list endpoint)
+    if user_id:
+        stmt = stmt.where(AuditLog.user_id == user_id)
+    if action:
+        stmt = stmt.where(AuditLog.action == action)
+    if resource_type:
+        stmt = stmt.where(AuditLog.resource_type == resource_type)
+    if is_break_glass is not None:
+        stmt = stmt.where(AuditLog.is_break_glass == is_break_glass)
+    if date_from:
+        stmt = stmt.where(AuditLog.created_at >= date_from)
+    if date_to:
+        stmt = stmt.where(AuditLog.created_at <= date_to)
+    if search:
+        search_filter = or_(
+            AuditLog.action.ilike(f"%{search}%"),
+            AuditLog.details.ilike(f"%{search}%"),
+            AuditLog.ip_address.ilike(f"%{search}%"),
+        )
+        stmt = stmt.where(search_filter)
+
+    # Order by date desc
+    stmt = stmt.order_by(AuditLog.created_at.desc())
+
+    # Limit export size to prevent memory issues (e.g. 10k rows)
+    stmt = stmt.limit(10000)
+
+    rows = db.execute(stmt).all()
+
+    def iter_file():
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Write header
+        writer.writerow([
+            "ID",
+            "Date (UTC)",
+            "User Name",
+            "User Email",
+            "Action",
+            "Resource Type",
+            "Resource ID",
+            "IP Address",
+            "Break Glass",
+            "Break Glass Reason",
+            "Details"
+        ])
+        yield output.getvalue()
+        output.seek(0)
+        output.truncate(0)
+
+        for row in rows:
+            log = row[0]
+            user_email = row[1] or ""
+            user_first_name = row[2] or ""
+            user_last_name = row[3] or ""
+            user_name = f"{user_first_name} {user_last_name}".strip()
+
+            writer.writerow([
+                str(log.id),
+                log.created_at.isoformat() if log.created_at else "",
+                user_name,
+                user_email,
+                log.action,
+                log.resource_type or "",
+                str(log.resource_id) if log.resource_id else "",
+                log.ip_address or "",
+                "Yes" if log.is_break_glass else "No",
+                log.break_glass_reason or "",
+                log.details or ""
+            ])
+            yield output.getvalue()
+            output.seek(0)
+            output.truncate(0)
+
+    filename = f"audit_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    return StreamingResponse(
+        iter_file(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
