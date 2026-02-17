@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.limiter import limiter
+from app.core.limiter import limiter, get_failed_login_key
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
 from app.models.user import User
@@ -42,9 +42,13 @@ def get_me(current_user: User = Depends(auth_service.get_current_user)):
 
 
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("60/minute")
+@limiter.limit("60/minute")  # General limit (e.g. successful logins from same IP)
+@limiter.limit("10/minute", key_func=get_failed_login_key)  # Strict IP limit for brute-force protection
 def login(request: Request, payload: LoginRequest, db: Session = Depends(auth_service.get_db)):
-    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+    # Prioritize Cloudflare header
+    ip = request.headers.get("cf-connecting-ip")
+    if not ip:
+        ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
 
     # Check if IP is banned
     ban = security_service.check_ip_banned(db, ip)

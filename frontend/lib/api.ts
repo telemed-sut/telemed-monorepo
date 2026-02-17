@@ -73,11 +73,10 @@ export interface PatientListResponse {
 type SortOrder = "asc" | "desc";
 
 // Use environment variable for API URL or default to localhost:8000
-// In production, if deployed on same domain, use relative path
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ||
-  (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-    ? '' // Use same domain in production
-    : "http://localhost:8000"); // Use localhost in development
+// In production/tunnel, if deployed on same domain, use relative path
+const API_BASE_URL = (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
+  ? '/api'
+  : (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000");
 type ApiError = Error & { status?: number };
 
 // Token refresh state to prevent multiple simultaneous refresh calls
@@ -903,6 +902,7 @@ export interface LoginAttemptRecord {
   ip_address: string;
   email: string;
   success: boolean;
+  details?: string | null;
   created_at: string;
 }
 
@@ -932,6 +932,17 @@ export async function fetchIPBans(params: { page?: number; limit?: number }, tok
 
 export async function deleteIPBan(ipAddress: string, token: string) {
   return apiFetch<{ message: string }>(`/security/ip-bans/${encodeURIComponent(ipAddress)}`, { method: "DELETE" }, token);
+}
+
+export async function createIPBan(ip_address: string, reason: string, duration_minutes: number, token: string) {
+  return apiFetch<IPBan>(
+    "/security/ip-bans",
+    {
+      method: "POST",
+      body: JSON.stringify({ ip_address, reason, duration_minutes }),
+    },
+    token
+  );
 }
 
 export async function fetchLoginAttempts(
