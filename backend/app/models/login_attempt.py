@@ -13,4 +13,5 @@ class LoginAttempt(Base):
     ip_address = Column(String(45), nullable=False, index=True)
     email = Column(String(255), nullable=False)
     success = Column(Boolean, nullable=False, default=False)
+    details = Column(String(255), nullable=True)  # Added for failure reasons (e.g. "Rate Limit Exceeded")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)

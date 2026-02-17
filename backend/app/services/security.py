@@ -23,8 +23,8 @@ def is_ip_whitelisted(ip: str) -> bool:
     return ip in whitelist
 
 
-def record_login_attempt(db: Session, ip: str, email: str, success: bool) -> None:
-    attempt = LoginAttempt(ip_address=ip, email=email, success=success)
+def record_login_attempt(db: Session, ip: str, email: str, success: bool, details: str = None) -> None:
+    attempt = LoginAttempt(ip_address=ip, email=email, success=success, details=details)
     db.add(attempt)
     db.flush()
 
@@ -63,8 +63,8 @@ def check_account_locked(user: Optional[User]) -> Optional[datetime]:
     return locked_until
 
 
-def handle_failed_login(db: Session, ip: str, email: str, user: Optional[User]) -> None:
-    record_login_attempt(db, ip, email, success=False)
+def handle_failed_login(db: Session, ip: str, email: str, user: Optional[User], details: str = None) -> None:
+    record_login_attempt(db, ip, email, success=False, details=details)
 
     # Increment user failed attempts if user exists
     if user:
@@ -110,7 +110,7 @@ def handle_failed_login(db: Session, ip: str, email: str, user: Optional[User]) 
 
 
 def handle_successful_login(db: Session, ip: str, user: User) -> None:
-    record_login_attempt(db, ip, user.email, success=True)
+    record_login_attempt(db, ip, user.email, success=True, details="Login successful")
 
     if user.failed_login_attempts > 0 or user.account_locked_until:
         user.failed_login_attempts = 0

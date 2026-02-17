@@ -325,17 +325,31 @@ export function UsersTable() {
         try {
             const url = editingUser ? `/api/users/${editingUser.id}` : "/api/users";
             const method = editingUser ? "PUT" : "POST";
+
+            // Create a copy of formData to modify
+            const payload = { ...formData };
+
+            // Remove password if it's empty strings (only send if actually changing it)
+            if (!payload.password) {
+                delete payload.password;
+            }
+
             const res = await fetch(url, {
                 method,
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(formData),
+                body: JSON.stringify(payload),
             });
-            if (!res.ok) throw new Error("Operation failed");
+
+            if (!res.ok) {
+                const errorData = await res.json().catch(() => ({}));
+                throw new Error(errorData.detail || "Operation failed");
+            }
+
             toast.success("Success", { description: editingUser ? "User updated" : "User created" });
             setSheetOpen(false);
             loadUsers();
-        } catch (error) {
-            toast.error("Error", { description: "Failed to save user" });
+        } catch (error: any) {
+            toast.error("Error", { description: error.message || "Failed to save user" });
         } finally {
             setIsSubmitting(false);
         }

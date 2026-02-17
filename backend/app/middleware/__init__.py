@@ -22,9 +22,16 @@ _CACHE_TTL = 30  # seconds
 
 
 def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # Prioritize Cloudflare header
+    cf_ip = request.headers.get("cf-connecting-ip")
+
+
+    # Prioritize Cloudflare header
+    if cf_ip:
+        return cf_ip
+        
+    if x_forwarded:
+        return x_forwarded.split(",")[0].strip()
     if request.client:
         return request.client.host
     return "unknown"

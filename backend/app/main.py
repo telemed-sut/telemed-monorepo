@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.core.limiter import limiter
 
@@ -11,17 +12,61 @@ from app.core.config import get_settings
 from app.middleware import SecurityHeadersMiddleware, IPBanMiddleware
 
 settings = get_settings()
+
 settings = get_settings()
+
 # limiter imported from core
+
+# Imports for rate limit logging
+from app.db.session import SessionLocal
+from app.services.security import record_login_attempt
+from app.core.limiter import limiter
 
 app = FastAPI(title=settings.app_name)
 app.state.limiter = limiter
+# Explicitly add SlowAPI middleware to set X-RateLimit-* headers
+app.add_middleware(SlowAPIMiddleware)
 
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    # Get retry value (e.g., "60 seconds")
+    # Get retry value (e.g., "60 seconds")
+    retry_after = exc.detail if exc.detail else "a few seconds"
+
+    # Log failed login attempt if this was a login request
+    # This allows admins to see "Blocked (Rate Limit)" in the security dashboard
+    if request.method == "POST" and request.url.path.endswith("/auth/login"):
+        try:
+            # We need to read the body to get the email
+            # Note: This might fail if the body is too large or malformed, but it's worth a try for logging
+            body = await request.json()
+            email = body.get("email")
+            
+            if email:
+                ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+                
+                # Use a separate session for logging since we are in an exception handler
+                with SessionLocal() as db:
+                    record_login_attempt(
+                        db, 
+                        ip, 
+                        email, 
+                        success=False, 
+                        details="Rate Limit Exceeded"
+                    )
+                    db.commit()
+        except Exception:
+            # If logging fails (e.g. body parsing error), we just ignore it to ensure the 429 response is still sent
+            pass
+
     return JSONResponse(
         status_code=429,
-        content={"error": "Too Many Requests", "detail": "Rate limit exceeded", "retry_after": exc.detail}
+        content={
+            "error": "Too Many Requests",
+            "message": f"คุณทำรายการเร็วเกินไป กรุณารอสักครู่ ({retry_after})",
+            "detail": "Rate limit exceeded. Please slow down.",
+            "retry_after": retry_after
+        }
     )
 
 # Middleware stack (order matters: last added = first executed)

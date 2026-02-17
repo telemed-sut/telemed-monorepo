@@ -8,6 +8,7 @@ import {
     fetchIPBans,
     fetchLoginAttempts,
     deleteIPBan,
+    createIPBan,
     type SecurityStats,
     type IPBan,
     type IPBanListResponse,
@@ -55,6 +56,7 @@ import {
     XCircle,
     Clock,
     Trash2,
+    AlertTriangle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -284,6 +286,21 @@ export function SecurityContent() {
         }
     };
 
+    const handleBan = async (ipAddress: string) => {
+        if (!token) return;
+        // Simple confirmation
+        if (!confirm(`Are you sure you want to ban IP ${ipAddress} for 24 hours?`)) return;
+
+        try {
+            await createIPBan(ipAddress, "Manual ban by admin", 1440, token);
+            toast.success(`IP ${ipAddress} has been banned for 24 hours`);
+            loadBans();
+            loadStats();
+        } catch {
+            toast.error("Failed to ban IP");
+        }
+    };
+
     const refreshAll = () => {
         setStatsLoading(true);
         loadStats();
@@ -348,84 +365,84 @@ export function SecurityContent() {
                 <CardContent>
                     <div className="rounded-md border border-white/10 overflow-hidden">
                         <div className="max-h-[360px] overflow-auto lg:max-h-[420px]">
-                        <Table>
-                            <TableHeader className="sticky top-0 z-20 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-                                <TableRow className="hover:bg-transparent border-white/10">
-                                    <TableHead>IP Address</TableHead>
-                                    <TableHead>Reason</TableHead>
-                                    <TableHead>Failed Attempts</TableHead>
-                                    <TableHead>Expires</TableHead>
-                                    <TableHead>Banned At</TableHead>
-                                    <TableHead className="w-[80px]">Actions</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {bansLoading && bans.length === 0 ? (
-                                    Array.from({ length: 3 }).map((_, i) => (
-                                        <TableRow key={i} className="border-white/10">
-                                            <TableCell><Skeleton className="h-4 w-[120px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[200px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
-                                        </TableRow>
-                                    ))
-                                ) : bans.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={6} className="h-24 text-center">
-                                            <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                                                <ShieldOff className="h-8 w-8" />
-                                                <p>No active IP bans</p>
-                                            </div>
-                                        </TableCell>
+                            <Table>
+                                <TableHeader className="sticky top-0 z-20 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+                                    <TableRow className="hover:bg-transparent border-white/10">
+                                        <TableHead>IP Address</TableHead>
+                                        <TableHead>Reason</TableHead>
+                                        <TableHead>Failed Attempts</TableHead>
+                                        <TableHead>Expires</TableHead>
+                                        <TableHead>Banned At</TableHead>
+                                        <TableHead className="w-[80px]">Actions</TableHead>
                                     </TableRow>
-                                ) : (
-                                    <AnimatePresence mode="popLayout">
-                                        {bans.map((ban) => (
-                                            <motion.tr
-                                                key={ban.id}
-                                                initial={{ opacity: 0, y: 10 }}
-                                                animate={{ opacity: 1, y: 0 }}
-                                                exit={{ opacity: 0, y: -10 }}
-                                                transition={{ duration: 0.15 }}
-                                                className="border-b border-white/5 hover:bg-white/5 transition-colors"
-                                            >
-                                                <TableCell className="font-mono text-sm">{ban.ip_address}</TableCell>
-                                                <TableCell className="text-sm text-muted-foreground max-w-[300px] truncate">
-                                                    {ban.reason || "-"}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/20">
-                                                        {ban.failed_attempts}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell className="text-sm">
-                                                    <span className="flex items-center gap-1 text-muted-foreground">
-                                                        <Clock className="h-3 w-3" />
-                                                        {formatBannedUntil(ban.banned_until)}
-                                                    </span>
-                                                </TableCell>
-                                                <TableCell className="text-sm text-muted-foreground">
-                                                    {timeAgo(ban.created_at)}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                                                        onClick={() => handleUnban(ban.ip_address)}
-                                                    >
-                                                        <Unlock className="h-4 w-4 mr-1" />
-                                                        Unban
-                                                    </Button>
-                                                </TableCell>
-                                            </motion.tr>
-                                        ))}
-                                    </AnimatePresence>
-                                )}
-                            </TableBody>
-                        </Table>
+                                </TableHeader>
+                                <TableBody>
+                                    {bansLoading && bans.length === 0 ? (
+                                        Array.from({ length: 3 }).map((_, i) => (
+                                            <TableRow key={i} className="border-white/10">
+                                                <TableCell><Skeleton className="h-4 w-[120px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[200px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
+                                            </TableRow>
+                                        ))
+                                    ) : bans.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={6} className="h-24 text-center">
+                                                <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                                                    <ShieldOff className="h-8 w-8" />
+                                                    <p>No active IP bans</p>
+                                                </div>
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        <AnimatePresence mode="popLayout">
+                                            {bans.map((ban) => (
+                                                <motion.tr
+                                                    key={ban.id}
+                                                    initial={{ opacity: 0, y: 10 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    exit={{ opacity: 0, y: -10 }}
+                                                    transition={{ duration: 0.15 }}
+                                                    className="border-b border-white/5 hover:bg-white/5 transition-colors"
+                                                >
+                                                    <TableCell className="font-mono text-sm">{ban.ip_address}</TableCell>
+                                                    <TableCell className="text-sm text-muted-foreground max-w-[300px] truncate">
+                                                        {ban.reason || "-"}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/20">
+                                                            {ban.failed_attempts}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm">
+                                                        <span className="flex items-center gap-1 text-muted-foreground">
+                                                            <Clock className="h-3 w-3" />
+                                                            {formatBannedUntil(ban.banned_until)}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell className="text-sm text-muted-foreground">
+                                                        {timeAgo(ban.created_at)}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                                                            onClick={() => handleUnban(ban.ip_address)}
+                                                        >
+                                                            <Unlock className="h-4 w-4 mr-1" />
+                                                            Unban
+                                                        </Button>
+                                                    </TableCell>
+                                                </motion.tr>
+                                            ))}
+                                        </AnimatePresence>
+                                    )}
+                                </TableBody>
+                            </Table>
                         </div>
                     </div>
 
@@ -500,71 +517,90 @@ export function SecurityContent() {
                 <CardContent>
                     <div className="rounded-md border border-white/10 overflow-hidden">
                         <div className="max-h-[420px] overflow-auto lg:max-h-[520px]">
-                        <Table>
-                            <TableHeader className="sticky top-0 z-20 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-                                <TableRow className="hover:bg-transparent border-white/10">
-                                    <TableHead className="w-[120px]">Time</TableHead>
-                                    <TableHead>IP Address</TableHead>
-                                    <TableHead>Email</TableHead>
-                                    <TableHead>Status</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {attemptsLoading && attempts.length === 0 ? (
-                                    Array.from({ length: 8 }).map((_, i) => (
-                                        <TableRow key={i} className="border-white/10">
-                                            <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[120px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[180px]" /></TableCell>
-                                            <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
-                                        </TableRow>
-                                    ))
-                                ) : attempts.length === 0 ? (
-                                    <TableRow>
-                                        <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                                            No login attempts found.
-                                        </TableCell>
+                            <Table>
+                                <TableHeader className="sticky top-0 z-20 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+                                    <TableRow className="hover:bg-transparent border-white/10">
+                                        <TableHead className="w-[120px]">Time</TableHead>
+                                        <TableHead>IP Address</TableHead>
+                                        <TableHead>Email</TableHead>
+                                        <TableHead>Status</TableHead>
+                                        <TableHead className="w-[80px]">Actions</TableHead>
                                     </TableRow>
-                                ) : (
-                                    <AnimatePresence mode="popLayout">
-                                        {attempts.map((attempt) => (
-                                            <motion.tr
-                                                key={attempt.id}
-                                                initial={{ opacity: 0, y: 10 }}
-                                                animate={{ opacity: 1, y: 0 }}
-                                                exit={{ opacity: 0, y: -10 }}
-                                                transition={{ duration: 0.15 }}
-                                                className={cn(
-                                                    "border-b border-white/5 hover:bg-white/5 transition-colors",
-                                                    !attempt.success && "bg-red-500/5"
-                                                )}
-                                            >
-                                                <TableCell className="text-sm">
-                                                    <span className="text-muted-foreground" title={new Date(attempt.created_at).toLocaleString()}>
-                                                        {timeAgo(attempt.created_at)}
-                                                    </span>
-                                                </TableCell>
-                                                <TableCell className="font-mono text-sm">{attempt.ip_address}</TableCell>
-                                                <TableCell className="text-sm">{attempt.email}</TableCell>
-                                                <TableCell>
-                                                    {attempt.success ? (
-                                                        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 flex items-center gap-1 w-fit">
-                                                            <CheckCircle2 className="w-3 h-3" />
-                                                            Success
-                                                        </Badge>
-                                                    ) : (
-                                                        <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/20 flex items-center gap-1 w-fit">
-                                                            <XCircle className="w-3 h-3" />
-                                                            Failed
-                                                        </Badge>
+                                </TableHeader>
+                                <TableBody>
+                                    {attemptsLoading && attempts.length === 0 ? (
+                                        Array.from({ length: 8 }).map((_, i) => (
+                                            <TableRow key={i} className="border-white/10">
+                                                <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[120px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[180px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
+                                                <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
+                                            </TableRow>
+                                        ))
+                                    ) : attempts.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                                                No login attempts found.
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        <AnimatePresence mode="popLayout">
+                                            {attempts.map((attempt) => (
+                                                <motion.tr
+                                                    key={attempt.id}
+                                                    initial={{ opacity: 0, y: 10 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    exit={{ opacity: 0, y: -10 }}
+                                                    transition={{ duration: 0.15 }}
+                                                    className={cn(
+                                                        "border-b border-white/5 hover:bg-white/5 transition-colors",
+                                                        !attempt.success && "bg-red-500/5"
                                                     )}
-                                                </TableCell>
-                                            </motion.tr>
-                                        ))}
-                                    </AnimatePresence>
-                                )}
-                            </TableBody>
-                        </Table>
+                                                >
+                                                    <TableCell className="text-sm">
+                                                        <span className="text-muted-foreground" title={new Date(attempt.created_at).toLocaleString()}>
+                                                            {timeAgo(attempt.created_at)}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell className="font-mono text-sm">{attempt.ip_address}</TableCell>
+                                                    <TableCell className="text-sm">{attempt.email}</TableCell>
+                                                    <TableCell>
+                                                        {attempt.success ? (
+                                                            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 flex items-center gap-1 w-fit">
+                                                                <CheckCircle2 className="w-3 h-3" />
+                                                                Success
+                                                            </Badge>
+                                                        ) : attempt.details?.includes("Rate Limit") ? (
+                                                            <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/20 flex items-center gap-1 w-fit">
+                                                                <AlertTriangle className="w-3 h-3" />
+                                                                Blocked (Rate Limit)
+                                                            </Badge>
+                                                        ) : (
+                                                            <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/20 flex items-center gap-1 w-fit">
+                                                                <XCircle className="w-3 h-3" />
+                                                                Failed
+                                                            </Badge>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="text-amber-500 hover:text-amber-400 hover:bg-amber-500/10"
+                                                            onClick={() => handleBan(attempt.ip_address)}
+                                                            title="Ban IP for 24h"
+                                                        >
+                                                            <ShieldAlert className="h-4 w-4 mr-1" />
+                                                            Ban
+                                                        </Button>
+                                                    </TableCell>
+                                                </motion.tr>
+                                            ))}
+                                        </AnimatePresence>
+                                    )}
+                                </TableBody>
+                            </Table>
                         </div>
                     </div>
 

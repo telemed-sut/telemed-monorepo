@@ -33,7 +33,11 @@ class Settings(BaseSettings):
     # Device API Security
     device_api_secret: str = "change_this_to_a_strong_secret"
 
-    @field_validator("cors_origins", mode="before")
+    # Rate Limiting
+    redis_url: str | None = None
+    rate_limit_whitelist: Union[List[str], str] = ["127.0.0.1", "::1"]
+
+    @field_validator("cors_origins", "rate_limit_whitelist", mode="before")
     @classmethod
     def split_origins(cls, v):
         if isinstance(v, str):

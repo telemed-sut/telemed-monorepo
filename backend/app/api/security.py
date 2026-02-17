@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -17,6 +17,13 @@ router = APIRouter(prefix="/security", tags=["security"])
 
 # ── Schemas ──
 
+
+class IPBanCreate(BaseModel):
+    ip_address: str
+    reason: str | None = None
+    duration_minutes: int = 1440  # Default 24 hours
+
+
 class IPBanResponse(BaseModel):
     id: str
     ip_address: str
@@ -24,6 +31,7 @@ class IPBanResponse(BaseModel):
     failed_attempts: int
     banned_until: datetime | None = None
     created_at: datetime
+
 
 
 class IPBanListResponse(BaseModel):
@@ -36,6 +44,7 @@ class LoginAttemptResponse(BaseModel):
     ip_address: str
     email: str
     success: bool
+    details: str | None = None
     created_at: datetime
 
 
@@ -137,6 +146,58 @@ def get_ip_bans(
 
     return IPBanListResponse(items=items, total=total)
 
+    return IPBanListResponse(items=items, total=total)
+
+
+@router.post("/ip-bans", response_model=IPBanResponse)
+@limiter.limit("20/minute")
+def create_ip_ban(
+    request: Request,
+    payload: IPBanCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    # Prevent banning own IP
+    client_ip = request.headers.get("cf-connecting-ip")
+    if not client_ip:
+        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+    
+    if payload.ip_address == client_ip:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot ban your own IP address."
+        )
+
+    # Check if already banned
+    existing_ban = db.scalar(select(IPBan).where(IPBan.ip_address == payload.ip_address))
+    if existing_ban:
+        # Update existing ban
+        existing_ban.reason = payload.reason or existing_ban.reason
+        existing_ban.banned_until = datetime.now(timezone.utc) + timedelta(minutes=payload.duration_minutes)
+        db.add(existing_ban)
+        db.commit()
+        db.refresh(existing_ban)
+        ban = existing_ban
+    else:
+        # Create new ban
+        ban = IPBan(
+            ip_address=payload.ip_address,
+            reason=payload.reason or "Manual ban by admin",
+            failed_attempts=0,
+            banned_until=datetime.now(timezone.utc) + timedelta(minutes=payload.duration_minutes),
+        )
+        db.add(ban)
+        db.commit()
+        db.refresh(ban)
+
+    return IPBanResponse(
+        id=str(ban.id),
+        ip_address=ban.ip_address,
+        reason=ban.reason,
+        failed_attempts=ban.failed_attempts,
+        banned_until=ban.banned_until,
+        created_at=ban.created_at,
+    )
 
 @router.delete("/ip-bans/{ip_address}")
 @limiter.limit("20/minute")
@@ -191,6 +252,7 @@ def get_login_attempts(
             ip_address=a.ip_address,
             email=a.email,
             success=a.success,
+            details=a.details,
             created_at=a.created_at,
         )
         for a in attempts
