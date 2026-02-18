@@ -16,9 +16,13 @@ import {
 import {
     fetchUsers,
     deleteUser,
+    bulkDeleteUsers,
+    createUserInvite,
     verifyUser,
     createUser,
     updateUser,
+    UserCreate,
+    UserUpdate,
     User
 } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
@@ -50,6 +54,7 @@ import {
     Link2,
     FileDown,
     ArrowUpDown,
+    Users,
 } from "lucide-react";
 
 
@@ -93,17 +98,7 @@ import {
     SheetTitle,
 } from "@/components/ui/sheet";
 import { Label } from "@/components/ui/label";
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
     Card,
@@ -158,6 +153,80 @@ const isLicenseExpiringSoon = (expiryDate?: string) => {
     return diffDays > 0 && diffDays <= 30;
 };
 
+const TEAM_MEMBER_COLORS = [
+    "bg-emerald-200 text-emerald-800",
+    "bg-amber-200 text-amber-800",
+    "bg-violet-200 text-violet-800",
+] as const;
+
+const parseApiErrorMessage = (payload: unknown): string | null => {
+    if (!payload || typeof payload !== "object") return null;
+
+    const record = payload as Record<string, unknown>;
+    const detail = record.detail ?? record.message ?? record.error;
+
+    if (typeof detail === "string" && detail.trim().length > 0) {
+        return detail;
+    }
+
+    if (Array.isArray(detail)) {
+        const messages = detail
+            .map((item) => {
+                if (typeof item === "string") return item;
+                if (!item || typeof item !== "object") return null;
+
+                const entry = item as Record<string, unknown>;
+                const message = typeof entry.msg === "string" ? entry.msg : null;
+                if (!message) return null;
+
+                if (Array.isArray(entry.loc)) {
+                    const path = entry.loc
+                        .filter(
+                            (part): part is string | number =>
+                                typeof part === "string" || typeof part === "number"
+                        )
+                        .join(".");
+                    return path ? `${path}: ${message}` : message;
+                }
+
+                return message;
+            })
+            .filter((message): message is string => Boolean(message));
+
+        if (messages.length > 0) {
+            return messages.join(" | ");
+        }
+    }
+
+    if (detail && typeof detail === "object") {
+        const detailRecord = detail as Record<string, unknown>;
+        if (typeof detailRecord.message === "string") return detailRecord.message;
+        if (typeof detailRecord.msg === "string") return detailRecord.msg;
+    }
+
+    if (typeof record.message === "string") return record.message;
+    if (typeof record.error === "string") return record.error;
+
+    return null;
+};
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+    if (!(error instanceof Error) || !error.message) return fallback;
+
+    const raw = error.message.trim();
+    if (raw.startsWith("{") || raw.startsWith("[")) {
+        try {
+            const parsed = JSON.parse(raw);
+            const parsedMessage = parseApiErrorMessage(parsed);
+            if (parsedMessage) return parsedMessage;
+        } catch {
+            // keep raw message fallback
+        }
+    }
+
+    return raw || fallback;
+};
+
 // --- Component ---
 
 export function UsersTable() {
@@ -185,15 +254,9 @@ export function UsersTable() {
 
     const [isInviteSheetOpen, setInviteSheetOpen] = useState(false);
     const [isInviteSubmitting, setIsInviteSubmitting] = useState(false);
-    const [inviteConfirmOpen, setInviteConfirmOpen] = useState(false);
     const [generatedInviteUrl, setGeneratedInviteUrl] = useState("");
 
-    const [deleteUserOpen, setDeleteUserOpen] = useState(false);
-    const [userToDelete, setUserToDelete] = useState<User | null>(null);
-
-    const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
     const [isBulkDeleting, setIsBulkDeleting] = useState(false);
-    const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
 
     // Form Data State
     interface UserFormData extends Partial<User> {
@@ -283,73 +346,134 @@ export function UsersTable() {
     };
 
     const handleDelete = (user: User) => {
-        setUserToDelete(user);
-        setDeleteUserOpen(true);
+        const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
+        toast.destructiveAction("Delete user?", {
+            description: `Are you sure you want to delete ${fullName}?`,
+            button: {
+                title: "Delete User",
+                onClick: () => {
+                    void confirmDelete(user);
+                },
+            },
+            duration: 9000,
+        });
     };
 
-    const confirmDelete = async () => {
-        if (!userToDelete) return;
-        try {
-            const res = await fetch(`/api/users/${userToDelete.id}`, {
-                method: "DELETE",
+    const confirmDelete = async (user: User) => {
+        if (!token) {
+            toast.error("Delete failed", {
+                description: "Not authenticated. Please sign in again.",
             });
-            if (!res.ok) throw new Error("Failed to delete user");
+            return;
+        }
+
+        try {
+            await deleteUser(user.id, token);
             toast.success("Success", {
                 description: "User deleted successfully",
             });
             loadUsers();
-            setDeleteUserOpen(false);
         } catch (error) {
-            toast.error("Error", {
-                description: "Could not delete user",
+            toast.error("Delete failed", {
+                description: getErrorMessage(error, "Could not delete user"),
             });
         }
     };
 
     const handleVerifyUser = async (user: User) => {
-        try {
-            const res = await fetch(`/api/users/${user.id}/verify`, {
-                method: 'POST'
+        if (!token) {
+            toast.error("Verification failed", {
+                description: "Not authenticated. Please sign in again.",
             });
-            if (!res.ok) throw new Error("Failed to verify user");
-            toast.success("Verified", { description: "User has been verified." });
+            return;
+        }
+
+        try {
+            await verifyUser(user.id, token);
+            const displayName = getDisplayName(user.first_name, user.last_name, user.email);
+            showTeamUpdateToast({
+                title: "Verification Complete",
+                members: [displayName],
+                message: `${displayName} is now verified and ready for assignments.`,
+            });
             loadUsers();
         } catch (err) {
-            toast.error("Error", { description: "Verification failed." });
+            toast.error("Verification failed", {
+                description: getErrorMessage(err, "Verification failed."),
+            });
         }
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!token) {
+            toast.error("Save failed", {
+                description: "Not authenticated. Please sign in again.",
+                duration: 10000,
+            });
+            return;
+        }
         setIsSubmitting(true);
         try {
-            const url = editingUser ? `/api/users/${editingUser.id}` : "/api/users";
-            const method = editingUser ? "PUT" : "POST";
-
-            // Create a copy of formData to modify
-            const payload = { ...formData };
-
-            // Remove password if it's empty strings (only send if actually changing it)
-            if (!payload.password) {
-                delete payload.password;
+            const normalizedEmail = formData.email?.trim();
+            if (!normalizedEmail) {
+                throw new Error("Email is required.");
             }
 
-            const res = await fetch(url, {
-                method,
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-            });
-
-            if (!res.ok) {
-                const errorData = await res.json().catch(() => ({}));
-                throw new Error(errorData.detail || "Operation failed");
+            const normalizedPassword = formData.password?.trim();
+            if (!editingUser && !normalizedPassword) {
+                throw new Error("Password is required.");
             }
 
-            toast.success("Success", { description: editingUser ? "User updated" : "User created" });
+            const basePayload: Omit<UserCreate, "password" | "email"> & { email: string } = {
+                email: normalizedEmail,
+                first_name: formData.first_name?.trim() || undefined,
+                last_name: formData.last_name?.trim() || undefined,
+                role: formData.role || "staff",
+                is_active: formData.is_active ?? true,
+                specialty: formData.specialty?.trim() || undefined,
+                department: formData.department?.trim() || undefined,
+                license_no: formData.license_no?.trim() || undefined,
+                license_expiry: formData.license_expiry || undefined,
+                verification_status: formData.verification_status || undefined,
+            };
+
+            if (editingUser) {
+                const updatePayload: UserUpdate = { ...basePayload };
+                if (normalizedPassword) {
+                    updatePayload.password = normalizedPassword;
+                }
+                await updateUser(editingUser.id, updatePayload, token);
+            } else {
+                const createPayload: UserCreate = {
+                    ...basePayload,
+                    password: normalizedPassword!,
+                };
+                await createUser(createPayload, token);
+            }
+
+            const roleLabel = ROLE_LABEL_MAP[String(basePayload.role ?? "staff")] ?? "Staff";
+            const displayName = getDisplayName(
+                basePayload.first_name,
+                basePayload.last_name,
+                basePayload.email
+            );
+            if (editingUser) {
+                toast.success("User updated", {
+                    description: `${displayName} details were saved successfully.`,
+                });
+            } else {
+                showTeamUpdateToast({
+                    title: "Team Update",
+                    members: [displayName],
+                    message: `${displayName} joined as ${roleLabel}.`,
+                });
+            }
             setSheetOpen(false);
             loadUsers();
-        } catch (error: any) {
-            toast.error("Error", { description: error.message || "Failed to save user" });
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : "Failed to save user";
+            toast.error("Save failed", { description: message, duration: 10000 });
         } finally {
             setIsSubmitting(false);
         }
@@ -357,24 +481,43 @@ export function UsersTable() {
 
     const handleCreateInviteRequest = (e: React.FormEvent) => {
         e.preventDefault();
-        setInviteConfirmOpen(true);
+        if (isInviteSubmitting) return;
+        toast.action("Generate invite link?", {
+            description: `Create invite for ${inviteFormData.email} (${ROLE_LABEL_MAP[inviteFormData.role] ?? inviteFormData.role}).`,
+            button: {
+                title: "Confirm & Generate",
+                onClick: () => {
+                    void handleConfirmCreateInvite();
+                },
+            },
+            duration: 9000,
+        });
     };
 
     const handleConfirmCreateInvite = async () => {
-        setInviteConfirmOpen(false);
+        if (!token) {
+            toast.error("Invite failed", {
+                description: "Not authenticated. Please sign in again.",
+            });
+            return;
+        }
+
         setIsInviteSubmitting(true);
         try {
-            const res = await fetch("/api/invites", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(inviteFormData),
+            const data = await createUserInvite(
+                { email: inviteFormData.email, role: inviteFormData.role },
+                token
+            );
+            setGeneratedInviteUrl(data.invite_url);
+            showTeamUpdateToast({
+                title: "Invite Ready",
+                members: [inviteFormData.email],
+                message: `Invite link generated for ${inviteFormData.email}.`,
             });
-            if (!res.ok) throw new Error("Failed to create invite");
-            const data = await res.json();
-            setGeneratedInviteUrl(data.invite_url); // Assuming API returns this
-            toast.success("Success", { description: "Invite link generated" });
         } catch (error) {
-            toast.error("Error", { description: "Could not generate invite" });
+            toast.error("Invite failed", {
+                description: getErrorMessage(error, "Could not generate invite"),
+            });
         } finally {
             setIsInviteSubmitting(false);
         }
@@ -385,27 +528,117 @@ export function UsersTable() {
         toast.success("Copied", { description: "Invite URL copied to clipboard" });
     };
 
+    const getDisplayName = (
+        firstName?: string | null,
+        lastName?: string | null,
+        email?: string | null
+    ) =>
+        `${firstName ?? ""} ${lastName ?? ""}`.trim() || email || "New member";
+
+    const showTeamUpdateToast = ({
+        title,
+        message,
+        members,
+    }: {
+        title: string;
+        message: string;
+        members: string[];
+    }) => {
+        const memberChips = members
+            .filter((member) => member.trim().length > 0)
+            .slice(0, 3)
+            .map((member, index) => ({
+                name: member,
+                initials: member.trim().charAt(0).toUpperCase() || "?",
+                color: TEAM_MEMBER_COLORS[index % TEAM_MEMBER_COLORS.length],
+            }));
+
+        toast.info(title, {
+            fill: "#f3f4f6",
+            duration: 12000,
+            icon: (
+                <span className="inline-flex size-5 items-center justify-center rounded-full bg-sky-100 text-sky-500">
+                    <Users className="size-3.5" />
+                </span>
+            ),
+            styles: {
+                title: "!text-sky-500 !font-semibold !tracking-tight",
+                badge: "!bg-sky-100/80 !text-sky-500",
+                description: "!text-neutral-700",
+            },
+            description: (
+                <div className="flex items-center gap-3 pr-5">
+                    <div className="flex -space-x-2">
+                        {memberChips.map((member) => (
+                            <span
+                                key={member.name}
+                                className={cn(
+                                    "inline-flex size-7 items-center justify-center rounded-full border-2 border-zinc-100 text-[11px] font-semibold shadow-sm",
+                                    member.color
+                                )}
+                                aria-label={member.name}
+                                title={member.name}
+                            >
+                                {member.initials}
+                            </span>
+                        ))}
+                    </div>
+                    <p className="text-sm leading-snug text-neutral-600">{message}</p>
+                </div>
+            ),
+        });
+    };
+
+    const showTeamUpdateDemo = () => {
+        showTeamUpdateToast({
+            title: "Team Update",
+            members: ["Alice", "Bob", "Charlie"],
+            message: "Alice, Bob, and Charlie joined the Design Engineering Team.",
+        });
+    };
+
     // Bulk Delete
     const handleBulkDelete = async (ids: string[]) => {
+        if (!token) {
+            toast.error("Delete failed", {
+                description: "Not authenticated. Please sign in again.",
+            });
+            return;
+        }
+
         try {
             setIsBulkDeleting(true);
-            // Assuming API supports bulk delete via POST /api/users/batch-delete or similar. 
-            // If not detailed in original code (likely not implemented), we'll implement loop or new endpoint.
-            // Since original code had empty implementation for bulk delete, we'll try sequential delete or placeholder.
-            // For safety, let's just log and toast for now as 'Implemented in API'.
-            // Wait, the plan was to implement it.
-            // We'll iterate for now.
-            await Promise.all(ids.map(id => fetch(`/api/users/${id}`, { method: "DELETE" })));
-
-            toast.success("Success", { description: "Selected users deleted." });
+            const result = await bulkDeleteUsers(ids, token);
+            const skippedCount = result.skipped?.length ?? 0;
+            toast.success("Success", {
+                description:
+                    skippedCount > 0
+                        ? `Deleted ${result.deleted} user(s), skipped ${skippedCount}.`
+                        : `Deleted ${result.deleted} user(s).`,
+            });
             setRowSelection({});
             loadUsers();
         } catch (error) {
-            toast.error("Error", { description: "Bulk delete failed." });
+            toast.error("Delete failed", {
+                description: getErrorMessage(error, "Bulk delete failed."),
+            });
         } finally {
             setIsBulkDeleting(false);
-            setBulkDeleteOpen(false);
         }
+    };
+
+    const requestBulkDelete = (ids: string[]) => {
+        if (ids.length === 0 || isBulkDeleting) return;
+        toast.destructiveAction(`Delete ${ids.length} user(s)?`, {
+            description: "This action cannot be undone.",
+            button: {
+                title: "Delete",
+                onClick: () => {
+                    void handleBulkDelete(ids);
+                },
+            },
+            duration: 9000,
+        });
     };
 
     // --- Columns Definition ---
@@ -523,8 +756,6 @@ export function UsersTable() {
             header: "Status",
             cell: ({ row }) => {
                 const user = row.original;
-                if (!isClinicalRole(user.role)) return <span className="text-muted-foreground text-xs">N/A</span>;
-
                 const status = user.verification_status || "unverified";
                 return (
                     <Badge
@@ -581,7 +812,7 @@ export function UsersTable() {
                                 <DropdownMenuItem onClick={() => handleOpenEdit(user)}>
                                     <Pencil className="mr-2 h-4 w-4" /> Edit
                                 </DropdownMenuItem>
-                                {isClinicalRole(user.role) && user.verification_status !== "verified" && (
+                                {(user.verification_status || "unverified") !== "verified" && (
                                     <DropdownMenuItem onClick={() => handleVerifyUser(user)}>
                                         <BadgeCheck className="mr-2 h-4 w-4 text-green-500" /> Verify
                                     </DropdownMenuItem>
@@ -741,10 +972,7 @@ export function UsersTable() {
                                 variant="destructive"
                                 size="sm"
                                 className="h-8 sm:h-9 gap-1.5"
-                                onClick={() => {
-                                    setSelectedUserIds(selectedIds);
-                                    setBulkDeleteOpen(true);
-                                }}
+                                onClick={() => requestBulkDelete(selectedIds)}
                             >
                                 <Trash2 className="size-3.5 sm:size-4" />
                                 Delete ({selectedIds.length})
@@ -758,6 +986,15 @@ export function UsersTable() {
 
                         {currentUserRole === "admin" && (
                             <>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 sm:h-9 gap-1.5 sm:gap-2"
+                                    onClick={showTeamUpdateDemo}
+                                >
+                                    <Users className="size-3.5 sm:size-4" />
+                                    <span className="hidden sm:inline">Team Toast</span>
+                                </Button>
                                 <Button variant="outline" size="sm" className="h-8 sm:h-9 gap-1.5 sm:gap-2" onClick={() => setInviteSheetOpen(true)}>
                                     <Link2 className="size-3.5 sm:size-4" />
                                     <span className="hidden sm:inline">Invite</span>
@@ -1112,49 +1349,6 @@ export function UsersTable() {
                 </SheetContent>
             </Sheet>
 
-            {/* Invite Confirmation */}
-            <AlertDialog open={inviteConfirmOpen} onOpenChange={setInviteConfirmOpen}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle className="flex items-center gap-2"><ShieldAlert className="h-5 w-5 text-amber-500" /> Confirm Invite Creation</AlertDialogTitle>
-                        <AlertDialogDescription>Please verify email and role.</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleConfirmCreateInvite}>Confirm & Generate</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-
-            {/* Delete Confirmation */}
-            <AlertDialog open={deleteUserOpen} onOpenChange={setDeleteUserOpen}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle className="flex items-center gap-2 text-red-500"><Trash2 className="h-5 w-5" /> Delete User</AlertDialogTitle>
-                        <AlertDialogDescription>Are you sure you want to delete {userToDelete?.first_name} {userToDelete?.last_name}? Action can be reversed by admin.</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">Delete User</AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-
-            {/* Bulk Delete */}
-            <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle className="flex items-center gap-2 text-red-500"><Trash2 className="h-5 w-5" /> Bulk Delete Users</AlertDialogTitle>
-                        <AlertDialogDescription>Are you sure you want to delete {selectedUserIds.length} user(s)?</AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={isBulkDeleting}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handleBulkDelete(selectedUserIds)} className="bg-red-600 hover:bg-red-700" disabled={isBulkDeleting}>
-                            {isBulkDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Delete
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
         </div>
     );
 }

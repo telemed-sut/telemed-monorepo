@@ -28,6 +28,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
 
 
+def _retired_email(user_id: UUID) -> str:
+    """Generate a unique placeholder email for soft-deleted users."""
+    return f"deleted+{user_id.hex}@deleted.local"
+
+
 @router.get("/me", response_model=UserMeResponse)
 def get_me(current_user: User = Depends(auth_service.get_current_user)):
     """Get current authenticated user's profile"""
@@ -180,9 +185,25 @@ def accept_invite(request: Request, payload: InviteAcceptRequest, db: Session = 
     if not invite:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invite link is invalid or expired")
 
-    existing_user = db.scalar(select(User).where(User.email == invite.email))
+    existing_user = db.scalar(
+        select(User).where(
+            User.email == invite.email,
+            User.deleted_at.is_(None),
+        )
+    )
     if existing_user:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This invite email is already registered")
+
+    legacy_deleted = db.scalar(
+        select(User).where(
+            User.email == invite.email,
+            User.deleted_at.is_not(None),
+        )
+    )
+    if legacy_deleted:
+        legacy_deleted.email = _retired_email(legacy_deleted.id)
+        db.add(legacy_deleted)
+        db.flush()
 
     user = User(
         email=invite.email,

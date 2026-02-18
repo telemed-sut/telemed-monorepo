@@ -42,9 +42,8 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import {
-    Shield,
     ShieldAlert,
     ShieldOff,
     Activity,
@@ -55,7 +54,6 @@ import {
     CheckCircle2,
     XCircle,
     Clock,
-    Trash2,
     AlertTriangle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -286,19 +284,29 @@ export function SecurityContent() {
         }
     };
 
-    const handleBan = async (ipAddress: string) => {
-        if (!token) return;
-        // Simple confirmation
-        if (!confirm(`Are you sure you want to ban IP ${ipAddress} for 24 hours?`)) return;
-
-        try {
-            await createIPBan(ipAddress, "Manual ban by admin", 1440, token);
-            toast.success(`IP ${ipAddress} has been banned for 24 hours`);
-            loadBans();
-            loadStats();
-        } catch {
-            toast.error("Failed to ban IP");
-        }
+    const handleBan = (ipAddress: string) => {
+        toast.warningAction("Ban IP for 24 hours?", {
+            description: (
+                <>
+                    Confirm to ban <span className="font-mono">{ipAddress}</span> for 24 hours.
+                </>
+            ),
+            button: {
+                title: "Ban IP",
+                onClick: async () => {
+                    if (!token) return;
+                    try {
+                        await createIPBan(ipAddress, "Manual ban by admin", 1440, token);
+                        toast.success(`IP ${ipAddress} has been banned for 24 hours`);
+                        loadBans();
+                        loadStats();
+                    } catch {
+                        toast.error("Failed to ban IP");
+                    }
+                },
+            },
+            duration: 9000,
+        });
     };
 
     const refreshAll = () => {
@@ -632,6 +640,7 @@ export function SecurityContent() {
                     </div>
                 </CardContent>
             </Card>
+
         </main>
     );
 }

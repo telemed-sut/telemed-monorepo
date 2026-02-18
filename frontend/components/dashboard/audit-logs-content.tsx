@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import {
     ScrollText,
     Search,
