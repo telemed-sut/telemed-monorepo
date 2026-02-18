@@ -97,6 +97,9 @@ class UserOut(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     deleted_at: Optional[datetime] = None
+    deleted_by: Optional[UUID] = None
+    restored_at: Optional[datetime] = None
+    restored_by: Optional[UUID] = None
 
     model_config = {"from_attributes": True}
 

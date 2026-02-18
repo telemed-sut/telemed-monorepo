@@ -723,6 +723,9 @@ export interface User {
   created_at?: string;
   updated_at?: string;
   deleted_at?: string | null;
+  deleted_by?: string | null;
+  restored_at?: string | null;
+  restored_by?: string | null;
   specialty?: string | null;
   department?: string | null;
   license_no?: string | null;
@@ -765,7 +768,21 @@ export interface UserListResponse {
   total: number;
 }
 
-export async function fetchUsers(params: { page?: number; limit?: number; q?: string; sort?: string; order?: "asc" | "desc"; role?: string; verification_status?: string; clinical_only?: boolean }, token: string) {
+export async function fetchUsers(
+  params: {
+    page?: number;
+    limit?: number;
+    q?: string;
+    sort?: string;
+    order?: "asc" | "desc";
+    role?: string;
+    verification_status?: string;
+    clinical_only?: boolean;
+    include_deleted?: boolean;
+    deleted_only?: boolean;
+  },
+  token: string
+) {
   const query = new URLSearchParams();
   if (params.page) query.append("page", params.page.toString());
   if (params.limit) query.append("limit", Math.min(params.limit, 100).toString());
@@ -775,6 +792,8 @@ export async function fetchUsers(params: { page?: number; limit?: number; q?: st
   if (params.role) query.append("role", params.role);
   if (params.verification_status) query.append("verification_status", params.verification_status);
   if (params.clinical_only !== undefined) query.append("clinical_only", String(params.clinical_only));
+  if (params.include_deleted !== undefined) query.append("include_deleted", String(params.include_deleted));
+  if (params.deleted_only !== undefined) query.append("deleted_only", String(params.deleted_only));
 
   return apiFetch<UserListResponse>(`/users?${query.toString()}`, {}, token);
 }
@@ -820,6 +839,16 @@ export async function deleteUser(id: string, token: string) {
     `/users/${id}`,
     {
       method: "DELETE",
+    },
+    token
+  );
+}
+
+export async function restoreUser(id: string, token: string) {
+  return apiFetch<User>(
+    `/users/${id}/restore`,
+    {
+      method: "POST",
     },
     token
   );
@@ -1266,6 +1295,15 @@ export interface BulkDeleteUsersResponse {
   skipped: string[];
 }
 
+export interface BulkRestoreUsersResponse {
+  restored: number;
+  skipped: string[];
+}
+
+export interface PurgeDeletedUsersResponse {
+  purged: number;
+}
+
 export async function bulkDeletePatients(ids: string[], token: string) {
   return apiFetch<BulkDeletePatientsResponse>(
     "/patients/bulk-delete",
@@ -1274,10 +1312,38 @@ export async function bulkDeletePatients(ids: string[], token: string) {
   );
 }
 
-export async function bulkDeleteUsers(ids: string[], token: string) {
+export async function bulkDeleteUsers(
+  ids: string[],
+  token: string,
+  confirmText?: string
+) {
   return apiFetch<BulkDeleteUsersResponse>(
     "/users/bulk-delete",
+    {
+      method: "POST",
+      body: JSON.stringify(
+        confirmText ? { ids, confirm_text: confirmText } : { ids }
+      ),
+    },
+    token,
+  );
+}
+
+export async function bulkRestoreUsers(ids: string[], token: string) {
+  return apiFetch<BulkRestoreUsersResponse>(
+    "/users/bulk-restore",
     { method: "POST", body: JSON.stringify({ ids }) },
+    token,
+  );
+}
+
+export async function purgeDeletedUsers(
+  payload: { older_than_days?: number; confirm_text: string },
+  token: string
+) {
+  return apiFetch<PurgeDeletedUsersResponse>(
+    "/users/purge-deleted",
+    { method: "POST", body: JSON.stringify(payload) },
     token,
   );
 }

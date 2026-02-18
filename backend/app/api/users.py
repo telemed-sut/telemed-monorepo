@@ -1,15 +1,16 @@
 import json
-from datetime import datetime, timezone
-from typing import Any, List
+from datetime import datetime, timedelta, timezone
+from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.security import get_password_hash
+from app.models.audit_log import AuditLog
 from app.models.enums import UserRole, VerificationStatus
 from app.models.user import User
 from app.schemas.user import (
@@ -47,12 +48,16 @@ def _user_snapshot(user: User) -> dict:
         "license_no": _mask_license_no(user.license_no),
         "verification_status": user.verification_status.value if user.verification_status else None,
         "two_factor_enabled": user.two_factor_enabled,
+        "deleted_at": user.deleted_at.isoformat() if user.deleted_at else None,
+        "deleted_by": str(user.deleted_by) if user.deleted_by else None,
+        "restored_at": user.restored_at.isoformat() if user.restored_at else None,
+        "restored_by": str(user.restored_by) if user.restored_by else None,
     }
 
 
 def _retired_email(user_id: UUID) -> str:
     """Generate a unique placeholder email for soft-deleted users."""
-    return f"deleted+{user_id.hex}@deleted.local"
+    return f"deleted+{user_id.hex}@archive.example.com"
 
 
 def _mask_license_no(license_no: str | None) -> str | None:
@@ -77,6 +82,77 @@ def _active_admin_count_for_update(db: Session) -> int:
     return len(admin_ids)
 
 
+def _restore_email_from_audit(db: Session, user_id: UUID) -> str | None:
+    """Find the most recent pre-delete email from audit logs, if available."""
+    latest_delete_audit = db.scalar(
+        select(AuditLog)
+        .where(
+            AuditLog.action == "user_delete",
+            AuditLog.resource_type == "user",
+            AuditLog.resource_id == user_id,
+        )
+        .order_by(AuditLog.created_at.desc())
+    )
+    if not latest_delete_audit or not latest_delete_audit.details:
+        return None
+
+    try:
+        details = json.loads(latest_delete_audit.details)
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+    if not isinstance(details, dict):
+        return None
+
+    before = details.get("before")
+    if not isinstance(before, dict):
+        return None
+
+    email = before.get("email")
+    if not isinstance(email, str):
+        return None
+
+    normalized = email.strip().lower()
+    return normalized or None
+
+
+def _restore_soft_deleted_user(
+    *,
+    db: Session,
+    user: User,
+    actor_user_id: UUID,
+) -> tuple[User, str]:
+    """Restore a soft-deleted user and resolve email conflicts."""
+    fallback_email = _retired_email(user.id)
+    restored_email = _restore_email_from_audit(db, user.id)
+    email_source = "existing"
+    if restored_email and restored_email != user.email:
+        email_taken = db.scalar(
+            select(User.id).where(
+                User.email == restored_email,
+                User.deleted_at.is_(None),
+                User.id != user.id,
+            )
+        )
+        if email_taken is None:
+            user.email = restored_email
+            email_source = "audit"
+        else:
+            user.email = fallback_email
+            email_source = "retired_conflict"
+    elif user.email.endswith("@deleted.local"):
+        # Normalize legacy placeholder format to a valid domain for API schema validation.
+        user.email = fallback_email
+        email_source = "retired_normalized"
+
+    user.deleted_at = None
+    user.deleted_by = None
+    user.is_active = True
+    user.restored_at = datetime.now(timezone.utc)
+    user.restored_by = actor_user_id
+    return user, email_source
+
+
 # ---------------------------------------------------------------------------
 # LIST  (admin-only)
 # ---------------------------------------------------------------------------
@@ -94,13 +170,16 @@ def get_users(
     role: UserRole = Query(None),
     verification_status: VerificationStatus = Query(None),
     include_deleted: bool = Query(False),
+    deleted_only: bool = Query(False),
     clinical_only: bool = Query(False),
 ) -> Any:
     """List users. Admin only."""
     query = select(User)
 
-    # Exclude soft-deleted unless explicitly requested
-    if not include_deleted:
+    # Soft-delete visibility controls
+    if deleted_only:
+        query = query.where(User.deleted_at.is_not(None))
+    elif not include_deleted:
         query = query.where(User.deleted_at.is_(None))
 
     if q:
@@ -467,6 +546,15 @@ def delete_user(
 
     # Prevent self-delete
     if user.id == current_user.id:
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_delete_denied",
+            resource_type="user",
+            resource_id=user.id,
+            details=json.dumps({"reason": "cannot_delete_self"}),
+            ip_address=_client_ip(request),
+        )
         raise HTTPException(status_code=400, detail="Cannot delete yourself.")
 
     # Keep minimum active admin count.
@@ -475,6 +563,20 @@ def delete_user(
         and user.is_active
         and _active_admin_count_for_update(db) <= settings.min_active_admin_accounts
     ):
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_delete_denied",
+            resource_type="user",
+            resource_id=user.id,
+            details=json.dumps(
+                {
+                    "reason": "minimum_admin_requirement",
+                    "min_active_admin_accounts": settings.min_active_admin_accounts,
+                }
+            ),
+            ip_address=_client_ip(request),
+        )
         raise HTTPException(
             status_code=400,
             detail=f"At least {settings.min_active_admin_accounts} active admin accounts are required.",
@@ -483,7 +585,10 @@ def delete_user(
     before = _user_snapshot(user)
     user.email = _retired_email(user.id)
     user.deleted_at = datetime.now(timezone.utc)
+    user.deleted_by = current_user.id
     user.is_active = False
+    user.restored_at = None
+    user.restored_by = None
     db.add(user)
     db.commit()
 
@@ -501,16 +606,83 @@ def delete_user(
 
 
 # ---------------------------------------------------------------------------
+# RESTORE  (admin-only, soft delete rollback)
+# ---------------------------------------------------------------------------
+
+@router.post("/{user_id}/restore", response_model=UserOut)
+def restore_user(
+    *,
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    user_id: UUID,
+    current_user: User = Depends(get_admin_user),
+) -> Any:
+    """Restore a soft-deleted user account. Admin only."""
+    user = db.scalar(select(User).where(User.id == user_id).with_for_update())
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.deleted_at is None:
+        raise HTTPException(status_code=400, detail="User is not deleted.")
+
+    before = _user_snapshot(user)
+    user, email_source = _restore_soft_deleted_user(
+        db=db,
+        user=user,
+        actor_user_id=current_user.id,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    log_action(
+        db,
+        user_id=current_user.id,
+        action="user_restore",
+        resource_type="user",
+        resource_id=user.id,
+        details=json.dumps(
+            {
+                "before": before,
+                "after": _user_snapshot(user),
+                "email_source": email_source,
+            }
+        ),
+        ip_address=_client_ip(request),
+    )
+
+    return user
+
+
+# ---------------------------------------------------------------------------
 # BULK DELETE  (admin-only, soft delete)
 # ---------------------------------------------------------------------------
 
 class BulkDeleteRequest(BaseModel):
     ids: List[str]
+    confirm_text: Optional[str] = None
 
 
 class BulkDeleteResponse(BaseModel):
     deleted: int
     skipped: List[str]
+
+
+class BulkRestoreRequest(BaseModel):
+    ids: List[str]
+
+
+class BulkRestoreResponse(BaseModel):
+    restored: int
+    skipped: List[str]
+
+
+class PurgeDeletedUsersRequest(BaseModel):
+    older_than_days: int = Field(default=90, ge=1, le=3650)
+    confirm_text: str = Field(min_length=5, max_length=20)
+
+
+class PurgeDeletedUsersResponse(BaseModel):
+    purged: int
 
 
 @router.post("/bulk-delete", response_model=BulkDeleteResponse)
@@ -522,36 +694,103 @@ def bulk_delete_users(
     current_user: User = Depends(get_admin_user),
 ) -> Any:
     """Bulk soft-delete users. Admin only."""
+    if len(payload.ids) > 3 and payload.confirm_text != "DELETE":
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_bulk_delete_denied",
+            resource_type="user",
+            details=json.dumps(
+                {
+                    "reason": "confirm_text_required",
+                    "requested_count": len(payload.ids),
+                }
+            ),
+            ip_address=_client_ip(request),
+        )
+        raise HTTPException(
+            status_code=400,
+            detail='Bulk delete over 3 users requires confirm_text="DELETE".',
+        )
+
     deleted = 0
     skipped: List[str] = []
+    requested_ids = list(payload.ids)
 
     for uid_str in payload.ids:
         try:
             user_id = UUID(uid_str)
         except ValueError:
-            skipped.append(f"{uid_str}: invalid ID")
+            reason = "invalid ID"
+            skipped.append(f"{uid_str}: {reason}")
+            log_action(
+                db,
+                user_id=current_user.id,
+                action="user_delete_denied",
+                resource_type="user",
+                details=json.dumps({"bulk": True, "target_id": uid_str, "reason": "invalid_id"}),
+                ip_address=_client_ip(request),
+            )
             continue
 
         user = db.scalar(
             select(User).where(User.id == user_id, User.deleted_at.is_(None)).with_for_update()
         )
         if not user:
-            skipped.append(f"{uid_str}: not found")
+            reason = "not found"
+            skipped.append(f"{uid_str}: {reason}")
+            log_action(
+                db,
+                user_id=current_user.id,
+                action="user_delete_denied",
+                resource_type="user",
+                details=json.dumps({"bulk": True, "target_id": uid_str, "reason": "not_found"}),
+                ip_address=_client_ip(request),
+            )
             continue
 
         if user.id == current_user.id:
-            skipped.append(f"{uid_str}: cannot delete yourself")
+            reason = "cannot delete yourself"
+            skipped.append(f"{uid_str}: {reason}")
+            log_action(
+                db,
+                user_id=current_user.id,
+                action="user_delete_denied",
+                resource_type="user",
+                resource_id=user.id,
+                details=json.dumps({"bulk": True, "reason": "cannot_delete_self"}),
+                ip_address=_client_ip(request),
+            )
             continue
 
         if user.role == UserRole.admin and user.is_active:
             if _active_admin_count_for_update(db) <= settings.min_active_admin_accounts:
-                skipped.append(f"{uid_str}: minimum admin requirement")
+                reason = "minimum admin requirement"
+                skipped.append(f"{uid_str}: {reason}")
+                log_action(
+                    db,
+                    user_id=current_user.id,
+                    action="user_delete_denied",
+                    resource_type="user",
+                    resource_id=user.id,
+                    details=json.dumps(
+                        {
+                            "bulk": True,
+                            "reason": "minimum_admin_requirement",
+                            "min_active_admin_accounts": settings.min_active_admin_accounts,
+                        }
+                    ),
+                    ip_address=_client_ip(request),
+                )
                 continue
 
         before = _user_snapshot(user)
         user.email = _retired_email(user.id)
         user.deleted_at = datetime.now(timezone.utc)
+        user.deleted_by = current_user.id
         user.is_active = False
+        user.restored_at = None
+        user.restored_by = None
         db.add(user)
         db.commit()
 
@@ -566,4 +805,169 @@ def bulk_delete_users(
         )
         deleted += 1
 
+    log_action(
+        db,
+        user_id=current_user.id,
+        action="user_bulk_delete_summary",
+        resource_type="user",
+        details=json.dumps(
+            {
+                "requested_ids": requested_ids,
+                "deleted": deleted,
+                "skipped": skipped,
+            }
+        ),
+        ip_address=_client_ip(request),
+    )
+
     return BulkDeleteResponse(deleted=deleted, skipped=skipped)
+
+
+@router.post("/bulk-restore", response_model=BulkRestoreResponse)
+def bulk_restore_users(
+    *,
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    payload: BulkRestoreRequest,
+    current_user: User = Depends(get_admin_user),
+) -> Any:
+    """Bulk restore soft-deleted users. Admin only."""
+    restored = 0
+    skipped: List[str] = []
+    requested_ids = list(payload.ids)
+
+    for uid_str in payload.ids:
+        try:
+            user_id = UUID(uid_str)
+        except ValueError:
+            reason = "invalid ID"
+            skipped.append(f"{uid_str}: {reason}")
+            log_action(
+                db,
+                user_id=current_user.id,
+                action="user_restore_denied",
+                resource_type="user",
+                details=json.dumps({"bulk": True, "target_id": uid_str, "reason": "invalid_id"}),
+                ip_address=_client_ip(request),
+            )
+            continue
+
+        user = db.scalar(select(User).where(User.id == user_id).with_for_update())
+        if not user:
+            reason = "not found"
+            skipped.append(f"{uid_str}: {reason}")
+            log_action(
+                db,
+                user_id=current_user.id,
+                action="user_restore_denied",
+                resource_type="user",
+                details=json.dumps({"bulk": True, "target_id": uid_str, "reason": "not_found"}),
+                ip_address=_client_ip(request),
+            )
+            continue
+
+        if user.deleted_at is None:
+            reason = "not deleted"
+            skipped.append(f"{uid_str}: {reason}")
+            log_action(
+                db,
+                user_id=current_user.id,
+                action="user_restore_denied",
+                resource_type="user",
+                resource_id=user.id,
+                details=json.dumps({"bulk": True, "reason": "not_deleted"}),
+                ip_address=_client_ip(request),
+            )
+            continue
+
+        before = _user_snapshot(user)
+        user, email_source = _restore_soft_deleted_user(
+            db=db,
+            user=user,
+            actor_user_id=current_user.id,
+        )
+        db.add(user)
+        db.commit()
+
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_restore",
+            resource_type="user",
+            resource_id=user.id,
+            details=json.dumps(
+                {
+                    "before": before,
+                    "after": _user_snapshot(user),
+                    "bulk": True,
+                    "email_source": email_source,
+                }
+            ),
+            ip_address=_client_ip(request),
+        )
+        restored += 1
+
+    log_action(
+        db,
+        user_id=current_user.id,
+        action="user_bulk_restore_summary",
+        resource_type="user",
+        details=json.dumps(
+            {
+                "requested_ids": requested_ids,
+                "restored": restored,
+                "skipped": skipped,
+            }
+        ),
+        ip_address=_client_ip(request),
+    )
+
+    return BulkRestoreResponse(restored=restored, skipped=skipped)
+
+
+@router.post("/purge-deleted", response_model=PurgeDeletedUsersResponse)
+def purge_deleted_users(
+    *,
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    payload: PurgeDeletedUsersRequest,
+    current_user: User = Depends(get_admin_user),
+) -> Any:
+    """Hard-delete soft-deleted accounts older than the configured threshold."""
+    if payload.confirm_text != "PURGE":
+        raise HTTPException(
+            status_code=400,
+            detail='Purge requires confirm_text="PURGE".',
+        )
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=payload.older_than_days)
+    users_to_purge = db.scalars(
+        select(User)
+        .where(
+            User.deleted_at.is_not(None),
+            User.deleted_at <= cutoff,
+        )
+        .with_for_update()
+    ).all()
+
+    purged = len(users_to_purge)
+    for user in users_to_purge:
+        db.delete(user)
+    db.commit()
+
+    log_action(
+        db,
+        user_id=current_user.id,
+        action="user_purge_deleted_summary",
+        resource_type="user",
+        details=json.dumps(
+            {
+                "older_than_days": payload.older_than_days,
+                "purged": purged,
+                "cutoff": cutoff.isoformat(),
+            }
+        ),
+        ip_address=_client_ip(request),
+    )
+
+    return PurgeDeletedUsersResponse(purged=purged)

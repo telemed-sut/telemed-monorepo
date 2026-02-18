@@ -16,7 +16,9 @@ import {
 import {
     fetchUsers,
     deleteUser,
+    restoreUser,
     bulkDeleteUsers,
+    bulkRestoreUsers,
     createUserInvite,
     verifyUser,
     createUser,
@@ -55,6 +57,7 @@ import {
     FileDown,
     ArrowUpDown,
     Users,
+    RotateCcw,
 } from "lucide-react";
 
 
@@ -97,6 +100,14 @@ import {
     SheetHeader,
     SheetTitle,
 } from "@/components/ui/sheet";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -255,10 +266,15 @@ export function UsersTable() {
     const [generatedInviteUrl, setGeneratedInviteUrl] = useState("");
 
     const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+    const [isBulkRestoring, setIsBulkRestoring] = useState(false);
     const [roleFilter, setRoleFilter] = useState("clinical");
     const [statusFilterLocal, setStatusFilterLocal] = useState("all");
+    const [accountView, setAccountView] = useState<"active" | "all" | "deleted">("active");
     const [searchLocal, setSearchLocal] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
+    const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+    const [bulkDeleteConfirmText, setBulkDeleteConfirmText] = useState("");
+    const [pendingBulkDeleteUsers, setPendingBulkDeleteUsers] = useState<User[]>([]);
 
     // Form Data State
     interface UserFormData extends Partial<User> {
@@ -304,6 +320,8 @@ export function UsersTable() {
                 clinical_only: true,
                 role: roleFilter !== "clinical" ? roleFilter : undefined,
                 verification_status: statusFilterLocal !== "all" ? statusFilterLocal : undefined,
+                include_deleted: accountView !== "active",
+                deleted_only: accountView === "deleted",
             }, token);
 
             // Ensure type compatibility by handling nulls if necessary, though User from API should match User in state
@@ -321,7 +339,7 @@ export function UsersTable() {
 
     useEffect(() => {
         loadUsers();
-    }, [pagination.pageIndex, pagination.pageSize, sorting, debouncedSearch, roleFilter, statusFilterLocal]);
+    }, [pagination.pageIndex, pagination.pageSize, sorting, debouncedSearch, roleFilter, statusFilterLocal, accountView]);
 
     useEffect(() => {
         const timeoutId = window.setTimeout(() => {
@@ -333,7 +351,7 @@ export function UsersTable() {
 
     useEffect(() => {
         setPagination((prev) => ({ ...prev, pageIndex: 0 }));
-    }, [debouncedSearch, roleFilter, statusFilterLocal]);
+    }, [debouncedSearch, roleFilter, statusFilterLocal, accountView]);
 
 
     // --- Handlers from Original ---
@@ -395,6 +413,45 @@ export function UsersTable() {
                 description: getErrorMessage(error, "Could not delete user"),
             });
         }
+    };
+
+    const confirmRestore = async (user: User) => {
+        if (!token) {
+            toast.error("Restore failed", {
+                description: "Not authenticated. Please sign in again.",
+            });
+            return;
+        }
+
+        try {
+            const restored = await restoreUser(user.id, token);
+            const usingRetiredEmail = restored.email.startsWith("deleted+");
+            toast.success("User restored", {
+                description: usingRetiredEmail
+                    ? "Account restored. Please edit email before giving access to this user."
+                    : "User restored successfully.",
+            });
+            setRowSelection({});
+            loadUsers();
+        } catch (error) {
+            toast.error("Restore failed", {
+                description: getErrorMessage(error, "Could not restore user"),
+            });
+        }
+    };
+
+    const requestRestore = (user: User) => {
+        const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
+        toast.action("Restore user?", {
+            description: `Restore ${fullName} back to active users?`,
+            button: {
+                title: "Restore User",
+                onClick: () => {
+                    void confirmRestore(user);
+                },
+            },
+            duration: 9000,
+        });
     };
 
     const handleVerifyUser = async (user: User) => {
@@ -610,7 +667,7 @@ export function UsersTable() {
     };
 
     // Bulk Delete
-    const handleBulkDelete = async (ids: string[]) => {
+    const handleBulkDelete = async (ids: string[], confirmText?: string) => {
         if (!token) {
             toast.error("Delete failed", {
                 description: "Not authenticated. Please sign in again.",
@@ -620,15 +677,27 @@ export function UsersTable() {
 
         try {
             setIsBulkDeleting(true);
-            const result = await bulkDeleteUsers(ids, token);
+            const result = await bulkDeleteUsers(ids, token, confirmText);
             const skippedCount = result.skipped?.length ?? 0;
-            toast.success("Success", {
-                description:
-                    skippedCount > 0
-                        ? `Deleted ${result.deleted} user(s), skipped ${skippedCount}.`
-                        : `Deleted ${result.deleted} user(s).`,
-            });
+            if (skippedCount > 0) {
+                const skippedPreview = result.skipped.slice(0, 3).join(" | ");
+                const remainingSkipped = skippedCount - Math.min(skippedCount, 3);
+                toast.warning("Delete partially completed", {
+                    description:
+                        remainingSkipped > 0
+                            ? `Deleted ${result.deleted} user(s), skipped ${skippedCount}. ${skippedPreview} | and ${remainingSkipped} more`
+                            : `Deleted ${result.deleted} user(s), skipped ${skippedCount}. ${skippedPreview}`,
+                    duration: 12000,
+                });
+            } else {
+                toast.success("Success", {
+                    description: `Deleted ${result.deleted} user(s).`,
+                });
+            }
             setRowSelection({});
+            setBulkDeleteDialogOpen(false);
+            setBulkDeleteConfirmText("");
+            setPendingBulkDeleteUsers([]);
             loadUsers();
         } catch (error) {
             toast.error("Delete failed", {
@@ -640,7 +709,7 @@ export function UsersTable() {
     };
 
     const requestBulkDelete = (selectedUsers: User[]) => {
-        if (selectedUsers.length === 0 || isBulkDeleting) return;
+        if (selectedUsers.length === 0 || isBulkDeleting || isBulkRestoring) return;
 
         const ids = selectedUsers.map((user) => user.id);
         const names = selectedUsers
@@ -650,6 +719,13 @@ export function UsersTable() {
         const namesPreview =
             remaining > 0 ? `${names.join(", ")} and ${remaining} more` : names.join(", ");
 
+        if (selectedUsers.length > 3) {
+            setPendingBulkDeleteUsers(selectedUsers);
+            setBulkDeleteConfirmText("");
+            setBulkDeleteDialogOpen(true);
+            return;
+        }
+
         toast.destructiveAction(
             selectedUsers.length === 1 ? "Delete user?" : `Delete ${selectedUsers.length} users?`,
             {
@@ -657,7 +733,70 @@ export function UsersTable() {
                 button: {
                     title: selectedUsers.length === 1 ? "Delete User" : "Delete Users",
                     onClick: () => {
-                        void handleBulkDelete(ids);
+                        void handleBulkDelete(ids, "DELETE");
+                    },
+                },
+                duration: 9000,
+            }
+        );
+    };
+
+    const handleBulkRestore = async (ids: string[]) => {
+        if (!token) {
+            toast.error("Restore failed", {
+                description: "Not authenticated. Please sign in again.",
+            });
+            return;
+        }
+
+        try {
+            setIsBulkRestoring(true);
+            const result = await bulkRestoreUsers(ids, token);
+            const skippedCount = result.skipped?.length ?? 0;
+            if (skippedCount > 0) {
+                const skippedPreview = result.skipped.slice(0, 3).join(" | ");
+                const remainingSkipped = skippedCount - Math.min(skippedCount, 3);
+                toast.warning("Restore partially completed", {
+                    description:
+                        remainingSkipped > 0
+                            ? `Restored ${result.restored} user(s), skipped ${skippedCount}. ${skippedPreview} | and ${remainingSkipped} more`
+                            : `Restored ${result.restored} user(s), skipped ${skippedCount}. ${skippedPreview}`,
+                    duration: 12000,
+                });
+            } else {
+                toast.success("Users restored", {
+                    description: `Restored ${result.restored} user(s).`,
+                });
+            }
+            setRowSelection({});
+            loadUsers();
+        } catch (error) {
+            toast.error("Restore failed", {
+                description: getErrorMessage(error, "Bulk restore failed."),
+            });
+        } finally {
+            setIsBulkRestoring(false);
+        }
+    };
+
+    const requestBulkRestore = (selectedUsers: User[]) => {
+        if (selectedUsers.length === 0 || isBulkRestoring || isBulkDeleting) return;
+        const ids = selectedUsers.map((user) => user.id);
+        const names = selectedUsers
+            .map((user) => getDisplayName(user.first_name, user.last_name, user.email))
+            .slice(0, 2);
+        const remaining = selectedUsers.length - names.length;
+        const namesPreview =
+            remaining > 0 ? `${names.join(", ")} and ${remaining} more` : names.join(", ");
+
+        toast.action(
+            selectedUsers.length === 1 ? "Restore user?" : `Restore ${selectedUsers.length} users?`,
+            {
+                description: `Restore ${namesPreview} to active accounts?`,
+                button: {
+                    title: selectedUsers.length === 1 ? "Restore User" : "Restore Users",
+                    onClick: () => {
+                        void handleBulkRestore(ids);
                     },
                 },
                 duration: 9000,
@@ -677,6 +816,7 @@ export function UsersTable() {
                             (table.getIsSomePageRowsSelected() && "indeterminate")) as any
                     }
                     onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
+                    disabled={isBulkDeleting || isBulkRestoring}
                     aria-label="Select all"
                     className="translate-y-[2px]"
                 />
@@ -685,6 +825,7 @@ export function UsersTable() {
                 <Checkbox
                     checked={row.getIsSelected()}
                     onCheckedChange={(value) => row.toggleSelected(!!value)}
+                    disabled={isBulkDeleting || isBulkRestoring}
                     aria-label="Select row"
                     className="translate-y-[2px]"
                 />
@@ -726,9 +867,14 @@ export function UsersTable() {
                             <span className="font-medium truncate text-sm">
                                 {user.first_name} {user.last_name || ""}
                             </span>
-                            {isClinicalRole(user.role) && user.specialty && (
+                            {user.deleted_at ? (
+                                <span className="text-xs text-muted-foreground">
+                                    Deleted {new Date(user.deleted_at).toLocaleString()}
+                                    {user.deleted_by ? ` by ${user.deleted_by.slice(0, 8)}` : ""}
+                                </span>
+                            ) : isClinicalRole(user.role) && user.specialty ? (
                                 <span className="text-xs text-muted-foreground">{user.specialty}</span>
-                            )}
+                            ) : null}
                         </div>
                     </div>
                 );
@@ -780,6 +926,17 @@ export function UsersTable() {
             header: "Status",
             cell: ({ row }) => {
                 const user = row.original;
+                if (user.deleted_at) {
+                    return (
+                        <Badge
+                            variant="outline"
+                            className="flex w-fit items-center gap-1 border-slate-500/30 text-slate-500 bg-slate-500/10"
+                        >
+                            <XCircle className="h-3 w-3" />
+                            <span>deleted</span>
+                        </Badge>
+                    );
+                }
                 const status = user.verification_status || "unverified";
                 return (
                     <Badge
@@ -833,28 +990,47 @@ export function UsersTable() {
                         <DropdownMenuContent align="end">
                             <DropdownMenuGroup>
                                 <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                                <DropdownMenuItem onClick={() => handleOpenEdit(user)}>
-                                    <Pencil className="mr-2 h-4 w-4" /> Edit
-                                </DropdownMenuItem>
-                                {(user.verification_status || "unverified") !== "verified" && (
-                                    <DropdownMenuItem onClick={() => handleVerifyUser(user)}>
-                                        <BadgeCheck className="mr-2 h-4 w-4 text-green-500" /> Verify
+                                {user.deleted_at ? (
+                                    <DropdownMenuItem
+                                        onClick={() => requestRestore(user)}
+                                        className="text-emerald-600 focus:text-emerald-600 focus:bg-emerald-50"
+                                    >
+                                        <RotateCcw className="mr-2 h-4 w-4" /> Restore
                                     </DropdownMenuItem>
+                                ) : (
+                                    <>
+                                        <DropdownMenuItem onClick={() => handleOpenEdit(user)}>
+                                            <Pencil className="mr-2 h-4 w-4" /> Edit
+                                        </DropdownMenuItem>
+                                        {(user.verification_status || "unverified") !== "verified" && (
+                                            <DropdownMenuItem onClick={() => handleVerifyUser(user)}>
+                                                <BadgeCheck className="mr-2 h-4 w-4 text-green-500" /> Verify
+                                            </DropdownMenuItem>
+                                        )}
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem
+                                            onClick={() => handleDelete(user)}
+                                            className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                                        >
+                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                        </DropdownMenuItem>
+                                    </>
                                 )}
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                    onClick={() => handleDelete(user)}
-                                    className="text-red-600 focus:text-red-600 focus:bg-red-50"
-                                >
-                                    <Trash2 className="mr-2 h-4 w-4" /> Delete
-                                </DropdownMenuItem>
                             </DropdownMenuGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 )
             },
         },
-    ], [currentUserRole, handleOpenEdit, handleDelete, handleVerifyUser]);
+    ], [
+        currentUserRole,
+        handleOpenEdit,
+        handleDelete,
+        handleVerifyUser,
+        requestRestore,
+        isBulkDeleting,
+        isBulkRestoring,
+    ]);
 
 
     const table = useReactTable({
@@ -867,7 +1043,7 @@ export function UsersTable() {
             columnFilters,
             pagination,
         },
-        enableRowSelection: true,
+        enableRowSelection: () => !isBulkDeleting && !isBulkRestoring,
         pageCount: Math.ceil(total / pagination.pageSize),
         onRowSelectionChange: setRowSelection,
         onSortingChange: setSorting,
@@ -894,10 +1070,17 @@ export function UsersTable() {
 
     const selectedRows = table.getFilteredSelectedRowModel().rows;
     const selectedUsers = selectedRows.map((row) => row.original);
+    const selectedActiveUsers = selectedUsers.filter((user) => !user.deleted_at);
+    const selectedDeletedUsers = selectedUsers.filter((user) => Boolean(user.deleted_at));
     const selectedIds = selectedUsers.map((user) => user.id);
 
-    const hasActiveFilters = roleFilter !== "clinical" || statusFilterLocal !== "all";
-    const clearLocalFilters = () => { setRoleFilter("clinical"); setStatusFilterLocal("all"); };
+    const hasActiveFilters =
+        roleFilter !== "clinical" || statusFilterLocal !== "all" || accountView !== "active";
+    const clearLocalFilters = () => {
+        setRoleFilter("clinical");
+        setStatusFilterLocal("all");
+        setAccountView("active");
+    };
 
     return (
         <div className="space-y-4">
@@ -912,6 +1095,35 @@ export function UsersTable() {
                         <Badge variant="secondary" className="ml-1 text-[10px] sm:text-xs">
                             {total}
                         </Badge>
+                        <div className="hidden md:flex items-center gap-1 rounded-md border border-input p-1 ml-1">
+                            <Button
+                                type="button"
+                                variant={accountView === "active" ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => setAccountView("active")}
+                            >
+                                Active
+                            </Button>
+                            <Button
+                                type="button"
+                                variant={accountView === "deleted" ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => setAccountView("deleted")}
+                            >
+                                Deleted
+                            </Button>
+                            <Button
+                                type="button"
+                                variant={accountView === "all" ? "secondary" : "ghost"}
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => setAccountView("all")}
+                            >
+                                All
+                            </Button>
+                        </div>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -974,6 +1186,28 @@ export function UsersTable() {
                                         </DropdownMenuCheckboxItem>
                                     ))}
                                 </DropdownMenuGroup>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuGroup>
+                                    <DropdownMenuLabel>Account View</DropdownMenuLabel>
+                                    <DropdownMenuCheckboxItem
+                                        checked={accountView === "active"}
+                                        onCheckedChange={() => setAccountView("active")}
+                                    >
+                                        Active only
+                                    </DropdownMenuCheckboxItem>
+                                    <DropdownMenuCheckboxItem
+                                        checked={accountView === "deleted"}
+                                        onCheckedChange={() => setAccountView("deleted")}
+                                    >
+                                        Deleted only
+                                    </DropdownMenuCheckboxItem>
+                                    <DropdownMenuCheckboxItem
+                                        checked={accountView === "all"}
+                                        onCheckedChange={() => setAccountView("all")}
+                                    >
+                                        Active + Deleted
+                                    </DropdownMenuCheckboxItem>
+                                </DropdownMenuGroup>
                                 {hasActiveFilters && (
                                     <>
                                         <DropdownMenuSeparator />
@@ -987,15 +1221,38 @@ export function UsersTable() {
                         </DropdownMenu>
 
                         {/* Bulk delete */}
-                        {selectedIds.length > 0 && (
+                        {selectedActiveUsers.length > 0 && (
                             <Button
                                 variant="outline"
                                 size="sm"
                                 className="h-8 sm:h-9 gap-1.5 border-red-300/50 text-red-500 hover:bg-red-500/10 hover:text-red-600"
-                                onClick={() => requestBulkDelete(selectedUsers)}
+                                disabled={isBulkDeleting || isBulkRestoring}
+                                onClick={() => requestBulkDelete(selectedActiveUsers)}
                             >
-                                <Trash2 className="size-3.5 sm:size-4" />
-                                Delete ({selectedIds.length})
+                                {isBulkDeleting ? (
+                                    <Loader2 className="size-3.5 sm:size-4 animate-spin" />
+                                ) : (
+                                    <Trash2 className="size-3.5 sm:size-4" />
+                                )}
+                                {isBulkDeleting ? "Deleting..." : `Delete (${selectedActiveUsers.length})`}
+                            </Button>
+                        )}
+
+                        {/* Bulk restore */}
+                        {selectedDeletedUsers.length > 0 && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 sm:h-9 gap-1.5 border-emerald-300/50 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700"
+                                disabled={isBulkDeleting || isBulkRestoring}
+                                onClick={() => requestBulkRestore(selectedDeletedUsers)}
+                            >
+                                {isBulkRestoring ? (
+                                    <Loader2 className="size-3.5 sm:size-4 animate-spin" />
+                                ) : (
+                                    <RotateCcw className="size-3.5 sm:size-4" />
+                                )}
+                                {isBulkRestoring ? "Restoring..." : `Restore (${selectedDeletedUsers.length})`}
                             </Button>
                         )}
 
@@ -1039,6 +1296,16 @@ export function UsersTable() {
                                 <X className="size-2.5 sm:size-3" />
                             </Badge>
                         )}
+                        {accountView !== "active" && (
+                            <Badge
+                                variant="secondary"
+                                className="gap-1 cursor-pointer text-[10px] sm:text-xs h-5 sm:h-6"
+                                onClick={() => setAccountView("active")}
+                            >
+                                {accountView === "deleted" ? "Deleted only" : "Active + Deleted"}
+                                <X className="size-2.5 sm:size-3" />
+                            </Badge>
+                        )}
                     </div>
                 )}
 
@@ -1068,7 +1335,10 @@ export function UsersTable() {
                                         <TableRow
                                             key={row.id}
                                             data-state={row.getIsSelected() && "selected"}
-                                            className="group hover:bg-muted/5"
+                                            className={cn(
+                                                "group hover:bg-muted/5",
+                                                row.original.deleted_at && "opacity-70"
+                                            )}
                                         >
                                             {row.getVisibleCells().map((cell) => (
                                                 <TableCell key={cell.id} className="py-2.5 text-xs sm:text-sm">
@@ -1172,6 +1442,60 @@ export function UsersTable() {
             </div>
 
             {/* --- Dialogs (Copied & Adapted) --- */}
+            <Dialog
+                open={bulkDeleteDialogOpen}
+                onOpenChange={(open) => {
+                    setBulkDeleteDialogOpen(open);
+                    if (!open) {
+                        setBulkDeleteConfirmText("");
+                        setPendingBulkDeleteUsers([]);
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Confirm Bulk Delete</DialogTitle>
+                        <DialogDescription>
+                            You selected {pendingBulkDeleteUsers.length} users. This action cannot be undone.
+                            Type <span className="font-semibold">DELETE</span> to continue.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2">
+                        <Label htmlFor="bulk-delete-confirm">Confirmation text</Label>
+                        <Input
+                            id="bulk-delete-confirm"
+                            value={bulkDeleteConfirmText}
+                            onChange={(event) => setBulkDeleteConfirmText(event.target.value)}
+                            placeholder="Type DELETE"
+                            autoComplete="off"
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setBulkDeleteDialogOpen(false);
+                                setBulkDeleteConfirmText("");
+                                setPendingBulkDeleteUsers([]);
+                            }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            disabled={isBulkDeleting || bulkDeleteConfirmText !== "DELETE"}
+                            onClick={() => {
+                                void handleBulkDelete(
+                                    pendingBulkDeleteUsers.map((user) => user.id),
+                                    bulkDeleteConfirmText
+                                );
+                            }}
+                        >
+                            {isBulkDeleting ? "Deleting..." : "Delete Users"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Create/Edit Sheet */}
             <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
