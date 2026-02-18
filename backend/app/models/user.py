@@ -48,3 +48,8 @@ class User(Base):
     failed_login_attempts = Column(Integer, nullable=False, server_default="0", default=0)
     account_locked_until = Column(DateTime(timezone=True), nullable=True)
     last_failed_login_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Security: admin MFA
+    two_factor_enabled = Column(Boolean, nullable=False, server_default="false", default=False)
+    two_factor_secret = Column(String(128), nullable=True)
+    two_factor_enabled_at = Column(DateTime(timezone=True), nullable=True)

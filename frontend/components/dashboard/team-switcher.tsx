@@ -21,6 +21,7 @@ import { useAuthStore } from "@/store/auth-store";
 import { useRouter } from "next/navigation";
 import { Logout01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { logout } from "@/lib/api";
 
 
 type Team = {
@@ -32,6 +33,7 @@ type Team = {
 export function TeamSwitcher({ teams }: { teams: Team[] }) {
     const { isMobile } = useSidebar();
     const [activeTeam, setActiveTeam] = React.useState(teams[0]);
+    const token = useAuthStore((state) => state.token);
     const clearToken = useAuthStore((state) => state.clearToken);
     const router = useRouter();
 
@@ -93,8 +95,10 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
                             <DropdownMenuItem
                                 className="gap-2 p-2 cursor-pointer text-destructive focus:text-destructive"
                                 onClick={() => {
-                                    clearToken();
-                                    router.replace("/login");
+                                    void logout(token || undefined).catch(() => undefined).finally(() => {
+                                        clearToken();
+                                        router.replace("/login");
+                                    });
                                 }}
                             >
                                 <div className="flex size-6 items-center justify-center rounded-md border bg-background">

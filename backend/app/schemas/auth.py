@@ -7,7 +7,9 @@ from app.models.enums import UserRole
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=6)
+    password: str = Field(min_length=8)
+    otp_code: str | None = Field(default=None, min_length=6, max_length=10)
+    remember_device: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -23,6 +25,7 @@ class UserMeResponse(BaseModel):
     last_name: str | None = None
     role: str
     verification_status: str | None = None
+    two_factor_enabled: bool = False
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -41,6 +44,65 @@ class ResetPasswordRequest(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class Admin2FAStatusResponse(BaseModel):
+    required: bool
+    enabled: bool
+    setup_required: bool
+    issuer: str | None = None
+    account_email: EmailStr | None = None
+    provisioning_uri: str | None = None
+    trusted_device_days: int | None = None
+
+
+class Admin2FAVerifyRequest(BaseModel):
+    otp_code: str = Field(min_length=6, max_length=10)
+
+
+class Admin2FAResetRequest(BaseModel):
+    current_otp_code: str | None = Field(default=None, min_length=6, max_length=10)
+    reason: str | None = None
+
+
+class TwoFactorStatusResponse(Admin2FAStatusResponse):
+    role: str
+
+
+class TwoFactorVerifyRequest(BaseModel):
+    otp_code: str = Field(min_length=6, max_length=32)
+
+
+class TwoFactorDisableRequest(BaseModel):
+    current_otp_code: str = Field(min_length=6, max_length=32)
+
+
+class TwoFactorBackupCodeUseRequest(BaseModel):
+    code: str = Field(min_length=6, max_length=32)
+
+
+class TrustedDeviceOut(BaseModel):
+    id: str
+    ip_address: str | None = None
+    created_at: datetime
+    last_used_at: datetime | None = None
+    expires_at: datetime
+    current_device: bool = False
+
+
+class TrustedDeviceListResponse(BaseModel):
+    items: list[TrustedDeviceOut]
+    total: int
+
+
+class TrustedDevicesRevokeAllResponse(BaseModel):
+    revoked: int
+
+
+class BackupCodesResponse(BaseModel):
+    codes: list[str]
+    generated_at: datetime
+    expires_at: datetime | None = None
 
 
 class InviteInfoResponse(BaseModel):

@@ -131,7 +131,7 @@ class TestCRUD:
         token = _login(client, "dup@example.com")
         resp = client.post("/users", json={
             "email": "existing@example.com",
-            "password": "Pass123",
+            "password": "Pass1234",
         }, headers=_auth(token))
         assert resp.status_code == 400
 
@@ -170,6 +170,19 @@ class TestCRUD:
         data = resp.json()
         assert len(data["items"]) == 2
         assert data["total"] == 6  # admin + 5 users
+
+    def test_cannot_demote_admin_when_minimum_admins_reached(self, client: TestClient, db: Session):
+        admin1 = _make_user(db, email="admin-demote-a@example.com", role=UserRole.admin)
+        admin2 = _make_user(db, email="admin-demote-b@example.com", role=UserRole.admin)
+        token = _login(client, "admin-demote-a@example.com")
+
+        resp = client.put(
+            f"/users/{admin2.id}",
+            json={"role": "staff"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 400
+        assert "At least" in resp.json()["detail"]
 
 
 # ──────────────────────────────────────────────────────────
@@ -249,18 +262,28 @@ class TestSoftDelete:
         assert resp.status_code == 400
         assert "Cannot delete yourself" in resp.json()["detail"]
 
-    def test_prevent_delete_last_admin(self, client: TestClient, db: Session):
+    def test_prevent_delete_when_would_drop_below_min_admins(self, client: TestClient, db: Session):
         admin1 = _make_user(db, email="lastadmin@example.com", role=UserRole.admin)
         admin2 = _make_user(db, email="admin2@example.com", role=UserRole.admin)
         token = _login(client, "admin2@example.com")
 
-        # Delete admin1 – should succeed (there's still admin2)
+        # With minimum active admins = 2, this should be blocked.
         resp = client.delete(f"/users/{admin1.id}", headers=_auth(token))
-        assert resp.status_code == 204
+        assert resp.status_code == 400
+        assert "At least" in resp.json()["detail"]
 
-        # Now admin2 is the only admin – should not be able to delete itself
+        # Self-delete is still blocked.
         resp = client.delete(f"/users/{admin2.id}", headers=_auth(token))
         assert resp.status_code == 400  # self-delete
+
+    def test_delete_admin_allowed_when_more_than_minimum(self, client: TestClient, db: Session):
+        admin1 = _make_user(db, email="admin-a@example.com", role=UserRole.admin)
+        admin2 = _make_user(db, email="admin-b@example.com", role=UserRole.admin)
+        admin3 = _make_user(db, email="admin-c@example.com", role=UserRole.admin)
+        token = _login(client, "admin-a@example.com")
+
+        resp = client.delete(f"/users/{admin3.id}", headers=_auth(token))
+        assert resp.status_code == 204
 
 
 # ──────────────────────────────────────────────────────────

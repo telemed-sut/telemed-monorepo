@@ -1,16 +1,14 @@
 import { create } from "zustand";
 import { jwtDecode } from "jwt-decode";
 
-const STORAGE_KEY = "patient-app.token";
-
 /** Refresh token 5 minutes before expiry */
 const REFRESH_BUFFER_SECONDS = 300;
 
 interface AuthPayload {
-  sub?: string;  // user ID
+  sub?: string; // user ID
   role?: string;
   exp?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 interface AuthState {
@@ -20,19 +18,18 @@ interface AuthState {
   hydrated: boolean;
   setToken: (token: string) => void;
   clearToken: () => void;
-  hydrate: () => void;
+  hydrate: () => Promise<void>;
   /** Returns seconds until token expires, or 0 if expired/missing */
   getTokenTTL: () => number;
   /** Returns true if the token will expire within REFRESH_BUFFER_SECONDS */
   isTokenExpiringSoon: () => boolean;
 }
 
-const readStoredToken = () => {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(STORAGE_KEY);
-};
+let hydratePromise: Promise<void> | null = null;
 
-const getPayloadFromToken = (token: string | null): { role: string | null; userId: string | null } => {
+const getPayloadFromToken = (
+  token: string | null
+): { role: string | null; userId: string | null } => {
   if (!token) return { role: null, userId: null };
   try {
     const decoded = jwtDecode<AuthPayload>(token);
@@ -40,10 +37,10 @@ const getPayloadFromToken = (token: string | null): { role: string | null; userI
       role: decoded.role || null,
       userId: decoded.sub || null,
     };
-  } catch (error) {
+  } catch {
     return { role: null, userId: null };
   }
-}
+};
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
@@ -51,22 +48,46 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   userId: null,
   hydrated: false,
   setToken: (token) => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_KEY, token);
-    }
     const { role, userId } = getPayloadFromToken(token);
     set({ token, role, userId, hydrated: true });
   },
   clearToken: () => {
+    const activeToken = get().token ?? undefined;
     if (typeof window !== "undefined") {
-      localStorage.removeItem(STORAGE_KEY);
+      void import("@/lib/api")
+        .then(({ logout }) => logout(activeToken))
+        .catch(() => undefined);
     }
     set({ token: null, role: null, userId: null, hydrated: true });
   },
-  hydrate: () => {
-    const stored = readStoredToken();
-    const { role, userId } = getPayloadFromToken(stored);
-    set({ token: stored, role, userId, hydrated: true });
+  hydrate: async () => {
+    if (get().hydrated) return;
+    if (hydratePromise) return hydratePromise;
+
+    hydratePromise = (async () => {
+      try {
+        const { refreshToken } = await import("@/lib/api");
+        const refreshed = await refreshToken();
+        if (refreshed?.access_token) {
+          const { role, userId } = getPayloadFromToken(refreshed.access_token);
+          set({
+            token: refreshed.access_token,
+            role,
+            userId,
+            hydrated: true,
+          });
+          return;
+        }
+      } catch {
+        // No valid session cookie or refresh failed.
+      }
+
+      set({ token: null, role: null, userId: null, hydrated: true });
+    })().finally(() => {
+      hydratePromise = null;
+    });
+
+    return hydratePromise;
   },
   getTokenTTL: () => {
     const { token } = get();
@@ -84,4 +105,3 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return get().getTokenTTL() < REFRESH_BUFFER_SECONDS;
   },
 }));
-

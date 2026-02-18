@@ -836,17 +836,42 @@ export function UsersContent() {
 
   useEffect(() => {
     if (!token) return;
-    fetchUsers({ page: 1, limit: 100 }, token)
-      .then((res) => setUsers(res.items))
-      .catch((err) => {
-        if ((err as { status?: number }).status === 401) {
-          clearToken();
-          router.replace("/login");
-        }
-      });
-    fetchCurrentUser(token)
-      .then((me) => setCurrentUser(me))
+    let cancelled = false;
+
+    const loadUsersForDashboard = async () => {
+      const pageSize = 100;
+      let page = 1;
+      let total = 0;
+      const allUsers: User[] = [];
+
+      do {
+        const res = await fetchUsers({ page, limit: pageSize }, token);
+        allUsers.push(...res.items);
+        total = res.total;
+        page += 1;
+      } while (allUsers.length < total);
+
+      if (!cancelled) {
+        setUsers(allUsers);
+      }
+    };
+
+    void loadUsersForDashboard().catch((err) => {
+      if ((err as { status?: number }).status === 401) {
+        clearToken();
+        router.replace("/login");
+      }
+    });
+
+    void fetchCurrentUser(token)
+      .then((me) => {
+        if (!cancelled) setCurrentUser(me);
+      })
       .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
   }, [token, clearToken, router]);
 
   if (!hydrated || !token) {

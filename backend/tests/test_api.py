@@ -28,6 +28,7 @@ def test_login_endpoint(client: TestClient, db: Session):
     assert "access_token" in data
     assert data["token_type"] == "bearer"
     assert "expires_in" in data
+    assert "set-cookie" in response.headers
 
 
 def test_login_invalid_credentials(client: TestClient, db: Session):
@@ -69,6 +70,27 @@ def test_refresh_endpoint(client: TestClient, db: Session):
     assert data["token_type"] == "bearer"
 
 
+def test_refresh_endpoint_uses_auth_cookie(client: TestClient, db: Session):
+    user = User(
+        email="refresh-cookie@example.com",
+        password_hash=get_password_hash("TestPassword123"),
+        role=UserRole.admin,
+    )
+    db.add(user)
+    db.commit()
+
+    login_response = client.post("/auth/login", json={
+        "email": "refresh-cookie@example.com",
+        "password": "TestPassword123",
+    })
+    assert login_response.status_code == 200
+
+    # No Authorization header; relies on cookie set by /auth/login
+    response = client.post("/auth/refresh")
+    assert response.status_code == 200
+    assert "access_token" in response.json()
+
+
 def test_logout_endpoint(client: TestClient, db: Session):
     """Test logout endpoint"""
     # Create user and login
@@ -101,7 +123,7 @@ def test_protected_endpoint_without_token(client: TestClient):
     assert response.status_code == 401
     
     response = client.post("/auth/logout")
-    assert response.status_code == 401
+    assert response.status_code == 200
 
 
 def test_forgot_password_endpoint(client: TestClient, db: Session):
@@ -237,3 +259,33 @@ def test_invite_link_is_single_use(client: TestClient, db: Session):
         json={"token": invite_token, "password": "Password123"},
     )
     assert second_accept.status_code == 400
+
+
+def test_clinical_invite_requires_license_no(client: TestClient, db: Session):
+    admin = User(
+        email="clinical-invite-admin@example.com",
+        password_hash=get_password_hash("AdminPass123"),
+        role=UserRole.admin,
+    )
+    db.add(admin)
+    db.commit()
+
+    token = client.post(
+        "/auth/login",
+        json={"email": "clinical-invite-admin@example.com", "password": "AdminPass123"},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    invite_url = client.post(
+        "/users/invites",
+        json={"email": "doctor-clinical@example.com", "role": "doctor"},
+        headers=headers,
+    ).json()["invite_url"]
+    invite_token = invite_url.rsplit("/", 1)[-1]
+
+    response = client.post(
+        "/auth/invite/accept",
+        json={"token": invite_token, "password": "DoctorPass123"},
+    )
+    assert response.status_code == 422
+    assert "license number" in response.json()["detail"].lower()

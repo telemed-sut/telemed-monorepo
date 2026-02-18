@@ -44,7 +44,7 @@ import {
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/ui/logo";
 import { useAuthStore } from "@/store/auth-store";
-import { fetchCurrentUser, UserMe, ROLE_LABEL_MAP } from "@/lib/api";
+import { fetchCurrentUser, logout, UserMe, ROLE_LABEL_MAP } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
@@ -114,8 +114,10 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   };
 
   const handleLogout = () => {
-    clearToken();
-    router.replace("/login");
+    void logout(token || undefined).catch(() => undefined).finally(() => {
+      clearToken();
+      router.replace("/login");
+    });
   };
   const isCollapsed = state === "collapsed";
 

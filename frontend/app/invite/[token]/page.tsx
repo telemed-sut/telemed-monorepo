@@ -24,6 +24,7 @@ export default function InviteRegisterPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isClinicalInvite = CLINICAL_ROLES.has(role);
 
   useEffect(() => {
     const loadInvite = async () => {
@@ -52,6 +53,10 @@ export default function InviteRegisterPage() {
     }
     if (password !== confirmPassword) {
       setError("Passwords do not match");
+      return;
+    }
+    if (isClinicalInvite && !licenseNo.trim()) {
+      setError("License number is required for clinical roles.");
       return;
     }
 
@@ -130,17 +135,18 @@ export default function InviteRegisterPage() {
                 </div>
               </div>
 
-              {CLINICAL_ROLES.has(role) && (
+              {isClinicalInvite && (
                 <div className="space-y-2">
-                  <Label htmlFor="license_no">License Number</Label>
+                  <Label htmlFor="license_no">License Number <span className="text-red-500">*</span></Label>
                   <Input
                     id="license_no"
                     value={licenseNo}
+                    required
                     onChange={(e) => setLicenseNo(e.target.value)}
                     placeholder="e.g., MD-12345"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Optional. Can be added or verified later by an administrator.
+                    Required for clinical roles.
                   </p>
                 </div>
               )}

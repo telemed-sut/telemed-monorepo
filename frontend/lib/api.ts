@@ -27,6 +27,38 @@ export interface UserMe {
   last_name: string | null;
   role: string;
   verification_status?: string | null;
+  two_factor_enabled?: boolean;
+}
+
+export interface Admin2FAStatus {
+  role?: string;
+  required: boolean;
+  enabled: boolean;
+  setup_required: boolean;
+  issuer?: string | null;
+  account_email?: string | null;
+  provisioning_uri?: string | null;
+  trusted_device_days?: number | null;
+}
+
+export interface TrustedDevice {
+  id: string;
+  ip_address?: string | null;
+  created_at: string;
+  last_used_at?: string | null;
+  expires_at: string;
+  current_device: boolean;
+}
+
+export interface TrustedDeviceListResponse {
+  items: TrustedDevice[];
+  total: number;
+}
+
+export interface BackupCodesResponse {
+  codes: string[];
+  generated_at: string;
+  expires_at?: string | null;
 }
 
 // ── Role Constants ──────────────────────────────────────────
@@ -77,10 +109,14 @@ type SortOrder = "asc" | "desc";
 const API_BASE_URL = (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
   ? '/api'
   : (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000");
-type ApiError = Error & { status?: number };
+export type ApiError = Error & { status?: number; detail?: unknown; code?: string };
 
 // Token refresh state to prevent multiple simultaneous refresh calls
 let refreshPromise: Promise<string | null> | null = null;
+
+function isProbablyJwt(token: string): boolean {
+  return token.split(".").length === 3;
+}
 
 /** Check if a JWT token is expiring within the given buffer (seconds). */
 function isTokenExpiring(token: string, bufferSeconds = 300): boolean {
@@ -104,7 +140,7 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, token?: stri
     ...(options.headers as Record<string, string> || {}),
   };
 
-  if (token) {
+  if (token && isProbablyJwt(token)) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
@@ -112,6 +148,7 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, token?: stri
   try {
     res = await fetch(url, {
       ...options,
+      credentials: "include",
       headers,
     });
   } catch (err) {
@@ -145,6 +182,10 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, token?: stri
     const message = typeof msgData === 'object' ? JSON.stringify(msgData) : msgData;
     const error: ApiError = new Error(message || "Request failed");
     error.status = res.status;
+    error.detail = data?.detail;
+    if (typeof data?.detail === "object" && data?.detail?.code) {
+      error.code = String(data.detail.code);
+    }
     return { ok: false, status: res.status, data: null, error };
   }
 
@@ -166,8 +207,8 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
 
   if (result.ok) return result.data as T;
 
-  // If 401 and we have a token, try to refresh
-  if (result.status === 401 && activeToken && path !== "/auth/refresh" && path !== "/auth/login") {
+  // If 401, try to refresh once (supports both bearer and cookie auth flows)
+  if (result.status === 401 && path !== "/auth/refresh" && path !== "/auth/login") {
     const newToken = await tryRefreshToken(activeToken);
     if (newToken) {
       // Retry the original request with the new token
@@ -183,8 +224,12 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
 }
 
 /** Refresh the token using the /auth/refresh endpoint */
-export async function refreshToken(token: string): Promise<LoginResponse> {
+export async function refreshToken(token?: string): Promise<LoginResponse> {
   return apiFetch<LoginResponse>("/auth/refresh", { method: "POST" }, token);
+}
+
+export async function logout(token?: string): Promise<{ message: string }> {
+  return apiFetch<{ message: string }>("/auth/logout", { method: "POST" }, token);
 }
 
 /** Force logout: clear token and redirect to login. */
@@ -199,7 +244,7 @@ function forceLogout() {
 }
 
 /** Try to refresh the token, updating the auth store. Deduplicates concurrent calls. */
-async function tryRefreshToken(currentToken: string): Promise<string | null> {
+async function tryRefreshToken(currentToken?: string): Promise<string | null> {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
@@ -222,10 +267,20 @@ async function tryRefreshToken(currentToken: string): Promise<string | null> {
   return refreshPromise;
 }
 
-export async function login(email: string, password: string) {
+export async function login(
+  email: string,
+  password: string,
+  otpCode?: string,
+  rememberDevice = false
+) {
+  const payload: { email: string; password: string; otp_code?: string; remember_device?: boolean } = { email, password };
+  if (otpCode && otpCode.trim().length > 0) {
+    payload.otp_code = otpCode;
+  }
+  payload.remember_device = rememberDevice;
   return apiFetch<LoginResponse>("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -256,8 +311,137 @@ export async function acceptInvite(token: string, payload: { first_name?: string
   });
 }
 
-export async function fetchCurrentUser(token: string) {
+export async function fetchCurrentUser(token?: string) {
   return apiFetch<UserMe>("/auth/me", {}, token);
+}
+
+export async function fetchAdmin2FAStatus(token: string) {
+  return apiFetch<Admin2FAStatus>("/auth/2fa/admin", { method: "GET" }, token);
+}
+
+export async function verifyAdmin2FA(otpCode: string, token: string) {
+  return apiFetch<{ message: string }>(
+    "/auth/2fa/admin/verify",
+    {
+      method: "POST",
+      body: JSON.stringify({ otp_code: otpCode }),
+    },
+    token
+  );
+}
+
+export async function resetAdmin2FA(
+  token: string,
+  data?: { current_otp_code?: string; reason?: string }
+) {
+  return apiFetch<Admin2FAStatus>(
+    "/auth/2fa/admin/reset",
+    {
+      method: "POST",
+      body: JSON.stringify(data || {}),
+    },
+    token
+  );
+}
+
+export async function fetch2FAStatus(token: string) {
+  return apiFetch<Admin2FAStatus>("/auth/2fa/status", { method: "GET" }, token);
+}
+
+export async function verify2FA(otpCode: string, token: string) {
+  return apiFetch<{ message: string }>(
+    "/auth/2fa/verify",
+    {
+      method: "POST",
+      body: JSON.stringify({ otp_code: otpCode }),
+    },
+    token
+  );
+}
+
+export async function disable2FA(currentOtpCode: string, token: string) {
+  return apiFetch<{ message: string }>(
+    "/auth/2fa/disable",
+    {
+      method: "POST",
+      body: JSON.stringify({ current_otp_code: currentOtpCode }),
+    },
+    token
+  );
+}
+
+export async function reset2FA(
+  token: string,
+  data?: { current_otp_code?: string; reason?: string }
+) {
+  return apiFetch<Admin2FAStatus>(
+    "/auth/2fa/reset",
+    {
+      method: "POST",
+      body: JSON.stringify(data || {}),
+    },
+    token
+  );
+}
+
+export async function regenerateBackupCodes(token: string) {
+  return apiFetch<BackupCodesResponse>(
+    "/auth/2fa/backup-codes/regenerate",
+    {
+      method: "POST",
+    },
+    token
+  );
+}
+
+export async function useBackupCode(code: string, token: string) {
+  return apiFetch<{ message: string }>(
+    "/auth/2fa/backup-codes/use",
+    {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    },
+    token
+  );
+}
+
+export async function fetchTrustedDevices(token: string) {
+  return apiFetch<TrustedDeviceListResponse>(
+    "/auth/2fa/trusted-devices",
+    { method: "GET" },
+    token
+  );
+}
+
+export async function revokeTrustedDevice(deviceId: string, token: string) {
+  return apiFetch<{ message: string }>(
+    `/auth/2fa/trusted-devices/${deviceId}`,
+    { method: "DELETE" },
+    token
+  );
+}
+
+export async function revokeAllTrustedDevices(token: string) {
+  return apiFetch<{ revoked: number }>(
+    "/auth/2fa/trusted-devices/revoke-all",
+    { method: "POST" },
+    token
+  );
+}
+
+export async function superAdminResetUser2FA(
+  userId: string,
+  reason: string,
+  token: string
+) {
+  return apiFetch<{ message: string; user_id: string; email: string; setup_required: boolean }>(
+    `/security/users/${userId}/2fa/reset`,
+    {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    },
+    token
+  );
 }
 
 interface FetchPatientsParams {
@@ -906,11 +1090,14 @@ export async function exportAuditLogs(
 
   // Use rawFetch to handle blob/file download
   const url = `${API_BASE_URL}/audit/export?${query.toString()}`;
+  const headers: Record<string, string> = {};
+  if (token && isProbablyJwt(token)) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   const res = await fetch(url, {
     method: "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    credentials: "include",
+    headers,
   });
 
   if (!res.ok) {
