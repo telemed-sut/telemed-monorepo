@@ -609,14 +609,6 @@ export function UsersTable() {
         });
     };
 
-    const showTeamUpdateDemo = () => {
-        showTeamUpdateToast({
-            title: "Team Update",
-            members: ["Alice", "Bob", "Charlie"],
-            message: "Alice, Bob, and Charlie joined the Design Engineering Team.",
-        });
-    };
-
     // Bulk Delete
     const handleBulkDelete = async (ids: string[]) => {
         if (!token) {
@@ -647,18 +639,30 @@ export function UsersTable() {
         }
     };
 
-    const requestBulkDelete = (ids: string[]) => {
-        if (ids.length === 0 || isBulkDeleting) return;
-        toast.destructiveAction(`Delete ${ids.length} user(s)?`, {
-            description: "This action cannot be undone.",
-            button: {
-                title: "Delete",
-                onClick: () => {
-                    void handleBulkDelete(ids);
+    const requestBulkDelete = (selectedUsers: User[]) => {
+        if (selectedUsers.length === 0 || isBulkDeleting) return;
+
+        const ids = selectedUsers.map((user) => user.id);
+        const names = selectedUsers
+            .map((user) => getDisplayName(user.first_name, user.last_name, user.email))
+            .slice(0, 2);
+        const remaining = selectedUsers.length - names.length;
+        const namesPreview =
+            remaining > 0 ? `${names.join(", ")} and ${remaining} more` : names.join(", ");
+
+        toast.destructiveAction(
+            selectedUsers.length === 1 ? "Delete user?" : `Delete ${selectedUsers.length} users?`,
+            {
+                description: `Are you sure you want to delete ${namesPreview}?`,
+                button: {
+                    title: selectedUsers.length === 1 ? "Delete User" : "Delete Users",
+                    onClick: () => {
+                        void handleBulkDelete(ids);
+                    },
                 },
-            },
-            duration: 9000,
-        });
+                duration: 9000,
+            }
+        );
     };
 
     // --- Columns Definition ---
@@ -889,7 +893,8 @@ export function UsersTable() {
     };
 
     const selectedRows = table.getFilteredSelectedRowModel().rows;
-    const selectedIds = selectedRows.map((row) => (row.original as any).id);
+    const selectedUsers = selectedRows.map((row) => row.original);
+    const selectedIds = selectedUsers.map((user) => user.id);
 
     const hasActiveFilters = roleFilter !== "clinical" || statusFilterLocal !== "all";
     const clearLocalFilters = () => { setRoleFilter("clinical"); setStatusFilterLocal("all"); };
@@ -984,10 +989,10 @@ export function UsersTable() {
                         {/* Bulk delete */}
                         {selectedIds.length > 0 && (
                             <Button
-                                variant="destructive"
+                                variant="outline"
                                 size="sm"
-                                className="h-8 sm:h-9 gap-1.5"
-                                onClick={() => requestBulkDelete(selectedIds)}
+                                className="h-8 sm:h-9 gap-1.5 border-red-300/50 text-red-500 hover:bg-red-500/10 hover:text-red-600"
+                                onClick={() => requestBulkDelete(selectedUsers)}
                             >
                                 <Trash2 className="size-3.5 sm:size-4" />
                                 Delete ({selectedIds.length})
@@ -1001,15 +1006,6 @@ export function UsersTable() {
 
                         {currentUserRole === "admin" && (
                             <>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 sm:h-9 gap-1.5 sm:gap-2"
-                                    onClick={showTeamUpdateDemo}
-                                >
-                                    <Users className="size-3.5 sm:size-4" />
-                                    <span className="hidden sm:inline">Team Toast</span>
-                                </Button>
                                 <Button variant="outline" size="sm" className="h-8 sm:h-9 gap-1.5 sm:gap-2" onClick={() => setInviteSheetOpen(true)}>
                                     <Link2 className="size-3.5 sm:size-4" />
                                     <span className="hidden sm:inline">Invite</span>
