@@ -1,6 +1,7 @@
 """Tests for user management API – RBAC, CRUD, soft-delete, validation, audit."""
 
 import json
+from datetime import datetime, timedelta, timezone
 from uuid import UUID as PyUUID
 
 import pytest
@@ -300,6 +301,136 @@ class TestSoftDelete:
         resp = client.delete(f"/users/{admin3.id}", headers=_auth(token))
         assert resp.status_code == 204
 
+    def test_restore_soft_deleted_user(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-restore@example.com", role=UserRole.admin)
+        target = _make_user(db, email="restore-target@example.com", role=UserRole.staff)
+        token = _login(client, "admin-restore@example.com")
+
+        delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        restore_resp = client.post(f"/users/{target.id}/restore", headers=_auth(token))
+        assert restore_resp.status_code == 200, restore_resp.text
+        restored = restore_resp.json()
+        assert restored["email"] == "restore-target@example.com"
+        assert restored["deleted_at"] is None
+        assert restored["is_active"] is True
+
+    def test_restore_keeps_retired_email_when_original_is_taken(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-restore2@example.com", role=UserRole.admin)
+        target = _make_user(db, email="restore-conflict@example.com", role=UserRole.staff)
+        token = _login(client, "admin-restore2@example.com")
+
+        delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        create_resp = client.post(
+            "/users",
+            json={
+                "email": "restore-conflict@example.com",
+                "password": "NewPass123",
+                "first_name": "Conflict",
+                "last_name": "Owner",
+                "role": "staff",
+            },
+            headers=_auth(token),
+        )
+        assert create_resp.status_code == 200, create_resp.text
+
+        restore_resp = client.post(f"/users/{target.id}/restore", headers=_auth(token))
+        assert restore_resp.status_code == 200, restore_resp.text
+        restored = restore_resp.json()
+        assert restored["email"].startswith("deleted+")
+        assert restored["deleted_at"] is None
+        assert restored["is_active"] is True
+
+    def test_bulk_delete_requires_confirm_text_when_more_than_three(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-bulk-confirm@example.com", role=UserRole.admin)
+        users = [
+            _make_user(db, email="bulk-c1@example.com", role=UserRole.staff),
+            _make_user(db, email="bulk-c2@example.com", role=UserRole.staff),
+            _make_user(db, email="bulk-c3@example.com", role=UserRole.staff),
+            _make_user(db, email="bulk-c4@example.com", role=UserRole.staff),
+        ]
+        token = _login(client, "admin-bulk-confirm@example.com")
+
+        resp = client.post(
+            "/users/bulk-delete",
+            json={"ids": [str(user.id) for user in users]},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 400
+        assert "confirm_text" in resp.json()["detail"]
+
+        ok_resp = client.post(
+            "/users/bulk-delete",
+            json={"ids": [str(user.id) for user in users], "confirm_text": "DELETE"},
+            headers=_auth(token),
+        )
+        assert ok_resp.status_code == 200
+        assert ok_resp.json()["deleted"] == 4
+
+    def test_bulk_restore_users(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-bulk-restore@example.com", role=UserRole.admin)
+        users = [
+            _make_user(db, email="bulk-r1@example.com", role=UserRole.staff),
+            _make_user(db, email="bulk-r2@example.com", role=UserRole.staff),
+        ]
+        token = _login(client, "admin-bulk-restore@example.com")
+
+        delete_resp = client.post(
+            "/users/bulk-delete",
+            json={"ids": [str(user.id) for user in users]},
+            headers=_auth(token),
+        )
+        assert delete_resp.status_code == 200
+        assert delete_resp.json()["deleted"] == 2
+
+        restore_resp = client.post(
+            "/users/bulk-restore",
+            json={"ids": [str(user.id) for user in users]},
+            headers=_auth(token),
+        )
+        assert restore_resp.status_code == 200
+        assert restore_resp.json()["restored"] == 2
+
+    def test_purge_deleted_requires_confirm_text(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-purge-confirm@example.com", role=UserRole.admin)
+        token = _login(client, "admin-purge-confirm@example.com")
+
+        resp = client.post(
+            "/users/purge-deleted",
+            json={"older_than_days": 90, "confirm_text": "DELETE"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 400
+        assert "confirm_text" in resp.json()["detail"]
+
+    def test_purge_deleted_hard_deletes_old_soft_deleted_accounts(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-purge@example.com", role=UserRole.admin)
+        target = _make_user(db, email="purge-target@example.com", role=UserRole.staff)
+        target_id = target.id
+        token = _login(client, "admin-purge@example.com")
+
+        delete_resp = client.delete(f"/users/{target_id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        db.refresh(target)
+        target.deleted_at = datetime.now(timezone.utc) - timedelta(days=120)
+        db.add(target)
+        db.commit()
+
+        purge_resp = client.post(
+            "/users/purge-deleted",
+            json={"older_than_days": 90, "confirm_text": "PURGE"},
+            headers=_auth(token),
+        )
+        assert purge_resp.status_code == 200
+        assert purge_resp.json()["purged"] >= 1
+
+        still_exists = db.query(User).filter(User.id == target_id).first()
+        assert still_exists is None
+
 
 # ──────────────────────────────────────────────────────────
 # Validation – clinical roles
@@ -416,3 +547,117 @@ class TestAuditLog:
         assert len(logs) == 1
         detail = json.loads(logs[0].details)
         assert detail["after"] == "verified"
+
+    def test_delete_denied_logs_audit(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-denied@example.com", role=UserRole.admin)
+        token = _login(client, "admin-denied@example.com")
+
+        resp = client.delete(f"/users/{admin.id}", headers=_auth(token))
+        assert resp.status_code == 400
+
+        logs = db.query(AuditLog).filter(
+            AuditLog.action == "user_delete_denied",
+            AuditLog.resource_id == PyUUID(str(admin.id)),
+        ).all()
+        assert len(logs) >= 1
+        detail = json.loads(logs[-1].details)
+        assert detail["reason"] == "cannot_delete_self"
+
+    def test_bulk_delete_logs_summary_audit(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-bulk-aud@example.com", role=UserRole.admin)
+        target = _make_user(db, email="bulk-aud-target@example.com", role=UserRole.staff)
+        token = _login(client, "admin-bulk-aud@example.com")
+
+        invalid_id = "not-a-uuid"
+        resp = client.post(
+            "/users/bulk-delete",
+            json={"ids": [str(target.id), invalid_id]},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["deleted"] == 1
+        assert len(data["skipped"]) == 1
+
+        logs = db.query(AuditLog).filter(
+            AuditLog.action == "user_bulk_delete_summary",
+            AuditLog.user_id == admin.id,
+        ).all()
+        assert len(logs) >= 1
+        summary = json.loads(logs[-1].details)
+        assert summary["deleted"] == 1
+        assert invalid_id in summary["requested_ids"]
+        assert any("invalid ID" in item for item in summary["skipped"])
+
+    def test_restore_user_logs_audit(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-audrestore@example.com", role=UserRole.admin)
+        target = _make_user(db, email="audrestore-target@example.com", role=UserRole.staff)
+        token = _login(client, "admin-audrestore@example.com")
+
+        delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        restore_resp = client.post(f"/users/{target.id}/restore", headers=_auth(token))
+        assert restore_resp.status_code == 200
+
+        logs = db.query(AuditLog).filter(
+            AuditLog.action == "user_restore",
+            AuditLog.resource_id == PyUUID(str(target.id)),
+        ).all()
+        assert len(logs) >= 1
+        detail = json.loads(logs[-1].details)
+        assert detail["after"]["deleted_at"] is None
+
+    def test_bulk_restore_logs_summary_audit(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-audbulkrestore@example.com", role=UserRole.admin)
+        target = _make_user(db, email="audbulkrestore-target@example.com", role=UserRole.staff)
+        token = _login(client, "admin-audbulkrestore@example.com")
+
+        delete_resp = client.post(
+            "/users/bulk-delete",
+            json={"ids": [str(target.id)]},
+            headers=_auth(token),
+        )
+        assert delete_resp.status_code == 200
+
+        restore_resp = client.post(
+            "/users/bulk-restore",
+            json={"ids": [str(target.id)]},
+            headers=_auth(token),
+        )
+        assert restore_resp.status_code == 200
+
+        logs = db.query(AuditLog).filter(
+            AuditLog.action == "user_bulk_restore_summary",
+            AuditLog.user_id == admin.id,
+        ).all()
+        assert len(logs) >= 1
+        detail = json.loads(logs[-1].details)
+        assert detail["restored"] == 1
+
+    def test_purge_deleted_logs_summary_audit(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-audpurge@example.com", role=UserRole.admin)
+        target = _make_user(db, email="audpurge-target@example.com", role=UserRole.staff)
+        token = _login(client, "admin-audpurge@example.com")
+
+        delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+        db.refresh(target)
+        target.deleted_at = datetime.now(timezone.utc) - timedelta(days=120)
+        db.add(target)
+        db.commit()
+
+        purge_resp = client.post(
+            "/users/purge-deleted",
+            json={"older_than_days": 90, "confirm_text": "PURGE"},
+            headers=_auth(token),
+        )
+        assert purge_resp.status_code == 200
+
+        logs = db.query(AuditLog).filter(
+            AuditLog.action == "user_purge_deleted_summary",
+            AuditLog.user_id == admin.id,
+        ).all()
+        assert len(logs) >= 1
+        detail = json.loads(logs[-1].details)
+        assert detail["older_than_days"] == 90
