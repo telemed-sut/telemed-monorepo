@@ -214,6 +214,34 @@ class TestSoftDelete:
         })
         assert resp.status_code == 401
 
+    def test_can_reuse_email_after_soft_delete(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-reuse@example.com", role=UserRole.admin)
+        target = _make_user(db, email="reuse@example.com", role=UserRole.staff)
+        token = _login(client, "admin-reuse@example.com")
+
+        delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        create_resp = client.post(
+            "/users",
+            json={
+                "email": "reuse@example.com",
+                "password": "NewPass123",
+                "first_name": "Reuse",
+                "last_name": "Account",
+                "role": "staff",
+            },
+            headers=_auth(token),
+        )
+        assert create_resp.status_code == 200, create_resp.text
+        created = create_resp.json()
+        assert created["email"] == "reuse@example.com"
+        assert created["id"] != str(target.id)
+
+        db.refresh(target)
+        assert target.email.startswith("deleted+")
+        assert target.deleted_at is not None
+
     def test_prevent_self_delete(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-self@example.com", role=UserRole.admin)
         token = _login(client, "admin-self@example.com")

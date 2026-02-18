@@ -49,6 +49,11 @@ def _user_snapshot(user: User) -> dict:
     }
 
 
+def _retired_email(user_id: UUID) -> str:
+    """Generate a unique placeholder email for soft-deleted users."""
+    return f"deleted+{user_id.hex}@deleted.local"
+
+
 # ---------------------------------------------------------------------------
 # LIST  (admin-only)
 # ---------------------------------------------------------------------------
@@ -88,7 +93,15 @@ def get_users(
         query = query.where(User.role == role)
 
     if verification_status:
-        query = query.where(User.verification_status == verification_status)
+        if verification_status == VerificationStatus.unverified:
+            query = query.where(
+                or_(
+                    User.verification_status == verification_status,
+                    User.verification_status.is_(None),
+                )
+            )
+        else:
+            query = query.where(User.verification_status == verification_status)
 
     count_query = select(func.count()).select_from(query.subquery())
     total = db.scalar(count_query)
@@ -128,12 +141,19 @@ def create_user(
     current_user: User = Depends(get_admin_user),
 ) -> Any:
     """Create a new user. Admin only."""
-    existing = db.scalar(select(User).where(User.email == user_in.email))
-    if existing:
+    requested_email = user_in.email.lower()
+
+    existing = db.scalar(select(User).where(User.email == requested_email))
+    if existing and existing.deleted_at is None:
         raise HTTPException(
             status_code=400,
             detail="A user with this email already exists.",
         )
+    if existing and existing.deleted_at is not None:
+        # Legacy deleted row still using this email; retire it so email can be reused.
+        existing.email = _retired_email(existing.id)
+        db.add(existing)
+        db.flush()
 
     # Validate clinical roles require minimum professional data
     if user_in.role in CLINICAL_ROLES and not user_in.license_no:
@@ -143,7 +163,7 @@ def create_user(
         )
 
     user = User(
-        email=user_in.email,
+        email=requested_email,
         password_hash=get_password_hash(user_in.password),
         first_name=user_in.first_name,
         last_name=user_in.last_name,
@@ -185,16 +205,33 @@ def create_user_invite(
     current_user: User = Depends(get_admin_user),
 ) -> Any:
     """Create an invite link. Admin only."""
-    existing_user = db.scalar(select(User).where(User.email == payload.email.lower()))
+    requested_email = payload.email.lower()
+    existing_user = db.scalar(
+        select(User).where(
+            User.email == requested_email,
+            User.deleted_at.is_(None),
+        )
+    )
     if existing_user:
         raise HTTPException(
             status_code=400,
             detail="A user with this email already exists.",
         )
 
+    legacy_deleted = db.scalar(
+        select(User).where(
+            User.email == requested_email,
+            User.deleted_at.is_not(None),
+        )
+    )
+    if legacy_deleted:
+        legacy_deleted.email = _retired_email(legacy_deleted.id)
+        db.add(legacy_deleted)
+        db.flush()
+
     raw_token, invite = auth_service.create_user_invite(
         db,
-        email=payload.email,
+        email=requested_email,
         role=payload.role,
         expires_in_hours=settings.invite_expires_in_hours,
         created_by=current_user,
@@ -269,11 +306,30 @@ def update_user(
     before = _user_snapshot(user)
 
     if user_in.email:
-        dup = db.scalar(select(User).where(User.email == user_in.email))
+        normalized_email = user_in.email.lower()
+        dup = db.scalar(
+            select(User).where(
+                User.email == normalized_email,
+                User.deleted_at.is_(None),
+            )
+        )
         if dup and dup.id != user_id:
             raise HTTPException(status_code=400, detail="Email already in use.")
 
+        legacy_deleted = db.scalar(
+            select(User).where(
+                User.email == normalized_email,
+                User.deleted_at.is_not(None),
+            )
+        )
+        if legacy_deleted and legacy_deleted.id != user_id:
+            legacy_deleted.email = _retired_email(legacy_deleted.id)
+            db.add(legacy_deleted)
+            db.flush()
+
     update_data = user_in.model_dump(exclude_unset=True)
+    if "email" in update_data and update_data["email"]:
+        update_data["email"] = str(update_data["email"]).lower()
 
     # Hash password if provided
     if "password" in update_data and update_data["password"]:
@@ -374,6 +430,7 @@ def delete_user(
         )
 
     before = _user_snapshot(user)
+    user.email = _retired_email(user.id)
     user.deleted_at = datetime.now(timezone.utc)
     user.is_active = False
     db.add(user)
@@ -445,6 +502,7 @@ def bulk_delete_users(
                 continue
 
         before = _user_snapshot(user)
+        user.email = _retired_email(user.id)
         user.deleted_at = datetime.now(timezone.utc)
         user.is_active = False
         db.add(user)

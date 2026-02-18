@@ -4,7 +4,7 @@ import * as React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,16 +41,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
     Search01Icon,
@@ -119,8 +109,6 @@ export function MeetingsTable() {
     const [editing, setEditing] = useState<Meeting | null>(null);
     const [formData, setFormData] = useState<MeetingFormState>(emptyForm);
     const [saving, setSaving] = useState(false);
-    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-    const [meetingToDelete, setMeetingToDelete] = useState<string | null>(null);
 
     // Load patients for the dropdown
     const [patients, setPatients] = useState<Patient[]>([]);
@@ -277,15 +265,10 @@ export function MeetingsTable() {
         }
     };
 
-    const handleDelete = (id: string) => {
-        setMeetingToDelete(id);
-        setDeleteDialogOpen(true);
-    };
-
-    const confirmDelete = async () => {
-        if (!token || !meetingToDelete) return;
+    const confirmDelete = async (id: string) => {
+        if (!token) return;
         try {
-            await deleteMeeting(meetingToDelete, token);
+            await deleteMeeting(id, token);
             toast.success("Meeting deleted successfully");
             const res = await fetchMeetings({ page, limit, q: debouncedSearch, sort, order }, token);
             setMeetings(res.items);
@@ -299,10 +282,20 @@ export function MeetingsTable() {
                 return;
             }
             toast.error(err instanceof Error ? err.message : "Delete failed");
-        } finally {
-            setDeleteDialogOpen(false);
-            setMeetingToDelete(null);
         }
+    };
+
+    const handleDelete = (id: string) => {
+        toast.destructiveAction("Delete meeting?", {
+            description: "This action cannot be undone.",
+            button: {
+                title: "Delete",
+                onClick: () => {
+                    void confirmDelete(id);
+                },
+            },
+            duration: 9000,
+        });
     };
 
     const formatDateTime = (iso: string) => {
@@ -913,26 +906,6 @@ export function MeetingsTable() {
                 </SheetContent>
             </Sheet>
 
-            {/* Delete Confirmation */}
-            <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Meeting</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Are you sure you want to delete this meeting? This action cannot be undone.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={confirmDelete}
-                            className="bg-destructive text-white hover:bg-destructive/90"
-                        >
-                            Delete
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
         </div>
     );
 }

@@ -42,18 +42,8 @@ import {
   SheetTitle,
   SheetClose,
 } from "@/components/ui/sheet";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { deleteMeeting, createMeeting } from "@/lib/api";
 import type { MeetingCreatePayload } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
@@ -427,7 +417,6 @@ export function EventDetailSheet({
   const token = useAuthStore((s) => s.token);
   const setMeetings = useCalendarStore((s) => s.setMeetings);
   const [deleting, setDeleting] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
 
   if (!meeting) return null;
@@ -474,7 +463,6 @@ export function EventDetailSheet({
       const current = useCalendarStore.getState().meetings;
       setMeetings(current.filter((m) => m.id !== meeting.id));
       toast.success("Appointment deleted");
-      setDeleteDialogOpen(false);
       onOpenChange(false);
       await onRefresh?.();
     } catch (err) {
@@ -483,6 +471,20 @@ export function EventDetailSheet({
     } finally {
       setDeleting(false);
     }
+  };
+
+  const handleDeleteAction = () => {
+    if (deleting) return;
+    toast.destructiveAction("Delete appointment?", {
+      description: "This action cannot be undone.",
+      button: {
+        title: "Delete",
+        onClick: () => {
+          void handleDelete();
+        },
+      },
+      duration: 9000,
+    });
   };
 
   const handleEdit = () => {
@@ -609,7 +611,7 @@ export function EventDetailSheet({
                     variant="ghost"
                     size="icon"
                     className="size-8 hover:bg-muted"
-                    onClick={() => setDeleteDialogOpen(true)}
+                    onClick={handleDeleteAction}
                     disabled={deleting}
                     title="Delete appointment"
                   >
@@ -872,27 +874,6 @@ export function EventDetailSheet({
         </SheetContent>
       </Sheet>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Appointment</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this appointment? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={deleting}
-              className="bg-destructive text-white hover:bg-destructive/90"
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

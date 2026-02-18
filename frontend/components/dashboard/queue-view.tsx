@@ -31,19 +31,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useCalendarStore } from "@/store/calendar-store";
 import { useAuthStore } from "@/store/auth-store";
@@ -392,67 +381,6 @@ function QueueCard({
   );
 }
 
-/* ── Cancel Dialog ── */
-function CancelMeetingDialog({
-  meeting,
-  open,
-  onOpenChange,
-  onConfirm,
-  loading,
-}: {
-  meeting: Meeting | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: (reason: string) => void;
-  loading: boolean;
-}) {
-  const [reason, setReason] = useState("");
-
-  const patientName = meeting?.patient
-    ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
-    : "this patient";
-
-  return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Cancel Appointment</AlertDialogTitle>
-          <AlertDialogDescription>
-            Are you sure you want to cancel the appointment for{" "}
-            <strong>{patientName}</strong>? This action will be recorded.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <div className="py-2">
-          <label className="text-sm font-medium text-foreground mb-1.5 block">
-            Reason for cancellation
-          </label>
-          <Textarea
-            placeholder="e.g. Patient requested reschedule, No show, etc."
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className="min-h-[80px]"
-          />
-        </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => setReason("")}>
-            Go Back
-          </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              onConfirm(reason);
-              setReason("");
-            }}
-            disabled={loading || !reason.trim()}
-            className="bg-destructive text-white hover:bg-destructive/90"
-          >
-            {loading ? "Cancelling..." : "Cancel Appointment"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
 /* ── Status Summary Cards ── */
 function StatusSummary({
   meetings,
@@ -542,10 +470,8 @@ export function QueueView({
   const [statusFilter, setStatusFilter] = useState<MeetingStatus | "all">("all");
   const [dateFilter, setDateFilter] = useState<"today" | "all">("today");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [cancelTarget, setCancelTarget] = useState<Meeting | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Meeting | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   // Filter meetings
@@ -654,45 +580,81 @@ export function QueueView({
   );
 
   const handleCancel = useCallback(
-    async (reason: string) => {
-      if (!token || !cancelTarget || updatingId) return;
-      setUpdatingId(cancelTarget.id);
+    async (meeting: Meeting) => {
+      if (!token || updatingId) return;
+      setUpdatingId(meeting.id);
       try {
         const updated = await updateMeeting(
-          cancelTarget.id,
-          { status: "cancelled", reason },
+          meeting.id,
+          { status: "cancelled", reason: "Cancelled by admin" },
           token
         );
         setMeetings(
-          meetings.map((m) => (m.id === cancelTarget.id ? updated : m))
+          meetings.map((m) => (m.id === meeting.id ? updated : m))
         );
         toast.success("Appointment cancelled");
-        setCancelTarget(null);
       } catch {
         toast.error("Failed to cancel appointment");
       } finally {
         setUpdatingId(null);
       }
     },
-    [token, cancelTarget, updatingId, meetings, setMeetings]
+    [token, updatingId, meetings, setMeetings]
+  );
+
+  const requestCancel = useCallback(
+    (meeting: Meeting) => {
+      const patientName = meeting.patient
+        ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
+        : "this patient";
+      toast.warningAction("Cancel appointment?", {
+        description: `Cancel appointment for ${patientName}?`,
+        button: {
+          title: "Cancel Appointment",
+          onClick: () => {
+            void handleCancel(meeting);
+          },
+        },
+        duration: 9000,
+      });
+    },
+    [handleCancel]
   );
 
   const handleDelete = useCallback(
-    async () => {
-      if (!token || !deleteTarget || deleting) return;
+    async (meeting: Meeting) => {
+      if (!token || deleting) return;
       setDeleting(true);
       try {
-        await deleteMeeting(deleteTarget.id, token);
-        setMeetings(meetings.filter((m) => m.id !== deleteTarget.id));
+        await deleteMeeting(meeting.id, token);
+        setMeetings(meetings.filter((m) => m.id !== meeting.id));
         toast.success("Appointment deleted");
-        setDeleteTarget(null);
       } catch {
         toast.error("Failed to delete appointment");
       } finally {
         setDeleting(false);
       }
     },
-    [token, deleteTarget, deleting, meetings, setMeetings]
+    [token, deleting, meetings, setMeetings]
+  );
+
+  const requestDelete = useCallback(
+    (meeting: Meeting) => {
+      const patientName = meeting.patient
+        ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
+        : "this patient";
+      toast.destructiveAction("Delete appointment?", {
+        description: `Delete appointment for ${patientName}? This action cannot be undone.`,
+        button: {
+          title: "Delete",
+          onClick: () => {
+            void handleDelete(meeting);
+          },
+        },
+        duration: 9000,
+      });
+    },
+    [handleDelete]
   );
 
   return (
@@ -759,10 +721,10 @@ export function QueueView({
                 key={meeting.id}
                 meeting={meeting}
                 onStatusChange={handleStatusChange}
-                onCancelClick={setCancelTarget}
+                onCancelClick={requestCancel}
                 onDuplicate={handleDuplicate}
                 onEdit={onEditMeeting}
-                onDelete={setDeleteTarget}
+                onDelete={requestDelete}
                 onClick={setSelectedMeeting}
                 loading={updatingId === meeting.id || duplicatingId === meeting.id}
               />
@@ -770,43 +732,6 @@ export function QueueView({
           </div>
         )}
       </div>
-
-      {/* Cancel Dialog */}
-      <CancelMeetingDialog
-        meeting={cancelTarget}
-        open={!!cancelTarget}
-        onOpenChange={(open) => {
-          if (!open) setCancelTarget(null);
-        }}
-        onConfirm={handleCancel}
-        loading={!!updatingId}
-      />
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Appointment</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this appointment
-              {deleteTarget?.patient
-                ? ` for ${deleteTarget.patient.first_name} ${deleteTarget.patient.last_name}`
-                : ""}
-              ? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={deleting}
-              className="bg-destructive text-white hover:bg-destructive/90"
-            >
-              {deleting ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Event Detail Sheet (reused from calendar) */}
       <EventDetailSheet

@@ -4,7 +4,7 @@ import * as React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -58,16 +58,6 @@ import {
   SelectLabel,
   SelectSeparator,
 } from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   UserGroupIcon,
@@ -137,8 +127,6 @@ export function PatientsTable() {
   const [formData, setFormData] = useState<PatientFormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [justLoaded, setJustLoaded] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [patientToDelete, setPatientToDelete] = useState<string | null>(null);
 
   const isInitialLoading = loading && patients.length === 0;
   const isRefetching = loading && patients.length > 0;
@@ -389,17 +377,11 @@ export function PatientsTable() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const confirmDelete = async (id: string) => {
     if (!token) return;
-    setPatientToDelete(id);
-    setDeleteDialogOpen(true);
-  };
-
-  const confirmDelete = async () => {
-    if (!token || !patientToDelete) return;
     setError(null);
     try {
-      await deletePatient(patientToDelete, token);
+      await deletePatient(id, token);
       toast.success("Patient deleted successfully");
       const res = await fetchPatients({ page, limit, q: debouncedSearch, sort, order }, token);
       setPatients(res.items);
@@ -417,10 +399,20 @@ export function PatientsTable() {
       const message = err instanceof Error ? err.message : "Delete failed";
       setError(message);
       toast.error(message);
-    } finally {
-      setDeleteDialogOpen(false);
-      setPatientToDelete(null);
     }
+  };
+
+  const handleDelete = (id: string) => {
+    toast.destructiveAction("Delete patient record?", {
+      description: "This action cannot be undone.",
+      button: {
+        title: "Delete",
+        onClick: () => {
+          void confirmDelete(id);
+        },
+      },
+      duration: 9000,
+    });
   };
 
   const getPatientInitials = (patient: Patient) => {
@@ -1242,41 +1234,6 @@ export function PatientsTable() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="sm:max-w-lg">
-          <div className="flex items-start space-x-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-950/30">
-              <svg className="h-6 w-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete Patient Record</AlertDialogTitle>
-              <AlertDialogDescription className="space-y-2">
-                <span className="block">Are you sure you want to delete this patient record?</span>
-                <span className="block text-sm text-muted-foreground/80 dark:text-muted-foreground/60">
-                  This action cannot be undone. The patient's information will be permanently removed from the system.
-                </span>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setPatientToDelete(null)}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDelete}
-              className="bg-red-600 text-white hover:bg-red-700 dark:bg-red-600 dark:hover:bg-red-700"
-            >
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-              Delete Patient
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

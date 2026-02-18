@@ -63,7 +63,7 @@ import {
   type MeetingUpdatePayload,
 } from "@/lib/api";
 import { getMeetingLinkMode, resolveMeetingRoomValue } from "./meeting-link";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 /* ── Time picker helpers ── */

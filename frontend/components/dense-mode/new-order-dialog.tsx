@@ -23,7 +23,7 @@ import {
 import { useAuthStore } from "@/store/auth-store";
 import { useDenseModeStore } from "@/store/dense-mode-store";
 import { createOrder, type OrderCreatePayload } from "@/lib/api";
-import { toast } from "sonner";
+import { toast } from "@/components/ui/toast";
 import { Loader2, Pill, TestTube, ImageIcon } from "lucide-react";
 
 interface Props {
