@@ -11,7 +11,7 @@ from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.alert import AlertAcknowledge
 from app.services import audit as audit_service
-from app.services.auth import get_clinical_user, get_db, _has_active_assignment, _has_active_break_glass
+from app.services.auth import get_db, get_doctor_user, _has_active_assignment
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -23,7 +23,7 @@ def acknowledge_alert(
     alert_id: UUID,
     payload: AlertAcknowledge,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_clinical_user),
+    current_user: User = Depends(get_doctor_user),
 ):
     """Acknowledge a clinical alert. User must be assigned to the alert's patient."""
     alert = db.scalar(select(Alert).where(Alert.id == alert_id))
@@ -35,10 +35,10 @@ def acknowledge_alert(
     # Verify user-patient relationship (admin bypass only)
     if current_user.role != UserRole.admin:
         patient_id = alert.patient_id
-        if not _has_active_assignment(db, current_user.id, patient_id) and not _has_active_break_glass(db, current_user.id, patient_id):
+        if not _has_active_assignment(db, current_user.id, patient_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You are not assigned to this patient. Use break-glass for emergency access.",
+                detail="You are not assigned to this patient. Contact admin to assign access.",
             )
 
     alert.is_acknowledged = True

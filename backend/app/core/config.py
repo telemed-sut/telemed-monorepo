@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     user_trusted_device_days: int = 30
     backup_code_count: int = 10
     backup_code_expires_days: int = 365
+    # Phase policy toggles
+    specialist_invite_only: bool = True
+    enable_break_glass_access: bool = False
     # Security: IP auto-ban
     ip_ban_threshold: int = 20
     ip_ban_duration_minutes: int = 30

@@ -124,19 +124,17 @@ const ROLE_OPTIONS = [
     { value: "staff", label: "Staff" },
 ];
 
+const CLINICAL_ROLE_OPTIONS = ROLE_OPTIONS.filter((option) =>
+    ["doctor", "nurse", "pharmacist", "medical_technologist", "psychologist"].includes(option.value)
+);
+
 const ROLE_LABEL_MAP: Record<string, string> = ROLE_OPTIONS.reduce(
     (acc, curr) => ({ ...acc, [curr.value]: curr.label }),
     {}
 );
 
 const isClinicalRole = (role: string) => {
-    return [
-        "doctor",
-        "nurse",
-        "pharmacist",
-        "medical_technologist",
-        "psychologist",
-    ].includes(role);
+    return CLINICAL_ROLE_OPTIONS.some((option) => option.value === role);
 };
 
 const isLicenseExpired = (expiryDate?: string) => {
@@ -257,7 +255,7 @@ export function UsersTable() {
     const [generatedInviteUrl, setGeneratedInviteUrl] = useState("");
 
     const [isBulkDeleting, setIsBulkDeleting] = useState(false);
-    const [roleFilter, setRoleFilter] = useState("all");
+    const [roleFilter, setRoleFilter] = useState("clinical");
     const [statusFilterLocal, setStatusFilterLocal] = useState("all");
     const [searchLocal, setSearchLocal] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -272,7 +270,7 @@ export function UsersTable() {
         first_name: "",
         last_name: "",
         password: "",
-        role: "staff",
+        role: "doctor",
         is_active: true,
         specialty: "",
         department: "",
@@ -283,7 +281,7 @@ export function UsersTable() {
 
     const [inviteFormData, setInviteFormData] = useState({
         email: "",
-        role: "staff",
+        role: "doctor",
     });
 
     // Load Data
@@ -303,7 +301,8 @@ export function UsersTable() {
                 q: debouncedSearch.trim() || undefined,
                 sort: sortField,
                 order: sorting.length > 0 && sorting[0].desc ? "desc" : "asc",
-                role: roleFilter !== "all" ? roleFilter : undefined,
+                clinical_only: true,
+                role: roleFilter !== "clinical" ? roleFilter : undefined,
                 verification_status: statusFilterLocal !== "all" ? statusFilterLocal : undefined,
             }, token);
 
@@ -351,7 +350,7 @@ export function UsersTable() {
             email: "",
             first_name: "",
             last_name: "",
-            role: "staff",
+            role: "doctor",
             is_active: true,
             specialty: "",
             department: "",
@@ -450,7 +449,7 @@ export function UsersTable() {
                 email: normalizedEmail,
                 first_name: formData.first_name?.trim() || undefined,
                 last_name: formData.last_name?.trim() || undefined,
-                role: formData.role || "staff",
+                role: formData.role || "doctor",
                 is_active: formData.is_active ?? true,
                 specialty: formData.specialty?.trim() || undefined,
                 department: formData.department?.trim() || undefined,
@@ -473,7 +472,7 @@ export function UsersTable() {
                 await createUser(createPayload, token);
             }
 
-            const roleLabel = ROLE_LABEL_MAP[String(basePayload.role ?? "staff")] ?? "Staff";
+            const roleLabel = ROLE_LABEL_MAP[String(basePayload.role ?? "doctor")] ?? "Doctor";
             const displayName = getDisplayName(
                 basePayload.first_name,
                 basePayload.last_name,
@@ -892,8 +891,8 @@ export function UsersTable() {
     const selectedRows = table.getFilteredSelectedRowModel().rows;
     const selectedIds = selectedRows.map((row) => (row.original as any).id);
 
-    const hasActiveFilters = roleFilter !== "all" || statusFilterLocal !== "all";
-    const clearLocalFilters = () => { setRoleFilter("all"); setStatusFilterLocal("all"); };
+    const hasActiveFilters = roleFilter !== "clinical" || statusFilterLocal !== "all";
+    const clearLocalFilters = () => { setRoleFilter("clinical"); setStatusFilterLocal("all"); };
 
     return (
         <div className="space-y-4">
@@ -936,12 +935,12 @@ export function UsersTable() {
                                 <DropdownMenuGroup>
                                     <DropdownMenuLabel>Filter by Role</DropdownMenuLabel>
                                     <DropdownMenuCheckboxItem
-                                        checked={roleFilter === "all"}
-                                        onCheckedChange={() => setRoleFilter("all")}
+                                        checked={roleFilter === "clinical"}
+                                        onCheckedChange={() => setRoleFilter("clinical")}
                                     >
-                                        All Roles
+                                        All Clinical Roles
                                     </DropdownMenuCheckboxItem>
-                                    {ROLE_OPTIONS.map((r) => (
+                                    {CLINICAL_ROLE_OPTIONS.map((r) => (
                                         <DropdownMenuCheckboxItem
                                             key={r.value}
                                             checked={roleFilter === r.value}
@@ -1015,10 +1014,6 @@ export function UsersTable() {
                                     <Link2 className="size-3.5 sm:size-4" />
                                     <span className="hidden sm:inline">Invite</span>
                                 </Button>
-                                <Button size="sm" className="h-8 sm:h-9 gap-1.5 sm:gap-2" onClick={handleCreateUser}>
-                                    <Plus className="size-3.5 sm:size-4" />
-                                    <span className="hidden sm:inline">New User</span>
-                                </Button>
                             </>
                         )}
                     </div>
@@ -1028,11 +1023,11 @@ export function UsersTable() {
                 {hasActiveFilters && (
                     <div className="flex flex-wrap items-center gap-2 px-3 sm:px-6 pb-3">
                         <span className="text-[10px] sm:text-xs text-muted-foreground">Filters:</span>
-                        {roleFilter !== "all" && (
+                        {roleFilter !== "clinical" && (
                             <Badge
                                 variant="secondary"
                                 className="gap-1 cursor-pointer text-[10px] sm:text-xs h-5 sm:h-6"
-                                onClick={() => setRoleFilter("all")}
+                                onClick={() => setRoleFilter("clinical")}
                             >
                                 {ROLE_LABEL_MAP[roleFilter] || roleFilter}
                                 <X className="size-2.5 sm:size-3" />
@@ -1251,11 +1246,11 @@ export function UsersTable() {
                                 <Label htmlFor="role">Role</Label>
                                 <Select
                                     value={formData.role}
-                                    onValueChange={(val) => setFormData({ ...formData, role: val as any || "staff" })}
+                                    onValueChange={(val) => setFormData({ ...formData, role: val as any || "doctor" })}
                                 >
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                        {ROLE_OPTIONS.map((r) => (
+                                        {CLINICAL_ROLE_OPTIONS.map((r) => (
                                             <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                                         ))}
                                     </SelectContent>
@@ -1344,7 +1339,7 @@ export function UsersTable() {
                             <Label>Role</Label>
                             <Select value={inviteFormData.role} onValueChange={val => setInviteFormData({ ...inviteFormData, role: val ?? "" })}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>{ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
+                                <SelectContent>{CLINICAL_ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
                             </Select>
                         </div>
                         <div className="rounded-md border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">Invite link expires in 24 hours (fixed by system policy).</div>

@@ -415,6 +415,8 @@ export function EventDetailSheet({
   onRefresh?: () => Promise<void> | void;
 }) {
   const token = useAuthStore((s) => s.token);
+  const role = useAuthStore((s) => s.role);
+  const currentUserId = useAuthStore((s) => s.userId);
   const setMeetings = useCalendarStore((s) => s.setMeetings);
   const [deleting, setDeleting] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
@@ -435,6 +437,11 @@ export function EventDetailSheet({
   const roomTarget = normalizeRoomTarget(meeting.room);
   const canOpenRoom = Boolean(roomTarget);
   const statusColor = getStatusColor(meeting.status);
+  const isAdmin = role === "admin";
+  const isOwnerDoctor =
+    role === "doctor" && Boolean(currentUserId) && meeting.doctor_id === currentUserId;
+  const canWrite = isAdmin || isOwnerDoctor;
+  const canDelete = isAdmin;
 
   const sheetParticipants = [
     {
@@ -457,6 +464,10 @@ export function EventDetailSheet({
 
   const handleDelete = async () => {
     if (!token || deleting) return;
+    if (!canDelete) {
+      toast.error("Only admin can delete meetings");
+      return;
+    }
     setDeleting(true);
     try {
       await deleteMeeting(meeting.id, token);
@@ -465,8 +476,7 @@ export function EventDetailSheet({
       toast.success("Appointment deleted");
       onOpenChange(false);
       await onRefresh?.();
-    } catch (err) {
-      console.error("Failed to delete appointment:", err);
+    } catch {
       toast.error("Failed to delete appointment");
     } finally {
       setDeleting(false);
@@ -488,6 +498,10 @@ export function EventDetailSheet({
   };
 
   const handleEdit = () => {
+    if (!canWrite) {
+      toast.error("This meeting is read-only for your account");
+      return;
+    }
     if (onEdit) {
       onEdit(meeting);
       onOpenChange(false);
@@ -510,6 +524,10 @@ export function EventDetailSheet({
 
   const handleDuplicate = async () => {
     if (!token || duplicating) return;
+    if (!canWrite) {
+      toast.error("This meeting is read-only for your account");
+      return;
+    }
 
     const doctorId = meeting.doctor_id || meeting.doctor?.id || "";
     const patientId = meeting.user_id || meeting.patient?.id || "";
@@ -534,8 +552,7 @@ export function EventDetailSheet({
       toast.success("Appointment duplicated");
       onOpenChange(false);
       await onRefresh?.();
-    } catch (err) {
-      console.error("Failed to duplicate appointment:", err);
+    } catch {
       toast.error("Failed to duplicate appointment");
     } finally {
       setDuplicating(false);
@@ -570,18 +587,20 @@ export function EventDetailSheet({
               {/* Top action row */}
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 hover:bg-muted"
-                    onClick={handleEdit}
-                    title="Edit appointment"
-                  >
-                    <HugeiconsIcon
-                      icon={PencilEdit01Icon}
-                      className="size-4 text-muted-foreground"
-                    />
-                  </Button>
+                  {canWrite && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 hover:bg-muted"
+                      onClick={handleEdit}
+                      title="Edit appointment"
+                    >
+                      <HugeiconsIcon
+                        icon={PencilEdit01Icon}
+                        className="size-4 text-muted-foreground"
+                      />
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -594,32 +613,36 @@ export function EventDetailSheet({
                       className="size-4 text-muted-foreground"
                     />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 hover:bg-muted"
-                    onClick={handleDuplicate}
-                    disabled={duplicating}
-                    title="Duplicate appointment"
-                  >
-                    <HugeiconsIcon
-                      icon={Layers01Icon}
-                      className="size-4 text-muted-foreground"
-                    />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 hover:bg-muted"
-                    onClick={handleDeleteAction}
-                    disabled={deleting}
-                    title="Delete appointment"
-                  >
-                    <HugeiconsIcon
-                      icon={Delete01Icon}
-                      className="size-4 text-muted-foreground"
-                    />
-                  </Button>
+                  {canWrite && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 hover:bg-muted"
+                      onClick={handleDuplicate}
+                      disabled={duplicating}
+                      title="Duplicate appointment"
+                    >
+                      <HugeiconsIcon
+                        icon={Layers01Icon}
+                        className="size-4 text-muted-foreground"
+                      />
+                    </Button>
+                  )}
+                  {canDelete && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 hover:bg-muted"
+                      onClick={handleDeleteAction}
+                      disabled={deleting}
+                      title="Delete appointment"
+                    >
+                      <HugeiconsIcon
+                        icon={Delete01Icon}
+                        className="size-4 text-muted-foreground"
+                      />
+                    </Button>
+                  )}
                 </div>
                 <SheetClose
                   render={
@@ -661,12 +684,12 @@ export function EventDetailSheet({
                 </div>
               </div>
 
-              {/* Propose new time */}
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1">
-                  <span>Propose new time</span>
-                  <HugeiconsIcon
-                    icon={ArrowUpRight01Icon}
+                {/* Propose new time */}
+                <div className="flex gap-2">
+                  <Button variant="outline" className="flex-1" disabled={!canWrite}>
+                    <span>Propose new time</span>
+                    <HugeiconsIcon
+                      icon={ArrowUpRight01Icon}
                     className="size-4"
                   />
                 </Button>

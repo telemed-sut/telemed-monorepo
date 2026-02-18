@@ -79,10 +79,12 @@ import {
   ArrowUp01Icon,
   ArrowDown01Icon,
   FilterHorizontalIcon,
+  Stethoscope02Icon,
 } from "@hugeicons/core-free-icons";
 import { fetchPatients, createPatient, updatePatient, deletePatient, type Patient } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
+import { PatientAssignmentsDialog } from "./patient-assignments-dialog";
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 10000];
 
@@ -127,6 +129,7 @@ export function PatientsTable() {
   const [formData, setFormData] = useState<PatientFormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [justLoaded, setJustLoaded] = useState(false);
+  const [assignmentPatient, setAssignmentPatient] = useState<Patient | null>(null);
 
   const isInitialLoading = loading && patients.length === 0;
   const isRefetching = loading && patients.length > 0;
@@ -794,6 +797,12 @@ export function PatientsTable() {
                                   Edit Patient
                                 </DropdownMenuItem>
                                 {role === "admin" && (
+                                  <DropdownMenuItem onClick={() => setAssignmentPatient(patient)}>
+                                    <HugeiconsIcon icon={Stethoscope02Icon} className="size-4 mr-2" />
+                                    Manage Doctors
+                                  </DropdownMenuItem>
+                                )}
+                                {role === "admin" && (
                                   <DropdownMenuItem
                                     onClick={() => handleDelete(patient.id)}
                                     className="text-destructive focus:text-destructive"
@@ -1233,6 +1242,17 @@ export function PatientsTable() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <PatientAssignmentsDialog
+        open={Boolean(assignmentPatient)}
+        patientId={assignmentPatient?.id ?? null}
+        patientName={assignmentPatient ? `${assignmentPatient.first_name} ${assignmentPatient.last_name}` : ""}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAssignmentPatient(null);
+          }
+        }}
+      />
 
     </div>
   );

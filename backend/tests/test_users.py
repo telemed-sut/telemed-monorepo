@@ -161,6 +161,21 @@ class TestCRUD:
         data = resp.json()
         assert all(u["role"] == "doctor" for u in data["items"])
 
+    def test_list_users_clinical_only_scope(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-scope@example.com", role=UserRole.admin)
+        _make_user(db, email="doctor-scope@example.com", role=UserRole.doctor)
+        _make_user(db, email="staff-scope@example.com", role=UserRole.staff)
+        token = _login(client, "admin-scope@example.com")
+
+        resp = client.get("/users?clinical_only=true", headers=_auth(token))
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["items"]) > 0
+        assert all(
+            item["role"] in {"doctor", "nurse", "pharmacist", "medical_technologist", "psychologist"}
+            for item in data["items"]
+        )
+
     def test_list_pagination(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-page@example.com", role=UserRole.admin)
         for i in range(5):
@@ -291,31 +306,29 @@ class TestSoftDelete:
 # ──────────────────────────────────────────────────────────
 
 class TestValidation:
-    def test_clinical_role_requires_license(self, client: TestClient, db: Session):
+    def test_direct_create_clinical_role_blocked_when_invite_only(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-val@example.com", role=UserRole.admin)
         token = _login(client, "admin-val@example.com")
         resp = client.post("/users", json={
             "email": "doc-no-lic@example.com",
             "password": "DocPass123",
             "role": "doctor",
+            "license_no": "MD-TEST",
         }, headers=_auth(token))
-        assert resp.status_code == 422
-        assert "license" in resp.json()["detail"].lower()
+        assert resp.status_code == 400
+        assert "invite flow" in resp.json()["detail"].lower()
 
-    def test_clinical_role_with_license_succeeds(self, client: TestClient, db: Session):
+    def test_direct_create_non_clinical_role_still_allowed(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-val2@example.com", role=UserRole.admin)
         token = _login(client, "admin-val2@example.com")
         resp = client.post("/users", json={
-            "email": "doc-lic@example.com",
-            "password": "DocPass123",
-            "role": "doctor",
-            "license_no": "MD12345",
-            "specialty": "Internal Medicine",
+            "email": "staff-direct@example.com",
+            "password": "StaffPass123",
+            "role": "staff",
         }, headers=_auth(token))
         assert resp.status_code == 200
         data = resp.json()
-        assert data["license_no"] == "MD12345"
-        assert data["specialty"] == "Internal Medicine"
+        assert data["role"] == "staff"
 
 
 # ──────────────────────────────────────────────────────────
