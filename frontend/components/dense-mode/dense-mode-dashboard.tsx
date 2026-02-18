@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useCallback } from "react";
 import { useAuthStore } from "@/store/auth-store";
 import { useDenseModeStore } from "@/store/dense-mode-store";
-import { fetchPatientSummary, fetchPatientTimeline, breakGlassAccess } from "@/lib/api";
+import { fetchPatientSummary, fetchPatientTimeline } from "@/lib/api";
 import { DenseModeTopBar } from "./dense-mode-top-bar";
 import { DenseModeLeftPanel } from "./dense-mode-left-panel";
 import { DenseModeCenterPanel } from "./dense-mode-center-panel";
@@ -29,10 +29,6 @@ export function DenseModeDashboard({ patientId }: Props) {
     const setAccessDenied = useDenseModeStore((s) => s.setAccessDenied);
     const appendTimelineEvents = useDenseModeStore((s) => s.appendTimelineEvents);
     const reset = useDenseModeStore((s) => s.reset);
-
-    const [breakGlassReason, setBreakGlassReason] = useState("");
-    const [breakGlassLoading, setBreakGlassLoading] = useState(false);
-    const [breakGlassError, setBreakGlassError] = useState<string | null>(null);
 
     const loadPatientData = useCallback(async () => {
         if (!token) return;
@@ -63,25 +59,6 @@ export function DenseModeDashboard({ patientId }: Props) {
         };
     }, [patientId, token]);
 
-    const handleBreakGlass = async () => {
-        if (!token || breakGlassReason.trim().length < 5) return;
-        setBreakGlassLoading(true);
-        setBreakGlassError(null);
-
-        try {
-            const summaryData = await breakGlassAccess(patientId, breakGlassReason.trim(), token);
-            setSummary(summaryData);
-            setBreakGlassReason("");
-            // Load timeline after break-glass grants access
-            const timelineData = await fetchPatientTimeline(patientId, token);
-            appendTimelineEvents(timelineData.items, timelineData.next_cursor, timelineData.has_more);
-        } catch (err: any) {
-            setBreakGlassError(err.message || "Break-glass request failed");
-        } finally {
-            setBreakGlassLoading(false);
-        }
-    };
-
     if (loading && !summary) {
         return (
             <div className="flex flex-col h-full p-4 gap-4">
@@ -107,37 +84,17 @@ export function DenseModeDashboard({ patientId }: Props) {
                         <h2 className="text-lg font-semibold">Access Restricted</h2>
                     </div>
                     <p className="text-sm text-muted-foreground mb-4">
-                        You are not assigned to this patient. If you need emergency access, provide a reason below. This action will be audited.
+                        You are not assigned to this patient. Break-glass is disabled in this phase.
+                        Please contact an administrator to assign this patient to your account.
                     </p>
-                    <textarea
-                        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring mb-3"
-                        rows={3}
-                        placeholder="Reason for emergency access (min 5 characters)..."
-                        value={breakGlassReason}
-                        onChange={(e) => setBreakGlassReason(e.target.value)}
-                        disabled={breakGlassLoading}
-                    />
-                    {breakGlassError && (
-                        <p className="text-sm text-red-600 mb-3">{breakGlassError}</p>
-                    )}
                     <div className="flex gap-2">
                         <button
-                            className="flex-1 inline-flex items-center justify-center rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                            onClick={handleBreakGlass}
-                            disabled={breakGlassLoading || breakGlassReason.trim().length < 5}
-                        >
-                            {breakGlassLoading ? "Requesting..." : "Break-Glass Access"}
-                        </button>
-                        <button
-                            className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
+                            className="w-full inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent"
                             onClick={() => window.history.back()}
                         >
                             Go Back
                         </button>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-3">
-                        Access granted for 8 hours. All activity will be recorded in the audit log.
-                    </p>
                 </div>
             </div>
         );

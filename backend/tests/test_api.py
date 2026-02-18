@@ -196,7 +196,7 @@ def test_admin_can_create_invite_and_accept_it(client: TestClient, db: Session):
 
     invite_response = client.post(
         "/users/invites",
-        json={"email": "doctor@example.com", "role": "staff"},
+        json={"email": "doctor@example.com", "role": "doctor"},
         headers=headers,
     )
     assert invite_response.status_code == 200
@@ -215,6 +215,7 @@ def test_admin_can_create_invite_and_accept_it(client: TestClient, db: Session):
             "first_name": "Doctor",
             "last_name": "One",
             "password": "DoctorPass123",
+            "license_no": "MD-0001",
         },
     )
     assert accept_response.status_code == 200
@@ -243,22 +244,45 @@ def test_invite_link_is_single_use(client: TestClient, db: Session):
 
     invite_url = client.post(
         "/users/invites",
-        json={"email": "single-use@example.com", "role": "staff"},
+        json={"email": "single-use@example.com", "role": "doctor"},
         headers=headers,
     ).json()["invite_url"]
     invite_token = invite_url.rsplit("/", 1)[-1]
 
     first_accept = client.post(
         "/auth/invite/accept",
-        json={"token": invite_token, "password": "Password123"},
+        json={"token": invite_token, "password": "Password123", "license_no": "MD-0002"},
     )
     assert first_accept.status_code == 200
 
     second_accept = client.post(
         "/auth/invite/accept",
-        json={"token": invite_token, "password": "Password123"},
+        json={"token": invite_token, "password": "Password123", "license_no": "MD-0002"},
     )
     assert second_accept.status_code == 400
+
+
+def test_invite_non_clinical_role_rejected(client: TestClient, db: Session):
+    admin = User(
+        email="invite-admin-2@example.com",
+        password_hash=get_password_hash("AdminPass123"),
+        role=UserRole.admin,
+    )
+    db.add(admin)
+    db.commit()
+
+    token = client.post(
+        "/auth/login",
+        json={"email": "invite-admin-2@example.com", "password": "AdminPass123"},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = client.post(
+        "/users/invites",
+        json={"email": "non-clinical@example.com", "role": "staff"},
+        headers=headers,
+    )
+    assert response.status_code == 422
 
 
 def test_clinical_invite_requires_license_no(client: TestClient, db: Session):

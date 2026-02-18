@@ -102,6 +102,29 @@ export interface PatientListResponse {
   total: number;
 }
 
+export type PatientAssignmentRole = "primary" | "consulting";
+
+export interface AssignmentDoctorBrief {
+  id: string;
+  email: string;
+  first_name?: string | null;
+  last_name?: string | null;
+}
+
+export interface PatientAssignment {
+  id: string;
+  doctor_id: string;
+  patient_id: string;
+  role: PatientAssignmentRole;
+  assigned_at: string;
+  doctor?: AssignmentDoctorBrief | null;
+}
+
+export interface PatientAssignmentListResponse {
+  items: PatientAssignment[];
+  total: number;
+}
+
 type SortOrder = "asc" | "desc";
 
 // Use environment variable for API URL or default to localhost:8000
@@ -501,6 +524,51 @@ export async function fetchPatient(id: string, token: string) {
   return apiFetch<Patient>(`/patients/${id}`, { method: "GET" }, token);
 }
 
+export async function fetchPatientAssignments(patientId: string, token: string) {
+  return apiFetch<PatientAssignmentListResponse>(
+    `/patients/${patientId}/assignments`,
+    { method: "GET" },
+    token
+  );
+}
+
+export async function createPatientAssignment(
+  patientId: string,
+  payload: { doctor_id: string; role?: PatientAssignmentRole },
+  token: string
+) {
+  return apiFetch<PatientAssignment>(
+    `/patients/${patientId}/assignments`,
+    { method: "POST", body: JSON.stringify(payload) },
+    token
+  );
+}
+
+export async function updatePatientAssignment(
+  patientId: string,
+  assignmentId: string,
+  payload: { role: PatientAssignmentRole },
+  token: string
+) {
+  return apiFetch<PatientAssignment>(
+    `/patients/${patientId}/assignments/${assignmentId}`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    token
+  );
+}
+
+export async function deletePatientAssignment(
+  patientId: string,
+  assignmentId: string,
+  token: string
+) {
+  return apiFetch<void>(
+    `/patients/${patientId}/assignments/${assignmentId}`,
+    { method: "DELETE" },
+    token
+  );
+}
+
 // ── Meetings ──────────────────────────────────────────
 
 export const MEETING_STATUSES = [
@@ -697,15 +765,16 @@ export interface UserListResponse {
   total: number;
 }
 
-export async function fetchUsers(params: { page?: number; limit?: number; q?: string; sort?: string; order?: "asc" | "desc"; role?: string; verification_status?: string }, token: string) {
+export async function fetchUsers(params: { page?: number; limit?: number; q?: string; sort?: string; order?: "asc" | "desc"; role?: string; verification_status?: string; clinical_only?: boolean }, token: string) {
   const query = new URLSearchParams();
   if (params.page) query.append("page", params.page.toString());
-  if (params.limit) query.append("limit", params.limit.toString());
+  if (params.limit) query.append("limit", Math.min(params.limit, 100).toString());
   if (params.q) query.append("q", params.q);
   if (params.sort) query.append("sort", params.sort);
   if (params.order) query.append("order", params.order);
   if (params.role) query.append("role", params.role);
   if (params.verification_status) query.append("verification_status", params.verification_status);
+  if (params.clinical_only !== undefined) query.append("clinical_only", String(params.clinical_only));
 
   return apiFetch<UserListResponse>(`/users?${query.toString()}`, {}, token);
 }

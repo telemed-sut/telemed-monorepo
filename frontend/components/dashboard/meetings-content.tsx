@@ -253,6 +253,7 @@ function CreateEventDialog({
   patients,
   doctors,
   currentUserId,
+  userRole,
   initialSlot,
   editMeeting,
   onCreated,
@@ -263,6 +264,7 @@ function CreateEventDialog({
   patients: Patient[];
   doctors: User[];
   currentUserId: string | null;
+  userRole: string | null;
   initialSlot?: CalendarSlotSelection | null;
   editMeeting?: Meeting | null;
   onCreated: (meeting?: Meeting) => void | Promise<void>;
@@ -281,6 +283,7 @@ function CreateEventDialog({
   const [submitting, setSubmitting] = useState(false);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const meetingLinkMode = getMeetingLinkMode();
+  const isDoctorUser = userRole === "doctor";
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -336,7 +339,8 @@ function CreateEventDialog({
     return dt.toISOString();
   }, [selectedDate, startHour, startMinute]);
 
-  const canSubmit = patientId && doctorId && selectedDate;
+  const effectiveDoctorId = isDoctorUser ? currentUserId || doctorId : doctorId;
+  const canSubmit = patientId && effectiveDoctorId && selectedDate;
 
   const handleSubmit = async () => {
     if (!canSubmit || submitting) return;
@@ -347,7 +351,7 @@ function CreateEventDialog({
         const payload: MeetingUpdatePayload = {
           date_time: dateTimeISO,
           description: description || undefined,
-          doctor_id: doctorId,
+          doctor_id: effectiveDoctorId,
           note: note || undefined,
           room: resolveMeetingRoomValue(room),
           user_id: patientId,
@@ -361,7 +365,7 @@ function CreateEventDialog({
         const payload: MeetingCreatePayload = {
           date_time: dateTimeISO,
           description: description || undefined,
-          doctor_id: doctorId,
+          doctor_id: effectiveDoctorId,
           note: note || undefined,
           room: resolveMeetingRoomValue(room),
           user_id: patientId,
@@ -502,6 +506,7 @@ function CreateEventDialog({
               <Select
                 value={doctorId}
                 onValueChange={(v) => setDoctorId(v ?? "")}
+                disabled={isDoctorUser}
               >
                 <SelectTrigger className="h-10">
                   <div className="flex items-center gap-2">
@@ -529,6 +534,11 @@ function CreateEventDialog({
                   ))}
                 </SelectContent>
               </Select>
+              {isDoctorUser && (
+                <p className="text-[11px] text-muted-foreground">
+                  Doctor is locked to your account.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -679,6 +689,9 @@ export function MeetingsContent() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [doctors, setDoctors] = useState<User[]>([]);
+  const [doctorScope, setDoctorScope] = useState<
+    "all-visible" | "my-meetings" | "care-team"
+  >("my-meetings");
 
   const weekEnd = addWeeks(currentWeekStart, 1);
   const weekStart = format(currentWeekStart, "MMM dd");
@@ -699,8 +712,22 @@ export function MeetingsContent() {
       if (!token) return;
       if (!background) setLoading(true);
       try {
-        const res = await fetchMeetings({ page: 1, limit: 1000 }, token);
-        setMeetings(res.items);
+        const doctorFilter =
+          userRole === "doctor" && doctorScope === "my-meetings" && userId
+            ? userId
+            : undefined;
+
+        const res = await fetchMeetings(
+          { page: 1, limit: 1000, doctor_id: doctorFilter },
+          token
+        );
+
+        const scopedItems =
+          userRole === "doctor" && doctorScope === "care-team" && userId
+            ? res.items.filter((item) => item.doctor_id !== userId)
+            : res.items;
+
+        setMeetings(scopedItems);
       } catch (err) {
         const status = (err as { status?: number }).status;
         if (status === 401) {
@@ -711,7 +738,7 @@ export function MeetingsContent() {
         if (!background) setLoading(false);
       }
     },
-    [token, setMeetings, clearToken, router]
+    [token, setMeetings, clearToken, router, userRole, userId, doctorScope]
   );
 
   const handleMeetingCreated = useCallback(
@@ -752,7 +779,7 @@ export function MeetingsContent() {
         .then((me) => setDoctors([{ id: me.id, email: me.email, first_name: me.first_name, last_name: me.last_name, role: me.role, is_active: true }]))
         .catch(() => { });
     } else {
-      fetchUsers({ page: 1, limit: 100 }, token)
+      fetchUsers({ page: 1, limit: 100, role: "doctor", clinical_only: true }, token)
         .then((res) => setDoctors(res.items))
         .catch(() => { });
     }
@@ -929,6 +956,40 @@ export function MeetingsContent() {
             </div>
           </div>
         </div>
+
+        {userRole === "doctor" && (
+          <div className="px-3 md:px-6 py-3 border-b border-border bg-background">
+            <div className="flex items-center gap-2 overflow-x-auto">
+              <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                Scope:
+              </span>
+              <Button
+                variant={doctorScope === "all-visible" ? "default" : "outline"}
+                size="sm"
+                className="h-7 text-xs whitespace-nowrap"
+                onClick={() => setDoctorScope("all-visible")}
+              >
+                All Visible
+              </Button>
+              <Button
+                variant={doctorScope === "my-meetings" ? "default" : "outline"}
+                size="sm"
+                className="h-7 text-xs whitespace-nowrap"
+                onClick={() => setDoctorScope("my-meetings")}
+              >
+                My Meetings
+              </Button>
+              <Button
+                variant={doctorScope === "care-team" ? "default" : "outline"}
+                size="sm"
+                className="h-7 text-xs whitespace-nowrap"
+                onClick={() => setDoctorScope("care-team")}
+              >
+                Care Team
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* ══════════════════════════════════════════════════
             Calendar Controls (Square UI calendar-controls.tsx)
@@ -1168,6 +1229,7 @@ export function MeetingsContent() {
           patients={patients}
           doctors={doctors}
           currentUserId={userId}
+          userRole={userRole}
           initialSlot={createInitialSlot}
           editMeeting={editMeeting}
           onCreated={handleMeetingCreated}

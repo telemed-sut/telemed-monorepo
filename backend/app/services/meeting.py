@@ -6,13 +6,88 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
+from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
-from app.models.patient import Patient
-from app.models.user import User
 from app.schemas.meeting import MeetingCreate, MeetingUpdate
 
 settings = get_settings()
+
+
+def is_patient_assigned_to_doctor(db: Session, doctor_id: UUID, patient_id: UUID) -> bool:
+    assignment_id = db.scalar(
+        select(DoctorPatientAssignment.id).where(
+            DoctorPatientAssignment.doctor_id == doctor_id,
+            DoctorPatientAssignment.patient_id == patient_id,
+        )
+    )
+    return assignment_id is not None
+
+
+def build_doctor_visibility_clause(doctor_id: UUID):
+    assigned_patient_ids = select(DoctorPatientAssignment.patient_id).where(
+        DoctorPatientAssignment.doctor_id == doctor_id
+    )
+    return or_(
+        Meeting.doctor_id == doctor_id,
+        Meeting.user_id.in_(assigned_patient_ids),
+    )
+
+
+def can_doctor_view_meeting(db: Session, doctor_id: UUID, meeting: Meeting) -> bool:
+    if meeting.doctor_id == doctor_id:
+        return True
+    if not meeting.user_id:
+        return False
+    return is_patient_assigned_to_doctor(db, doctor_id, meeting.user_id)
+
+
+def can_doctor_edit_meeting(doctor_id: UUID, meeting: Meeting) -> bool:
+    return meeting.doctor_id == doctor_id
+
+
+def _apply_list_filters(
+    stmt,
+    *,
+    q: Optional[str],
+    doctor_id: Optional[str],
+    patient_id: Optional[str],
+    status_filter: Optional[str],
+):
+    # Filter by doctor
+    if doctor_id:
+        try:
+            stmt = stmt.where(Meeting.doctor_id == UUID(doctor_id))
+        except ValueError:
+            pass
+
+    # Filter by patient
+    if patient_id:
+        try:
+            stmt = stmt.where(Meeting.user_id == UUID(patient_id))
+        except ValueError:
+            pass
+
+    # Filter by status
+    if status_filter:
+        try:
+            status_enum = MeetingStatus(status_filter)
+            stmt = stmt.where(Meeting.status == status_enum)
+        except ValueError:
+            pass
+
+    # Search in description, note, room
+    if q:
+        pattern = f"%{q}%"
+        stmt = stmt.where(
+            or_(
+                Meeting.description.ilike(pattern),
+                Meeting.note.ilike(pattern),
+                Meeting.room.ilike(pattern),
+            )
+        )
+
+    return stmt
 
 
 def create_meeting(db: Session, payload: MeetingCreate) -> Meeting:
@@ -75,72 +150,34 @@ def list_meetings(
     sort: str = "date_time",
     order: str = "desc",
     status_filter: Optional[str] = None,
+    visible_doctor_id: Optional[UUID] = None,
 ) -> Tuple[List[Meeting], int]:
     stmt = select(Meeting).options(
         joinedload(Meeting.doctor),
         joinedload(Meeting.patient),
     )
 
-    # Filter by doctor
-    if doctor_id:
-        try:
-            stmt = stmt.where(Meeting.doctor_id == UUID(doctor_id))
-        except ValueError:
-            pass
-
-    # Filter by patient
-    if patient_id:
-        try:
-            stmt = stmt.where(Meeting.user_id == UUID(patient_id))
-        except ValueError:
-            pass
-
-    # Filter by status
-    if status_filter:
-        try:
-            status_enum = MeetingStatus(status_filter)
-            stmt = stmt.where(Meeting.status == status_enum)
-        except ValueError:
-            pass
-
-    # Search in description, note, room
-    if q:
-        pattern = f"%{q}%"
-        stmt = stmt.where(
-            or_(
-                Meeting.description.ilike(pattern),
-                Meeting.note.ilike(pattern),
-                Meeting.room.ilike(pattern),
-            )
-        )
+    if visible_doctor_id:
+        stmt = stmt.where(build_doctor_visibility_clause(visible_doctor_id))
+    stmt = _apply_list_filters(
+        stmt,
+        q=q,
+        doctor_id=doctor_id,
+        patient_id=patient_id,
+        status_filter=status_filter,
+    )
 
     # Count total
     count_base = select(Meeting)
-    if doctor_id:
-        try:
-            count_base = count_base.where(Meeting.doctor_id == UUID(doctor_id))
-        except ValueError:
-            pass
-    if patient_id:
-        try:
-            count_base = count_base.where(Meeting.user_id == UUID(patient_id))
-        except ValueError:
-            pass
-    if status_filter:
-        try:
-            status_enum = MeetingStatus(status_filter)
-            count_base = count_base.where(Meeting.status == status_enum)
-        except ValueError:
-            pass
-    if q:
-        pattern = f"%{q}%"
-        count_base = count_base.where(
-            or_(
-                Meeting.description.ilike(pattern),
-                Meeting.note.ilike(pattern),
-                Meeting.room.ilike(pattern),
-            )
-        )
+    if visible_doctor_id:
+        count_base = count_base.where(build_doctor_visibility_clause(visible_doctor_id))
+    count_base = _apply_list_filters(
+        count_base,
+        q=q,
+        doctor_id=doctor_id,
+        patient_id=patient_id,
+        status_filter=status_filter,
+    )
     total = db.scalar(select(func.count()).select_from(count_base.subquery()))
 
     # Sorting
@@ -149,6 +186,7 @@ def list_meetings(
         "created_at": Meeting.created_at,
         "updated_at": Meeting.updated_at,
         "room": Meeting.room,
+        "status": Meeting.status,
     }.get(sort, Meeting.date_time)
 
     sort_clause = sort_field.desc() if order.lower() == "desc" else sort_field.asc()

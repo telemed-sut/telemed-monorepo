@@ -94,6 +94,7 @@ def get_users(
     role: UserRole = Query(None),
     verification_status: VerificationStatus = Query(None),
     include_deleted: bool = Query(False),
+    clinical_only: bool = Query(False),
 ) -> Any:
     """List users. Admin only."""
     query = select(User)
@@ -114,6 +115,9 @@ def get_users(
 
     if role:
         query = query.where(User.role == role)
+
+    if clinical_only:
+        query = query.where(User.role.in_(tuple(CLINICAL_ROLES)))
 
     if verification_status:
         if verification_status == VerificationStatus.unverified:
@@ -164,6 +168,12 @@ def create_user(
     current_user: User = Depends(get_admin_user),
 ) -> Any:
     """Create a new user. Admin only."""
+    if settings.specialist_invite_only and user_in.role in CLINICAL_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail="Clinical specialist accounts must be onboarded via invite flow.",
+        )
+
     requested_email = user_in.email.lower()
 
     existing = db.scalar(select(User).where(User.email == requested_email))
@@ -228,6 +238,12 @@ def create_user_invite(
     current_user: User = Depends(get_admin_user),
 ) -> Any:
     """Create an invite link. Admin only."""
+    if payload.role not in CLINICAL_ROLES:
+        raise HTTPException(
+            status_code=422,
+            detail="Invite onboarding is restricted to clinical specialist roles in this phase.",
+        )
+
     requested_email = payload.email.lower()
     existing_user = db.scalar(
         select(User).where(

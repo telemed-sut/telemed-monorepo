@@ -57,8 +57,14 @@ interface NavItem {
 const baseRoutes: NavItem[] = [
   { id: "overview", title: "Overview", icon: Home, link: "/overview" },
   { id: "patients", title: "Patients", icon: Users, link: "/patients" },
-  { id: "meetings", title: "Meetings", icon: CalendarDays, link: "/meetings" },
 ];
+
+const meetingsRoute: NavItem = {
+  id: "meetings",
+  title: "Meetings",
+  icon: CalendarDays,
+  link: "/meetings",
+};
 
 const adminOnlyRoutes: NavItem[] = [
   { id: "users", title: "Users", icon: UserCog, link: "/users" },
@@ -104,9 +110,12 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
     return () => { cancelled = true; };
   }, [token]);
 
-  const navRoutes = userRole === "admin"
-    ? [...baseRoutes, ...adminOnlyRoutes]
-    : baseRoutes;
+  const showMeetings = userRole === "admin" || userRole === "doctor";
+  const navRoutes = [
+    ...baseRoutes,
+    ...(showMeetings ? [meetingsRoute] : []),
+    ...(userRole === "admin" ? adminOnlyRoutes : []),
+  ];
 
   const isActive = (link: string) => {
     if (link === "/overview") return pathname === "/overview" || pathname === "/";

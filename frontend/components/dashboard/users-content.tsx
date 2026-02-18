@@ -845,7 +845,7 @@ export function UsersContent() {
       const allUsers: User[] = [];
 
       do {
-        const res = await fetchUsers({ page, limit: pageSize }, token);
+        const res = await fetchUsers({ page, limit: pageSize, clinical_only: true }, token);
         allUsers.push(...res.items);
         total = res.total;
         page += 1;

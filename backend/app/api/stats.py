@@ -11,6 +11,7 @@ from app.models.meeting import Meeting
 from app.models.patient import Patient
 from app.models.user import User
 from app.services import auth as auth_service
+from app.services import meeting as meeting_service
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
@@ -25,10 +26,10 @@ def get_overview_stats(
 ):
     """Return monthly aggregated stats for the dashboard chart.
 
-    - Admin/Staff: global data across all patients and meetings.
-    - Doctor: scoped to assigned patients and own meetings only.
+    - Admin: global data across all patients and meetings.
+    - Doctor: scoped to own meetings + assigned patient meetings.
     """
-    if current_user.role not in (UserRole.admin, UserRole.staff, UserRole.doctor):
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
 
     if year is None:
@@ -69,7 +70,9 @@ def get_overview_stats(
         .where(extract("year", Meeting.date_time) == year)
     )
     if is_doctor:
-        meetings_stmt = meetings_stmt.where(Meeting.doctor_id == current_user.id)
+        meetings_stmt = meetings_stmt.where(
+            meeting_service.build_doctor_visibility_clause(current_user.id)
+        )
     meetings_stmt = meetings_stmt.group_by("m")
 
     meetings_by_month: dict[int, int] = {}
@@ -95,7 +98,9 @@ def get_overview_stats(
         )
         total_patients = db.scalar(total_patients_stmt) or 0
         total_meetings = db.scalar(
-            select(func.count()).select_from(Meeting).where(Meeting.doctor_id == current_user.id)
+            select(func.count())
+            .select_from(Meeting)
+            .where(meeting_service.build_doctor_visibility_clause(current_user.id))
         ) or 0
     else:
         total_patients = db.scalar(select(func.count()).select_from(Patient)) or 0

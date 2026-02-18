@@ -5,6 +5,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, sta
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.models.enums import OrderStatus
 from app.models.lab import Lab
@@ -26,6 +27,7 @@ from app.services.auth import (
 )
 
 router = APIRouter(prefix="/patients", tags=["dense-mode"])
+settings = get_settings()
 
 
 @router.get("/{patient_id}/summary", response_model=PatientDenseSummary)
@@ -204,7 +206,7 @@ def create_note(
 def break_glass_access(
     request: Request,
     patient_id: UUID,
-    reason: str = Body(..., min_length=5, embed=True),
+    reason: str | None = Body(default=None, embed=True),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_clinical_user),
 ):
@@ -214,6 +216,19 @@ def break_glass_access(
     audit entry. Subsequent requests to this patient's endpoints will check
     for this entry and grant access.
     """
+    if not settings.enable_break_glass_access:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Break-glass access is disabled by policy in this phase.",
+        )
+
+    normalized_reason = (reason or "").strip()
+    if len(normalized_reason) < 5:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Reason must be at least 5 characters.",
+        )
+
     # Verify the patient exists before creating an audit record
     result = dense_mode_service.get_patient_summary(db, patient_id)
     if not result:
@@ -227,6 +242,6 @@ def break_glass_access(
         resource_id=patient_id,
         ip_address=request.client.host if request.client else None,
         is_break_glass=True,
-        break_glass_reason=reason,
+        break_glass_reason=normalized_reason,
     )
     return result

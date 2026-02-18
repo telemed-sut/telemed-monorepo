@@ -2,6 +2,8 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -14,6 +16,16 @@ from app.db.base import Base
 from app.db.session import SessionLocal
 from app.main import app
 from app.services.auth import get_db
+
+# Allow PostgreSQL JSONB columns to compile under SQLite test database.
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_sqlite(_type, _compiler, **_kw):
+    return "JSON"
+
+
+@compiles(ARRAY, "sqlite")
+def _compile_array_sqlite(_type, _compiler, **_kw):
+    return "JSON"
 
 # Use in-memory SQLite for testing with proper UUID handling
 SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"

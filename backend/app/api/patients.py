@@ -4,12 +4,19 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.models.enums import UserRole
 from app.models.user import User
+from app.schemas.patient_assignment import (
+    PatientAssignmentCreate,
+    PatientAssignmentListResponse,
+    PatientAssignmentOut,
+    PatientAssignmentUpdate,
+)
 from app.schemas.patient import PatientCreate, PatientListResponse, PatientOut, PatientUpdate
 from app.services import auth as auth_service
 from app.services import patient as patient_service
@@ -49,8 +56,8 @@ def create_patient(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):
-    """Create new patient (admin, staff, or doctor)"""
-    if current_user.role not in (UserRole.admin, UserRole.staff, UserRole.doctor):
+    """Create new patient (admin or doctor)."""
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
     doctor_id = current_user.id if current_user.role == UserRole.doctor else None
     patient = patient_service.create_patient(db, payload, doctor_id=doctor_id)
@@ -72,21 +79,21 @@ def list_patients(
 ):
     """List patients with pagination.
 
-    - Admin/Staff: can list all patients.
+    - Admin: can list all patients.
     - Doctor: can list only assigned patients.
     """
     doctor_id: Optional[UUID] = None
     
     if current_user.role == UserRole.doctor:
         doctor_id = current_user.id
-    elif current_user.role in (UserRole.admin, UserRole.staff):
-        # Admin and staff can see all patients
+    elif current_user.role == UserRole.admin:
+        # Admin can see all patients
         pass
     else:
         # Others are forbidden
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. Required roles: ['admin', 'staff', 'doctor']",
+            detail="Access denied. Required roles: ['admin', 'doctor']",
         )
 
     items, total = patient_service.list_patients(
@@ -111,13 +118,13 @@ def get_patient(
 ):
     """Get patient by ID.
 
-    - Admin/Staff: can access all.
-    - Doctor: only assigned or break-glass active.
+    - Admin: can access all.
+    - Doctor: only assigned.
     """
-    if current_user.role not in (UserRole.admin, UserRole.staff, UserRole.doctor):
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. Required roles: ['admin', 'staff', 'doctor']",
+            detail="Access denied. Required roles: ['admin', 'doctor']",
         )
 
     patient = patient_service.get_patient(db, patient_id)
@@ -129,10 +136,10 @@ def get_patient(
             patient_uuid = UUID(patient_id)
         except ValueError:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
-        if not auth_service._has_active_assignment(db, current_user.id, patient_uuid) and not auth_service._has_active_break_glass(db, current_user.id, patient_uuid):
+        if not auth_service._has_active_assignment(db, current_user.id, patient_uuid):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You are not assigned to this patient. Use break-glass for emergency access.",
+                detail="You are not assigned to this patient. Contact admin to assign access.",
             )
 
     return patient
@@ -148,8 +155,8 @@ def update_patient(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):
-    """Update patient (admin, staff, or doctor for assigned patients)"""
-    if current_user.role not in (UserRole.admin, UserRole.staff, UserRole.doctor):
+    """Update patient (admin or assigned doctor)."""
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
 
     patient = patient_service.get_patient(db, patient_id)
@@ -162,10 +169,10 @@ def update_patient(
             patient_uuid = UUID(patient_id)
         except ValueError:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
-        if not auth_service._has_active_assignment(db, current_user.id, patient_uuid) and not auth_service._has_active_break_glass(db, current_user.id, patient_uuid):
+        if not auth_service._has_active_assignment(db, current_user.id, patient_uuid):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You are not assigned to this patient.",
+                detail="You are not assigned to this patient. Contact admin to assign access.",
             )
 
     # Audit: Capture old state
@@ -215,6 +222,134 @@ def update_patient(
         print(f"Failed to log audit: {e}")
 
     return updated
+
+
+@router.get("/{patient_id}/assignments", response_model=PatientAssignmentListResponse)
+@limiter.limit("120/minute")
+def list_patient_assignments(
+    request: Request,
+    patient_id: UUID,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_admin_user),
+):
+    patient = patient_service.get_patient(db, str(patient_id))
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+
+    items = patient_service.list_patient_assignments(db, patient_id)
+    return PatientAssignmentListResponse(items=items, total=len(items))
+
+
+@router.post(
+    "/{patient_id}/assignments",
+    response_model=PatientAssignmentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit("60/minute")
+def create_patient_assignment(
+    request: Request,
+    patient_id: UUID,
+    payload: PatientAssignmentCreate,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_admin_user),
+):
+    try:
+        assignment = patient_service.create_patient_assignment(
+            db,
+            patient_id=patient_id,
+            doctor_id=payload.doctor_id,
+            role=payload.role,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "already assigned" in message.lower():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
+        if "not found" in message.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+    except IntegrityError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Assignment violates uniqueness constraints.")
+
+    audit_service.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="patient_assignment_create",
+        resource_type="doctor_patient_assignment",
+        resource_id=assignment.id,
+        details=f"Assigned doctor {assignment.doctor_id} to patient {patient_id} as {assignment.role}",
+        ip_address=request.client.host if request.client else None,
+    )
+    return assignment
+
+
+@router.patch("/{patient_id}/assignments/{assignment_id}", response_model=PatientAssignmentOut)
+@limiter.limit("60/minute")
+def update_patient_assignment(
+    request: Request,
+    patient_id: UUID,
+    assignment_id: UUID,
+    payload: PatientAssignmentUpdate,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_admin_user),
+):
+    try:
+        assignment = patient_service.update_patient_assignment(
+            db,
+            patient_id=patient_id,
+            assignment_id=assignment_id,
+            role=payload.role,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+    except IntegrityError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Assignment violates uniqueness constraints.")
+
+    audit_service.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="patient_assignment_update",
+        resource_type="doctor_patient_assignment",
+        resource_id=assignment.id,
+        details=f"Updated assignment {assignment_id} for patient {patient_id} to role {assignment.role}",
+        ip_address=request.client.host if request.client else None,
+    )
+    return assignment
+
+
+@router.delete("/{patient_id}/assignments/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("60/minute")
+def delete_patient_assignment(
+    request: Request,
+    patient_id: UUID,
+    assignment_id: UUID,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_admin_user),
+):
+    try:
+        removed = patient_service.delete_patient_assignment(
+            db,
+            patient_id=patient_id,
+            assignment_id=assignment_id,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message.lower():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+
+    audit_service.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="patient_assignment_delete",
+        resource_type="doctor_patient_assignment",
+        resource_id=removed.id,
+        details=f"Removed doctor {removed.doctor_id} from patient {patient_id}",
+        ip_address=request.client.host if request.client else None,
+    )
+    return None
 
 
 @router.delete("/{patient_id}", status_code=status.HTTP_204_NO_CONTENT)

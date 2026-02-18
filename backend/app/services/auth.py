@@ -299,13 +299,12 @@ def _has_active_break_glass(db: Session, user_id: UUID, patient_id: UUID) -> boo
 def verify_patient_access(
     patient_id: UUID = Path(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_clinical_user),
+    current_user: User = Depends(get_doctor_user),
 ) -> User:
-    """Verify that the current clinical user is authorized to access this patient.
+    """Verify that the current doctor/admin user is authorized to access this patient.
 
-    - Admin: always allowed (superuser role).
-    - Clinical roles (doctor, nurse, pharmacist, etc.): must have an active
-      assignment OR a recent break-glass session.
+    - Admin: always allowed.
+    - Doctor: must have an active assignment.
     """
     if current_user.role == UserRole.admin:
         return current_user
@@ -313,12 +312,12 @@ def verify_patient_access(
     if _has_active_assignment(db, current_user.id, patient_id):
         return current_user
 
-    if _has_active_break_glass(db, current_user.id, patient_id):
+    if settings.enable_break_glass_access and _has_active_break_glass(db, current_user.id, patient_id):
         return current_user
 
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="You are not assigned to this patient. Use break-glass for emergency access.",
+        detail="You are not assigned to this patient. Contact admin to assign access.",
     )
 
 
@@ -334,31 +333,31 @@ def verify_patient_access_doctor(
     if _has_active_assignment(db, current_user.id, patient_id):
         return current_user
 
-    if _has_active_break_glass(db, current_user.id, patient_id):
+    if settings.enable_break_glass_access and _has_active_break_glass(db, current_user.id, patient_id):
         return current_user
 
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="You are not assigned to this patient. Use break-glass for emergency access.",
+        detail="You are not assigned to this patient. Contact admin to assign access.",
     )
 
 
 def verify_patient_access_doctor_or_nurse(
     patient_id: UUID = Path(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_doctor_or_nurse_user),
+    current_user: User = Depends(get_doctor_user),
 ) -> User:
-    """Same as verify_patient_access but restricted to doctor/nurse (+ admin) roles."""
+    """Same as verify_patient_access but retained for compatibility."""
     if current_user.role == UserRole.admin:
         return current_user
 
     if _has_active_assignment(db, current_user.id, patient_id):
         return current_user
 
-    if _has_active_break_glass(db, current_user.id, patient_id):
+    if settings.enable_break_glass_access and _has_active_break_glass(db, current_user.id, patient_id):
         return current_user
 
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="You are not assigned to this patient. Use break-glass for emergency access.",
+        detail="You are not assigned to this patient. Contact admin to assign access.",
     )

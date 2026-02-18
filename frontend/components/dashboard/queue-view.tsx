@@ -1,17 +1,14 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { format, isToday, isBefore, startOfDay } from "date-fns";
+import { isToday } from "date-fns";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Clock01Icon,
-  UserIcon,
   Stethoscope02Icon,
   DoorIcon,
   Cancel01Icon,
   Tick02Icon,
-  ArrowRight01Icon,
-  MoreHorizontalIcon,
   AlertCircleIcon,
   Loading03Icon,
   Calendar01Icon,
@@ -22,16 +19,7 @@ import {
   Delete01Icon,
 } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useCalendarStore } from "@/store/calendar-store";
@@ -219,6 +207,8 @@ function QueueCard({
   onDelete,
   onClick,
   loading,
+  canWrite,
+  canDelete,
 }: {
   meeting: Meeting;
   onStatusChange: (meeting: Meeting, newStatus: MeetingStatus) => void;
@@ -228,6 +218,8 @@ function QueueCard({
   onDelete: (meeting: Meeting) => void;
   onClick: (meeting: Meeting) => void;
   loading: boolean;
+  canWrite: boolean;
+  canDelete: boolean;
 }) {
   const config = getStatusConfig(meeting.status);
   const nextStatuses = STATUS_TRANSITIONS[meeting.status] || [];
@@ -280,38 +272,50 @@ function QueueCard({
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          {/* Edit */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => { e.stopPropagation(); onEdit(meeting); }}
-            title="Edit"
-          >
-            <HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />
-          </Button>
-          {/* Duplicate */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => { e.stopPropagation(); onDuplicate(meeting); }}
-            disabled={loading}
-            title="Duplicate"
-          >
-            <HugeiconsIcon icon={Layers01Icon} className="size-3.5" />
-          </Button>
-          {/* Delete */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-            onClick={(e) => { e.stopPropagation(); onDelete(meeting); }}
-            disabled={loading}
-            title="Delete"
-          >
-            <HugeiconsIcon icon={Delete01Icon} className="size-3.5" />
-          </Button>
+          {canWrite && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEdit(meeting);
+                }}
+                title="Edit"
+              >
+                <HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDuplicate(meeting);
+                }}
+                disabled={loading}
+                title="Duplicate"
+              >
+                <HugeiconsIcon icon={Layers01Icon} className="size-3.5" />
+              </Button>
+            </>
+          )}
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(meeting);
+              }}
+              disabled={loading}
+              title="Delete"
+            >
+              <HugeiconsIcon icon={Delete01Icon} className="size-3.5" />
+            </Button>
+          )}
           <StatusBadge status={meeting.status} />
         </div>
       </div>
@@ -344,37 +348,40 @@ function QueueCard({
 
       {/* Action buttons */}
       <div className="flex items-center gap-2 pt-1 mt-auto border-t border-border/50" onClick={(e) => e.stopPropagation()}>
-        {/* Forward transitions */}
-        {nextStatuses
-          .filter((s) => s !== "cancelled")
-          .map((nextStatus) => (
-            <StatusActionButton
-              key={nextStatus}
-              nextStatus={nextStatus}
-              onClick={() => onStatusChange(meeting, nextStatus)}
-              loading={loading}
-            />
-          ))}
-        {nextStatuses.includes("cancelled") && (
-          <StatusActionButton
-            nextStatus="cancelled"
-            onClick={() => onCancelClick(meeting)}
-            loading={loading}
-          />
-        )}
-
-        {/* Undo button for terminal/overtime states */}
-        {undoTarget && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
-            onClick={() => onStatusChange(meeting, undoTarget)}
-            disabled={loading}
-          >
-            <HugeiconsIcon icon={ArrowTurnBackwardIcon} className="size-3.5" />
-            Undo
-          </Button>
+        {canWrite ? (
+          <>
+            {nextStatuses
+              .filter((s) => s !== "cancelled")
+              .map((nextStatus) => (
+                <StatusActionButton
+                  key={nextStatus}
+                  nextStatus={nextStatus}
+                  onClick={() => onStatusChange(meeting, nextStatus)}
+                  loading={loading}
+                />
+              ))}
+            {nextStatuses.includes("cancelled") && (
+              <StatusActionButton
+                nextStatus="cancelled"
+                onClick={() => onCancelClick(meeting)}
+                loading={loading}
+              />
+            )}
+            {undoTarget && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+                onClick={() => onStatusChange(meeting, undoTarget)}
+                disabled={loading}
+              >
+                <HugeiconsIcon icon={ArrowTurnBackwardIcon} className="size-3.5" />
+                Undo
+              </Button>
+            )}
+          </>
+        ) : (
+          <span className="text-xs text-muted-foreground">Read only</span>
         )}
       </div>
     </div>
@@ -419,7 +426,10 @@ function StatusSummary({
         return (
           <button
             key={item.key}
+            type="button"
             onClick={() => onFilterChange(item.key)}
+            aria-pressed={active}
+            title={`${item.label}: ${item.count}`}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap",
               "border",
@@ -464,6 +474,8 @@ export function QueueView({
   onGoToCalendar: (meeting: Meeting) => void;
 }) {
   const token = useAuthStore((s) => s.token);
+  const role = useAuthStore((s) => s.role);
+  const currentUserId = useAuthStore((s) => s.userId);
   const meetings = useCalendarStore((s) => s.meetings);
   const setMeetings = useCalendarStore((s) => s.setMeetings);
 
@@ -473,6 +485,17 @@ export function QueueView({
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const isAdmin = role === "admin";
+
+  const canWriteMeeting = useCallback(
+    (meeting: Meeting) => {
+      if (isAdmin) return true;
+      return role === "doctor" && Boolean(currentUserId) && meeting.doctor_id === currentUserId;
+    },
+    [isAdmin, role, currentUserId]
+  );
+
+  const canDeleteMeeting = isAdmin;
 
   // Filter meetings
   const filteredMeetings = useMemo(() => {
@@ -518,9 +541,51 @@ export function QueueView({
     return meetings;
   }, [meetings, dateFilter]);
 
+  const handleStatusFilterChange = useCallback(
+    (nextFilter: MeetingStatus | "all") => {
+      const resolvedFilter = statusFilter === nextFilter ? "all" : nextFilter;
+      setStatusFilter(resolvedFilter);
+
+      if (resolvedFilter === "all" || dateFilter !== "today") {
+        return;
+      }
+
+      const todayCount = dateScopedMeetings.filter(
+        (meeting) => meeting.status === resolvedFilter
+      ).length;
+
+      if (todayCount > 0) {
+        return;
+      }
+
+      const allDatesCount = meetings.filter(
+        (meeting) => meeting.status === resolvedFilter
+      ).length;
+
+      if (allDatesCount > 0) {
+        setDateFilter("all");
+        toast.info(`Switched to All Dates for ${MEETING_STATUS_LABELS[resolvedFilter]}`, {
+          description: `No ${MEETING_STATUS_LABELS[resolvedFilter].toLowerCase()} meetings today, but found ${allDatesCount} in all dates.`,
+          duration: 5000,
+        });
+        return;
+      }
+
+      toast.info(`No ${MEETING_STATUS_LABELS[resolvedFilter].toLowerCase()} meetings`, {
+        description: "Try another status or create a new meeting.",
+        duration: 4000,
+      });
+    },
+    [statusFilter, dateFilter, dateScopedMeetings, meetings]
+  );
+
   const handleStatusChange = useCallback(
     async (meeting: Meeting, newStatus: MeetingStatus) => {
       if (!token || updatingId) return;
+      if (!canWriteMeeting(meeting)) {
+        toast.error("This meeting is read-only for your account");
+        return;
+      }
       setUpdatingId(meeting.id);
       try {
         const updated = await updateMeeting(
@@ -540,12 +605,16 @@ export function QueueView({
         setUpdatingId(null);
       }
     },
-    [token, updatingId, meetings, setMeetings]
+    [token, updatingId, meetings, setMeetings, canWriteMeeting]
   );
 
   const handleDuplicate = useCallback(
     async (meeting: Meeting) => {
       if (!token || duplicatingId) return;
+      if (!canWriteMeeting(meeting)) {
+        toast.error("This meeting is read-only for your account");
+        return;
+      }
 
       const doctorId = meeting.doctor_id || meeting.doctor?.id || "";
       const patientId = meeting.user_id || meeting.patient?.id || "";
@@ -569,19 +638,22 @@ export function QueueView({
         setMeetings([...current, newMeeting]);
         toast.success("Meeting duplicated");
         await onRefresh();
-      } catch (err) {
-        console.error("Failed to duplicate meeting:", err);
+      } catch {
         toast.error("Failed to duplicate meeting");
       } finally {
         setDuplicatingId(null);
       }
     },
-    [token, duplicatingId, setMeetings, onRefresh]
+    [token, duplicatingId, setMeetings, onRefresh, canWriteMeeting]
   );
 
   const handleCancel = useCallback(
     async (meeting: Meeting) => {
       if (!token || updatingId) return;
+      if (!canWriteMeeting(meeting)) {
+        toast.error("This meeting is read-only for your account");
+        return;
+      }
       setUpdatingId(meeting.id);
       try {
         const updated = await updateMeeting(
@@ -599,7 +671,7 @@ export function QueueView({
         setUpdatingId(null);
       }
     },
-    [token, updatingId, meetings, setMeetings]
+    [token, updatingId, meetings, setMeetings, canWriteMeeting]
   );
 
   const requestCancel = useCallback(
@@ -624,6 +696,10 @@ export function QueueView({
   const handleDelete = useCallback(
     async (meeting: Meeting) => {
       if (!token || deleting) return;
+      if (!canDeleteMeeting) {
+        toast.error("Only admin can delete meetings");
+        return;
+      }
       setDeleting(true);
       try {
         await deleteMeeting(meeting.id, token);
@@ -635,7 +711,7 @@ export function QueueView({
         setDeleting(false);
       }
     },
-    [token, deleting, meetings, setMeetings]
+    [token, deleting, meetings, setMeetings, canDeleteMeeting]
   );
 
   const requestDelete = useCallback(
@@ -698,8 +774,11 @@ export function QueueView({
         <StatusSummary
           meetings={dateScopedMeetings}
           activeFilter={statusFilter}
-          onFilterChange={setStatusFilter}
+          onFilterChange={handleStatusFilterChange}
         />
+        <p className="text-[11px] text-muted-foreground">
+          Tip: click the active status again to clear filter.
+        </p>
       </div>
 
       {/* Queue List */}
@@ -727,6 +806,8 @@ export function QueueView({
                 onDelete={requestDelete}
                 onClick={setSelectedMeeting}
                 loading={updatingId === meeting.id || duplicatingId === meeting.id}
+                canWrite={canWriteMeeting(meeting)}
+                canDelete={canDeleteMeeting}
               />
             ))}
           </div>

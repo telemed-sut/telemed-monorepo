@@ -820,6 +820,12 @@ def accept_invite(request: Request, payload: InviteAcceptRequest, db: Session = 
     if not invite:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invite link is invalid or expired")
 
+    if settings.specialist_invite_only and invite.role not in CLINICAL_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This onboarding flow currently accepts only clinical specialist invites.",
+        )
+
     if invite.role in CLINICAL_ROLES and not payload.license_no:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

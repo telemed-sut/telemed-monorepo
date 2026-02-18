@@ -18,15 +18,6 @@ get_current_user = auth_service.get_current_user
 get_admin_user = auth_service.get_admin_user
 
 
-def _check_meeting_access(meeting, current_user: User):
-    """Raise 403 if the user is a doctor and not assigned to this meeting."""
-    if current_user.role == UserRole.doctor and str(meeting.doctor_id) != str(current_user.id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only access your own meetings",
-        )
-
-
 @router.post("", response_model=MeetingOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("30/minute")
 def create_meeting(
@@ -35,14 +26,19 @@ def create_meeting(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Create a new meeting/appointment (admin, staff, or doctor for own meetings)"""
-    if current_user.role not in (UserRole.admin, UserRole.staff, UserRole.doctor):
+    """Create a new meeting/appointment (admin or doctor)."""
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
-    # Doctors are always scoped to their own meetings
+
+    # Doctors can create meetings only for assigned patients, and doctor_id is always self.
     if current_user.role == UserRole.doctor:
-        if payload.doctor_id and str(payload.doctor_id) != str(current_user.id):
-            raise HTTPException(status_code=403, detail="Doctors can only create their own meetings")
         payload.doctor_id = current_user.id
+        if not meeting_service.is_patient_assigned_to_doctor(db, current_user.id, payload.user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctors can only create meetings for assigned patients.",
+            )
+
     meeting = meeting_service.create_meeting(db, payload)
     return meeting
 
@@ -62,16 +58,16 @@ def list_meetings(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List meetings with pagination and filters. Doctors see only their own meetings."""
-    if current_user.role not in (UserRole.admin, UserRole.staff, UserRole.doctor):
+    """List meetings with pagination and filters."""
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
-    # Doctors can only see their own meetings
-    if current_user.role == UserRole.doctor:
-        doctor_id = str(current_user.id)
+
+    visible_doctor_id = current_user.id if current_user.role == UserRole.doctor else None
 
     items, total = meeting_service.list_meetings(
         db, page, min(limit, settings.max_limit), q, doctor_id, patient_id, sort, order,
         status_filter=status,
+        visible_doctor_id=visible_doctor_id,
     )
     return MeetingListResponse(items=items, page=page, limit=min(limit, settings.max_limit), total=total)
 
@@ -84,13 +80,23 @@ def get_meeting(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get meeting by ID. Doctors can only access their own meetings."""
-    if current_user.role not in (UserRole.admin, UserRole.staff, UserRole.doctor):
+    """Get meeting by ID."""
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
     meeting = meeting_service.get_meeting(db, meeting_id)
     if not meeting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
-    _check_meeting_access(meeting, current_user)
+
+    if current_user.role == UserRole.doctor and not meeting_service.can_doctor_view_meeting(
+        db=db,
+        doctor_id=current_user.id,
+        meeting=meeting,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only access meetings you own or assigned patients.",
+        )
+
     return meeting
 
 
@@ -104,16 +110,32 @@ def update_meeting(
     current_user: User = Depends(get_current_user),
 ):
     """Update meeting. Doctors can only update their own meetings."""
-    if current_user.role not in (UserRole.admin, UserRole.staff, UserRole.doctor):
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
     meeting = meeting_service.get_meeting(db, meeting_id)
     if not meeting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
-    _check_meeting_access(meeting, current_user)
 
-    # Doctors cannot reassign meetings to another doctor
-    if current_user.role == UserRole.doctor and payload.doctor_id and str(payload.doctor_id) != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Doctors cannot reassign meetings to another doctor")
+    if current_user.role == UserRole.doctor:
+        if not meeting_service.can_doctor_edit_meeting(current_user.id, meeting):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctors can only update meetings they own.",
+            )
+
+        if payload.doctor_id and str(payload.doctor_id) != str(current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctors cannot reassign meetings to another doctor.",
+            )
+
+        if payload.user_id and not meeting_service.is_patient_assigned_to_doctor(
+            db, current_user.id, payload.user_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Doctors can only assign meetings to patients in their care team.",
+            )
 
     updated = meeting_service.update_meeting(db, meeting, payload, actor_id=current_user.id)
     return updated
