@@ -54,12 +54,12 @@ class UserBase(BaseModel):
 
 
 class UserCreate(UserBase):
-    password: str = Field(min_length=6)
+    password: str = Field(min_length=8)
 
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
-    password: Optional[str] = Field(None, min_length=6)
+    password: Optional[str] = Field(None, min_length=8)
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     role: Optional[UserRole] = None
@@ -92,6 +92,8 @@ class UserOut(BaseModel):
     license_no: Optional[str] = None
     license_expiry: Optional[datetime] = None
     verification_status: VerificationStatus = VerificationStatus.unverified
+    two_factor_enabled: bool = False
+    two_factor_enabled_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     deleted_at: Optional[datetime] = None

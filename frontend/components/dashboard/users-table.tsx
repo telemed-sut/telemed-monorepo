@@ -257,6 +257,10 @@ export function UsersTable() {
     const [generatedInviteUrl, setGeneratedInviteUrl] = useState("");
 
     const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+    const [roleFilter, setRoleFilter] = useState("all");
+    const [statusFilterLocal, setStatusFilterLocal] = useState("all");
+    const [searchLocal, setSearchLocal] = useState("");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
 
     // Form Data State
     interface UserFormData extends Partial<User> {
@@ -296,9 +300,11 @@ export function UsersTable() {
             const res = await fetchUsers({
                 page: pagination.pageIndex + 1,
                 limit: pagination.pageSize,
+                q: debouncedSearch.trim() || undefined,
                 sort: sortField,
                 order: sorting.length > 0 && sorting[0].desc ? "desc" : "asc",
-                // search: debouncedSearch // Assuming we add search later or use local filtering for now if backend doesn't support 'q' yet on users
+                role: roleFilter !== "all" ? roleFilter : undefined,
+                verification_status: statusFilterLocal !== "all" ? statusFilterLocal : undefined,
             }, token);
 
             // Ensure type compatibility by handling nulls if necessary, though User from API should match User in state
@@ -316,7 +322,19 @@ export function UsersTable() {
 
     useEffect(() => {
         loadUsers();
-    }, [pagination.pageIndex, pagination.pageSize, sorting]);
+    }, [pagination.pageIndex, pagination.pageSize, sorting, debouncedSearch, roleFilter, statusFilterLocal]);
+
+    useEffect(() => {
+        const timeoutId = window.setTimeout(() => {
+            setDebouncedSearch(searchLocal.trim());
+        }, 350);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [searchLocal]);
+
+    useEffect(() => {
+        setPagination((prev) => ({ ...prev, pageIndex: 0 }));
+    }, [debouncedSearch, roleFilter, statusFilterLocal]);
 
 
     // --- Handlers from Original ---
@@ -423,6 +441,9 @@ export function UsersTable() {
             const normalizedPassword = formData.password?.trim();
             if (!editingUser && !normalizedPassword) {
                 throw new Error("Password is required.");
+            }
+            if (normalizedPassword && normalizedPassword.length < 8) {
+                throw new Error("Password must be at least 8 characters.");
             }
 
             const basePayload: Omit<UserCreate, "password" | "email"> & { email: string } = {
@@ -871,11 +892,6 @@ export function UsersTable() {
     const selectedRows = table.getFilteredSelectedRowModel().rows;
     const selectedIds = selectedRows.map((row) => (row.original as any).id);
 
-    // --- Role filter state ---
-    const [roleFilter, setRoleFilter] = useState("all");
-    const [statusFilterLocal, setStatusFilterLocal] = useState("all");
-    const [searchLocal, setSearchLocal] = useState("");
-
     const hasActiveFilters = roleFilter !== "all" || statusFilterLocal !== "all";
     const clearLocalFilters = () => { setRoleFilter("all"); setStatusFilterLocal("all"); };
 
@@ -1226,7 +1242,7 @@ export function UsersTable() {
                                 </Label>
                                 <Input
                                     id="password" type="password" placeholder="••••••••"
-                                    required={!editingUser} minLength={6}
+                                    required={!editingUser} minLength={8}
                                     value={formData.password}
                                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                                 />

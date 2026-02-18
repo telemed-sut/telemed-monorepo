@@ -44,14 +44,37 @@ def _user_snapshot(user: User) -> dict:
         "is_active": user.is_active,
         "specialty": user.specialty,
         "department": user.department,
-        "license_no": user.license_no,
+        "license_no": _mask_license_no(user.license_no),
         "verification_status": user.verification_status.value if user.verification_status else None,
+        "two_factor_enabled": user.two_factor_enabled,
     }
 
 
 def _retired_email(user_id: UUID) -> str:
     """Generate a unique placeholder email for soft-deleted users."""
     return f"deleted+{user_id.hex}@deleted.local"
+
+
+def _mask_license_no(license_no: str | None) -> str | None:
+    if not license_no:
+        return None
+    cleaned = license_no.strip()
+    if not cleaned:
+        return None
+    if len(cleaned) <= 4:
+        return "*" * len(cleaned)
+    return f"{'*' * (len(cleaned) - 4)}{cleaned[-4:]}"
+
+
+def _active_admin_count_for_update(db: Session) -> int:
+    admin_ids = db.scalars(
+        select(User.id).where(
+            User.role == UserRole.admin,
+            User.is_active == True,  # noqa: E712
+            User.deleted_at.is_(None),
+        ).with_for_update()
+    ).all()
+    return len(admin_ids)
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +360,18 @@ def update_user(
     else:
         update_data.pop("password", None)
 
+    # Keep at least N active admins in the system.
+    current_is_active_admin = user.role == UserRole.admin and user.is_active
+    next_role = update_data.get("role", user.role)
+    next_is_active = update_data.get("is_active", user.is_active)
+    next_is_active_admin = next_role == UserRole.admin and next_is_active
+    if current_is_active_admin and not next_is_active_admin:
+        if _active_admin_count_for_update(db) <= settings.min_active_admin_accounts:
+            raise HTTPException(
+                status_code=400,
+                detail=f"At least {settings.min_active_admin_accounts} active admin accounts are required.",
+            )
+
     for field, value in update_data.items():
         if hasattr(user, field):
             setattr(user, field, value)
@@ -408,7 +443,9 @@ def delete_user(
     current_user: User = Depends(get_admin_user),
 ) -> None:
     """Soft-delete a user. Admin only."""
-    user = db.scalar(select(User).where(User.id == user_id, User.deleted_at.is_(None)))
+    user = db.scalar(
+        select(User).where(User.id == user_id, User.deleted_at.is_(None)).with_for_update()
+    )
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -416,17 +453,15 @@ def delete_user(
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself.")
 
-    # Prevent deleting the last admin
-    admin_count = db.scalar(
-        select(func.count()).select_from(User).where(
-            User.role == UserRole.admin,
-            User.deleted_at.is_(None),
-        )
-    )
-    if user.role == UserRole.admin and admin_count is not None and admin_count <= 1:
+    # Keep minimum active admin count.
+    if (
+        user.role == UserRole.admin
+        and user.is_active
+        and _active_admin_count_for_update(db) <= settings.min_active_admin_accounts
+    ):
         raise HTTPException(
             status_code=400,
-            detail="Cannot delete the last admin user.",
+            detail=f"At least {settings.min_active_admin_accounts} active admin accounts are required.",
         )
 
     before = _user_snapshot(user)
@@ -481,7 +516,9 @@ def bulk_delete_users(
             skipped.append(f"{uid_str}: invalid ID")
             continue
 
-        user = db.scalar(select(User).where(User.id == user_id, User.deleted_at.is_(None)))
+        user = db.scalar(
+            select(User).where(User.id == user_id, User.deleted_at.is_(None)).with_for_update()
+        )
         if not user:
             skipped.append(f"{uid_str}: not found")
             continue
@@ -490,15 +527,9 @@ def bulk_delete_users(
             skipped.append(f"{uid_str}: cannot delete yourself")
             continue
 
-        if user.role == UserRole.admin:
-            admin_count = db.scalar(
-                select(func.count()).select_from(User).where(
-                    User.role == UserRole.admin,
-                    User.deleted_at.is_(None),
-                )
-            )
-            if admin_count is not None and admin_count <= 1:
-                skipped.append(f"{uid_str}: last admin")
+        if user.role == UserRole.admin and user.is_active:
+            if _active_admin_count_for_update(db) <= settings.min_active_admin_accounts:
+                skipped.append(f"{uid_str}: minimum admin requirement")
                 continue
 
         before = _user_snapshot(user)

@@ -100,7 +100,7 @@ function validateCreateForm(form: UserFormState): string[] {
   const errors: string[] = [];
 
   if (!form.email) errors.push("Email is required");
-  if (!form.password || form.password.length < 6) errors.push("Password must be at least 6 characters");
+  if (!form.password || form.password.length < 8) errors.push("Password must be at least 8 characters");
 
   if (isClinicalRole(form.role) && !form.license_no) {
     errors.push("Clinical roles require a license number");
@@ -135,7 +135,7 @@ describe("Create user form validation", () => {
 
   it("short password fails", () => {
     const errors = validateCreateForm({ ...baseForm, password: "abc" });
-    expect(errors).toContain("Password must be at least 6 characters");
+    expect(errors).toContain("Password must be at least 8 characters");
   });
 
   it("doctor without license fails", () => {
@@ -183,7 +183,6 @@ function shouldShowVerifyButton(
 ): boolean {
   return (
     currentUserRole === "admin" &&
-    isClinicalRole(userRole) &&
     verificationStatus !== "verified"
   );
 }
@@ -205,12 +204,12 @@ describe("Verify button visibility", () => {
     expect(shouldShowVerifyButton("doctor", "unverified", "staff")).toBe(false);
   });
 
-  it("hides for admin viewing admin (non-clinical)", () => {
-    expect(shouldShowVerifyButton("admin", "unverified", "admin")).toBe(false);
+  it("shows for admin viewing admin (non-clinical, unverified)", () => {
+    expect(shouldShowVerifyButton("admin", "unverified", "admin")).toBe(true);
   });
 
-  it("hides for admin viewing staff (non-clinical)", () => {
-    expect(shouldShowVerifyButton("staff", "unverified", "admin")).toBe(false);
+  it("shows for admin viewing staff (non-clinical, unverified)", () => {
+    expect(shouldShowVerifyButton("staff", "unverified", "admin")).toBe(true);
   });
 
   it("handles null verification status", () => {

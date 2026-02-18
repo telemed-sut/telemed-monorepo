@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Path, status
+from fastapi import Depends, HTTPException, Path, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from sqlalchemy import and_, select
@@ -20,7 +20,7 @@ from app.models.enums import UserRole
 from app.models.user import User
 
 settings = get_settings()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
 def get_db():
@@ -154,14 +154,22 @@ def consume_invite(db: Session, invite: UserInvite) -> None:
     db.commit()
 
 
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+def get_current_user(
+    request: Request,
+    token: str | None = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired token",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    raw_token = token or request.cookies.get(settings.auth_cookie_name)
+    if not raw_token:
+        raise credentials_exception
+
     try:
-        payload = decode_token(token)
+        payload = decode_token(raw_token)
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
@@ -183,6 +191,49 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
             detail="Account is deactivated",
         )
     return user
+
+
+def get_optional_current_user(
+    request: Request,
+    token: str | None = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    raw_token = token or request.cookies.get(settings.auth_cookie_name)
+    if not raw_token:
+        return None
+
+    try:
+        payload = decode_token(raw_token)
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            return None
+    except JWTError:
+        return None
+
+    try:
+        uid = UUID(user_id)
+    except (ValueError, AttributeError):
+        return None
+
+    user = db.scalar(select(User).where(User.id == uid, User.deleted_at.is_(None)))
+    if user is None or not user.is_active:
+        return None
+    return user
+
+
+def is_super_admin(user: Optional[User]) -> bool:
+    if not user:
+        return False
+    if user.role != UserRole.admin:
+        return False
+
+    raw_super_admins = settings.super_admin_emails
+    if isinstance(raw_super_admins, str):
+        super_admins = {email.strip().lower() for email in raw_super_admins.split(",") if email.strip()}
+    else:
+        super_admins = {email.strip().lower() for email in raw_super_admins if email and email.strip()}
+
+    return user.email.lower() in super_admins
 
 
 def require_roles(allowed_roles: List[UserRole]):

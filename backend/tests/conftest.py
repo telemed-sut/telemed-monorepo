@@ -5,6 +5,10 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+# Ensure required secrets are available in test environment.
+os.environ.setdefault("DEVICE_API_SECRET", "test_device_secret_1234567890abcdef1234567890abcdef")
+os.environ.setdefault("ADMIN_2FA_REQUIRED", "false")
+
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import SessionLocal
