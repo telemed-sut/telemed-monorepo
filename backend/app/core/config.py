@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     cors_origins: Union[List[str], str] = ["http://localhost:3000", "http://localhost:8080"]
     default_page: int = 1
     default_limit: int = 20
-    max_limit: int = 10000
+    max_limit: int = 200
     # Novu settings
     novu_api_key: str = ""
     novu_enabled: bool = False
@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     ip_ban_duration_minutes: int = 30
     ip_attempt_window_minutes: int = 15
     security_whitelisted_ips: str = "127.0.0.1,::1"
+    security_403_spike_threshold_1h: int = 25
     
     # Device API Security
     device_api_secret: str | None = None

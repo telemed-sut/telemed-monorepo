@@ -1,4 +1,5 @@
 import json
+import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from uuid import UUID
@@ -8,8 +9,9 @@ from pydantic import BaseModel, EmailStr, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.limiter import limiter
-from app.core.security import generate_totp_secret
+from app.core.security import generate_totp_secret, get_password_hash
 from app.models.audit_log import AuditLog
 from app.models.enums import UserRole
 from app.models.ip_ban import IPBan
@@ -20,6 +22,7 @@ from app.services import security as security_service
 from app.services.auth import get_admin_user, get_db
 
 router = APIRouter(prefix="/security", tags=["security"])
+settings = get_settings()
 
 
 def _client_ip(request: Request) -> str:
@@ -110,8 +113,14 @@ class LoginAttemptListResponse(BaseModel):
 class SecurityStatsResponse(BaseModel):
     active_ip_bans: int
     failed_logins_24h: int
+    failed_logins_1h: int
     locked_accounts: int
     total_attempts_24h: int
+    forbidden_403_1h: int
+    forbidden_403_baseline_24h: int
+    forbidden_403_spike: bool
+    purge_actions_24h: int
+    emergency_actions_24h: int
 
 
 class AdminEmergencyUnlockRequest(BaseModel):
@@ -142,6 +151,26 @@ class AdminUserTwoFactorResetResponse(BaseModel):
     user_id: str
     email: str
     setup_required: bool
+
+
+class AdminSecurityUserLookupResponse(BaseModel):
+    user_id: str
+    email: str
+    role: str
+    two_factor_enabled: bool
+    is_locked: bool
+
+
+class AdminUserPasswordResetRequest(BaseModel):
+    reason: str
+    temporary_password: str | None = None
+
+
+class AdminUserPasswordResetResponse(BaseModel):
+    message: str
+    user_id: str
+    email: str
+    temporary_password: str
 
 
 # ── Endpoints ──
@@ -248,6 +277,37 @@ def emergency_unlock_admin(
     )
 
 
+@router.get("/users/resolve", response_model=AdminSecurityUserLookupResponse)
+@limiter.limit("30/minute")
+def resolve_user_for_security_actions(
+    request: Request,
+    email: EmailStr,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    user = db.scalar(
+        select(User).where(
+            User.email == str(email).lower(),
+            User.deleted_at.is_(None),
+        )
+    )
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    now = datetime.now(timezone.utc)
+    locked_until = user.account_locked_until
+    if locked_until and locked_until.tzinfo is None:
+        locked_until = locked_until.replace(tzinfo=timezone.utc)
+
+    return AdminSecurityUserLookupResponse(
+        user_id=str(user.id),
+        email=user.email,
+        role=user.role.value if user.role else "unknown",
+        two_factor_enabled=bool(user.two_factor_enabled),
+        is_locked=bool(locked_until and locked_until > now),
+    )
+
+
 @router.post("/users/{user_id}/2fa/reset", response_model=AdminUserTwoFactorResetResponse)
 @limiter.limit("10/minute")
 def reset_user_two_factor_by_super_admin(
@@ -325,6 +385,99 @@ def reset_user_two_factor_by_super_admin(
         setup_required=True,
     )
 
+
+@router.post("/users/{user_id}/password/reset", response_model=AdminUserPasswordResetResponse)
+@limiter.limit("10/minute")
+def reset_user_password_by_super_admin(
+    request: Request,
+    user_id: UUID,
+    payload: AdminUserPasswordResetRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    ip = _client_ip(request)
+    reason = payload.reason.strip()
+    if len(reason) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Reason must be at least 8 characters.",
+        )
+
+    if not auth_service.is_super_admin(current_user):
+        db.add(
+            AuditLog(
+                user_id=current_user.id,
+                action="admin_force_password_reset_denied",
+                resource_type="user",
+                resource_id=user_id,
+                details=json.dumps({"reason": reason, "error": "not_super_admin"}),
+                ip_address=ip,
+                is_break_glass=False,
+            )
+        )
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin only.")
+
+    target = db.scalar(
+        select(User)
+        .where(User.id == user_id, User.deleted_at.is_(None))
+        .with_for_update()
+    )
+    if not target:
+        db.add(
+            AuditLog(
+                user_id=current_user.id,
+                action="admin_force_password_reset_denied",
+                resource_type="user",
+                resource_id=user_id,
+                details=json.dumps({"reason": reason, "error": "target_not_found"}),
+                ip_address=ip,
+                is_break_glass=False,
+            )
+        )
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    temporary_password = (payload.temporary_password or "").strip()
+    if temporary_password and len(temporary_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Temporary password must be at least 8 characters.",
+        )
+    if not temporary_password:
+        temporary_password = secrets.token_urlsafe(12)
+
+    target.password_hash = get_password_hash(temporary_password)
+    target.failed_login_attempts = 0
+    target.account_locked_until = None
+    target.last_failed_login_at = None
+    db.add(target)
+    db.add(
+        AuditLog(
+            user_id=current_user.id,
+            action="admin_force_password_reset",
+            resource_type="user",
+            resource_id=target.id,
+            details=json.dumps(
+                {
+                    "reason": reason,
+                    "target_email": target.email,
+                }
+            ),
+            ip_address=ip,
+            is_break_glass=False,
+        )
+    )
+    db.commit()
+
+    return AdminUserPasswordResetResponse(
+        message=f"Password has been reset for {target.email}.",
+        user_id=str(target.id),
+        email=target.email,
+        temporary_password=temporary_password,
+    )
+
+
 @router.get("/stats", response_model=SecurityStatsResponse)
 @limiter.limit("30/minute")
 def get_security_stats(
@@ -334,6 +487,7 @@ def get_security_stats(
 ):
     now = datetime.now(timezone.utc)
     day_ago = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    hour_ago = now - timedelta(hours=1)
 
     active_bans = db.scalar(
         select(func.count()).select_from(IPBan).where(
@@ -345,6 +499,13 @@ def get_security_stats(
         select(func.count()).select_from(LoginAttempt).where(
             LoginAttempt.success == False,  # noqa: E712
             LoginAttempt.created_at >= day_ago,
+        )
+    ) or 0
+
+    failed_1h = db.scalar(
+        select(func.count()).select_from(LoginAttempt).where(
+            LoginAttempt.success == False,  # noqa: E712
+            LoginAttempt.created_at >= hour_ago,
         )
     ) or 0
 
@@ -362,11 +523,53 @@ def get_security_stats(
         )
     ) or 0
 
+    forbidden_403_1h = db.scalar(
+        select(func.count()).select_from(AuditLog).where(
+            AuditLog.action == "http_403_denied",
+            AuditLog.created_at >= hour_ago,
+        )
+    ) or 0
+
+    forbidden_403_baseline_24h = db.scalar(
+        select(func.count()).select_from(AuditLog).where(
+            AuditLog.action == "http_403_denied",
+            AuditLog.created_at >= day_ago,
+        )
+    ) or 0
+
+    purge_actions_24h = db.scalar(
+        select(func.count()).select_from(AuditLog).where(
+            AuditLog.action == "user_purge_deleted_summary",
+            AuditLog.created_at >= day_ago,
+        )
+    ) or 0
+
+    emergency_actions_24h = db.scalar(
+        select(func.count()).select_from(AuditLog).where(
+            AuditLog.action.in_(
+                (
+                    "admin_emergency_unlock",
+                    "admin_force_2fa_reset",
+                    "admin_force_password_reset",
+                )
+            ),
+            AuditLog.created_at >= day_ago,
+        )
+    ) or 0
+
+    forbidden_403_spike = forbidden_403_1h >= settings.security_403_spike_threshold_1h
+
     return SecurityStatsResponse(
         active_ip_bans=active_bans,
         failed_logins_24h=failed_24h,
+        failed_logins_1h=failed_1h,
         locked_accounts=locked_accounts,
         total_attempts_24h=total_24h,
+        forbidden_403_1h=forbidden_403_1h,
+        forbidden_403_baseline_24h=forbidden_403_baseline_24h,
+        forbidden_403_spike=forbidden_403_spike,
+        purge_actions_24h=purge_actions_24h,
+        emergency_actions_24h=emergency_actions_24h,
     )
 
 
@@ -406,8 +609,6 @@ def get_ip_bans(
         )
         for ban in bans
     ]
-
-    return IPBanListResponse(items=items, total=total)
 
     return IPBanListResponse(items=items, total=total)
 

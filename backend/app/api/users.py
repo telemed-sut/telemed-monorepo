@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
 from app.models.enums import UserRole, VerificationStatus
+from app.models.invite import UserInvite
 from app.models.user import User
 from app.schemas.user import (
     CLINICAL_ROLES,
@@ -151,6 +152,23 @@ def _restore_soft_deleted_user(
     user.restored_at = datetime.now(timezone.utc)
     user.restored_by = actor_user_id
     return user, email_source
+
+
+def _invite_state(invite: UserInvite, now: datetime) -> str:
+    if invite.used_at is not None:
+        return "closed"
+    expires_at = invite.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= now:
+        return "expired"
+    return "active"
+
+
+def _normalize_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 # ---------------------------------------------------------------------------
@@ -679,10 +697,187 @@ class BulkRestoreResponse(BaseModel):
 class PurgeDeletedUsersRequest(BaseModel):
     older_than_days: int = Field(default=90, ge=1, le=3650)
     confirm_text: str = Field(min_length=5, max_length=20)
+    reason: str = Field(min_length=8, max_length=300)
 
 
 class PurgeDeletedUsersResponse(BaseModel):
     purged: int
+
+
+class UserInviteOut(BaseModel):
+    id: UUID
+    email: str
+    role: UserRole
+    created_by: UUID | None = None
+    created_at: datetime
+    expires_at: datetime
+    used_at: datetime | None = None
+    status: str
+
+
+class UserInviteListResponse(BaseModel):
+    items: List[UserInviteOut]
+    total: int
+    page: int
+    limit: int
+
+
+class InviteActionResponse(BaseModel):
+    message: str
+
+
+@router.get("/invites", response_model=UserInviteListResponse)
+def list_user_invites(
+    *,
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(get_admin_user),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    q: str | None = Query(None, min_length=1),
+    status_filter: str = Query(default="active", pattern="^(active|expired|closed|all)$"),
+) -> Any:
+    """List invite records with lifecycle status. Admin only."""
+    now = datetime.now(timezone.utc)
+    query = select(UserInvite)
+
+    if q:
+        query = query.where(UserInvite.email.ilike(f"%{q.lower()}%"))
+
+    if status_filter == "active":
+        query = query.where(
+            UserInvite.used_at.is_(None),
+            UserInvite.expires_at > now,
+        )
+    elif status_filter == "expired":
+        query = query.where(
+            UserInvite.used_at.is_(None),
+            UserInvite.expires_at <= now,
+        )
+    elif status_filter == "closed":
+        query = query.where(UserInvite.used_at.is_not(None))
+
+    count_query = select(func.count()).select_from(query.subquery())
+    total = db.scalar(count_query) or 0
+
+    invite_rows = db.scalars(
+        query.order_by(UserInvite.created_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+    ).all()
+
+    items = [
+        UserInviteOut(
+            id=invite.id,
+            email=invite.email,
+            role=invite.role,
+            created_by=invite.created_by,
+            created_at=invite.created_at,
+            expires_at=invite.expires_at,
+            used_at=invite.used_at,
+            status=_invite_state(invite, now),
+        )
+        for invite in invite_rows
+    ]
+    return UserInviteListResponse(items=items, total=total, page=page, limit=limit)
+
+
+@router.post("/invites/{invite_id}/resend", response_model=UserInviteCreateResponse)
+def resend_user_invite(
+    *,
+    request: Request,
+    invite_id: UUID,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(get_admin_user),
+) -> Any:
+    """Re-issue a fresh invite token for the same email/role. Admin only."""
+    invite = db.scalar(select(UserInvite).where(UserInvite.id == invite_id))
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found.")
+
+    if invite.role not in CLINICAL_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail="Invite onboarding is restricted to clinical specialist roles in this phase.",
+        )
+
+    existing_user = db.scalar(
+        select(User.id).where(
+            User.email == invite.email,
+            User.deleted_at.is_(None),
+        )
+    )
+    if existing_user:
+        raise HTTPException(
+            status_code=400,
+            detail="A user with this invite email already exists.",
+        )
+
+    raw_token, new_invite = auth_service.create_user_invite(
+        db,
+        email=invite.email,
+        role=invite.role,
+        expires_in_hours=settings.invite_expires_in_hours,
+        created_by=current_user,
+    )
+    invite_url = f"{settings.frontend_base_url.rstrip('/')}/invite/{raw_token}"
+    log_action(
+        db,
+        user_id=current_user.id,
+        action="user_invite_resend",
+        resource_type="user_invite",
+        resource_id=new_invite.id,
+        details=json.dumps(
+            {
+                "previous_invite_id": str(invite.id),
+                "new_invite_id": str(new_invite.id),
+                "email": invite.email,
+                "role": invite.role.value,
+            }
+        ),
+        ip_address=_client_ip(request),
+    )
+    return UserInviteCreateResponse(invite_url=invite_url, expires_at=new_invite.expires_at)
+
+
+@router.post("/invites/{invite_id}/revoke", response_model=InviteActionResponse)
+def revoke_user_invite(
+    *,
+    request: Request,
+    invite_id: UUID,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(get_admin_user),
+) -> Any:
+    """Revoke an active invite. Admin only."""
+    now = datetime.now(timezone.utc)
+    invite = db.scalar(select(UserInvite).where(UserInvite.id == invite_id).with_for_update())
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found.")
+
+    if invite.used_at is not None:
+        raise HTTPException(status_code=400, detail="Invite is already closed.")
+    if _normalize_utc(invite.expires_at) <= now:
+        raise HTTPException(status_code=400, detail="Invite is already expired.")
+
+    invite.used_at = now
+    db.add(invite)
+    db.commit()
+
+    log_action(
+        db,
+        user_id=current_user.id,
+        action="user_invite_revoke",
+        resource_type="user_invite",
+        resource_id=invite.id,
+        details=json.dumps(
+            {
+                "email": invite.email,
+                "role": invite.role.value,
+            }
+        ),
+        ip_address=_client_ip(request),
+    )
+    return InviteActionResponse(message="Invite revoked.")
 
 
 @router.post("/bulk-delete", response_model=BulkDeleteResponse)
@@ -935,10 +1130,27 @@ def purge_deleted_users(
 ) -> Any:
     """Hard-delete soft-deleted accounts older than the configured threshold."""
     if payload.confirm_text != "PURGE":
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_purge_deleted_denied",
+            resource_type="user",
+            details=json.dumps(
+                {
+                    "reason": "confirm_text_required",
+                    "older_than_days": payload.older_than_days,
+                }
+            ),
+            ip_address=_client_ip(request),
+        )
         raise HTTPException(
             status_code=400,
             detail='Purge requires confirm_text="PURGE".',
         )
+
+    reason = payload.reason.strip()
+    if len(reason) < 8:
+        raise HTTPException(status_code=422, detail="Purge reason must be at least 8 characters.")
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=payload.older_than_days)
     users_to_purge = db.scalars(
@@ -965,6 +1177,7 @@ def purge_deleted_users(
                 "older_than_days": payload.older_than_days,
                 "purged": purged,
                 "cutoff": cutoff.isoformat(),
+                "reason": reason,
             }
         ),
         ip_address=_client_ip(request),
