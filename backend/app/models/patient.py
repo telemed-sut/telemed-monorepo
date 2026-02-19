@@ -36,7 +36,12 @@ class Patient(Base):
 
     # Relationships
     meetings = relationship("Meeting", back_populates="patient", foreign_keys="Meeting.user_id")
-    assigned_doctors = relationship("DoctorPatientAssignment", back_populates="patient")
+    assigned_doctors = relationship(
+        "DoctorPatientAssignment",
+        back_populates="patient",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     encounters = relationship("Encounter", back_populates="patient", order_by="Encounter.admitted_at.desc()")
     timeline_events = relationship("TimelineEvent", back_populates="patient", order_by="TimelineEvent.event_time.desc()")
     alerts = relationship("Alert", back_populates="patient")

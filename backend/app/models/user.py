@@ -45,7 +45,12 @@ class User(Base):
 
     # Relationships
     meetings_as_doctor = relationship("Meeting", back_populates="doctor", foreign_keys="Meeting.doctor_id")
-    patient_assignments = relationship("DoctorPatientAssignment", back_populates="doctor")
+    patient_assignments = relationship(
+        "DoctorPatientAssignment",
+        back_populates="doctor",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     # Security: brute force protection
     failed_login_attempts = Column(Integer, nullable=False, server_default="0", default=0)
