@@ -230,3 +230,101 @@ def test_non_super_admin_cannot_reset_user_2fa(client: TestClient, db: Session):
         .order_by(AuditLog.created_at.desc())
     )
     assert audit is not None
+
+
+def test_super_admin_can_reset_user_password(client: TestClient, db: Session):
+    super_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+    target = _make_user(db, email="target-password-reset@example.com", role=UserRole.staff, password="OldPass123")
+    token = _login(client, super_admin.email).json()["access_token"]
+
+    response = client.post(
+        f"/security/users/{target.id}/password/reset",
+        json={"reason": "Emergency account recovery for lost credentials"},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["email"] == target.email
+    assert payload["temporary_password"]
+
+    relogin = _login(
+        client,
+        target.email,
+        password=payload["temporary_password"],
+    )
+    assert relogin.status_code == 200, relogin.text
+
+
+def test_non_super_admin_cannot_reset_user_password(client: TestClient, db: Session):
+    normal_admin = _make_user(db, email="normal-admin-password-reset@example.com", role=UserRole.admin)
+    target = _make_user(db, email="target-password-reset-denied@example.com", role=UserRole.staff)
+    token = _login(client, normal_admin.email).json()["access_token"]
+
+    response = client.post(
+        f"/security/users/{target.id}/password/reset",
+        json={"reason": "Temporary reset request"},
+        headers=_auth(token),
+    )
+    assert response.status_code == 403
+
+    audit = db.scalar(
+        select(AuditLog)
+        .where(AuditLog.action == "admin_force_password_reset_denied")
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert audit is not None
+
+
+def test_admin_can_resolve_user_for_emergency_toolkit(client: TestClient, db: Session):
+    admin = _make_user(db, email="resolve-admin@example.com", role=UserRole.admin)
+    target = _make_user(db, email="resolve-target@example.com", role=UserRole.staff)
+    token = _login(client, admin.email).json()["access_token"]
+
+    response = client.get(
+        f"/security/users/resolve?email={target.email}",
+        headers=_auth(token),
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["user_id"] == str(target.id)
+    assert payload["email"] == target.email
+
+
+def test_security_stats_tracks_403_spike_counter(client: TestClient, db: Session):
+    admin = _make_user(db, email="metrics-admin@example.com", role=UserRole.admin)
+    staff = _make_user(db, email="metrics-staff@example.com", role=UserRole.staff)
+    admin_token = _login(client, admin.email).json()["access_token"]
+    staff_token = _login(client, staff.email).json()["access_token"]
+
+    blocked = client.get("/users", headers=_auth(staff_token))
+    assert blocked.status_code == 403
+
+    db.add(
+        AuditLog(
+            user_id=admin.id,
+            action="user_purge_deleted_summary",
+            resource_type="user",
+            details=json.dumps({"purged": 2}),
+            ip_address="127.0.0.1",
+            is_break_glass=False,
+        )
+    )
+    db.add(
+        AuditLog(
+            user_id=admin.id,
+            action="admin_force_password_reset",
+            resource_type="user",
+            details=json.dumps({"target_email": "incident@example.com"}),
+            ip_address="127.0.0.1",
+            is_break_glass=False,
+        )
+    )
+    db.commit()
+
+    stats = client.get("/security/stats", headers=_auth(admin_token))
+    assert stats.status_code == 200
+    payload = stats.json()
+    assert payload["forbidden_403_1h"] >= 1
+    assert "failed_logins_1h" in payload
+    assert payload["purge_actions_24h"] >= 1
+    assert payload["emergency_actions_24h"] >= 1
