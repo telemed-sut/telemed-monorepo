@@ -86,7 +86,7 @@ import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
 import { PatientAssignmentsDialog } from "./patient-assignments-dialog";
 
-const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 10000];
+const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100, 200];
 
 interface PatientFormState {
   first_name: string;

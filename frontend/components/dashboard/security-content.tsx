@@ -4,16 +4,16 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
 import {
-    fetchSecurityStats,
+    createIPBan,
+    deleteIPBan,
     fetchIPBans,
     fetchLoginAttempts,
-    deleteIPBan,
-    createIPBan,
+    fetchSecurityStats,
+    getErrorMessage,
+    type ApiError,
     type SecurityStats,
     type IPBan,
-    type IPBanListResponse,
     type LoginAttemptRecord,
-    type LoginAttemptListResponse,
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -143,6 +143,27 @@ function SecurityStatsCards({ stats, loading }: { stats: SecurityStats | null; l
                     </div>
                 ))}
             </div>
+            {!loading && stats && (
+                <div className="border-t px-4 py-3 text-xs sm:text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">
+                            403 (1h): {stats.forbidden_403_1h}
+                        </Badge>
+                        <Badge variant="outline">
+                            Failed login (1h): {stats.failed_logins_1h}
+                        </Badge>
+                        <Badge variant="outline">
+                            Purge actions (24h): {stats.purge_actions_24h}
+                        </Badge>
+                        <Badge variant="outline">
+                            Emergency actions (24h): {stats.emergency_actions_24h}
+                        </Badge>
+                        {stats.forbidden_403_spike && (
+                            <Badge className="bg-red-500/90 text-white">403 spike detected</Badge>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -188,8 +209,12 @@ export function SecurityContent() {
         try {
             const data = await fetchSecurityStats(token);
             setStats(data);
-        } catch (err: any) {
-            if (err.status === 401) { clearToken(); router.replace("/login"); }
+        } catch (err: unknown) {
+            const apiError = err as ApiError;
+            if (apiError.status === 401) {
+                clearToken();
+                router.replace("/login");
+            }
         } finally {
             setStatsLoading(false);
         }
@@ -202,9 +227,17 @@ export function SecurityContent() {
             const data = await fetchIPBans({ page: bansPage, limit: 20 }, token);
             setBans(data.items);
             setBansTotal(data.total);
-        } catch (err: any) {
-            if (err.status === 401) { clearToken(); router.replace("/login"); }
-            if (!silent) toast.error("Failed to load IP bans");
+        } catch (err: unknown) {
+            const apiError = err as ApiError;
+            if (apiError.status === 401) {
+                clearToken();
+                router.replace("/login");
+            }
+            if (!silent) {
+                toast.error("โหลดรายการ IP Ban ไม่สำเร็จ", {
+                    description: getErrorMessage(apiError, "ไม่สามารถโหลดรายการ IP ที่ถูกแบนได้"),
+                });
+            }
         } finally {
             if (!silent) setBansLoading(false);
         }
@@ -214,16 +247,27 @@ export function SecurityContent() {
         if (!token) return;
         try {
             if (!silent) setAttemptsLoading(true);
-            const params: any = { page: attemptsPage, limit: 50 };
+            const params: { page: number; limit: number; email?: string; success?: boolean } = {
+                page: attemptsPage,
+                limit: 50,
+            };
             if (attemptsFilter === "failed") params.success = false;
             if (attemptsFilter === "success") params.success = true;
             if (attemptsSearch) params.email = attemptsSearch;
             const data = await fetchLoginAttempts(params, token);
             setAttempts(data.items);
             setAttemptsTotal(data.total);
-        } catch (err: any) {
-            if (err.status === 401) { clearToken(); router.replace("/login"); }
-            if (!silent) toast.error("Failed to load login attempts");
+        } catch (err: unknown) {
+            const apiError = err as ApiError;
+            if (apiError.status === 401) {
+                clearToken();
+                router.replace("/login");
+            }
+            if (!silent) {
+                toast.error("โหลดประวัติการล็อกอินไม่สำเร็จ", {
+                    description: getErrorMessage(apiError, "ไม่สามารถโหลดประวัติการล็อกอินได้"),
+                });
+            }
         } finally {
             if (!silent) setAttemptsLoading(false);
         }
@@ -279,8 +323,10 @@ export function SecurityContent() {
             toast.success(`IP ${ipAddress} has been unbanned`);
             loadBans();
             loadStats();
-        } catch {
-            toast.error("Failed to unban IP");
+        } catch (err: unknown) {
+            toast.error("ปลดแบน IP ไม่สำเร็จ", {
+                description: getErrorMessage(err, "ไม่สามารถปลดแบน IP ได้"),
+            });
         }
     };
 
@@ -300,8 +346,10 @@ export function SecurityContent() {
                         toast.success(`IP ${ipAddress} has been banned for 24 hours`);
                         loadBans();
                         loadStats();
-                    } catch {
-                        toast.error("Failed to ban IP");
+                    } catch (err: unknown) {
+                        toast.error("แบน IP ไม่สำเร็จ", {
+                            description: getErrorMessage(err, "ไม่สามารถแบน IP ได้"),
+                        });
                     }
                 },
             },
@@ -507,7 +555,10 @@ export function SecurityContent() {
                                     onChange={(e) => setAttemptsSearch(e.target.value)}
                                 />
                             </div>
-                            <Select value={attemptsFilter} onValueChange={(v) => setAttemptsFilter(v as any)}>
+                            <Select
+                                value={attemptsFilter}
+                                onValueChange={(v) => setAttemptsFilter((v as "all" | "failed" | "success") ?? "all")}
+                            >
                                 <SelectTrigger className="w-[140px] bg-background/50 border-white/10">
                                     <SelectValue>
                                         {attemptsFilter === "all" ? "All" : attemptsFilter === "failed" ? "Failed Only" : "Success Only"}

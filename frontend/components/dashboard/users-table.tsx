@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import {
     ColumnDef,
     ColumnFiltersState,
@@ -19,13 +19,19 @@ import {
     restoreUser,
     bulkDeleteUsers,
     bulkRestoreUsers,
+    purgeDeletedUsers,
     createUserInvite,
+    fetchUserInvites,
+    resendUserInvite,
+    revokeUserInvite,
     verifyUser,
+    getErrorMessage,
     createUser,
     updateUser,
     UserCreate,
     UserUpdate,
-    User
+    User,
+    UserInviteItem,
 } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import {
@@ -58,6 +64,7 @@ import {
     ArrowUpDown,
     Users,
     RotateCcw,
+    RefreshCw,
 } from "lucide-react";
 
 
@@ -168,72 +175,23 @@ const TEAM_MEMBER_COLORS = [
     "bg-violet-200 text-violet-800",
 ] as const;
 
-const parseApiErrorMessage = (payload: unknown): string | null => {
-    if (!payload || typeof payload !== "object") return null;
-
-    const record = payload as Record<string, unknown>;
-    const detail = record.detail ?? record.message ?? record.error;
-
-    if (typeof detail === "string" && detail.trim().length > 0) {
-        return detail;
-    }
-
-    if (Array.isArray(detail)) {
-        const messages = detail
-            .map((item) => {
-                if (typeof item === "string") return item;
-                if (!item || typeof item !== "object") return null;
-
-                const entry = item as Record<string, unknown>;
-                const message = typeof entry.msg === "string" ? entry.msg : null;
-                if (!message) return null;
-
-                if (Array.isArray(entry.loc)) {
-                    const path = entry.loc
-                        .filter(
-                            (part): part is string | number =>
-                                typeof part === "string" || typeof part === "number"
-                        )
-                        .join(".");
-                    return path ? `${path}: ${message}` : message;
-                }
-
-                return message;
-            })
-            .filter((message): message is string => Boolean(message));
-
-        if (messages.length > 0) {
-            return messages.join(" | ");
-        }
-    }
-
-    if (detail && typeof detail === "object") {
-        const detailRecord = detail as Record<string, unknown>;
-        if (typeof detailRecord.message === "string") return detailRecord.message;
-        if (typeof detailRecord.msg === "string") return detailRecord.msg;
-    }
-
-    if (typeof record.message === "string") return record.message;
-    if (typeof record.error === "string") return record.error;
-
-    return null;
+const INVITE_STATUS_LABEL_MAP: Record<string, string> = {
+    active: "Active",
+    expired: "Expired",
+    closed: "Closed",
 };
 
-const getErrorMessage = (error: unknown, fallback: string): string => {
-    if (!(error instanceof Error) || !error.message) return fallback;
-
-    const raw = error.message.trim();
-    if (raw.startsWith("{") || raw.startsWith("[")) {
-        try {
-            const parsed = JSON.parse(raw);
-            const parsedMessage = parseApiErrorMessage(parsed);
-            if (parsedMessage) return parsedMessage;
-        } catch {
-            // keep raw message fallback
-        }
-    }
-
-    return raw || fallback;
+const formatInviteTimestamp = (value?: string | null): string => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleString("th-TH", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
 };
 
 // --- Component ---
@@ -264,6 +222,9 @@ export function UsersTable() {
     const [isInviteSheetOpen, setInviteSheetOpen] = useState(false);
     const [isInviteSubmitting, setIsInviteSubmitting] = useState(false);
     const [generatedInviteUrl, setGeneratedInviteUrl] = useState("");
+    const [inviteItems, setInviteItems] = useState<UserInviteItem[]>([]);
+    const [isInviteListLoading, setIsInviteListLoading] = useState(false);
+    const [inviteStatusFilter, setInviteStatusFilter] = useState<"active" | "expired" | "closed" | "all">("active");
 
     const [isBulkDeleting, setIsBulkDeleting] = useState(false);
     const [isBulkRestoring, setIsBulkRestoring] = useState(false);
@@ -275,6 +236,12 @@ export function UsersTable() {
     const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
     const [bulkDeleteConfirmText, setBulkDeleteConfirmText] = useState("");
     const [pendingBulkDeleteUsers, setPendingBulkDeleteUsers] = useState<User[]>([]);
+    const [purgeDialogOpen, setPurgeDialogOpen] = useState(false);
+    const [purgeConfirmText, setPurgeConfirmText] = useState("");
+    const [purgeReason, setPurgeReason] = useState("");
+    const [purgeOlderThanDays, setPurgeOlderThanDays] = useState(90);
+    const [isPurging, setIsPurging] = useState(false);
+    const [hasExportedForPurge, setHasExportedForPurge] = useState(false);
 
     // Form Data State
     interface UserFormData extends Partial<User> {
@@ -328,7 +295,6 @@ export function UsersTable() {
             setUsers(res.items || []);
             setTotal(res.total || 0);
         } catch (error) {
-            console.error(error);
             toast.error("Error", {
                 description: "Failed to load users.",
             });
@@ -337,9 +303,36 @@ export function UsersTable() {
         }
     };
 
+    const loadInviteItems = useCallback(async () => {
+        if (!token || !isInviteSheetOpen) return;
+        setIsInviteListLoading(true);
+        try {
+            const response = await fetchUserInvites(
+                {
+                    page: 1,
+                    limit: 50,
+                    status_filter: inviteStatusFilter,
+                },
+                token
+            );
+            setInviteItems(response.items ?? []);
+        } catch (error) {
+                toast.error("Load failed", {
+                    description: getErrorMessage(error, "ไม่สามารถโหลดรายการคำเชิญได้"),
+                });
+        } finally {
+            setIsInviteListLoading(false);
+        }
+    }, [token, isInviteSheetOpen, inviteStatusFilter]);
+
     useEffect(() => {
         loadUsers();
     }, [pagination.pageIndex, pagination.pageSize, sorting, debouncedSearch, roleFilter, statusFilterLocal, accountView]);
+
+    useEffect(() => {
+        if (!isInviteSheetOpen) return;
+        void loadInviteItems();
+    }, [isInviteSheetOpen, loadInviteItems]);
 
     useEffect(() => {
         const timeoutId = window.setTimeout(() => {
@@ -410,7 +403,7 @@ export function UsersTable() {
             loadUsers();
         } catch (error) {
             toast.error("Delete failed", {
-                description: getErrorMessage(error, "Could not delete user"),
+                description: getErrorMessage(error, "ไม่สามารถลบผู้ใช้ได้"),
             });
         }
     };
@@ -435,7 +428,7 @@ export function UsersTable() {
             loadUsers();
         } catch (error) {
             toast.error("Restore failed", {
-                description: getErrorMessage(error, "Could not restore user"),
+                description: getErrorMessage(error, "ไม่สามารถกู้คืนผู้ใช้ได้"),
             });
         }
     };
@@ -473,7 +466,7 @@ export function UsersTable() {
             loadUsers();
         } catch (err) {
             toast.error("Verification failed", {
-                description: getErrorMessage(err, "Verification failed."),
+                description: getErrorMessage(err, "ไม่สามารถยืนยันผู้ใช้ได้"),
             });
         }
     };
@@ -549,7 +542,7 @@ export function UsersTable() {
             setSheetOpen(false);
             loadUsers();
         } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : "Failed to save user";
+            const message = getErrorMessage(error, "ไม่สามารถบันทึกข้อมูลผู้ใช้ได้");
             toast.error("Save failed", { description: message, duration: 10000 });
         } finally {
             setIsSubmitting(false);
@@ -591,9 +584,10 @@ export function UsersTable() {
                 members: [inviteFormData.email],
                 message: `Invite link generated for ${inviteFormData.email}.`,
             });
+            await loadInviteItems();
         } catch (error) {
             toast.error("Invite failed", {
-                description: getErrorMessage(error, "Could not generate invite"),
+                description: getErrorMessage(error, "ไม่สามารถสร้างลิงก์คำเชิญได้"),
             });
         } finally {
             setIsInviteSubmitting(false);
@@ -603,6 +597,54 @@ export function UsersTable() {
     const handleCopyInviteUrl = () => {
         navigator.clipboard.writeText(generatedInviteUrl);
         toast.success("Copied", { description: "Invite URL copied to clipboard" });
+    };
+
+    const handleResendInvite = async (inviteId: string) => {
+        if (!token || isInviteSubmitting) return;
+        setIsInviteSubmitting(true);
+        try {
+            const data = await resendUserInvite(inviteId, token);
+            setGeneratedInviteUrl(data.invite_url);
+            toast.success("Invite resent", {
+                description: "A new invite link was generated successfully.",
+            });
+            await loadInviteItems();
+        } catch (error) {
+            toast.error("Resend failed", {
+                description: getErrorMessage(error, "ไม่สามารถส่งคำเชิญซ้ำได้"),
+            });
+        } finally {
+            setIsInviteSubmitting(false);
+        }
+    };
+
+    const handleRevokeInvite = async (invite: UserInviteItem) => {
+        if (!token || isInviteSubmitting) return;
+        toast.destructiveAction("Revoke invite?", {
+            description: `Revoke invite for ${invite.email}?`,
+            button: {
+                title: "Revoke",
+                onClick: () => {
+                    void (async () => {
+                        setIsInviteSubmitting(true);
+                        try {
+                            await revokeUserInvite(invite.id, token);
+                            toast.success("Invite revoked", {
+                                description: `${invite.email} invite is no longer valid.`,
+                            });
+                            await loadInviteItems();
+                        } catch (error) {
+                            toast.error("Revoke failed", {
+                                description: getErrorMessage(error, "ไม่สามารถยกเลิกคำเชิญได้"),
+                            });
+                        } finally {
+                            setIsInviteSubmitting(false);
+                        }
+                    })();
+                },
+            },
+            duration: 9000,
+        });
     };
 
     const getDisplayName = (
@@ -701,7 +743,7 @@ export function UsersTable() {
             loadUsers();
         } catch (error) {
             toast.error("Delete failed", {
-                description: getErrorMessage(error, "Bulk delete failed."),
+                description: getErrorMessage(error, "ไม่สามารถลบผู้ใช้แบบกลุ่มได้"),
             });
         } finally {
             setIsBulkDeleting(false);
@@ -772,7 +814,7 @@ export function UsersTable() {
             loadUsers();
         } catch (error) {
             toast.error("Restore failed", {
-                description: getErrorMessage(error, "Bulk restore failed."),
+                description: getErrorMessage(error, "ไม่สามารถกู้คืนผู้ใช้แบบกลุ่มได้"),
             });
         } finally {
             setIsBulkRestoring(false);
@@ -804,6 +846,108 @@ export function UsersTable() {
         );
     };
 
+    const escapeCsv = (value: string | null | undefined) => {
+        const safe = (value ?? "").replace(/"/g, "\"\"");
+        return `"${safe}"`;
+    };
+
+    const handleExportDeletedSnapshot = async () => {
+        if (!token) return;
+        try {
+            let page = 1;
+            const limit = 100;
+            let total = 0;
+            const rows: User[] = [];
+
+            do {
+                const response = await fetchUsers(
+                    {
+                        page,
+                        limit,
+                        include_deleted: true,
+                        deleted_only: true,
+                        clinical_only: true,
+                    },
+                    token
+                );
+                rows.push(...(response.items ?? []));
+                total = response.total ?? 0;
+                page += 1;
+            } while (rows.length < total);
+
+            const header = [
+                "id",
+                "email",
+                "first_name",
+                "last_name",
+                "role",
+                "is_active",
+                "deleted_at",
+                "deleted_by",
+            ];
+            const lines = rows.map((user) =>
+                [
+                    escapeCsv(user.id),
+                    escapeCsv(user.email),
+                    escapeCsv(user.first_name),
+                    escapeCsv(user.last_name),
+                    escapeCsv(user.role),
+                    escapeCsv(String(user.is_active)),
+                    escapeCsv(user.deleted_at ?? ""),
+                    escapeCsv(user.deleted_by ?? ""),
+                ].join(",")
+            );
+
+            const csv = [header.join(","), ...lines].join("\n");
+            const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `deleted-users-snapshot-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+
+            setHasExportedForPurge(true);
+            toast.success("Export completed", {
+                description: `Snapshot exported (${rows.length} deleted users).`,
+            });
+        } catch (error) {
+            toast.error("Export failed", {
+                description: getErrorMessage(error, "ไม่สามารถส่งออก snapshot ผู้ใช้ที่ถูกลบได้"),
+            });
+        }
+    };
+
+    const handlePurgeDeletedUsers = async () => {
+        if (!token || isPurging) return;
+        setIsPurging(true);
+        try {
+            const response = await purgeDeletedUsers(
+                {
+                    older_than_days: purgeOlderThanDays,
+                    confirm_text: purgeConfirmText,
+                    reason: purgeReason.trim(),
+                },
+                token
+            );
+            toast.success("Purge completed", {
+                description: `Hard-deleted ${response.purged} user(s).`,
+            });
+            setPurgeDialogOpen(false);
+            setPurgeConfirmText("");
+            setPurgeReason("");
+            setPurgeOlderThanDays(90);
+            setHasExportedForPurge(false);
+            loadUsers();
+        } catch (error) {
+            toast.error("Purge failed", {
+                description: getErrorMessage(error, "ไม่สามารถ purge ผู้ใช้ที่ถูกลบได้"),
+            });
+        } finally {
+            setIsPurging(false);
+        }
+    };
+
     // --- Columns Definition ---
 
     const columns: ColumnDef<User>[] = useMemo(() => [
@@ -811,10 +955,7 @@ export function UsersTable() {
             id: "select",
             header: ({ table }) => (
                 <Checkbox
-                    checked={
-                        (table.getIsAllPageRowsSelected() ||
-                            (table.getIsSomePageRowsSelected() && "indeterminate")) as any
-                    }
+                    checked={table.getIsAllPageRowsSelected()}
                     onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
                     disabled={isBulkDeleting || isBulkRestoring}
                     aria-label="Select all"
@@ -1267,6 +1408,18 @@ export function UsersTable() {
                                     <Link2 className="size-3.5 sm:size-4" />
                                     <span className="hidden sm:inline">Invite</span>
                                 </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 sm:h-9 gap-1.5 sm:gap-2 border-red-300/50 text-red-600 hover:bg-red-500/10"
+                                    onClick={() => {
+                                        setPurgeDialogOpen(true);
+                                        setHasExportedForPurge(false);
+                                    }}
+                                >
+                                    <Trash2 className="size-3.5 sm:size-4" />
+                                    <span className="hidden sm:inline">Purge</span>
+                                </Button>
                             </>
                         )}
                     </div>
@@ -1497,6 +1650,96 @@ export function UsersTable() {
                 </DialogContent>
             </Dialog>
 
+            <Dialog
+                open={purgeDialogOpen}
+                onOpenChange={(open) => {
+                    setPurgeDialogOpen(open);
+                    if (!open) {
+                        setPurgeConfirmText("");
+                        setPurgeReason("");
+                        setPurgeOlderThanDays(90);
+                        setHasExportedForPurge(false);
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="text-red-600">Purge Deleted Users</DialogTitle>
+                        <DialogDescription>
+                            Hard delete users older than N days. ต้อง export snapshot ก่อน และกรอกคำยืนยัน <span className="font-semibold">PURGE</span>.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3">
+                        <div className="space-y-2">
+                            <Label htmlFor="purge_days">Older than days</Label>
+                            <Input
+                                id="purge_days"
+                                type="number"
+                                min={1}
+                                max={3650}
+                                value={purgeOlderThanDays}
+                                onChange={(event) => setPurgeOlderThanDays(Number(event.target.value || 90))}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="purge_reason">Reason</Label>
+                            <Input
+                                id="purge_reason"
+                                value={purgeReason}
+                                onChange={(event) => setPurgeReason(event.target.value)}
+                                placeholder="เช่น retention policy รอบไตรมาส"
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="purge_confirm_text">Confirm text</Label>
+                            <Input
+                                id="purge_confirm_text"
+                                value={purgeConfirmText}
+                                onChange={(event) => setPurgeConfirmText(event.target.value)}
+                                placeholder='Type "PURGE"'
+                            />
+                        </div>
+                        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-muted-foreground">
+                            ระบบบังคับให้ export รายการบัญชีที่ถูกลบก่อน purge ทุกครั้ง
+                        </div>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => void handleExportDeletedSnapshot()}
+                        >
+                            <FileDown className="mr-2 h-4 w-4" />
+                            Export deleted users snapshot
+                        </Button>
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                setPurgeDialogOpen(false);
+                                setHasExportedForPurge(false);
+                            }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            disabled={
+                                isPurging ||
+                                !hasExportedForPurge ||
+                                purgeConfirmText !== "PURGE" ||
+                                purgeReason.trim().length < 8
+                            }
+                            onClick={() => {
+                                void handlePurgeDeletedUsers();
+                            }}
+                        >
+                            {isPurging ? "Purging..." : "Purge permanently"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
             {/* Create/Edit Sheet */}
             <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
                 <SheetContent
@@ -1566,7 +1809,7 @@ export function UsersTable() {
                                 <Label htmlFor="role">Role</Label>
                                 <Select
                                     value={formData.role}
-                                    onValueChange={(val) => setFormData({ ...formData, role: val as any || "doctor" })}
+                                    onValueChange={(val) => setFormData({ ...formData, role: val || "doctor" })}
                                 >
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
@@ -1619,7 +1862,7 @@ export function UsersTable() {
                                     {editingUser && (
                                         <div className="space-y-2">
                                             <Label htmlFor="verification_status">Verification Status</Label>
-                                            <Select value={formData.verification_status || "unverified"} onValueChange={val => setFormData({ ...formData, verification_status: val as any })}>
+                                            <Select value={formData.verification_status || "unverified"} onValueChange={val => setFormData({ ...formData, verification_status: val })}>
                                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="unverified">Unverified</SelectItem>
@@ -1670,6 +1913,82 @@ export function UsersTable() {
                                 <Button type="button" variant="outline" className="w-full" onClick={handleCopyInviteUrl}><Copy className="mr-2 h-4 w-4" /> Copy Link</Button>
                             </div>
                         )}
+
+                        <div className="space-y-3 rounded-md border border-border/70 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Invite Lifecycle</Label>
+                                <div className="flex items-center gap-2">
+                                    <Select
+                                        value={inviteStatusFilter}
+                                        onValueChange={(value) => setInviteStatusFilter((value as "active" | "expired" | "closed" | "all") ?? "active")}
+                                    >
+                                        <SelectTrigger className="h-8 w-[130px]">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="active">Active</SelectItem>
+                                            <SelectItem value="expired">Expired</SelectItem>
+                                            <SelectItem value="closed">Closed</SelectItem>
+                                            <SelectItem value="all">All</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <Button type="button" variant="outline" size="icon" className="size-8" onClick={() => void loadInviteItems()}>
+                                        <RefreshCw className={cn("size-4", isInviteListLoading && "animate-spin")} />
+                                    </Button>
+                                </div>
+                            </div>
+                            {isInviteListLoading ? (
+                                <p className="text-sm text-muted-foreground">Loading invites...</p>
+                            ) : inviteItems.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">No invites in this status.</p>
+                            ) : (
+                                <div className="space-y-2">
+                                    {inviteItems.map((invite) => (
+                                        <div key={invite.id} className="rounded-md border border-border/70 p-3">
+                                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                                <div className="min-w-0 space-y-1">
+                                                    <p className="text-sm font-medium truncate">{invite.email}</p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {ROLE_LABEL_MAP[invite.role] ?? invite.role}
+                                                    </p>
+                                                    <div className="flex flex-wrap gap-2">
+                                                        <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
+                                                            {INVITE_STATUS_LABEL_MAP[invite.status] ?? invite.status}
+                                                        </Badge>
+                                                        <Badge variant="outline" className="text-[10px]">
+                                                            Expires {formatInviteTimestamp(invite.expires_at)}
+                                                        </Badge>
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        size="sm"
+                                                        disabled={isInviteSubmitting}
+                                                        onClick={() => void handleResendInvite(invite.id)}
+                                                    >
+                                                        <RotateCcw className="mr-1.5 size-3.5" />
+                                                        Resend
+                                                    </Button>
+                                                    {invite.status === "active" && (
+                                                        <Button
+                                                            type="button"
+                                                            variant="destructive"
+                                                            size="sm"
+                                                            disabled={isInviteSubmitting}
+                                                            onClick={() => void handleRevokeInvite(invite)}
+                                                        >
+                                                            Revoke
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                         <SheetFooter className="px-0 pt-2 pb-0 sm:justify-end sm:flex-row">
                             <Button type="button" variant="outline" onClick={() => setInviteSheetOpen(false)}>Close</Button>
                             <Button type="submit" disabled={isInviteSubmitting}>

@@ -1,5 +1,6 @@
 import { createElement, type MouseEvent } from "react";
 import { sileo, type SileoOptions, type SileoPosition } from "sileo";
+import { getErrorMessage } from "@/lib/api";
 
 type ToastOptions = Omit<SileoOptions, "title">;
 
@@ -212,6 +213,23 @@ const toast = {
       sileo.error,
       title,
       options,
+      TOAST_FILL.error,
+      TOAST_BUTTON_CLASS.error,
+      TOAST_DISMISS_BUTTON_CLASS.error
+    ),
+  apiError: (
+    title: string,
+    error: unknown,
+    fallback: string = "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง",
+    options?: ToastOptions
+  ) =>
+    showWithDismiss(
+      sileo.error,
+      title,
+      {
+        ...options,
+        description: options?.description ?? getErrorMessage(error, fallback),
+      },
       TOAST_FILL.error,
       TOAST_BUTTON_CLASS.error,
       TOAST_DISMISS_BUTTON_CLASS.error
