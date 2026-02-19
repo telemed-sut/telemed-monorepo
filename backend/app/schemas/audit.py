@@ -9,6 +9,7 @@ class AuditLogResponse(BaseModel):
     user_email: str | None = None
     user_name: str | None = None
     action: str
+    result: str
     resource_type: str | None = None
     resource_id: str | None = None
     details: str | None = None

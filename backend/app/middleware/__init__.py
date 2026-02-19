@@ -1,7 +1,9 @@
 import logging
+import json
 import time
 from datetime import datetime, timezone
 from typing import Dict, Tuple
+from uuid import UUID
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -9,7 +11,9 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import Response
 
 from app.core.config import get_settings
+from app.core.security import decode_token
 from app.db.session import SessionLocal
+from app.models.audit_log import AuditLog
 from app.models.ip_ban import IPBan
 from app.services.security import is_ip_whitelisted
 
@@ -51,6 +55,71 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
             response.headers["Cache-Control"] = "no-store"
+
+        return response
+
+
+def _extract_actor_id(request: Request) -> UUID | None:
+    raw_auth = request.headers.get("authorization", "")
+    token = None
+    if raw_auth.lower().startswith("bearer "):
+        token = raw_auth.split(" ", 1)[1].strip()
+    if not token:
+        token = request.cookies.get(settings.auth_cookie_name)
+    if not token:
+        return None
+    try:
+        payload = decode_token(token)
+    except Exception:
+        return None
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+    try:
+        return UUID(str(user_id))
+    except (TypeError, ValueError):
+        return None
+
+
+class SecurityAuditMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+
+        if response.status_code != 403:
+            return response
+
+        path = request.url.path
+        if path in {"/health", "/"} or path.startswith("/docs") or path.startswith("/openapi"):
+            return response
+
+        ip_address = _get_client_ip(request)
+        actor_id = _extract_actor_id(request)
+        details = {
+            "method": request.method,
+            "path": path,
+            "status_code": response.status_code,
+            "query": request.url.query,
+            "user_agent": request.headers.get("user-agent", "")[:300],
+        }
+
+        try:
+            db = SessionLocal()
+            try:
+                db.add(
+                    AuditLog(
+                        user_id=actor_id,
+                        action="http_403_denied",
+                        resource_type="http_request",
+                        details=json.dumps(details),
+                        ip_address=ip_address,
+                        is_break_glass=False,
+                    )
+                )
+                db.commit()
+            finally:
+                db.close()
+        except Exception:
+            logger.exception("Failed to write 403 audit log for %s", path)
 
         return response
 
