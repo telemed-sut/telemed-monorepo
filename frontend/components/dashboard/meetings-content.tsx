@@ -46,6 +46,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { CalendarView, type CalendarSlotSelection } from "./calendar-view";
 import { QueueView } from "./queue-view";
+import { MonthCalendarPopover } from "./month-calendar-popover";
 import { useCalendarStore } from "@/store/calendar-store";
 import { useAuthStore } from "@/store/auth-store";
 import {
@@ -350,7 +351,7 @@ function CreateEventDialog({
       setEndHour(Math.min(Math.floor(newEnd / 60), 23));
       setEndMinute(newEnd % 60);
     }
-  }, [startHour, startMinute]);
+  }, [endHour, endMinute, startHour, startMinute]);
 
   const dateTimeISO = useMemo(() => {
     const dt = setMinutes(setHours(selectedDate, startHour), startMinute);
@@ -963,6 +964,16 @@ export function MeetingsContent() {
                     <span className="hidden lg:inline text-xs">{tr(language, "Schedule", "นัดหมาย")}</span>
                   </Button>
                 </SchedulePopover>
+
+                <MonthCalendarPopover
+                  meetings={meetings}
+                  patients={patients}
+                  doctors={doctors}
+                  token={token}
+                  currentUserId={userId}
+                  userRole={userRole}
+                  onMeetingCreated={handleMeetingCreated}
+                />
 
                 {/* View mode toggle: Calendar / Queue */}
                 <div className="flex items-center rounded-lg border border-border p-0.5 gap-0.5">
