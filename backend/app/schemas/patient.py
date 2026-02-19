@@ -52,7 +52,7 @@ class PatientBase(BaseModel):
         if not re.match(r"^[a-zA-Z0-9\u0E00-\u0E7F\s'-]+$", v):
             raise ValueError('Name contains invalid characters')
         
-        return v.title()  # Capitalize first letter of each word
+        return v
 
     @field_validator('phone')
     @classmethod

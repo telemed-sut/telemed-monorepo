@@ -391,7 +391,7 @@ def create_user_invite(
 # READ ONE
 # ---------------------------------------------------------------------------
 
-@router.get("/{user_id}", response_model=UserOut)
+@router.get("/{user_id:uuid}", response_model=UserOut)
 def read_user_by_id(
     user_id: UUID,
     current_user: User = Depends(get_current_user),
@@ -412,7 +412,7 @@ def read_user_by_id(
 # UPDATE  (admin or self)
 # ---------------------------------------------------------------------------
 
-@router.put("/{user_id}", response_model=UserOut)
+@router.put("/{user_id:uuid}", response_model=UserOut)
 def update_user(
     *,
     request: Request,
@@ -511,7 +511,7 @@ def update_user(
 # VERIFY  (admin-only)
 # ---------------------------------------------------------------------------
 
-@router.post("/{user_id}/verify", response_model=UserOut)
+@router.post("/{user_id:uuid}/verify", response_model=UserOut)
 def verify_user(
     *,
     request: Request,
@@ -547,7 +547,7 @@ def verify_user(
 # DELETE  (admin-only, soft delete)
 # ---------------------------------------------------------------------------
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{user_id:uuid}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     *,
     request: Request,
@@ -627,7 +627,7 @@ def delete_user(
 # RESTORE  (admin-only, soft delete rollback)
 # ---------------------------------------------------------------------------
 
-@router.post("/{user_id}/restore", response_model=UserOut)
+@router.post("/{user_id:uuid}/restore", response_model=UserOut)
 def restore_user(
     *,
     request: Request,

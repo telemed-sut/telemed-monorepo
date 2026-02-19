@@ -778,7 +778,8 @@ def forgot_password(request: Request, payload: ForgotPasswordRequest, db: Sessio
     response = ForgotPasswordResponse(
         message="If the account exists, a reset instruction has been generated.",
     )
-    if settings.password_reset_return_token_in_response and reset_token:
+    # Resolve this flag at request time so tests/env overrides are respected.
+    if get_settings().password_reset_return_token_in_response and reset_token:
         response.reset_token = reset_token
 
     return response
@@ -862,4 +863,17 @@ def accept_invite(request: Request, payload: InviteAcceptRequest, db: Session = 
     )
     db.add(user)
     auth_service.consume_invite(db, invite)
+    db.refresh(user)
+    db.add(
+        AuditLog(
+            user_id=user.id,
+            action="invite_accept",
+            resource_type="user_invite",
+            resource_id=invite.id,
+            details=json.dumps({"email": invite.email, "role": invite.role.value}),
+            ip_address=_client_ip(request),
+            is_break_glass=False,
+        )
+    )
+    db.commit()
     return MessageResponse(message="Account created successfully")

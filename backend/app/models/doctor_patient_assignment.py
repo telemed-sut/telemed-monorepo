@@ -30,6 +30,7 @@ class DoctorPatientAssignment(Base):
             "patient_id",
             unique=True,
             postgresql_where=text("role = 'primary'"),
+            sqlite_where=text("role = 'primary'"),
         ),
     )
 
