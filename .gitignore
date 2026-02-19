@@ -1,6 +1,9 @@
 # Python
 __pycache__/
 *.py[cod]
+# Extra guard: ignore Python cache artifacts recursively
+**/__pycache__/
+**/*.pyc
 *$py.class
 *.so
 .Python
