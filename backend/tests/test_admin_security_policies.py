@@ -301,6 +301,17 @@ def test_security_stats_tracks_403_spike_counter(client: TestClient, db: Session
 
     db.add(
         AuditLog(
+            user_id=staff.id,
+            action="http_403_denied",
+            resource_type="http_request",
+            details=json.dumps({"path": "/users", "status_code": 403}),
+            ip_address="127.0.0.1",
+            is_break_glass=False,
+        )
+    )
+
+    db.add(
+        AuditLog(
             user_id=admin.id,
             action="user_purge_deleted_summary",
             resource_type="user",

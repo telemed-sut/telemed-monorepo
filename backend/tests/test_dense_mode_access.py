@@ -1,6 +1,6 @@
 """Tests for dense-mode access control with assignment-only doctor/admin policy."""
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -170,6 +170,28 @@ class TestBreakGlassDisabled:
             )
         )
         assert audit is None
+
+    def test_break_glass_audit_record_does_not_bypass_assignment(self, client: TestClient, db: Session):
+        doctor = _create_user(db, "bg-doc3@test.com", UserRole.doctor)
+        patient = _create_patient(db)
+
+        db.add(
+            AuditLog(
+                user_id=doctor.id,
+                action="break_glass",
+                resource_type="patient",
+                resource_id=patient.id,
+                is_break_glass=True,
+                break_glass_reason="Emergency verification",
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        db.commit()
+
+        token = _login(client, "bg-doc3@test.com")
+        resp = client.get(f"/patients/{patient.id}/summary", headers=_auth_headers(token))
+        assert resp.status_code == 403
+        assert "not assigned" in resp.json()["detail"].lower()
 
 
 class TestAlertAcknowledge:
