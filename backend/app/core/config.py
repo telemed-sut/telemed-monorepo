@@ -1,5 +1,6 @@
+import json
 from functools import lru_cache
-from typing import List, Literal, Union
+from typing import Dict, List, Literal, Union
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
@@ -48,8 +49,13 @@ class Settings(BaseSettings):
     
     # Device API Security
     device_api_secret: str | None = None
+    device_api_secrets: Dict[str, str] = {}
     device_api_allow_jwt_secret_fallback: bool = True
+    device_api_require_registered_device: bool = False
     device_api_require_body_hash_signature: bool = False
+    device_api_require_nonce: bool = False
+    device_api_nonce_ttl_seconds: int = 300
+    device_api_max_body_bytes: int = 262_144
 
     # Auth cookie settings
     auth_cookie_name: str = "access_token"
@@ -76,7 +82,14 @@ class Settings(BaseSettings):
 
     @field_validator("device_api_secret")
     @classmethod
-    def validate_device_api_secret(cls, v: str) -> str:
+    def validate_device_api_secret(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = cls._validate_device_secret_value(v, "DEVICE_API_SECRET")
+        return value
+
+    @classmethod
+    def _validate_device_secret_value(cls, v: str, source_name: str) -> str:
         value = (v or "").strip()
         if not value:
             return value
@@ -87,10 +100,78 @@ class Settings(BaseSettings):
             "secret",
         }
         if value.lower() in weak_values:
-            raise ValueError("DEVICE_API_SECRET is too weak. Please set a strong secret.")
+            raise ValueError(f"{source_name} is too weak. Please set a strong secret.")
         if len(value) < 32:
-            raise ValueError("DEVICE_API_SECRET must be at least 32 characters long.")
+            raise ValueError(f"{source_name} must be at least 32 characters long.")
         return value
+
+    @field_validator("device_api_secrets", mode="before")
+    @classmethod
+    def parse_device_api_secrets(cls, v):
+        if v is None:
+            return {}
+
+        raw_map: Dict[str, str]
+        if isinstance(v, dict):
+            raw_map = {str(k): str(val) for k, val in v.items()}
+        elif isinstance(v, str):
+            value = v.strip()
+            if not value:
+                return {}
+
+            # Preferred format: JSON object {"device_id":"secret", ...}
+            try:
+                parsed = json.loads(value)
+                if not isinstance(parsed, dict):
+                    raise ValueError("DEVICE_API_SECRETS JSON must be an object")
+                raw_map = {str(k): str(val) for k, val in parsed.items()}
+            except json.JSONDecodeError:
+                # Backward-friendly format: "deviceA=secretA,deviceB=secretB"
+                raw_map = {}
+                for pair in value.split(","):
+                    item = pair.strip()
+                    if not item:
+                        continue
+                    device_id, sep, secret = item.partition("=")
+                    if not sep:
+                        raise ValueError(
+                            "DEVICE_API_SECRETS must be JSON object or comma-separated 'device=secret' pairs."
+                        )
+                    raw_map[device_id.strip()] = secret.strip()
+        else:
+            raise ValueError("DEVICE_API_SECRETS must be a mapping or string.")
+
+        normalized: Dict[str, str] = {}
+        for raw_device_id, raw_secret in raw_map.items():
+            device_id = (raw_device_id or "").strip()
+            if not device_id:
+                raise ValueError("DEVICE_API_SECRETS contains an empty device_id.")
+            secret = cls._validate_device_secret_value(
+                str(raw_secret),
+                f"DEVICE_API_SECRETS[{device_id}]",
+            )
+            if not secret:
+                raise ValueError(f"DEVICE_API_SECRETS[{device_id}] must not be empty.")
+            normalized[device_id] = secret
+        return normalized
+
+    @field_validator("device_api_nonce_ttl_seconds")
+    @classmethod
+    def validate_device_api_nonce_ttl_seconds(cls, v: int) -> int:
+        if v < 30:
+            raise ValueError("DEVICE_API_NONCE_TTL_SECONDS must be at least 30.")
+        if v > 86400:
+            raise ValueError("DEVICE_API_NONCE_TTL_SECONDS must be <= 86400.")
+        return v
+
+    @field_validator("device_api_max_body_bytes")
+    @classmethod
+    def validate_device_api_max_body_bytes(cls, v: int) -> int:
+        if v < 1024:
+            raise ValueError("DEVICE_API_MAX_BODY_BYTES must be at least 1024.")
+        if v > 10_485_760:
+            raise ValueError("DEVICE_API_MAX_BODY_BYTES must be <= 10485760.")
+        return v
 
     @model_validator(mode="after")
     def apply_device_api_secret_fallback(self):
@@ -99,15 +180,24 @@ class Settings(BaseSettings):
         if not self.device_api_secret:
             if self.device_api_allow_jwt_secret_fallback:
                 self.device_api_secret = self.jwt_secret
-            else:
+            elif not self.device_api_secrets:
                 raise ValueError(
-                    "DEVICE_API_SECRET is required when DEVICE_API_ALLOW_JWT_SECRET_FALLBACK=false."
+                    "DEVICE_API_SECRET is required when DEVICE_API_ALLOW_JWT_SECRET_FALLBACK=false and DEVICE_API_SECRETS is empty."
                 )
 
-        value = self.device_api_secret.strip()
-        if not value:
-            raise ValueError("DEVICE_API_SECRET is required.")
-        self.device_api_secret = value
+        if self.device_api_secret is not None:
+            value = self.device_api_secret.strip()
+            if not value:
+                if not self.device_api_secrets:
+                    raise ValueError("DEVICE_API_SECRET is required when DEVICE_API_SECRETS is empty.")
+                self.device_api_secret = None
+            else:
+                self.device_api_secret = value
+
+        if self.device_api_require_registered_device and not self.device_api_secrets:
+            raise ValueError(
+                "DEVICE_API_REQUIRE_REGISTERED_DEVICE=true requires DEVICE_API_SECRETS to be configured."
+            )
         return self
 
     model_config = {

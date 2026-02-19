@@ -90,5 +90,9 @@ Thumbs.db
 # Skills
 skills/
 
+# Bruno local secrets
+Telemed Device API/environments/*.bru
+!Telemed Device API/environments/*.example.bru
+
 
 AGENTS.md

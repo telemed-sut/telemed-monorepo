@@ -33,5 +33,6 @@ class PressureRecord(Base):
         Index("ix_pressure_records_patient_id", "patient_id"),
         Index("ix_pressure_records_device_id", "device_id"),
         Index("ix_pressure_records_measured_at", "measured_at"),
+        Index("ix_pressure_records_created_at", "created_at"),
         UniqueConstraint("device_id", "measured_at", name="uq_pressure_records_device_measured_at"),
     )

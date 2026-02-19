@@ -29,12 +29,16 @@ def _sign_headers(
     device_id: str,
     timestamp: str,
     body_hash: str | None = None,
+    nonce: str | None = None,
+    secret: str | None = None,
 ):
-    secret = os.environ["DEVICE_API_SECRET"]
+    resolved_secret = secret or os.environ["DEVICE_API_SECRET"]
     message = f"{timestamp}{device_id}"
     if body_hash:
         message += body_hash
-    signature = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+    if nonce:
+        message += nonce
+    signature = hmac.new(resolved_secret.encode(), message.encode(), hashlib.sha256).hexdigest()
 
     headers = {
         "X-Device-Id": device_id,
@@ -43,6 +47,8 @@ def _sign_headers(
     }
     if body_hash:
         headers["X-Body-Hash"] = body_hash
+    if nonce:
+        headers["X-Nonce"] = nonce
     return headers
 
 
@@ -84,7 +90,7 @@ def test_add_pressure_rejects_header_payload_device_id_mismatch(client: TestClie
 
     response = client.post("/add_pressure", json=payload, headers=headers)
     assert response.status_code == 403
-    assert "Device ID mismatch" in response.text
+    assert "Invalid signature" in response.text
 
 
 def test_add_pressure_accepts_body_hash_signature(client: TestClient, db: Session):
@@ -133,7 +139,7 @@ def test_add_pressure_rejects_invalid_body_hash(client: TestClient, db: Session)
 
     response = client.post("/add_pressure", data=payload_raw, headers=headers)
     assert response.status_code == 403
-    assert "Invalid body hash" in response.text
+    assert "Invalid signature" in response.text
 
 
 def test_add_pressure_requires_body_hash_when_strict_enabled(client: TestClient, db: Session):
@@ -157,7 +163,7 @@ def test_add_pressure_requires_body_hash_when_strict_enabled(client: TestClient,
     try:
         response = client.post("/add_pressure", json=payload, headers=headers)
         assert response.status_code == 403
-        assert "Missing X-Body-Hash header" in response.text
+        assert "Invalid signature" in response.text
     finally:
         pressure_api.settings.device_api_require_body_hash_signature = original
 
@@ -181,3 +187,103 @@ def test_pressure_schema_rejects_sys_not_greater_than_dia(client: TestClient, db
     response = client.post("/add_pressure", json=payload, headers=headers)
     assert response.status_code == 422
 
+
+def test_add_pressure_requires_nonce_when_strict_enabled(client: TestClient, db: Session):
+    patient = _create_patient(db)
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": "device-nonce-required-001",
+        "heart_rate": 81,
+        "sys_rate": 124,
+        "dia_rate": 82,
+        "a": None,
+        "b": None,
+    }
+    headers = _sign_headers(
+        device_id="device-nonce-required-001",
+        timestamp=str(int(time.time())),
+    )
+
+    original_require_nonce = pressure_api.settings.device_api_require_nonce
+    pressure_api.settings.device_api_require_nonce = True
+    try:
+        response = client.post("/add_pressure", json=payload, headers=headers)
+        assert response.status_code == 403
+        assert "Invalid signature" in response.text
+    finally:
+        pressure_api.settings.device_api_require_nonce = original_require_nonce
+
+
+def test_add_pressure_accepts_nonce_and_rejects_replay(client: TestClient, db: Session):
+    patient = _create_patient(db)
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": "device-nonce-replay-001",
+        "heart_rate": 81,
+        "sys_rate": 124,
+        "dia_rate": 82,
+        "a": None,
+        "b": None,
+    }
+    nonce = f"nonce-{int(time.time() * 1000)}"
+    headers = _sign_headers(
+        device_id="device-nonce-replay-001",
+        timestamp=str(int(time.time())),
+        nonce=nonce,
+    )
+
+    original_require_nonce = pressure_api.settings.device_api_require_nonce
+    pressure_api.settings.device_api_require_nonce = True
+    try:
+        first_response = client.post("/add_pressure", json=payload, headers=headers)
+        assert first_response.status_code == 201, first_response.text
+
+        replay_response = client.post("/add_pressure", json=payload, headers=headers)
+        assert replay_response.status_code == 403
+        assert "Invalid signature" in replay_response.text
+    finally:
+        pressure_api.settings.device_api_require_nonce = original_require_nonce
+
+
+def test_add_pressure_accepts_per_device_secret_map(client: TestClient, db: Session):
+    patient = _create_patient(db)
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": "device-map-001",
+        "heart_rate": 79,
+        "sys_rate": 121,
+        "dia_rate": 80,
+        "a": None,
+        "b": None,
+    }
+    device_secret = "device_secret_map_001_1234567890abcdef1234567890abcd"
+    headers = _sign_headers(
+        device_id="device-map-001",
+        timestamp=str(int(time.time())),
+        secret=device_secret,
+    )
+
+    original_secret_map = dict(pressure_api.settings.device_api_secrets)
+    original_require_registered = pressure_api.settings.device_api_require_registered_device
+    original_global_secret = pressure_api.settings.device_api_secret
+
+    pressure_api.settings.device_api_secrets = {"device-map-001": device_secret}
+    pressure_api.settings.device_api_require_registered_device = True
+    pressure_api.settings.device_api_secret = None
+    try:
+        response = client.post("/add_pressure", json=payload, headers=headers)
+        assert response.status_code == 201, response.text
+
+        unknown_headers = _sign_headers(
+            device_id="unknown-device-001",
+            timestamp=str(int(time.time())),
+            secret=device_secret,
+        )
+        unknown_payload = {**payload, "device_id": "unknown-device-001"}
+        unknown_response = client.post("/add_pressure", json=unknown_payload, headers=unknown_headers)
+        assert unknown_response.status_code == 403
+        assert "Invalid signature" in unknown_response.text
+    finally:
+        pressure_api.settings.device_api_secrets = original_secret_map
+        pressure_api.settings.device_api_require_registered_device = original_require_registered
+        pressure_api.settings.device_api_secret = original_global_secret
