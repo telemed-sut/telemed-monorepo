@@ -215,6 +215,15 @@ def test_doctor_get_unassigned_patient_is_blocked(client: TestClient, db: Sessio
     assert response.status_code == 403
     assert "not assigned" in response.json()["detail"].lower()
 
+    denied_audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.user_id == doctor.id,
+            AuditLog.action == "patient_access_denied",
+            AuditLog.resource_id == UUID(patient_id),
+        )
+    )
+    assert denied_audit is not None
+
 
 def test_admin_manage_assignments_and_primary_rules(client: TestClient, db: Session):
     admin = create_test_user(db, UserRole.admin)

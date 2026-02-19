@@ -1,7 +1,10 @@
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.audit_log import AuditLog
+from app.models.invite import UserInvite
 from app.models.user import User, UserRole
 from app.core.security import get_password_hash
 
@@ -260,6 +263,55 @@ def test_invite_link_is_single_use(client: TestClient, db: Session):
         json={"token": invite_token, "password": "Password123", "license_no": "MD-0002"},
     )
     assert second_accept.status_code == 400
+
+
+def test_invite_acceptance_marks_used_and_writes_audit(client: TestClient, db: Session):
+    admin = User(
+        email="invite-audit-admin@example.com",
+        password_hash=get_password_hash("AdminPass123"),
+        role=UserRole.admin,
+    )
+    db.add(admin)
+    db.commit()
+
+    token = client.post(
+        "/auth/login",
+        json={"email": "invite-audit-admin@example.com", "password": "AdminPass123"},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    invite_url = client.post(
+        "/users/invites",
+        json={"email": "invite-audit-doctor@example.com", "role": "doctor"},
+        headers=headers,
+    ).json()["invite_url"]
+    invite_token = invite_url.rsplit("/", 1)[-1]
+
+    accept = client.post(
+        "/auth/invite/accept",
+        json={
+            "token": invite_token,
+            "first_name": "Invite",
+            "last_name": "Accepted",
+            "password": "DoctorPass123",
+            "license_no": "MD-1001",
+        },
+    )
+    assert accept.status_code == 200
+
+    invite = db.scalar(
+        select(UserInvite).where(UserInvite.email == "invite-audit-doctor@example.com")
+    )
+    assert invite is not None
+    assert invite.used_at is not None
+
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "invite_accept",
+            AuditLog.resource_id == invite.id,
+        )
+    )
+    assert audit is not None
 
 
 def test_invite_non_clinical_role_rejected(client: TestClient, db: Session):
