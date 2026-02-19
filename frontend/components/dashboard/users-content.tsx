@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
 import { useDashboardStore } from "@/store/dashboard-store";
@@ -68,35 +68,43 @@ import {
   Sector,
 } from "recharts";
 import { useTheme } from "next-themes";
+import { useLanguageStore } from "@/store/language-store";
+import type { AppLanguage } from "@/store/language-config";
+
+function tr(language: AppLanguage, en: string, th: string): string {
+  return language === "th" ? th : en;
+}
 
 // ── Welcome Section ──
 function WelcomeSection({
   users,
   currentUser,
+  language,
 }: {
   users: User[];
   currentUser: UserMe | null;
+  language: AppLanguage;
 }) {
   const active = users.filter((u) => u.is_active).length;
   const pending = users.filter(
     (u) => u.verification_status === "pending"
   ).length;
-  const firstName = currentUser?.first_name || "Admin";
+  const firstName = currentUser?.first_name || tr(language, "Admin", "ผู้ดูแล");
 
   return (
     <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 sm:gap-6">
       <div className="space-y-2 sm:space-y-5">
         <h2 className="text-lg sm:text-[22px] font-semibold leading-relaxed">
-          Welcome Back, {firstName}!
+          {tr(language, "Welcome Back", "ยินดีต้อนรับกลับ")}, {firstName}!
         </h2>
         <p className="text-sm sm:text-base text-muted-foreground">
-          You have{" "}
+          {tr(language, "You have", "คุณมี")}{" "}
           <span className="text-foreground font-medium">
-            {active} active users
+            {active} {tr(language, "active users", "ผู้ใช้ที่ใช้งานอยู่")}
           </span>
-          ,{" "}
+          {language === "th" ? " และ" : ","}{" "}
           <span className="text-foreground font-medium">
-            {pending} pending verification
+            {pending} {tr(language, "pending verification", "รอยืนยันตัวตน")}
           </span>
         </p>
       </div>
@@ -104,7 +112,7 @@ function WelcomeSection({
       <div className="flex items-center gap-2 sm:gap-3">
         <DropdownMenu>
           <DropdownMenuTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground px-3 text-xs sm:text-sm font-medium h-8 sm:h-9 gap-2 sm:gap-3">
-            <span className="hidden xs:inline">Import/Export</span>
+            <span className="hidden xs:inline">{tr(language, "Import/Export", "นำเข้า/ส่งออก")}</span>
             <span className="xs:hidden">
               <Download className="size-4" />
             </span>
@@ -113,19 +121,19 @@ function WelcomeSection({
           <DropdownMenuContent align="end">
             <DropdownMenuItem>
               <Upload className="size-4 mr-2" />
-              Import CSV
+              {tr(language, "Import CSV", "นำเข้า CSV")}
             </DropdownMenuItem>
             <DropdownMenuItem>
               <Upload className="size-4 mr-2" />
-              Import Excel
+              {tr(language, "Import Excel", "นำเข้า Excel")}
             </DropdownMenuItem>
             <DropdownMenuItem>
               <Download className="size-4 mr-2" />
-              Export CSV
+              {tr(language, "Export CSV", "ส่งออก CSV")}
             </DropdownMenuItem>
             <DropdownMenuItem>
               <FileText className="size-4 mr-2" />
-              Export PDF
+              {tr(language, "Export PDF", "ส่งออก PDF")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -135,8 +143,8 @@ function WelcomeSection({
           className="gap-2 sm:gap-3 h-8 sm:h-9 text-xs sm:text-sm bg-linear-to-b from-foreground to-foreground/90 text-background"
         >
           <Plus className="size-3 sm:size-4" />
-          <span className="hidden xs:inline">Create New</span>
-          <span className="xs:hidden">New</span>
+          <span className="hidden xs:inline">{tr(language, "Create New", "สร้างใหม่")}</span>
+          <span className="xs:hidden">{tr(language, "New", "ใหม่")}</span>
         </Button>
       </div>
     </div>
@@ -144,7 +152,7 @@ function WelcomeSection({
 }
 
 // ── Stats Cards ──
-function UserStatsCards({ users }: { users: User[] }) {
+function UserStatsCards({ users, language }: { users: User[]; language: AppLanguage }) {
   const total = users.length;
   const active = users.filter((u) => u.is_active).length;
   const admins = users.filter((u) => u.role === "admin").length;
@@ -152,7 +160,7 @@ function UserStatsCards({ users }: { users: User[] }) {
 
   const stats = [
     {
-      title: "Total Users",
+      title: tr(language, "Total Users", "ผู้ใช้ทั้งหมด"),
       value: total,
       change: `+${total}`,
       changeValue: "",
@@ -160,7 +168,7 @@ function UserStatsCards({ users }: { users: User[] }) {
       icon: Users,
     },
     {
-      title: "Active Users",
+      title: tr(language, "Active Users", "ผู้ใช้ที่ใช้งานอยู่"),
       value: active,
       change: `+${total > 0 ? Math.round((active / total) * 100) : 0}%`,
       changeValue: `(${active})`,
@@ -168,18 +176,18 @@ function UserStatsCards({ users }: { users: User[] }) {
       icon: UserCheck,
     },
     {
-      title: "Administrators",
+      title: tr(language, "Administrators", "ผู้ดูแลระบบ"),
       value: admins,
       change: `${admins}`,
-      changeValue: "accounts",
+      changeValue: tr(language, "accounts", "บัญชี"),
       isPositive: true,
       icon: ShieldCheck,
     },
     {
-      title: "Doctors",
+      title: tr(language, "Doctors", "แพทย์"),
       value: doctors,
       change: `${doctors}`,
-      changeValue: "accounts",
+      changeValue: tr(language, "accounts", "บัญชี"),
       isPositive: true,
       icon: Flame,
     },
@@ -209,7 +217,7 @@ function UserStatsCards({ users }: { users: User[] }) {
                 <span className="hidden sm:inline"> {stat.changeValue}</span>
               </span>
               <span className="text-muted-foreground hidden sm:inline">
-                vs Last Months
+                {tr(language, "vs Last Months", "เทียบเดือนก่อน")}
               </span>
             </div>
           </div>
@@ -227,7 +235,8 @@ function CustomTooltip({
   active,
   payload,
   label,
-}: TooltipProps<number, string>) {
+  language,
+}: TooltipProps<number, string> & { language: AppLanguage }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-popover border border-border rounded-lg p-2 sm:p-3 shadow-lg">
@@ -245,7 +254,7 @@ function CustomTooltip({
               {entry.name}:
             </span>
             <span className="text-[10px] sm:text-sm font-medium text-foreground">
-              {entry.value} users
+              {entry.value} {tr(language, "users", "ผู้ใช้")}
             </span>
           </div>
         ))}
@@ -258,13 +267,15 @@ function CustomTooltip({
 type ChartType = "bar" | "line" | "area";
 type TimePeriod = "3months" | "6months" | "year";
 
-const periodLabels: Record<TimePeriod, string> = {
-  "3months": "Last 3 Months",
-  "6months": "Last 6 Months",
-  year: "Full Year",
-};
-
-function MonthlyUserGrowthChart({ users }: { users: User[] }) {
+function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: AppLanguage }) {
+  const periodLabels = useMemo<Record<TimePeriod, string>>(
+    () => ({
+      "3months": tr(language, "Last 3 Months", "3 เดือนล่าสุด"),
+      "6months": tr(language, "Last 6 Months", "6 เดือนล่าสุด"),
+      year: tr(language, "Full Year", "ทั้งปี"),
+    }),
+    [language]
+  );
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
   const axisColor = isDark ? "#71717a" : "#a1a1aa";
@@ -276,20 +287,12 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
   const [currentInsight, setCurrentInsight] = useState(0);
 
   const fullYearData = useMemo(() => {
-    const months = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
+    const monthFormatter = new Intl.DateTimeFormat(language === "th" ? "th-TH" : "en-US", {
+      month: "short",
+    });
+    const months = Array.from({ length: 12 }, (_, monthIndex) =>
+      monthFormatter.format(new Date(2026, monthIndex, 1))
+    );
     const counts: Record<number, number> = {};
     const currentYear = new Date().getFullYear();
     users.forEach((u) => {
@@ -301,7 +304,7 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
       }
     });
     return months.map((month, i) => ({ month, users: counts[i] || 0 }));
-  }, [users]);
+  }, [users, language]);
 
   const chartData = useMemo(() => {
     switch (period) {
@@ -322,11 +325,23 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
 
   const insights = useMemo(
     () => [
-      `${bestMonth.month} had the highest registrations with ${bestMonth.users} users`,
-      `Total of ${totalUsers} users registered in ${periodLabels[period].toLowerCase()}`,
-      `Average ${(totalUsers / (chartData.length || 1)).toFixed(1)} users per month`,
+      tr(
+        language,
+        `${bestMonth.month} had the highest registrations with ${bestMonth.users} users`,
+        `${bestMonth.month} มีการลงทะเบียนสูงสุด ${bestMonth.users} คน`
+      ),
+      tr(
+        language,
+        `Total of ${totalUsers} users registered in ${periodLabels[period].toLowerCase()}`,
+        `มีผู้ลงทะเบียนรวม ${totalUsers} คน ในช่วง${periodLabels[period]}`
+      ),
+      tr(
+        language,
+        `Average ${(totalUsers / (chartData.length || 1)).toFixed(1)} users per month`,
+        `เฉลี่ย ${(totalUsers / (chartData.length || 1)).toFixed(1)} คนต่อเดือน`
+      ),
     ],
-    [bestMonth, totalUsers, period, chartData.length]
+    [bestMonth, totalUsers, period, chartData.length, periodLabels, language]
   );
 
   return (
@@ -340,15 +355,15 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
           >
             <BarChart2 className="size-4 sm:size-[18px] text-muted-foreground" />
           </Button>
-          <span className="text-sm sm:text-base font-medium">
-            User Growth
+            <span className="text-sm sm:text-base font-medium">
+            {tr(language, "User Growth", "การเติบโตของผู้ใช้")}
           </span>
         </div>
         <div className="hidden sm:flex items-center gap-3 sm:gap-5">
           <div className="flex items-center gap-1.5">
             <div className="size-2.5 sm:size-3 rounded-full bg-[#7ac2f0]" />
             <span className="text-[10px] sm:text-xs text-muted-foreground">
-              This Year
+              {tr(language, "This Year", "ปีนี้")}
             </span>
           </div>
         </div>
@@ -358,32 +373,32 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuGroup>
-              <DropdownMenuLabel>Chart Options</DropdownMenuLabel>
+              <DropdownMenuLabel>{tr(language, "Chart Options", "ตัวเลือกกราฟ")}</DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <BarChart3 className="size-4 mr-2" />
-                Chart Type
+                {tr(language, "Chart Type", "ประเภทกราฟ")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuItem onClick={() => setChartType("bar")}>
                   <BarChart3 className="size-4 mr-2" />
-                  Bar Chart
+                  {tr(language, "Bar Chart", "กราฟแท่ง")}
                   {chartType === "bar" && (
                     <Check className="size-4 ml-auto" />
                   )}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setChartType("line")}>
                   <LineChartIcon className="size-4 mr-2" />
-                  Line Chart
+                  {tr(language, "Line Chart", "กราฟเส้น")}
                   {chartType === "line" && (
                     <Check className="size-4 ml-auto" />
                   )}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setChartType("area")}>
                   <TrendingUp className="size-4 mr-2" />
-                  Area Chart
+                  {tr(language, "Area Chart", "กราฟพื้นที่")}
                   {chartType === "area" && (
                     <Check className="size-4 ml-auto" />
                   )}
@@ -394,7 +409,7 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <Calendar className="size-4 mr-2" />
-                Time Period
+                {tr(language, "Time Period", "ช่วงเวลา")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 {(Object.keys(periodLabels) as TimePeriod[]).map((key) => (
@@ -417,7 +432,7 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
               onCheckedChange={setShowGrid}
             >
               <Grid3X3 className="size-4 mr-2" />
-              Show Grid Lines
+              {tr(language, "Show Grid Lines", "แสดงเส้นกริด")}
             </DropdownMenuCheckboxItem>
 
             <DropdownMenuSeparator />
@@ -429,7 +444,7 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
               }}
             >
               <RefreshCw className="size-4 mr-2" />
-              Reset to Default
+              {tr(language, "Reset to Default", "รีเซ็ตค่าเริ่มต้น")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -442,13 +457,13 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
               {totalUsers}
             </p>
             <p className="text-xs sm:text-sm text-muted-foreground">
-              Total Registrations ({periodLabels[period]})
+              {tr(language, "Total Registrations", "ผู้ลงทะเบียนรวม")} ({periodLabels[period]})
             </p>
           </div>
 
           <div className="bg-muted/50 rounded-lg p-3 sm:p-4 space-y-3 sm:space-y-4">
             <p className="text-xs sm:text-sm font-semibold">
-              🏆 Best Performing Month
+              🏆 {tr(language, "Best Performing Month", "เดือนที่ผลงานดีที่สุด")}
             </p>
             <p className="text-[10px] sm:text-xs text-muted-foreground leading-relaxed">
               {insights[currentInsight]}
@@ -532,7 +547,7 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
                   width={40}
                 />
                 <Tooltip
-                  content={<CustomTooltip />}
+                  content={<CustomTooltip language={language} />}
                   cursor={{
                     fill: isDark ? "#27272a" : "#f4f4f5",
                     radius: 4,
@@ -540,7 +555,7 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
                 />
                 <Bar
                   dataKey="users"
-                  name="Users"
+                  name={tr(language, "Users", "ผู้ใช้")}
                   fill="url(#userBarGrad)"
                   radius={[4, 4, 0, 0]}
                   maxBarSize={18}
@@ -570,7 +585,7 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
                   width={40}
                 />
                 <Tooltip
-                  content={<CustomTooltip />}
+                  content={<CustomTooltip language={language} />}
                   cursor={{
                     stroke: isDark ? "#52525b" : "#d4d4d8",
                   }}
@@ -578,7 +593,7 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
                 <Line
                   type="monotone"
                   dataKey="users"
-                  name="Users"
+                  name={tr(language, "Users", "ผู้ใช้")}
                   stroke="#7ac2f0"
                   strokeWidth={2}
                   dot={{ fill: "#7ac2f0", strokeWidth: 0, r: 3 }}
@@ -629,7 +644,7 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
                   width={40}
                 />
                 <Tooltip
-                  content={<CustomTooltip />}
+                  content={<CustomTooltip language={language} />}
                   cursor={{
                     stroke: isDark ? "#52525b" : "#d4d4d8",
                   }}
@@ -637,7 +652,7 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
                 <Area
                   type="monotone"
                   dataKey="users"
-                  name="Users"
+                  name={tr(language, "Users", "ผู้ใช้")}
                   stroke="#7ac2f0"
                   strokeWidth={2}
                   fill="url(#userAreaGrad)"
@@ -652,8 +667,26 @@ function MonthlyUserGrowthChart({ users }: { users: User[] }) {
 }
 
 // ── Users by Role Chart (Donut/Pie — Lead Sources style) ──
-function UsersByRoleChart({ users }: { users: User[] }) {
+function UsersByRoleChart({ users, language }: { users: User[]; language: AppLanguage }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const getRoleLabel = useCallback(
+    (role: string) => {
+      if (language !== "th") {
+        return ROLE_LABEL_MAP[role] || role.charAt(0).toUpperCase() + role.slice(1);
+      }
+      const labels: Record<string, string> = {
+        admin: "ผู้ดูแลระบบ",
+        doctor: "แพทย์",
+        staff: "เจ้าหน้าที่",
+        nurse: "พยาบาล",
+        pharmacist: "เภสัชกร",
+        medical_technologist: "นักเทคนิคการแพทย์",
+        psychologist: "นักจิตวิทยา",
+      };
+      return labels[role] || role;
+    },
+    [language]
+  );
 
   const roleData = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -673,12 +706,11 @@ function UsersByRoleChart({ users }: { users: User[] }) {
       .sort(([, a], [, b]) => b - a)
       .map(([role, count]) => ({
         name:
-          ROLE_LABEL_MAP[role] ||
-          role.charAt(0).toUpperCase() + role.slice(1),
+          getRoleLabel(role),
         value: count,
         color: colors[role] || "#7ac2f0",
       }));
-  }, [users]);
+  }, [users, getRoleLabel]);
 
   const totalUsers = roleData.reduce((acc, item) => acc + item.value, 0);
 
@@ -728,7 +760,7 @@ function UsersByRoleChart({ users }: { users: User[] }) {
             <ShieldCheck className="size-4 sm:size-[18px] text-muted-foreground" />
           </Button>
           <span className="text-sm sm:text-base font-medium">
-            Users by Role
+            {tr(language, "Users by Role", "ผู้ใช้ตามบทบาท")}
           </span>
         </div>
         <DropdownMenu>
@@ -738,7 +770,7 @@ function UsersByRoleChart({ users }: { users: User[] }) {
           <DropdownMenuContent align="end" className="w-[180px]">
             <DropdownMenuItem>
               <Download className="size-4 mr-2" />
-              Export as PNG
+              {tr(language, "Export as PNG", "ส่งออกเป็น PNG")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -775,7 +807,7 @@ function UsersByRoleChart({ users }: { users: User[] }) {
               {totalUsers}
             </span>
             <span className="text-[10px] sm:text-xs text-muted-foreground">
-              Total Users
+              {tr(language, "Total Users", "ผู้ใช้ทั้งหมด")}
             </span>
           </div>
         </div>
@@ -809,7 +841,7 @@ function UsersByRoleChart({ users }: { users: User[] }) {
 
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Settings2 className="size-3" />
-        <span>All registered users</span>
+        <span>{tr(language, "All registered users", "ผู้ใช้ที่ลงทะเบียนทั้งหมด")}</span>
       </div>
     </div>
   );
@@ -821,6 +853,7 @@ export function UsersContent() {
   const token = useAuthStore((state) => state.token);
   const hydrated = useAuthStore((state) => state.hydrated);
   const clearToken = useAuthStore((state) => state.clearToken);
+  const language = useLanguageStore((state) => state.language);
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
 
@@ -880,12 +913,12 @@ export function UsersContent() {
 
   return (
     <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 bg-background w-full">
-      <WelcomeSection users={users} currentUser={currentUser} />
-      {showUserStats && <UserStatsCards users={users} />}
+      <WelcomeSection users={users} currentUser={currentUser} language={language} />
+      {showUserStats && <UserStatsCards users={users} language={language} />}
       {showUserCharts && (
         <div className="flex flex-col xl:flex-row gap-4 sm:gap-6">
-          <MonthlyUserGrowthChart users={users} />
-          <UsersByRoleChart users={users} />
+          <MonthlyUserGrowthChart users={users} language={language} />
+          <UsersByRoleChart users={users} language={language} />
         </div>
       )}
       {showUserTable && <UsersTable />}

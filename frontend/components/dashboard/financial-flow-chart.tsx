@@ -43,18 +43,111 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchOverviewStats, type MonthlyStats } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
+import { useLanguageStore } from "@/store/language-store";
+import type { AppLanguage } from "@/store/language-config";
 
 type ChartType = "bar" | "line" | "area";
 type TimePeriod = "3months" | "6months" | "year" | "q1" | "q2" | "q3" | "q4";
 
-const periodLabels: Record<TimePeriod, string> = {
-  "3months": "Last 3 Months",
-  "6months": "Last 6 Months",
-  year: "Full Year",
-  q1: "Q1 (Jan-Mar)",
-  q2: "Q2 (Apr-Jun)",
-  q3: "Q3 (Jul-Sep)",
-  q4: "Q4 (Oct-Dec)",
+const PERIOD_LABELS: Record<AppLanguage, Record<TimePeriod, string>> = {
+  en: {
+    "3months": "Last 3 Months",
+    "6months": "Last 6 Months",
+    year: "Full Year",
+    q1: "Q1 (Jan-Mar)",
+    q2: "Q2 (Apr-Jun)",
+    q3: "Q3 (Jul-Sep)",
+    q4: "Q4 (Oct-Dec)",
+  },
+  th: {
+    "3months": "3 เดือนล่าสุด",
+    "6months": "6 เดือนล่าสุด",
+    year: "ทั้งปี",
+    q1: "ไตรมาส 1 (ม.ค.-มี.ค.)",
+    q2: "ไตรมาส 2 (เม.ย.-มิ.ย.)",
+    q3: "ไตรมาส 3 (ก.ค.-ก.ย.)",
+    q4: "ไตรมาส 4 (ต.ค.-ธ.ค.)",
+  },
+};
+
+const MONTH_LABELS: Record<AppLanguage, Record<string, string>> = {
+  en: {},
+  th: {
+    Jan: "ม.ค.",
+    Feb: "ก.พ.",
+    Mar: "มี.ค.",
+    Apr: "เม.ย.",
+    May: "พ.ค.",
+    Jun: "มิ.ย.",
+    Jul: "ก.ค.",
+    Aug: "ส.ค.",
+    Sep: "ก.ย.",
+    Oct: "ต.ค.",
+    Nov: "พ.ย.",
+    Dec: "ธ.ค.",
+  },
+};
+
+const I18N: Record<
+  AppLanguage,
+  {
+    trendTitle: string;
+    newPatients: string;
+    consultations: string;
+    chartType: string;
+    barChart: string;
+    lineChart: string;
+    areaChart: string;
+    timePeriod: string;
+    displayOptions: string;
+    showGridLines: string;
+    smoothCurve: string;
+    dataSeries: string;
+    showNewPatients: string;
+    showConsultations: string;
+    resetToDefault: string;
+    newPatientsTooltip: string;
+    consultationsTooltip: string;
+  }
+> = {
+  en: {
+    trendTitle: "Patient & Consultation Trends",
+    newPatients: "New Patients",
+    consultations: "Consultations",
+    chartType: "Chart Type",
+    barChart: "Bar Chart",
+    lineChart: "Line Chart",
+    areaChart: "Area Chart",
+    timePeriod: "Time Period",
+    displayOptions: "Display Options",
+    showGridLines: "Show Grid Lines",
+    smoothCurve: "Smooth Curve",
+    dataSeries: "Data Series",
+    showNewPatients: "Show New Patients",
+    showConsultations: "Show Consultations",
+    resetToDefault: "Reset to Default",
+    newPatientsTooltip: "new patients",
+    consultationsTooltip: "consultations",
+  },
+  th: {
+    trendTitle: "แนวโน้มผู้ป่วยและการปรึกษา",
+    newPatients: "ผู้ป่วยใหม่",
+    consultations: "การปรึกษา",
+    chartType: "ประเภทรายงาน",
+    barChart: "กราฟแท่ง",
+    lineChart: "กราฟเส้น",
+    areaChart: "กราฟพื้นที่",
+    timePeriod: "ช่วงเวลา",
+    displayOptions: "ตัวเลือกการแสดงผล",
+    showGridLines: "แสดงเส้นกริด",
+    smoothCurve: "เส้นโค้งแบบนุ่ม",
+    dataSeries: "ชุดข้อมูล",
+    showNewPatients: "แสดงผู้ป่วยใหม่",
+    showConsultations: "แสดงการปรึกษา",
+    resetToDefault: "รีเซ็ตค่าเริ่มต้น",
+    newPatientsTooltip: "ผู้ป่วยใหม่",
+    consultationsTooltip: "การปรึกษา",
+  },
 };
 
 function getDataForPeriod(data: MonthlyStats[], period: TimePeriod) {
@@ -76,11 +169,16 @@ function getDataForPeriod(data: MonthlyStats[], period: TimePeriod) {
   }
 }
 
+function localizeMonthLabel(month: string, language: AppLanguage): string {
+  return MONTH_LABELS[language][month] ?? month;
+}
+
 function CustomTooltip({
   active,
   payload,
   label,
-}: TooltipProps<number, string>) {
+  t,
+}: TooltipProps<number, string> & { t: (typeof I18N)[AppLanguage] }) {
   if (!active || !payload?.length) return null;
 
   const patientsData = payload.find((p) => p.dataKey === "new_patients");
@@ -96,7 +194,7 @@ function CustomTooltip({
           <div className="flex items-center gap-2">
             <div className="size-2 rounded-full bg-[#7ac2f0]" />
             <span className="text-sm font-semibold text-foreground">
-              {Number(patients)} new patients
+              {Number(patients)} {t.newPatientsTooltip}
             </span>
           </div>
         </div>
@@ -104,7 +202,7 @@ function CustomTooltip({
           <div className="flex items-center gap-2">
             <div className="size-2 rounded-full bg-[#5aade0]" />
             <span className="text-sm font-semibold text-foreground">
-              {Number(consultations)} consultations
+              {Number(consultations)} {t.consultationsTooltip}
             </span>
           </div>
         </div>
@@ -116,6 +214,9 @@ function CustomTooltip({
 export function FinancialFlowChart() {
   const { theme } = useTheme();
   const token = useAuthStore((state) => state.token);
+  const language = useLanguageStore((state) => state.language);
+  const t = I18N[language];
+  const periodLabels = PERIOD_LABELS[language];
   const [chartType, setChartType] = useState<ChartType>("area");
   const [period, setPeriod] = useState<TimePeriod>("year");
   const [showGrid, setShowGrid] = useState(true);
@@ -132,14 +233,16 @@ export function FinancialFlowChart() {
 
   useEffect(() => {
     if (!token) return;
-    setLoading(true);
     fetchOverviewStats(token)
       .then((res) => setMonthlyData(res.monthly))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [token]);
 
-  const chartData = getDataForPeriod(monthlyData, period);
+  const chartData = getDataForPeriod(monthlyData, period).map((item) => ({
+    ...item,
+    month: localizeMonthLabel(item.month, language),
+  }));
 
   const resetToDefault = () => {
     setChartType("area");
@@ -172,7 +275,7 @@ export function FinancialFlowChart() {
             className="size-5 text-[#7ac2f0]"
           />
           <span className="font-medium text-muted-foreground">
-            Patient &amp; Consultation Trends
+            {t.trendTitle}
           </span>
         </div>
 
@@ -180,14 +283,14 @@ export function FinancialFlowChart() {
           <div className="hidden sm:flex items-center gap-4">
             <div className="flex items-center gap-1.5">
               <div className="size-3 rounded-full bg-[#7ac2f0]" />
-              <span className="text-xs font-medium text-muted-foreground">
-                New Patients
+                <span className="text-xs font-medium text-muted-foreground">
+                {t.newPatients}
               </span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="size-3 rounded-full bg-[#5aade0]" />
-              <span className="text-xs font-medium text-muted-foreground">
-                Consultations
+                <span className="text-xs font-medium text-muted-foreground">
+                {t.consultations}
               </span>
             </div>
           </div>
@@ -199,25 +302,25 @@ export function FinancialFlowChart() {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuGroup>
                 <p className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
-                  Chart Type
+                  {t.chartType}
                 </p>
                 <DropdownMenuItem onClick={() => setChartType("bar")}>
                   <HugeiconsIcon icon={ChartBarLineIcon} className="size-4 mr-2" />
-                  Bar Chart
+                  {t.barChart}
                   {chartType === "bar" && (
                     <HugeiconsIcon icon={Tick01Icon} className="size-4 ml-auto" />
                   )}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setChartType("line")}>
                   <HugeiconsIcon icon={ChartLineData01Icon} className="size-4 mr-2" />
-                  Line Chart
+                  {t.lineChart}
                   {chartType === "line" && (
                     <HugeiconsIcon icon={Tick01Icon} className="size-4 ml-auto" />
                   )}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setChartType("area")}>
                   <HugeiconsIcon icon={ChartAverageIcon} className="size-4 mr-2" />
-                  Area Chart
+                  {t.areaChart}
                   {chartType === "area" && (
                     <HugeiconsIcon icon={Tick01Icon} className="size-4 ml-auto" />
                   )}
@@ -229,7 +332,7 @@ export function FinancialFlowChart() {
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>
                   <HugeiconsIcon icon={Calendar01Icon} className="size-4 mr-2" />
-                  Time Period
+                  {t.timePeriod}
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent>
                   {(Object.keys(periodLabels) as TimePeriod[]).map((key) => (
@@ -247,14 +350,14 @@ export function FinancialFlowChart() {
 
               <DropdownMenuGroup>
                 <p className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
-                  Display Options
+                  {t.displayOptions}
                 </p>
                 <DropdownMenuCheckboxItem
                   checked={showGrid}
                   onCheckedChange={setShowGrid}
                 >
                   <HugeiconsIcon icon={GridIcon} className="size-4 mr-2" />
-                  Show Grid Lines
+                  {t.showGridLines}
                 </DropdownMenuCheckboxItem>
 
                 {(chartType === "line" || chartType === "area") && (
@@ -263,7 +366,7 @@ export function FinancialFlowChart() {
                     onCheckedChange={setSmoothCurve}
                   >
                     <HugeiconsIcon icon={ChartAverageIcon} className="size-4 mr-2" />
-                    Smooth Curve
+                    {t.smoothCurve}
                   </DropdownMenuCheckboxItem>
                 )}
               </DropdownMenuGroup>
@@ -272,14 +375,14 @@ export function FinancialFlowChart() {
 
               <DropdownMenuGroup>
                 <p className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
-                  Data Series
+                  {t.dataSeries}
                 </p>
                 <DropdownMenuCheckboxItem
                   checked={showPatients}
                   onCheckedChange={setShowPatients}
                 >
                   <div className="size-3 rounded-full bg-[#7ac2f0] mr-2" />
-                  Show New Patients
+                  {t.showNewPatients}
                 </DropdownMenuCheckboxItem>
 
                 <DropdownMenuCheckboxItem
@@ -287,7 +390,7 @@ export function FinancialFlowChart() {
                   onCheckedChange={setShowConsultations}
                 >
                   <div className="size-3 rounded-full bg-[#5aade0] mr-2" />
-                  Show Consultations
+                  {t.showConsultations}
                 </DropdownMenuCheckboxItem>
               </DropdownMenuGroup>
 
@@ -295,7 +398,7 @@ export function FinancialFlowChart() {
 
               <DropdownMenuItem onClick={resetToDefault}>
                 <HugeiconsIcon icon={RefreshIcon} className="size-4 mr-2" />
-                Reset to Default
+                {t.resetToDefault}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -321,7 +424,7 @@ export function FinancialFlowChart() {
               )}
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 10 }} width={40} />
-              <Tooltip content={<CustomTooltip />} cursor={{ fill: "#f4f4f5", radius: 4 }} />
+              <Tooltip content={<CustomTooltip t={t} />} cursor={{ fill: "#f4f4f5", radius: 4 }} />
               {showPatients && (
                 <Bar dataKey="new_patients" fill="url(#patientsGradient)" radius={[4, 4, 0, 0]} maxBarSize={22} />
               )}
@@ -336,7 +439,7 @@ export function FinancialFlowChart() {
               )}
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 10 }} width={40} />
-              <Tooltip content={<CustomTooltip />} cursor={{ stroke: "#d4d4d8" }} />
+              <Tooltip content={<CustomTooltip t={t} />} cursor={{ stroke: "#d4d4d8" }} />
               {showPatients && (
                 <Line
                   type={smoothCurve ? "monotone" : "linear"}
@@ -375,7 +478,7 @@ export function FinancialFlowChart() {
               )}
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 10 }} width={40} />
-              <Tooltip content={<CustomTooltip />} cursor={{ stroke: "#d4d4d8" }} />
+              <Tooltip content={<CustomTooltip t={t} />} cursor={{ stroke: "#d4d4d8" }} />
               {showPatients && (
                 <Area
                   type={smoothCurve ? "monotone" : "linear"}

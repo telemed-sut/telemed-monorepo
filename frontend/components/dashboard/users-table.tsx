@@ -127,10 +127,15 @@ import {
 } from "@/components/ui/card";
 
 import { DataTableViewOptions } from "./data-table-view-options";
+import { useLanguageStore } from "@/store/language-store";
+import type { AppLanguage } from "@/store/language-config";
 
 
 
 // --- Constants & Helpers ---
+
+const tr = (language: AppLanguage, en: string, th: string) =>
+    language === "th" ? th : en;
 
 const ROLE_OPTIONS = [
     { value: "admin", label: "Administrator" },
@@ -150,6 +155,22 @@ const ROLE_LABEL_MAP: Record<string, string> = ROLE_OPTIONS.reduce(
     (acc, curr) => ({ ...acc, [curr.value]: curr.label }),
     {}
 );
+
+const ROLE_LABEL_MAP_TH: Record<string, string> = {
+    admin: "ผู้ดูแลระบบ",
+    doctor: "แพทย์",
+    nurse: "พยาบาล",
+    pharmacist: "เภสัชกร",
+    medical_technologist: "นักเทคนิคการแพทย์",
+    psychologist: "นักจิตวิทยา",
+    staff: "เจ้าหน้าที่",
+};
+
+const STATUS_LABEL_MAP_TH: Record<string, string> = {
+    verified: "ยืนยันแล้ว",
+    pending: "รอตรวจสอบ",
+    unverified: "ยังไม่ยืนยัน",
+};
 
 const isClinicalRole = (role: string) => {
     return CLINICAL_ROLE_OPTIONS.some((option) => option.value === role);
@@ -181,11 +202,34 @@ const INVITE_STATUS_LABEL_MAP: Record<string, string> = {
     closed: "Closed",
 };
 
-const formatInviteTimestamp = (value?: string | null): string => {
+const getRoleLabelByLanguage = (role: string, language: AppLanguage): string => {
+    if (language === "th") {
+        return ROLE_LABEL_MAP_TH[role] || role;
+    }
+    return ROLE_LABEL_MAP[role] || role.charAt(0).toUpperCase() + role.slice(1);
+};
+
+const getVerificationStatusLabel = (status: string, language: AppLanguage): string => {
+    if (language === "th") {
+        return STATUS_LABEL_MAP_TH[status] || status;
+    }
+    return status;
+};
+
+const getInviteStatusLabel = (status: string, language: AppLanguage): string => {
+    const englishLabel = INVITE_STATUS_LABEL_MAP[status] ?? status;
+    if (language !== "th") return englishLabel;
+    if (status === "active") return "ใช้งาน";
+    if (status === "expired") return "หมดอายุ";
+    if (status === "closed") return "ปิดแล้ว";
+    return englishLabel;
+};
+
+const formatInviteTimestamp = (value?: string | null, language: AppLanguage = "en"): string => {
     if (!value) return "-";
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "-";
-    return date.toLocaleString("th-TH", {
+    return date.toLocaleString(language === "th" ? "th-TH" : "en-US", {
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
@@ -198,6 +242,7 @@ const formatInviteTimestamp = (value?: string | null): string => {
 
 export function UsersTable() {
     const { role: currentUserRole, token, userId: currentUserId } = useAuthStore();
+    const language = useLanguageStore((state) => state.language);
 
     // State for data
     const [users, setUsers] = useState<User[]>([]);
@@ -295,8 +340,8 @@ export function UsersTable() {
             setUsers(res.items || []);
             setTotal(res.total || 0);
         } catch (error) {
-            toast.error("Error", {
-                description: "Failed to load users.",
+            toast.error(tr(language, "Error", "ข้อผิดพลาด"), {
+                description: tr(language, "Failed to load users.", "โหลดข้อมูลผู้ใช้ไม่สำเร็จ"),
             });
         } finally {
             setLoading(false);
@@ -317,9 +362,9 @@ export function UsersTable() {
             );
             setInviteItems(response.items ?? []);
         } catch (error) {
-                toast.error("Load failed", {
-                    description: getErrorMessage(error, "ไม่สามารถโหลดรายการคำเชิญได้"),
-                });
+            toast.error(tr(language, "Load failed", "โหลดไม่สำเร็จ"), {
+                description: getErrorMessage(error, "ไม่สามารถโหลดรายการคำเชิญได้"),
+            });
         } finally {
             setIsInviteListLoading(false);
         }
@@ -375,10 +420,14 @@ export function UsersTable() {
 
     const handleDelete = (user: User) => {
         const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
-        toast.destructiveAction("Delete user?", {
-            description: `Are you sure you want to delete ${fullName}?`,
+        toast.destructiveAction(tr(language, "Delete user?", "ลบผู้ใช้ใช่ไหม?"), {
+            description: tr(
+                language,
+                `Are you sure you want to delete ${fullName}?`,
+                `ยืนยันการลบผู้ใช้ ${fullName} ใช่หรือไม่?`
+            ),
             button: {
-                title: "Delete User",
+                title: tr(language, "Delete User", "ลบผู้ใช้"),
                 onClick: () => {
                     void confirmDelete(user);
                 },
@@ -389,20 +438,20 @@ export function UsersTable() {
 
     const confirmDelete = async (user: User) => {
         if (!token) {
-            toast.error("Delete failed", {
-                description: "Not authenticated. Please sign in again.",
+            toast.error(tr(language, "Delete failed", "ลบไม่สำเร็จ"), {
+                description: tr(language, "Not authenticated. Please sign in again.", "ยังไม่ได้ยืนยันตัวตน กรุณาเข้าสู่ระบบอีกครั้ง"),
             });
             return;
         }
 
         try {
             await deleteUser(user.id, token);
-            toast.success("Success", {
-                description: "User deleted successfully",
+            toast.success(tr(language, "Success", "สำเร็จ"), {
+                description: tr(language, "User deleted successfully", "ลบผู้ใช้สำเร็จ"),
             });
             loadUsers();
         } catch (error) {
-            toast.error("Delete failed", {
+            toast.error(tr(language, "Delete failed", "ลบไม่สำเร็จ"), {
                 description: getErrorMessage(error, "ไม่สามารถลบผู้ใช้ได้"),
             });
         }
@@ -410,8 +459,8 @@ export function UsersTable() {
 
     const confirmRestore = async (user: User) => {
         if (!token) {
-            toast.error("Restore failed", {
-                description: "Not authenticated. Please sign in again.",
+            toast.error(tr(language, "Restore failed", "กู้คืนไม่สำเร็จ"), {
+                description: tr(language, "Not authenticated. Please sign in again.", "ยังไม่ได้ยืนยันตัวตน กรุณาเข้าสู่ระบบอีกครั้ง"),
             });
             return;
         }
@@ -419,15 +468,15 @@ export function UsersTable() {
         try {
             const restored = await restoreUser(user.id, token);
             const usingRetiredEmail = restored.email.startsWith("deleted+");
-            toast.success("User restored", {
+            toast.success(tr(language, "User restored", "กู้คืนผู้ใช้แล้ว"), {
                 description: usingRetiredEmail
-                    ? "Account restored. Please edit email before giving access to this user."
-                    : "User restored successfully.",
+                    ? tr(language, "Account restored. Please edit email before giving access to this user.", "กู้คืนบัญชีแล้ว กรุณาแก้ไขอีเมลก่อนให้สิทธิ์ผู้ใช้นี้")
+                    : tr(language, "User restored successfully.", "กู้คืนผู้ใช้สำเร็จ"),
             });
             setRowSelection({});
             loadUsers();
         } catch (error) {
-            toast.error("Restore failed", {
+            toast.error(tr(language, "Restore failed", "กู้คืนไม่สำเร็จ"), {
                 description: getErrorMessage(error, "ไม่สามารถกู้คืนผู้ใช้ได้"),
             });
         }
@@ -435,10 +484,14 @@ export function UsersTable() {
 
     const requestRestore = (user: User) => {
         const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
-        toast.action("Restore user?", {
-            description: `Restore ${fullName} back to active users?`,
+        toast.action(tr(language, "Restore user?", "กู้คืนผู้ใช้ใช่ไหม?"), {
+            description: tr(
+                language,
+                `Restore ${fullName} back to active users?`,
+                `ต้องการกู้คืน ${fullName} กลับเป็นผู้ใช้ที่ใช้งานอยู่หรือไม่?`
+            ),
             button: {
-                title: "Restore User",
+                title: tr(language, "Restore User", "กู้คืนผู้ใช้"),
                 onClick: () => {
                     void confirmRestore(user);
                 },
@@ -449,8 +502,8 @@ export function UsersTable() {
 
     const handleVerifyUser = async (user: User) => {
         if (!token) {
-            toast.error("Verification failed", {
-                description: "Not authenticated. Please sign in again.",
+            toast.error(tr(language, "Verification failed", "ยืนยันไม่สำเร็จ"), {
+                description: tr(language, "Not authenticated. Please sign in again.", "ยังไม่ได้ยืนยันตัวตน กรุณาเข้าสู่ระบบอีกครั้ง"),
             });
             return;
         }
@@ -459,13 +512,17 @@ export function UsersTable() {
             await verifyUser(user.id, token);
             const displayName = getDisplayName(user.first_name, user.last_name, user.email);
             showTeamUpdateToast({
-                title: "Verification Complete",
+                title: tr(language, "Verification Complete", "ยืนยันเสร็จสมบูรณ์"),
                 members: [displayName],
-                message: `${displayName} is now verified and ready for assignments.`,
+                message: tr(
+                    language,
+                    `${displayName} is now verified and ready for assignments.`,
+                    `${displayName} ได้รับการยืนยันแล้วและพร้อมสำหรับการมอบหมายงาน`
+                ),
             });
             loadUsers();
         } catch (err) {
-            toast.error("Verification failed", {
+            toast.error(tr(language, "Verification failed", "ยืนยันไม่สำเร็จ"), {
                 description: getErrorMessage(err, "ไม่สามารถยืนยันผู้ใช้ได้"),
             });
         }
@@ -474,8 +531,8 @@ export function UsersTable() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!token) {
-            toast.error("Save failed", {
-                description: "Not authenticated. Please sign in again.",
+            toast.error(tr(language, "Save failed", "บันทึกไม่สำเร็จ"), {
+                description: tr(language, "Not authenticated. Please sign in again.", "ยังไม่ได้ยืนยันตัวตน กรุณาเข้าสู่ระบบอีกครั้ง"),
                 duration: 10000,
             });
             return;
@@ -484,15 +541,15 @@ export function UsersTable() {
         try {
             const normalizedEmail = formData.email?.trim();
             if (!normalizedEmail) {
-                throw new Error("Email is required.");
+                throw new Error(tr(language, "Email is required.", "จำเป็นต้องกรอกอีเมล"));
             }
 
             const normalizedPassword = formData.password?.trim();
             if (!editingUser && !normalizedPassword) {
-                throw new Error("Password is required.");
+                throw new Error(tr(language, "Password is required.", "จำเป็นต้องกรอกรหัสผ่าน"));
             }
             if (normalizedPassword && normalizedPassword.length < 8) {
-                throw new Error("Password must be at least 8 characters.");
+                throw new Error(tr(language, "Password must be at least 8 characters.", "รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร"));
             }
 
             const basePayload: Omit<UserCreate, "password" | "email"> & { email: string } = {
@@ -529,21 +586,21 @@ export function UsersTable() {
                 basePayload.email
             );
             if (editingUser) {
-                toast.success("User updated", {
-                    description: `${displayName} details were saved successfully.`,
+                toast.success(tr(language, "User updated", "อัปเดตผู้ใช้แล้ว"), {
+                    description: tr(language, `${displayName} details were saved successfully.`, `บันทึกข้อมูลของ ${displayName} สำเร็จ`),
                 });
             } else {
                 showTeamUpdateToast({
-                    title: "Team Update",
+                    title: tr(language, "Team Update", "อัปเดตทีม"),
                     members: [displayName],
-                    message: `${displayName} joined as ${roleLabel}.`,
+                    message: tr(language, `${displayName} joined as ${roleLabel}.`, `${displayName} เข้าร่วมในบทบาท ${getRoleLabelByLanguage(String(basePayload.role ?? "doctor"), language)}`),
                 });
             }
             setSheetOpen(false);
             loadUsers();
         } catch (error: unknown) {
             const message = getErrorMessage(error, "ไม่สามารถบันทึกข้อมูลผู้ใช้ได้");
-            toast.error("Save failed", { description: message, duration: 10000 });
+            toast.error(tr(language, "Save failed", "บันทึกไม่สำเร็จ"), { description: message, duration: 10000 });
         } finally {
             setIsSubmitting(false);
         }
@@ -552,10 +609,14 @@ export function UsersTable() {
     const handleCreateInviteRequest = (e: React.FormEvent) => {
         e.preventDefault();
         if (isInviteSubmitting) return;
-        toast.action("Generate invite link?", {
-            description: `Create invite for ${inviteFormData.email} (${ROLE_LABEL_MAP[inviteFormData.role] ?? inviteFormData.role}).`,
+        toast.action(tr(language, "Generate invite link?", "สร้างลิงก์เชิญใช่ไหม?"), {
+            description: tr(
+                language,
+                `Create invite for ${inviteFormData.email} (${ROLE_LABEL_MAP[inviteFormData.role] ?? inviteFormData.role}).`,
+                `สร้างคำเชิญสำหรับ ${inviteFormData.email} (${getRoleLabelByLanguage(inviteFormData.role, language)})`
+            ),
             button: {
-                title: "Confirm & Generate",
+                title: tr(language, "Confirm & Generate", "ยืนยันและสร้าง"),
                 onClick: () => {
                     void handleConfirmCreateInvite();
                 },
@@ -566,8 +627,8 @@ export function UsersTable() {
 
     const handleConfirmCreateInvite = async () => {
         if (!token) {
-            toast.error("Invite failed", {
-                description: "Not authenticated. Please sign in again.",
+            toast.error(tr(language, "Invite failed", "คำเชิญไม่สำเร็จ"), {
+                description: tr(language, "Not authenticated. Please sign in again.", "ยังไม่ได้ยืนยันตัวตน กรุณาเข้าสู่ระบบอีกครั้ง"),
             });
             return;
         }
@@ -580,13 +641,13 @@ export function UsersTable() {
             );
             setGeneratedInviteUrl(data.invite_url);
             showTeamUpdateToast({
-                title: "Invite Ready",
+                title: tr(language, "Invite Ready", "คำเชิญพร้อมใช้งาน"),
                 members: [inviteFormData.email],
-                message: `Invite link generated for ${inviteFormData.email}.`,
+                message: tr(language, `Invite link generated for ${inviteFormData.email}.`, `สร้างลิงก์เชิญสำหรับ ${inviteFormData.email} แล้ว`),
             });
             await loadInviteItems();
         } catch (error) {
-            toast.error("Invite failed", {
+            toast.error(tr(language, "Invite failed", "คำเชิญไม่สำเร็จ"), {
                 description: getErrorMessage(error, "ไม่สามารถสร้างลิงก์คำเชิญได้"),
             });
         } finally {
@@ -596,7 +657,9 @@ export function UsersTable() {
 
     const handleCopyInviteUrl = () => {
         navigator.clipboard.writeText(generatedInviteUrl);
-        toast.success("Copied", { description: "Invite URL copied to clipboard" });
+        toast.success(tr(language, "Copied", "คัดลอกแล้ว"), {
+            description: tr(language, "Invite URL copied to clipboard", "คัดลอกลิงก์คำเชิญไปยังคลิปบอร์ดแล้ว"),
+        });
     };
 
     const handleResendInvite = async (inviteId: string) => {
@@ -605,12 +668,12 @@ export function UsersTable() {
         try {
             const data = await resendUserInvite(inviteId, token);
             setGeneratedInviteUrl(data.invite_url);
-            toast.success("Invite resent", {
-                description: "A new invite link was generated successfully.",
+            toast.success(tr(language, "Invite resent", "ส่งคำเชิญซ้ำแล้ว"), {
+                description: tr(language, "A new invite link was generated successfully.", "สร้างลิงก์คำเชิญใหม่สำเร็จ"),
             });
             await loadInviteItems();
         } catch (error) {
-            toast.error("Resend failed", {
+            toast.error(tr(language, "Resend failed", "ส่งซ้ำไม่สำเร็จ"), {
                 description: getErrorMessage(error, "ไม่สามารถส่งคำเชิญซ้ำได้"),
             });
         } finally {
@@ -620,21 +683,21 @@ export function UsersTable() {
 
     const handleRevokeInvite = async (invite: UserInviteItem) => {
         if (!token || isInviteSubmitting) return;
-        toast.destructiveAction("Revoke invite?", {
-            description: `Revoke invite for ${invite.email}?`,
+        toast.destructiveAction(tr(language, "Revoke invite?", "เพิกถอนคำเชิญใช่ไหม?"), {
+            description: tr(language, `Revoke invite for ${invite.email}?`, `เพิกถอนคำเชิญของ ${invite.email} ใช่หรือไม่?`),
             button: {
-                title: "Revoke",
+                title: tr(language, "Revoke", "เพิกถอน"),
                 onClick: () => {
                     void (async () => {
                         setIsInviteSubmitting(true);
                         try {
                             await revokeUserInvite(invite.id, token);
-                            toast.success("Invite revoked", {
-                                description: `${invite.email} invite is no longer valid.`,
+                            toast.success(tr(language, "Invite revoked", "เพิกถอนคำเชิญแล้ว"), {
+                                description: tr(language, `${invite.email} invite is no longer valid.`, `คำเชิญของ ${invite.email} ใช้งานไม่ได้แล้ว`),
                             });
                             await loadInviteItems();
                         } catch (error) {
-                            toast.error("Revoke failed", {
+                            toast.error(tr(language, "Revoke failed", "เพิกถอนไม่สำเร็จ"), {
                                 description: getErrorMessage(error, "ไม่สามารถยกเลิกคำเชิญได้"),
                             });
                         } finally {
@@ -652,7 +715,7 @@ export function UsersTable() {
         lastName?: string | null,
         email?: string | null
     ) =>
-        `${firstName ?? ""} ${lastName ?? ""}`.trim() || email || "New member";
+        `${firstName ?? ""} ${lastName ?? ""}`.trim() || email || tr(language, "New member", "สมาชิกใหม่");
 
     const showTeamUpdateToast = ({
         title,
@@ -711,8 +774,8 @@ export function UsersTable() {
     // Bulk Delete
     const handleBulkDelete = async (ids: string[], confirmText?: string) => {
         if (!token) {
-            toast.error("Delete failed", {
-                description: "Not authenticated. Please sign in again.",
+            toast.error(tr(language, "Delete failed", "ลบไม่สำเร็จ"), {
+                description: tr(language, "Not authenticated. Please sign in again.", "ยังไม่ได้ยืนยันตัวตน กรุณาเข้าสู่ระบบอีกครั้ง"),
             });
             return;
         }
@@ -724,16 +787,24 @@ export function UsersTable() {
             if (skippedCount > 0) {
                 const skippedPreview = result.skipped.slice(0, 3).join(" | ");
                 const remainingSkipped = skippedCount - Math.min(skippedCount, 3);
-                toast.warning("Delete partially completed", {
+                toast.warning(tr(language, "Delete partially completed", "ลบบางส่วนสำเร็จ"), {
                     description:
                         remainingSkipped > 0
-                            ? `Deleted ${result.deleted} user(s), skipped ${skippedCount}. ${skippedPreview} | and ${remainingSkipped} more`
-                            : `Deleted ${result.deleted} user(s), skipped ${skippedCount}. ${skippedPreview}`,
+                            ? tr(
+                                language,
+                                `Deleted ${result.deleted} user(s), skipped ${skippedCount}. ${skippedPreview} | and ${remainingSkipped} more`,
+                                `ลบสำเร็จ ${result.deleted} รายการ ข้าม ${skippedCount} รายการ: ${skippedPreview} และอีก ${remainingSkipped} รายการ`
+                            )
+                            : tr(
+                                language,
+                                `Deleted ${result.deleted} user(s), skipped ${skippedCount}. ${skippedPreview}`,
+                                `ลบสำเร็จ ${result.deleted} รายการ ข้าม ${skippedCount} รายการ: ${skippedPreview}`
+                            ),
                     duration: 12000,
                 });
             } else {
-                toast.success("Success", {
-                    description: `Deleted ${result.deleted} user(s).`,
+                toast.success(tr(language, "Success", "สำเร็จ"), {
+                    description: tr(language, `Deleted ${result.deleted} user(s).`, `ลบผู้ใช้แล้ว ${result.deleted} รายการ`),
                 });
             }
             setRowSelection({});
@@ -742,7 +813,7 @@ export function UsersTable() {
             setPendingBulkDeleteUsers([]);
             loadUsers();
         } catch (error) {
-            toast.error("Delete failed", {
+            toast.error(tr(language, "Delete failed", "ลบไม่สำเร็จ"), {
                 description: getErrorMessage(error, "ไม่สามารถลบผู้ใช้แบบกลุ่มได้"),
             });
         } finally {
@@ -759,7 +830,9 @@ export function UsersTable() {
             .slice(0, 2);
         const remaining = selectedUsers.length - names.length;
         const namesPreview =
-            remaining > 0 ? `${names.join(", ")} and ${remaining} more` : names.join(", ");
+            remaining > 0
+                ? tr(language, `${names.join(", ")} and ${remaining} more`, `${names.join(", ")} และอีก ${remaining} รายการ`)
+                : names.join(", ");
 
         if (selectedUsers.length > 3) {
             setPendingBulkDeleteUsers(selectedUsers);
@@ -769,11 +842,15 @@ export function UsersTable() {
         }
 
         toast.destructiveAction(
-            selectedUsers.length === 1 ? "Delete user?" : `Delete ${selectedUsers.length} users?`,
+            selectedUsers.length === 1
+                ? tr(language, "Delete user?", "ลบผู้ใช้ใช่ไหม?")
+                : tr(language, `Delete ${selectedUsers.length} users?`, `ลบผู้ใช้ ${selectedUsers.length} รายการใช่ไหม?`),
             {
-                description: `Are you sure you want to delete ${namesPreview}?`,
+                description: tr(language, `Are you sure you want to delete ${namesPreview}?`, `ยืนยันการลบ ${namesPreview} ใช่หรือไม่?`),
                 button: {
-                    title: selectedUsers.length === 1 ? "Delete User" : "Delete Users",
+                    title: selectedUsers.length === 1
+                        ? tr(language, "Delete User", "ลบผู้ใช้")
+                        : tr(language, "Delete Users", "ลบผู้ใช้"),
                     onClick: () => {
                         void handleBulkDelete(ids, "DELETE");
                     },
@@ -785,8 +862,8 @@ export function UsersTable() {
 
     const handleBulkRestore = async (ids: string[]) => {
         if (!token) {
-            toast.error("Restore failed", {
-                description: "Not authenticated. Please sign in again.",
+            toast.error(tr(language, "Restore failed", "กู้คืนไม่สำเร็จ"), {
+                description: tr(language, "Not authenticated. Please sign in again.", "ยังไม่ได้ยืนยันตัวตน กรุณาเข้าสู่ระบบอีกครั้ง"),
             });
             return;
         }
@@ -798,22 +875,30 @@ export function UsersTable() {
             if (skippedCount > 0) {
                 const skippedPreview = result.skipped.slice(0, 3).join(" | ");
                 const remainingSkipped = skippedCount - Math.min(skippedCount, 3);
-                toast.warning("Restore partially completed", {
+                toast.warning(tr(language, "Restore partially completed", "กู้คืนบางส่วนสำเร็จ"), {
                     description:
                         remainingSkipped > 0
-                            ? `Restored ${result.restored} user(s), skipped ${skippedCount}. ${skippedPreview} | and ${remainingSkipped} more`
-                            : `Restored ${result.restored} user(s), skipped ${skippedCount}. ${skippedPreview}`,
+                            ? tr(
+                                language,
+                                `Restored ${result.restored} user(s), skipped ${skippedCount}. ${skippedPreview} | and ${remainingSkipped} more`,
+                                `กู้คืนสำเร็จ ${result.restored} รายการ ข้าม ${skippedCount} รายการ: ${skippedPreview} และอีก ${remainingSkipped} รายการ`
+                            )
+                            : tr(
+                                language,
+                                `Restored ${result.restored} user(s), skipped ${skippedCount}. ${skippedPreview}`,
+                                `กู้คืนสำเร็จ ${result.restored} รายการ ข้าม ${skippedCount} รายการ: ${skippedPreview}`
+                            ),
                     duration: 12000,
                 });
             } else {
-                toast.success("Users restored", {
-                    description: `Restored ${result.restored} user(s).`,
+                toast.success(tr(language, "Users restored", "กู้คืนผู้ใช้แล้ว"), {
+                    description: tr(language, `Restored ${result.restored} user(s).`, `กู้คืนผู้ใช้แล้ว ${result.restored} รายการ`),
                 });
             }
             setRowSelection({});
             loadUsers();
         } catch (error) {
-            toast.error("Restore failed", {
+            toast.error(tr(language, "Restore failed", "กู้คืนไม่สำเร็จ"), {
                 description: getErrorMessage(error, "ไม่สามารถกู้คืนผู้ใช้แบบกลุ่มได้"),
             });
         } finally {
@@ -829,14 +914,20 @@ export function UsersTable() {
             .slice(0, 2);
         const remaining = selectedUsers.length - names.length;
         const namesPreview =
-            remaining > 0 ? `${names.join(", ")} and ${remaining} more` : names.join(", ");
+            remaining > 0
+                ? tr(language, `${names.join(", ")} and ${remaining} more`, `${names.join(", ")} และอีก ${remaining} รายการ`)
+                : names.join(", ");
 
         toast.action(
-            selectedUsers.length === 1 ? "Restore user?" : `Restore ${selectedUsers.length} users?`,
+            selectedUsers.length === 1
+                ? tr(language, "Restore user?", "กู้คืนผู้ใช้ใช่ไหม?")
+                : tr(language, `Restore ${selectedUsers.length} users?`, `กู้คืนผู้ใช้ ${selectedUsers.length} รายการใช่ไหม?`),
             {
-                description: `Restore ${namesPreview} to active accounts?`,
+                description: tr(language, `Restore ${namesPreview} to active accounts?`, `กู้คืน ${namesPreview} กลับเป็นบัญชีที่ใช้งานหรือไม่?`),
                 button: {
-                    title: selectedUsers.length === 1 ? "Restore User" : "Restore Users",
+                    title: selectedUsers.length === 1
+                        ? tr(language, "Restore User", "กู้คืนผู้ใช้")
+                        : tr(language, "Restore Users", "กู้คืนผู้ใช้"),
                     onClick: () => {
                         void handleBulkRestore(ids);
                     },
@@ -908,11 +999,11 @@ export function UsersTable() {
             URL.revokeObjectURL(url);
 
             setHasExportedForPurge(true);
-            toast.success("Export completed", {
-                description: `Snapshot exported (${rows.length} deleted users).`,
+            toast.success(tr(language, "Export completed", "ส่งออกสำเร็จ"), {
+                description: tr(language, `Snapshot exported (${rows.length} deleted users).`, `ส่งออก snapshot สำเร็จ (${rows.length} ผู้ใช้ที่ถูกลบ)`),
             });
         } catch (error) {
-            toast.error("Export failed", {
+            toast.error(tr(language, "Export failed", "ส่งออกไม่สำเร็จ"), {
                 description: getErrorMessage(error, "ไม่สามารถส่งออก snapshot ผู้ใช้ที่ถูกลบได้"),
             });
         }
@@ -930,8 +1021,8 @@ export function UsersTable() {
                 },
                 token
             );
-            toast.success("Purge completed", {
-                description: `Hard-deleted ${response.purged} user(s).`,
+            toast.success(tr(language, "Purge completed", "ลบถาวรสำเร็จ"), {
+                description: tr(language, `Hard-deleted ${response.purged} user(s).`, `ลบถาวรแล้ว ${response.purged} รายการ`),
             });
             setPurgeDialogOpen(false);
             setPurgeConfirmText("");
@@ -940,7 +1031,7 @@ export function UsersTable() {
             setHasExportedForPurge(false);
             loadUsers();
         } catch (error) {
-            toast.error("Purge failed", {
+            toast.error(tr(language, "Purge failed", "ลบถาวรไม่สำเร็จ"), {
                 description: getErrorMessage(error, "ไม่สามารถ purge ผู้ใช้ที่ถูกลบได้"),
             });
         } finally {
@@ -958,7 +1049,7 @@ export function UsersTable() {
                     checked={table.getIsAllPageRowsSelected()}
                     onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
                     disabled={isBulkDeleting || isBulkRestoring}
-                    aria-label="Select all"
+                    aria-label={tr(language, "Select all", "เลือกทั้งหมด")}
                     className="translate-y-[2px]"
                 />
             ),
@@ -967,7 +1058,7 @@ export function UsersTable() {
                     checked={row.getIsSelected()}
                     onCheckedChange={(value) => row.toggleSelected(!!value)}
                     disabled={isBulkDeleting || isBulkRestoring}
-                    aria-label="Select row"
+                    aria-label={tr(language, "Select row", "เลือกแถว")}
                     className="translate-y-[2px]"
                 />
             ),
@@ -988,7 +1079,7 @@ export function UsersTable() {
                             column.toggleSorting(column.getIsSorted() === "asc");
                         }}
                     >
-                        <span>Name</span>
+                        <span>{tr(language, "Name", "ชื่อ")}</span>
                         <ArrowUpDown className="ml-2 h-4 w-4" />
                     </Button>
                 </div>
@@ -1010,8 +1101,8 @@ export function UsersTable() {
                             </span>
                             {user.deleted_at ? (
                                 <span className="text-xs text-muted-foreground">
-                                    Deleted {new Date(user.deleted_at).toLocaleString()}
-                                    {user.deleted_by ? ` by ${user.deleted_by.slice(0, 8)}` : ""}
+                                    {tr(language, "Deleted", "ลบเมื่อ")} {new Date(user.deleted_at).toLocaleString(language === "th" ? "th-TH" : "en-US")}
+                                    {user.deleted_by ? tr(language, ` by ${user.deleted_by.slice(0, 8)}`, ` โดย ${user.deleted_by.slice(0, 8)}`) : ""}
                                 </span>
                             ) : isClinicalRole(user.role) && user.specialty ? (
                                 <span className="text-xs text-muted-foreground">{user.specialty}</span>
@@ -1030,7 +1121,7 @@ export function UsersTable() {
                     className="-ml-3 h-8"
                     onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
                 >
-                    Email
+                    {tr(language, "Email", "อีเมล")}
                     <ArrowUpDown className="ml-2 h-4 w-4" />
                 </Button>
             ),
@@ -1043,7 +1134,7 @@ export function UsersTable() {
         },
         {
             accessorKey: "role",
-            header: "Role",
+            header: tr(language, "Role", "บทบาท"),
             cell: ({ row }) => {
                 const role = row.original.role;
                 return (
@@ -1057,14 +1148,14 @@ export function UsersTable() {
                             role === "staff" && "bg-slate-500/10 text-slate-500 hover:bg-slate-500/20"
                         )}
                     >
-                        {ROLE_LABEL_MAP[role] || role}
+                        {getRoleLabelByLanguage(role, language)}
                     </Badge>
                 );
             },
         },
         {
             accessorKey: "status",
-            header: "Status",
+            header: tr(language, "Status", "สถานะ"),
             cell: ({ row }) => {
                 const user = row.original;
                 if (user.deleted_at) {
@@ -1074,7 +1165,7 @@ export function UsersTable() {
                             className="flex w-fit items-center gap-1 border-slate-500/30 text-slate-500 bg-slate-500/10"
                         >
                             <XCircle className="h-3 w-3" />
-                            <span>deleted</span>
+                            <span>{tr(language, "deleted", "ลบแล้ว")}</span>
                         </Badge>
                     );
                 }
@@ -1092,7 +1183,9 @@ export function UsersTable() {
                         {status === "verified" && <BadgeCheck className="h-3 w-3" />}
                         {status === "pending" && <Clock className="h-3 w-3" />}
                         {status === "unverified" && <XCircle className="h-3 w-3" />}
-                        <span className="capitalize">{status}</span>
+                        <span className="capitalize">
+                            {getVerificationStatusLabel(status, language)}
+                        </span>
                     </Badge>
                 );
             }
@@ -1106,14 +1199,18 @@ export function UsersTable() {
                     className="-ml-3 h-8"
                     onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
                 >
-                    Created
+                    {tr(language, "Created", "วันที่สร้าง")}
                     <ArrowUpDown className="ml-2 h-4 w-4" />
                 </Button>
             ),
             cell: ({ row }) => {
                 const date = row.original.created_at;
                 if (!date) return "-";
-                return <div className="text-sm text-muted-foreground">{new Date(date).toLocaleDateString()}</div>
+                return (
+                    <div className="text-sm text-muted-foreground">
+                        {new Date(date).toLocaleDateString(language === "th" ? "th-TH" : undefined)}
+                    </div>
+                )
             }
         },
         {
@@ -1125,27 +1222,27 @@ export function UsersTable() {
                 return (
                     <DropdownMenu>
                         <DropdownMenuTrigger className="h-8 w-8 p-0 flex items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground">
-                            <span className="sr-only">Open menu</span>
+                            <span className="sr-only">{tr(language, "Open menu", "เปิดเมนู")}</span>
                             <MoreHorizontal className="h-4 w-4" />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                             <DropdownMenuGroup>
-                                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                                <DropdownMenuLabel>{tr(language, "Actions", "การทำงาน")}</DropdownMenuLabel>
                                 {user.deleted_at ? (
                                     <DropdownMenuItem
                                         onClick={() => requestRestore(user)}
                                         className="text-emerald-600 focus:text-emerald-600 focus:bg-emerald-50"
                                     >
-                                        <RotateCcw className="mr-2 h-4 w-4" /> Restore
+                                        <RotateCcw className="mr-2 h-4 w-4" /> {tr(language, "Restore", "กู้คืน")}
                                     </DropdownMenuItem>
                                 ) : (
                                     <>
                                         <DropdownMenuItem onClick={() => handleOpenEdit(user)}>
-                                            <Pencil className="mr-2 h-4 w-4" /> Edit
+                                            <Pencil className="mr-2 h-4 w-4" /> {tr(language, "Edit", "แก้ไข")}
                                         </DropdownMenuItem>
                                         {(user.verification_status || "unverified") !== "verified" && (
                                             <DropdownMenuItem onClick={() => handleVerifyUser(user)}>
-                                                <BadgeCheck className="mr-2 h-4 w-4 text-green-500" /> Verify
+                                                <BadgeCheck className="mr-2 h-4 w-4 text-green-500" /> {tr(language, "Verify", "ยืนยัน")}
                                             </DropdownMenuItem>
                                         )}
                                         <DropdownMenuSeparator />
@@ -1153,7 +1250,7 @@ export function UsersTable() {
                                             onClick={() => handleDelete(user)}
                                             className="text-red-600 focus:text-red-600 focus:bg-red-50"
                                         >
-                                            <Trash2 className="mr-2 h-4 w-4" /> Delete
+                                            <Trash2 className="mr-2 h-4 w-4" /> {tr(language, "Delete", "ลบ")}
                                         </DropdownMenuItem>
                                     </>
                                 )}
@@ -1171,6 +1268,7 @@ export function UsersTable() {
         requestRestore,
         isBulkDeleting,
         isBulkRestoring,
+        language,
     ]);
 
 
@@ -1232,7 +1330,7 @@ export function UsersTable() {
                         <Button variant="outline" size="icon" className="size-7 sm:size-8 shrink-0">
                             <UserCog className="size-4 sm:size-[18px] text-muted-foreground" />
                         </Button>
-                        <span className="text-sm sm:text-base font-medium">User Management</span>
+                        <span className="text-sm sm:text-base font-medium">{tr(language, "User Management", "การจัดการผู้ใช้")}</span>
                         <Badge variant="secondary" className="ml-1 text-[10px] sm:text-xs">
                             {total}
                         </Badge>
@@ -1244,7 +1342,7 @@ export function UsersTable() {
                                 className="h-7 px-2 text-xs"
                                 onClick={() => setAccountView("active")}
                             >
-                                Active
+                                {tr(language, "Active", "ใช้งาน")}
                             </Button>
                             <Button
                                 type="button"
@@ -1253,7 +1351,7 @@ export function UsersTable() {
                                 className="h-7 px-2 text-xs"
                                 onClick={() => setAccountView("deleted")}
                             >
-                                Deleted
+                                {tr(language, "Deleted", "ลบแล้ว")}
                             </Button>
                             <Button
                                 type="button"
@@ -1262,7 +1360,7 @@ export function UsersTable() {
                                 className="h-7 px-2 text-xs"
                                 onClick={() => setAccountView("all")}
                             >
-                                All
+                                {tr(language, "All", "ทั้งหมด")}
                             </Button>
                         </div>
                     </div>
@@ -1271,7 +1369,7 @@ export function UsersTable() {
                         <div className="relative flex-1 sm:flex-none">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 sm:size-5 text-muted-foreground" />
                             <Input
-                                placeholder="Search users..."
+                                placeholder={tr(language, "Search users...", "ค้นหาผู้ใช้...")}
                                 value={searchLocal}
                                 onChange={(e) => setSearchLocal(e.target.value)}
                                 className="pl-9 sm:pl-10 w-full sm:w-[160px] lg:w-[200px] h-8 sm:h-9 text-sm"
@@ -1284,19 +1382,19 @@ export function UsersTable() {
                                 className={`inline-flex items-center justify-center whitespace-nowrap rounded-md border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground px-3 text-xs font-medium h-8 sm:h-9 gap-1.5 sm:gap-2 focus-visible:outline-none ${hasActiveFilters ? "border-primary" : ""}`}
                             >
                                 <Filter className="size-3.5 sm:size-4" />
-                                <span className="hidden sm:inline">Filter</span>
+                                <span className="hidden sm:inline">{tr(language, "Filter", "ตัวกรอง")}</span>
                                 {hasActiveFilters && (
                                     <span className="size-1.5 sm:size-2 rounded-full bg-primary" />
                                 )}
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-[220px]">
                                 <DropdownMenuGroup>
-                                    <DropdownMenuLabel>Filter by Role</DropdownMenuLabel>
+                                    <DropdownMenuLabel>{tr(language, "Filter by Role", "กรองตามบทบาท")}</DropdownMenuLabel>
                                     <DropdownMenuCheckboxItem
                                         checked={roleFilter === "clinical"}
                                         onCheckedChange={() => setRoleFilter("clinical")}
                                     >
-                                        All Clinical Roles
+                                        {tr(language, "All Clinical Roles", "ทุกบทบาทสายคลินิก")}
                                     </DropdownMenuCheckboxItem>
                                     {CLINICAL_ROLE_OPTIONS.map((r) => (
                                         <DropdownMenuCheckboxItem
@@ -1304,18 +1402,18 @@ export function UsersTable() {
                                             checked={roleFilter === r.value}
                                             onCheckedChange={() => setRoleFilter(r.value)}
                                         >
-                                            {r.label}
+                                            {getRoleLabelByLanguage(r.value, language)}
                                         </DropdownMenuCheckboxItem>
                                     ))}
                                 </DropdownMenuGroup>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuGroup>
-                                    <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
+                                    <DropdownMenuLabel>{tr(language, "Filter by Status", "กรองตามสถานะ")}</DropdownMenuLabel>
                                     <DropdownMenuCheckboxItem
                                         checked={statusFilterLocal === "all"}
                                         onCheckedChange={() => setStatusFilterLocal("all")}
                                     >
-                                        All Statuses
+                                        {tr(language, "All Statuses", "ทุกสถานะ")}
                                     </DropdownMenuCheckboxItem>
                                     {["verified", "pending", "unverified"].map((s) => (
                                         <DropdownMenuCheckboxItem
@@ -1323,30 +1421,30 @@ export function UsersTable() {
                                             checked={statusFilterLocal === s}
                                             onCheckedChange={() => setStatusFilterLocal(s)}
                                         >
-                                            <span className="capitalize">{s}</span>
+                                            <span className="capitalize">{getVerificationStatusLabel(s, language)}</span>
                                         </DropdownMenuCheckboxItem>
                                     ))}
                                 </DropdownMenuGroup>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuGroup>
-                                    <DropdownMenuLabel>Account View</DropdownMenuLabel>
+                                    <DropdownMenuLabel>{tr(language, "Account View", "มุมมองบัญชี")}</DropdownMenuLabel>
                                     <DropdownMenuCheckboxItem
                                         checked={accountView === "active"}
                                         onCheckedChange={() => setAccountView("active")}
                                     >
-                                        Active only
+                                        {tr(language, "Active only", "เฉพาะที่ใช้งาน")}
                                     </DropdownMenuCheckboxItem>
                                     <DropdownMenuCheckboxItem
                                         checked={accountView === "deleted"}
                                         onCheckedChange={() => setAccountView("deleted")}
                                     >
-                                        Deleted only
+                                        {tr(language, "Deleted only", "เฉพาะที่ลบแล้ว")}
                                     </DropdownMenuCheckboxItem>
                                     <DropdownMenuCheckboxItem
                                         checked={accountView === "all"}
                                         onCheckedChange={() => setAccountView("all")}
                                     >
-                                        Active + Deleted
+                                        {tr(language, "Active + Deleted", "ใช้งาน + ลบแล้ว")}
                                     </DropdownMenuCheckboxItem>
                                 </DropdownMenuGroup>
                                 {hasActiveFilters && (
@@ -1354,7 +1452,7 @@ export function UsersTable() {
                                         <DropdownMenuSeparator />
                                         <DropdownMenuItem onClick={clearLocalFilters} className="text-destructive">
                                             <X className="size-4 mr-2" />
-                                            Clear all filters
+                                            {tr(language, "Clear all filters", "ล้างตัวกรองทั้งหมด")}
                                         </DropdownMenuItem>
                                     </>
                                 )}
@@ -1375,7 +1473,9 @@ export function UsersTable() {
                                 ) : (
                                     <Trash2 className="size-3.5 sm:size-4" />
                                 )}
-                                {isBulkDeleting ? "Deleting..." : `Delete (${selectedActiveUsers.length})`}
+                                {isBulkDeleting
+                                    ? tr(language, "Deleting...", "กำลังลบ...")
+                                    : `${tr(language, "Delete", "ลบ")} (${selectedActiveUsers.length})`}
                             </Button>
                         )}
 
@@ -1393,7 +1493,9 @@ export function UsersTable() {
                                 ) : (
                                     <RotateCcw className="size-3.5 sm:size-4" />
                                 )}
-                                {isBulkRestoring ? "Restoring..." : `Restore (${selectedDeletedUsers.length})`}
+                                {isBulkRestoring
+                                    ? tr(language, "Restoring...", "กำลังกู้คืน...")
+                                    : `${tr(language, "Restore", "กู้คืน")} (${selectedDeletedUsers.length})`}
                             </Button>
                         )}
 
@@ -1406,7 +1508,7 @@ export function UsersTable() {
                             <>
                                 <Button variant="outline" size="sm" className="h-8 sm:h-9 gap-1.5 sm:gap-2" onClick={() => setInviteSheetOpen(true)}>
                                     <Link2 className="size-3.5 sm:size-4" />
-                                    <span className="hidden sm:inline">Invite</span>
+                                    <span className="hidden sm:inline">{tr(language, "Invite", "เชิญ")}</span>
                                 </Button>
                                 <Button
                                     variant="outline"
@@ -1418,7 +1520,7 @@ export function UsersTable() {
                                     }}
                                 >
                                     <Trash2 className="size-3.5 sm:size-4" />
-                                    <span className="hidden sm:inline">Purge</span>
+                                    <span className="hidden sm:inline">{tr(language, "Purge", "ล้างถาวร")}</span>
                                 </Button>
                             </>
                         )}
@@ -1428,14 +1530,14 @@ export function UsersTable() {
                 {/* ── Active filter badges ── */}
                 {hasActiveFilters && (
                     <div className="flex flex-wrap items-center gap-2 px-3 sm:px-6 pb-3">
-                        <span className="text-[10px] sm:text-xs text-muted-foreground">Filters:</span>
+                        <span className="text-[10px] sm:text-xs text-muted-foreground">{tr(language, "Filters:", "ตัวกรอง:")}</span>
                         {roleFilter !== "clinical" && (
                             <Badge
                                 variant="secondary"
                                 className="gap-1 cursor-pointer text-[10px] sm:text-xs h-5 sm:h-6"
                                 onClick={() => setRoleFilter("clinical")}
                             >
-                                {ROLE_LABEL_MAP[roleFilter] || roleFilter}
+                                {getRoleLabelByLanguage(roleFilter, language)}
                                 <X className="size-2.5 sm:size-3" />
                             </Badge>
                         )}
@@ -1445,7 +1547,9 @@ export function UsersTable() {
                                 className="gap-1 cursor-pointer text-[10px] sm:text-xs h-5 sm:h-6"
                                 onClick={() => setStatusFilterLocal("all")}
                             >
-                                <span className="capitalize">{statusFilterLocal}</span>
+                                <span className="capitalize">
+                                    {getVerificationStatusLabel(statusFilterLocal, language)}
+                                </span>
                                 <X className="size-2.5 sm:size-3" />
                             </Badge>
                         )}
@@ -1455,7 +1559,9 @@ export function UsersTable() {
                                 className="gap-1 cursor-pointer text-[10px] sm:text-xs h-5 sm:h-6"
                                 onClick={() => setAccountView("active")}
                             >
-                                {accountView === "deleted" ? "Deleted only" : "Active + Deleted"}
+                                {accountView === "deleted"
+                                    ? tr(language, "Deleted only", "เฉพาะที่ลบแล้ว")
+                                    : tr(language, "Active + Deleted", "ใช้งาน + ลบแล้ว")}
                                 <X className="size-2.5 sm:size-3" />
                             </Badge>
                         )}
@@ -1511,9 +1617,9 @@ export function UsersTable() {
                                         >
                                             {loading ? (
                                                 <div className="flex justify-center items-center gap-2">
-                                                    <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                                                    <Loader2 className="h-4 w-4 animate-spin" /> {tr(language, "Loading...", "กำลังโหลด...")}
                                                 </div>
-                                            ) : "No users found."}
+                                            ) : tr(language, "No users found.", "ไม่พบผู้ใช้")}
                                         </TableCell>
                                     </TableRow>
                                 )}
@@ -1527,8 +1633,12 @@ export function UsersTable() {
                     <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
                         <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-medium">
                             {selectedIds.length > 0
-                                ? `${selectedIds.length} selected`
-                                : `${pagination.pageIndex * pagination.pageSize + 1}-${Math.min((pagination.pageIndex + 1) * pagination.pageSize, total)} of ${total}`}
+                                ? tr(language, `${selectedIds.length} selected`, `เลือกแล้ว ${selectedIds.length} รายการ`)
+                                : tr(
+                                    language,
+                                    `${pagination.pageIndex * pagination.pageSize + 1}-${Math.min((pagination.pageIndex + 1) * pagination.pageSize, total)} of ${total}`,
+                                    `${pagination.pageIndex * pagination.pageSize + 1}-${Math.min((pagination.pageIndex + 1) * pagination.pageSize, total)} จาก ${total}`
+                                )}
                         </span>
                         <Select
                             value={pagination.pageSize.toString()}
@@ -1607,19 +1717,23 @@ export function UsersTable() {
             >
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Confirm Bulk Delete</DialogTitle>
+                        <DialogTitle>{tr(language, "Confirm Bulk Delete", "ยืนยันการลบแบบกลุ่ม")}</DialogTitle>
                         <DialogDescription>
-                            You selected {pendingBulkDeleteUsers.length} users. This action cannot be undone.
-                            Type <span className="font-semibold">DELETE</span> to continue.
+                            {tr(
+                                language,
+                                `You selected ${pendingBulkDeleteUsers.length} users. This action cannot be undone.`,
+                                `คุณเลือกผู้ใช้ ${pendingBulkDeleteUsers.length} รายการ การกระทำนี้ไม่สามารถย้อนกลับได้`
+                            )}{" "}
+                            {tr(language, "Type", "พิมพ์")} <span className="font-semibold">DELETE</span> {tr(language, "to continue.", "เพื่อดำเนินการต่อ")}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-2">
-                        <Label htmlFor="bulk-delete-confirm">Confirmation text</Label>
+                        <Label htmlFor="bulk-delete-confirm">{tr(language, "Confirmation text", "ข้อความยืนยัน")}</Label>
                         <Input
                             id="bulk-delete-confirm"
                             value={bulkDeleteConfirmText}
                             onChange={(event) => setBulkDeleteConfirmText(event.target.value)}
-                            placeholder="Type DELETE"
+                            placeholder={tr(language, "Type DELETE", "พิมพ์ DELETE")}
                             autoComplete="off"
                         />
                     </div>
@@ -1632,7 +1746,7 @@ export function UsersTable() {
                                 setPendingBulkDeleteUsers([]);
                             }}
                         >
-                            Cancel
+                            {tr(language, "Cancel", "ยกเลิก")}
                         </Button>
                         <Button
                             variant="destructive"
@@ -1644,7 +1758,9 @@ export function UsersTable() {
                                 );
                             }}
                         >
-                            {isBulkDeleting ? "Deleting..." : "Delete Users"}
+                            {isBulkDeleting
+                                ? tr(language, "Deleting...", "กำลังลบ...")
+                                : tr(language, "Delete Users", "ลบผู้ใช้")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -1664,14 +1780,14 @@ export function UsersTable() {
             >
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle className="text-red-600">Purge Deleted Users</DialogTitle>
+                        <DialogTitle className="text-red-600">{tr(language, "Purge Deleted Users", "ลบถาวรผู้ใช้ที่ถูกลบแล้ว")}</DialogTitle>
                         <DialogDescription>
-                            Hard delete users older than N days. ต้อง export snapshot ก่อน และกรอกคำยืนยัน <span className="font-semibold">PURGE</span>.
+                            {tr(language, "Hard delete users older than N days.", "ลบถาวรผู้ใช้ที่ถูกลบแล้วเกิน N วัน")} {tr(language, "ต้อง export snapshot ก่อน และกรอกคำยืนยัน", "ต้องส่งออก snapshot ก่อน และกรอกคำยืนยัน")} <span className="font-semibold">PURGE</span>.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-3">
                         <div className="space-y-2">
-                            <Label htmlFor="purge_days">Older than days</Label>
+                            <Label htmlFor="purge_days">{tr(language, "Older than days", "เก่ากว่า (วัน)")}</Label>
                             <Input
                                 id="purge_days"
                                 type="number"
@@ -1682,7 +1798,7 @@ export function UsersTable() {
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="purge_reason">Reason</Label>
+                            <Label htmlFor="purge_reason">{tr(language, "Reason", "เหตุผล")}</Label>
                             <Input
                                 id="purge_reason"
                                 value={purgeReason}
@@ -1691,12 +1807,12 @@ export function UsersTable() {
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="purge_confirm_text">Confirm text</Label>
+                            <Label htmlFor="purge_confirm_text">{tr(language, "Confirm text", "ข้อความยืนยัน")}</Label>
                             <Input
                                 id="purge_confirm_text"
                                 value={purgeConfirmText}
                                 onChange={(event) => setPurgeConfirmText(event.target.value)}
-                                placeholder='Type "PURGE"'
+                                placeholder={tr(language, 'Type "PURGE"', 'พิมพ์ "PURGE"')}
                             />
                         </div>
                         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-muted-foreground">
@@ -1709,7 +1825,7 @@ export function UsersTable() {
                             onClick={() => void handleExportDeletedSnapshot()}
                         >
                             <FileDown className="mr-2 h-4 w-4" />
-                            Export deleted users snapshot
+                            {tr(language, "Export deleted users snapshot", "ส่งออก snapshot ผู้ใช้ที่ถูกลบ")}
                         </Button>
                     </div>
                     <DialogFooter>
@@ -1720,7 +1836,7 @@ export function UsersTable() {
                                 setHasExportedForPurge(false);
                             }}
                         >
-                            Cancel
+                            {tr(language, "Cancel", "ยกเลิก")}
                         </Button>
                         <Button
                             variant="destructive"
@@ -1734,7 +1850,9 @@ export function UsersTable() {
                                 void handlePurgeDeletedUsers();
                             }}
                         >
-                            {isPurging ? "Purging..." : "Purge permanently"}
+                            {isPurging
+                                ? tr(language, "Purging...", "กำลังลบถาวร...")
+                                : tr(language, "Purge permanently", "ลบถาวร")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -1753,12 +1871,14 @@ export function UsersTable() {
                             ) : (
                                 <Plus className="w-5 h-5 text-primary" />
                             )}
-                            {editingUser ? "Edit User" : "Create New User"}
+                            {editingUser
+                                ? tr(language, "Edit User", "แก้ไขผู้ใช้")
+                                : tr(language, "Create New User", "สร้างผู้ใช้ใหม่")}
                         </SheetTitle>
                         <SheetDescription>
                             {editingUser
-                                ? "Make changes to the user's account details."
-                                : "Add a new user to the system."}
+                                ? tr(language, "Make changes to the user's account details.", "แก้ไขรายละเอียดบัญชีของผู้ใช้")
+                                : tr(language, "Add a new user to the system.", "เพิ่มผู้ใช้ใหม่เข้าสู่ระบบ")}
                         </SheetDescription>
                     </SheetHeader>
 
@@ -1766,47 +1886,49 @@ export function UsersTable() {
                         <div className="space-y-5">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="first_name">First Name</Label>
-                                    <Input
-                                        id="first_name"
-                                        placeholder="John"
-                                        value={formData.first_name || ""}
-                                        onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                                    />
-                                </div>
+                                <Label htmlFor="first_name">{tr(language, "First Name", "ชื่อจริง")}</Label>
+                                <Input
+                                    id="first_name"
+                                    placeholder={tr(language, "John", "สมชาย")}
+                                    value={formData.first_name || ""}
+                                    onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                                />
+                            </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="last_name">Last Name</Label>
-                                    <Input
-                                        id="last_name"
-                                        placeholder="Doe"
-                                        value={formData.last_name || ""}
-                                        onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                                    />
-                                </div>
+                                <Label htmlFor="last_name">{tr(language, "Last Name", "นามสกุล")}</Label>
+                                <Input
+                                    id="last_name"
+                                    placeholder={tr(language, "Doe", "ใจดี")}
+                                    value={formData.last_name || ""}
+                                    onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                                />
+                            </div>
                             </div>
                             {/* ... (Other form fields - mostly identical to logic above but reconstructed) ... */}
                             <div className="space-y-2">
-                                <Label htmlFor="email">Email Address <span className="text-red-500">*</span></Label>
+                                <Label htmlFor="email">{tr(language, "Email Address", "อีเมล")} <span className="text-red-500">*</span></Label>
                                 <Input
-                                    id="email" type="email" placeholder="john.doe@example.com"
+                                    id="email" type="email" placeholder={tr(language, "john.doe@example.com", "somchai@example.com")}
                                     required value={formData.email}
                                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                                 />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="password">
-                                    {editingUser ? "Password (leave blank to keep)" : "Password"}
+                                    {editingUser
+                                        ? tr(language, "Password (leave blank to keep)", "รหัสผ่าน (เว้นว่างเพื่อคงเดิม)")
+                                        : tr(language, "Password", "รหัสผ่าน")}
                                     {!editingUser && <span className="text-red-500">*</span>}
                                 </Label>
                                 <Input
-                                    id="password" type="password" placeholder="••••••••"
+                                    id="password" type="password" placeholder={tr(language, "••••••••", "••••••••")}
                                     required={!editingUser} minLength={8}
                                     value={formData.password}
                                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="role">Role</Label>
+                                <Label htmlFor="role">{tr(language, "Role", "บทบาท")}</Label>
                                 <Select
                                     value={formData.role}
                                     onValueChange={(val) => setFormData({ ...formData, role: val || "doctor" })}
@@ -1814,7 +1936,7 @@ export function UsersTable() {
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
                                         {CLINICAL_ROLE_OPTIONS.map((r) => (
-                                            <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                                            <SelectItem key={r.value} value={r.value}>{getRoleLabelByLanguage(r.value, language)}</SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
@@ -1822,15 +1944,15 @@ export function UsersTable() {
 
                             {editingUser && (
                                 <div className="space-y-2">
-                                    <Label htmlFor="status">Account Status</Label>
+                                    <Label htmlFor="status">{tr(language, "Account Status", "สถานะบัญชี")}</Label>
                                     <Select
                                         value={formData.is_active ? "active" : "inactive"}
                                         onValueChange={(val) => setFormData({ ...formData, is_active: val === "active" })}
                                     >
                                         <SelectTrigger><SelectValue /></SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="active">Active</SelectItem>
-                                            <SelectItem value="inactive">Inactive</SelectItem>
+                                            <SelectItem value="active">{tr(language, "Active", "ใช้งาน")}</SelectItem>
+                                            <SelectItem value="inactive">{tr(language, "Inactive", "ไม่ใช้งาน")}</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -1838,36 +1960,36 @@ export function UsersTable() {
 
                             {isClinicalRole(formData.role || "") && (
                                 <div className="space-y-4 rounded-lg border border-border/60 p-4 bg-muted/10">
-                                    <p className="text-sm font-medium text-muted-foreground">Professional Information</p>
+                                    <p className="text-sm font-medium text-muted-foreground">{tr(language, "Professional Information", "ข้อมูลวิชาชีพ")}</p>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <Label htmlFor="specialty">Specialty</Label>
+                                            <Label htmlFor="specialty">{tr(language, "Specialty", "สาขา")}</Label>
                                             <Input id="specialty" value={formData.specialty || ""} onChange={e => setFormData({ ...formData, specialty: e.target.value })} />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label htmlFor="department">Department</Label>
+                                            <Label htmlFor="department">{tr(language, "Department", "แผนก")}</Label>
                                             <Input id="department" value={formData.department || ""} onChange={e => setFormData({ ...formData, department: e.target.value })} />
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <Label htmlFor="license_no">License No. <span className="text-red-500">*</span></Label>
+                                            <Label htmlFor="license_no">{tr(language, "License No.", "เลขใบอนุญาต")} <span className="text-red-500">*</span></Label>
                                             <Input id="license_no" required value={formData.license_no || ""} onChange={e => setFormData({ ...formData, license_no: e.target.value })} />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label htmlFor="license_expiry">License Expiry</Label>
+                                            <Label htmlFor="license_expiry">{tr(language, "License Expiry", "วันหมดอายุใบอนุญาต")}</Label>
                                             <Input type="date" id="license_expiry" value={formData.license_expiry || ""} onChange={e => setFormData({ ...formData, license_expiry: e.target.value })} />
                                         </div>
                                     </div>
                                     {editingUser && (
                                         <div className="space-y-2">
-                                            <Label htmlFor="verification_status">Verification Status</Label>
+                                            <Label htmlFor="verification_status">{tr(language, "Verification Status", "สถานะการยืนยัน")}</Label>
                                             <Select value={formData.verification_status || "unverified"} onValueChange={val => setFormData({ ...formData, verification_status: val })}>
                                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                                 <SelectContent>
-                                                    <SelectItem value="unverified">Unverified</SelectItem>
-                                                    <SelectItem value="pending">Pending</SelectItem>
-                                                    <SelectItem value="verified">Verified</SelectItem>
+                                                    <SelectItem value="unverified">{tr(language, "Unverified", "ยังไม่ยืนยัน")}</SelectItem>
+                                                    <SelectItem value="pending">{tr(language, "Pending", "รอดำเนินการ")}</SelectItem>
+                                                    <SelectItem value="verified">{tr(language, "Verified", "ยืนยันแล้ว")}</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>
@@ -1876,10 +1998,12 @@ export function UsersTable() {
                             )}
                         </div>
                         <SheetFooter className="px-0 pt-2 pb-0 sm:justify-end sm:flex-row">
-                            <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>Cancel</Button>
+                            <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>{tr(language, "Cancel", "ยกเลิก")}</Button>
                             <Button type="submit" disabled={isSubmitting}>
                                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                {editingUser ? "Save Changes" : "Create User"}
+                                {editingUser
+                                    ? tr(language, "Save Changes", "บันทึกการเปลี่ยนแปลง")
+                                    : tr(language, "Create User", "สร้างผู้ใช้")}
                             </Button>
                         </SheetFooter>
                     </form>
@@ -1890,33 +2014,33 @@ export function UsersTable() {
             <Sheet open={isInviteSheetOpen} onOpenChange={setInviteSheetOpen}>
                 <SheetContent side="center" className="w-[min(94vw,620px)] max-h-[84vh] p-0 overflow-hidden rounded-2xl border border-border/60 bg-background/95">
                     <SheetHeader className="px-6 pt-6 pb-3 border-b bg-muted/20">
-                        <SheetTitle className="flex items-center gap-2"><Link2 className="w-5 h-5 text-primary" /> Create Invite Link</SheetTitle>
-                        <SheetDescription>Only admins can generate registration links for approved healthcare users.</SheetDescription>
+                        <SheetTitle className="flex items-center gap-2"><Link2 className="w-5 h-5 text-primary" /> {tr(language, "Create Invite Link", "สร้างลิงก์เชิญ")}</SheetTitle>
+                        <SheetDescription>{tr(language, "Only admins can generate registration links for approved healthcare users.", "เฉพาะผู้ดูแลระบบเท่านั้นที่สร้างลิงก์ลงทะเบียนสำหรับบุคลากรที่ได้รับอนุมัติได้")}</SheetDescription>
                     </SheetHeader>
                     <form onSubmit={handleCreateInviteRequest} className="p-6 space-y-5 overflow-y-auto max-h-[calc(84vh-120px)]">
                         <div className="space-y-2">
-                            <Label htmlFor="invite_email">Email <span className="text-red-500">*</span></Label>
+                            <Label htmlFor="invite_email">{tr(language, "Email", "อีเมล")} <span className="text-red-500">*</span></Label>
                             <Input id="invite_email" type="email" required value={inviteFormData.email || ""} onChange={e => setInviteFormData({ ...inviteFormData, email: e.target.value })} placeholder="doctor@hospital.org" />
                         </div>
                         <div className="space-y-2">
-                            <Label>Role</Label>
+                            <Label>{tr(language, "Role", "บทบาท")}</Label>
                             <Select value={inviteFormData.role} onValueChange={val => setInviteFormData({ ...inviteFormData, role: val ?? "" })}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>{CLINICAL_ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}</SelectContent>
+                                <SelectContent>{CLINICAL_ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{getRoleLabelByLanguage(r.value, language)}</SelectItem>)}</SelectContent>
                             </Select>
                         </div>
-                        <div className="rounded-md border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">Invite link expires in 24 hours (fixed by system policy).</div>
+                        <div className="rounded-md border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">{tr(language, "Invite link expires in 24 hours (fixed by system policy).", "ลิงก์เชิญจะหมดอายุใน 24 ชั่วโมง (ตามนโยบายระบบ)")}</div>
                         {generatedInviteUrl && (
                             <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 space-y-2">
-                                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Invite Link</Label>
+                                <Label className="text-xs uppercase tracking-wide text-muted-foreground">{tr(language, "Invite Link", "ลิงก์เชิญ")}</Label>
                                 <Input value={generatedInviteUrl || ""} readOnly />
-                                <Button type="button" variant="outline" className="w-full" onClick={handleCopyInviteUrl}><Copy className="mr-2 h-4 w-4" /> Copy Link</Button>
+                                <Button type="button" variant="outline" className="w-full" onClick={handleCopyInviteUrl}><Copy className="mr-2 h-4 w-4" /> {tr(language, "Copy Link", "คัดลอกลิงก์")}</Button>
                             </div>
                         )}
 
                         <div className="space-y-3 rounded-md border border-border/70 p-3">
                             <div className="flex items-center justify-between gap-2">
-                                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Invite Lifecycle</Label>
+                                <Label className="text-xs uppercase tracking-wide text-muted-foreground">{tr(language, "Invite Lifecycle", "วงจรคำเชิญ")}</Label>
                                 <div className="flex items-center gap-2">
                                     <Select
                                         value={inviteStatusFilter}
@@ -1926,10 +2050,10 @@ export function UsersTable() {
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="active">Active</SelectItem>
-                                            <SelectItem value="expired">Expired</SelectItem>
-                                            <SelectItem value="closed">Closed</SelectItem>
-                                            <SelectItem value="all">All</SelectItem>
+                                            <SelectItem value="active">{tr(language, "Active", "ใช้งาน")}</SelectItem>
+                                            <SelectItem value="expired">{tr(language, "Expired", "หมดอายุ")}</SelectItem>
+                                            <SelectItem value="closed">{tr(language, "Closed", "ปิดแล้ว")}</SelectItem>
+                                            <SelectItem value="all">{tr(language, "All", "ทั้งหมด")}</SelectItem>
                                         </SelectContent>
                                     </Select>
                                     <Button type="button" variant="outline" size="icon" className="size-8" onClick={() => void loadInviteItems()}>
@@ -1938,9 +2062,9 @@ export function UsersTable() {
                                 </div>
                             </div>
                             {isInviteListLoading ? (
-                                <p className="text-sm text-muted-foreground">Loading invites...</p>
+                                <p className="text-sm text-muted-foreground">{tr(language, "Loading invites...", "กำลังโหลดคำเชิญ...")}</p>
                             ) : inviteItems.length === 0 ? (
-                                <p className="text-sm text-muted-foreground">No invites in this status.</p>
+                                <p className="text-sm text-muted-foreground">{tr(language, "No invites in this status.", "ไม่มีคำเชิญในสถานะนี้")}</p>
                             ) : (
                                 <div className="space-y-2">
                                     {inviteItems.map((invite) => (
@@ -1949,14 +2073,14 @@ export function UsersTable() {
                                                 <div className="min-w-0 space-y-1">
                                                     <p className="text-sm font-medium truncate">{invite.email}</p>
                                                     <p className="text-xs text-muted-foreground">
-                                                        {ROLE_LABEL_MAP[invite.role] ?? invite.role}
+                                                        {getRoleLabelByLanguage(invite.role, language)}
                                                     </p>
                                                     <div className="flex flex-wrap gap-2">
                                                         <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
-                                                            {INVITE_STATUS_LABEL_MAP[invite.status] ?? invite.status}
+                                                            {getInviteStatusLabel(invite.status, language)}
                                                         </Badge>
                                                         <Badge variant="outline" className="text-[10px]">
-                                                            Expires {formatInviteTimestamp(invite.expires_at)}
+                                                            {tr(language, "Expires", "หมดอายุ")} {formatInviteTimestamp(invite.expires_at, language)}
                                                         </Badge>
                                                     </div>
                                                 </div>
@@ -1969,7 +2093,7 @@ export function UsersTable() {
                                                         onClick={() => void handleResendInvite(invite.id)}
                                                     >
                                                         <RotateCcw className="mr-1.5 size-3.5" />
-                                                        Resend
+                                                        {tr(language, "Resend", "ส่งซ้ำ")}
                                                     </Button>
                                                     {invite.status === "active" && (
                                                         <Button
@@ -1979,7 +2103,7 @@ export function UsersTable() {
                                                             disabled={isInviteSubmitting}
                                                             onClick={() => void handleRevokeInvite(invite)}
                                                         >
-                                                            Revoke
+                                                            {tr(language, "Revoke", "เพิกถอน")}
                                                         </Button>
                                                     )}
                                                 </div>
@@ -1990,9 +2114,9 @@ export function UsersTable() {
                             )}
                         </div>
                         <SheetFooter className="px-0 pt-2 pb-0 sm:justify-end sm:flex-row">
-                            <Button type="button" variant="outline" onClick={() => setInviteSheetOpen(false)}>Close</Button>
+                            <Button type="button" variant="outline" onClick={() => setInviteSheetOpen(false)}>{tr(language, "Close", "ปิด")}</Button>
                             <Button type="submit" disabled={isInviteSubmitting}>
-                                {isInviteSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Generate
+                                {isInviteSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} {tr(language, "Generate", "สร้าง")}
                             </Button>
                         </SheetFooter>
                     </form>

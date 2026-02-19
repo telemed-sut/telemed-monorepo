@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { format, addWeeks, setHours, setMinutes } from "date-fns";
+import { addWeeks, setHours, setMinutes } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -40,7 +40,6 @@ import {
   UserIcon,
   Stethoscope02Icon,
   DoorIcon,
-  Note01Icon,
   Notification01Icon,
   Tick02Icon,
   UserGroupIcon,
@@ -65,6 +64,17 @@ import {
 import { getMeetingLinkMode, resolveMeetingRoomValue } from "./meeting-link";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { useLanguageStore } from "@/store/language-store";
+import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
+
+const tr = (language: AppLanguage, en: string, th: string) =>
+  language === "th" ? th : en;
+const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
+const formatDateLabel = (
+  date: Date,
+  language: AppLanguage,
+  options: Intl.DateTimeFormatOptions
+) => date.toLocaleDateString(localeOf(language), options);
 
 /* ── Time picker helpers ── */
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -86,9 +96,11 @@ function formatHour12(h: number) {
 function SchedulePopover({
   children,
   onSchedule,
+  language,
 }: {
   children: React.ReactNode;
   onSchedule?: (date: Date, startTime: string, endTime: string) => void;
+  language: AppLanguage;
 }) {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState<Date | undefined>(new Date());
@@ -111,16 +123,16 @@ function SchedulePopover({
       <PopoverContent className="w-80 p-4" align="end">
         <div className="space-y-4">
           <div>
-            <h4 className="text-sm font-semibold mb-3">Schedule Meeting</h4>
+            <h4 className="text-sm font-semibold mb-3">{tr(language, "Schedule Meeting", "นัดหมายการประชุม")}</h4>
             <p className="text-xs text-muted-foreground mb-4">
-              Quick schedule a meeting or event
+              {tr(language, "Quick schedule a meeting or event", "สร้างนัดหมายหรืออีเวนต์อย่างรวดเร็ว")}
             </p>
           </div>
 
           <div className="space-y-3">
             {/* Date */}
             <div className="grid gap-2">
-              <Label className="text-xs">Date</Label>
+              <Label className="text-xs">{tr(language, "Date", "วันที่")}</Label>
               <Popover
                 open={datePickerOpen}
                 onOpenChange={setDatePickerOpen}
@@ -139,9 +151,13 @@ function SchedulePopover({
                         className="mr-2 size-4"
                       />
                       {date ? (
-                        format(date, "PPP")
+                        formatDateLabel(date, language, {
+                          day: "numeric",
+                          month: "short",
+                          year: "numeric",
+                        })
                       ) : (
-                        <span>Pick a date</span>
+                        <span>{tr(language, "Pick a date", "เลือกวันที่")}</span>
                       )}
                     </Button>
                   }
@@ -163,7 +179,7 @@ function SchedulePopover({
             {/* Start / End time */}
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-2">
-                <Label className="text-xs">Start</Label>
+                <Label className="text-xs">{tr(language, "Start", "เริ่ม")}</Label>
                 <div className="relative">
                   <HugeiconsIcon
                     icon={Clock01Icon}
@@ -179,7 +195,7 @@ function SchedulePopover({
                 </div>
               </div>
               <div className="grid gap-2">
-                <Label className="text-xs">End</Label>
+                <Label className="text-xs">{tr(language, "End", "สิ้นสุด")}</Label>
                 <div className="relative">
                   <HugeiconsIcon
                     icon={Clock01Icon}
@@ -206,7 +222,7 @@ function SchedulePopover({
                 className="h-8 justify-start gap-2 text-xs"
               >
                 <HugeiconsIcon icon={UserGroupIcon} className="size-3.5" />
-                <span>Add participants</span>
+                <span>{tr(language, "Add participants", "เพิ่มผู้เข้าร่วม")}</span>
               </Button>
               <Button
                 variant="outline"
@@ -214,7 +230,7 @@ function SchedulePopover({
                 className="h-8 justify-start gap-2 text-xs"
               >
                 <HugeiconsIcon icon={Calendar01Icon} className="size-3.5" />
-                <span>Add video call</span>
+                <span>{tr(language, "Add video call", "เพิ่มวิดีโอคอล")}</span>
               </Button>
             </div>
 
@@ -226,7 +242,7 @@ function SchedulePopover({
                 className="flex-1 h-8 text-xs"
                 onClick={() => setOpen(false)}
               >
-                Cancel
+                {tr(language, "Cancel", "ยกเลิก")}
               </Button>
               <Button
                 size="sm"
@@ -234,7 +250,7 @@ function SchedulePopover({
                 onClick={handleSchedule}
                 disabled={!date || !startTime || !endTime}
               >
-                Schedule
+                {tr(language, "Schedule", "นัดหมาย")}
               </Button>
             </div>
           </div>
@@ -258,6 +274,7 @@ function CreateEventDialog({
   editMeeting,
   onCreated,
   token,
+  language,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -269,6 +286,7 @@ function CreateEventDialog({
   editMeeting?: Meeting | null;
   onCreated: (meeting?: Meeting) => void | Promise<void>;
   token: string;
+  language: AppLanguage;
 }) {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [startHour, setStartHour] = useState(9);
@@ -357,7 +375,7 @@ function CreateEventDialog({
           user_id: patientId,
         };
         const updatedMeeting = await updateMeeting(editMeeting.id, payload, token);
-        toast.success("Appointment updated successfully");
+        toast.success(tr(language, "Appointment updated successfully", "อัปเดตนัดหมายสำเร็จ"));
         onOpenChange(false);
         await onCreated(updatedMeeting);
       } else {
@@ -371,13 +389,13 @@ function CreateEventDialog({
           user_id: patientId,
         };
         const createdMeeting = await createMeeting(payload, token);
-        toast.success("Appointment scheduled successfully");
+        toast.success(tr(language, "Appointment scheduled successfully", "นัดหมายสำเร็จ"));
         onOpenChange(false);
         await onCreated(createdMeeting);
       }
     } catch (err: unknown) {
       const message =
-        err instanceof Error ? err.message : "Failed to create appointment";
+        err instanceof Error ? err.message : tr(language, "Failed to create appointment", "สร้างนัดหมายไม่สำเร็จ");
       toast.error(message);
     } finally {
       setSubmitting(false);
@@ -388,9 +406,15 @@ function CreateEventDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[520px] p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-4">
-          <DialogTitle className="text-base">{editMeeting ? "Edit Appointment" : "Create Event"}</DialogTitle>
+          <DialogTitle className="text-base">
+            {editMeeting
+              ? tr(language, "Edit Appointment", "แก้ไขนัดหมาย")
+              : tr(language, "Create Event", "สร้างอีเวนต์")}
+          </DialogTitle>
           <DialogDescription>
-            {editMeeting ? "Update the appointment details below" : "Book a new consultation or follow-up"}
+            {editMeeting
+              ? tr(language, "Update the appointment details below", "อัปเดตรายละเอียดนัดหมายด้านล่าง")
+              : tr(language, "Book a new consultation or follow-up", "สร้างนัดหมายใหม่หรือการติดตามผล")}
           </DialogDescription>
         </DialogHeader>
 
@@ -398,7 +422,7 @@ function CreateEventDialog({
           {/* ── Date Picker ── */}
           <div className="space-y-2">
             <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Date
+              {tr(language, "Date", "วันที่")}
             </Label>
             <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
               <PopoverTrigger className="inline-flex items-center w-full gap-3 rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm hover:bg-accent/50 transition-colors">
@@ -407,7 +431,12 @@ function CreateEventDialog({
                   className="size-4 text-[#7ac2f0]"
                 />
                 <span className="font-medium">
-                  {format(selectedDate, "EEEE, MMMM do, yyyy")}
+                  {formatDateLabel(selectedDate, language, {
+                    weekday: "long",
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                  })}
                 </span>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
@@ -429,7 +458,7 @@ function CreateEventDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Start Time
+                {tr(language, "Start Time", "เวลาเริ่ม")}
               </Label>
               <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3.5 py-2 text-sm">
                 <HugeiconsIcon
@@ -463,7 +492,7 @@ function CreateEventDialog({
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                End Time
+                {tr(language, "End Time", "เวลาสิ้นสุด")}
               </Label>
               <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3.5 py-2 text-sm">
                 <HugeiconsIcon
@@ -501,7 +530,7 @@ function CreateEventDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Doctor <span className="text-red-400">*</span>
+                {tr(language, "Doctor", "แพทย์")} <span className="text-red-400">*</span>
               </Label>
               <Select
                 value={doctorId}
@@ -520,9 +549,9 @@ function CreateEventDialog({
                           const d = doctors.find((u) => u.id === doctorId);
                           return d
                             ? `Dr. ${d.first_name || ""} ${d.last_name || ""}`.trim()
-                            : "Select";
+                            : tr(language, "Select", "เลือก");
                         })()
-                        : "Select doctor"}
+                        : tr(language, "Select doctor", "เลือกแพทย์")}
                     </SelectValue>
                   </div>
                 </SelectTrigger>
@@ -536,13 +565,13 @@ function CreateEventDialog({
               </Select>
               {isDoctorUser && (
                 <p className="text-[11px] text-muted-foreground">
-                  Doctor is locked to your account.
+                  {tr(language, "Doctor is locked to your account.", "แพทย์ถูกล็อกตามบัญชีของคุณ")}
                 </p>
               )}
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Patient <span className="text-red-400">*</span>
+                {tr(language, "Patient", "ผู้ป่วย")} <span className="text-red-400">*</span>
               </Label>
               <Select
                 value={patientId}
@@ -562,9 +591,9 @@ function CreateEventDialog({
                           );
                           return p
                             ? `${p.first_name} ${p.last_name}`
-                            : "Select";
+                            : tr(language, "Select", "เลือก");
                         })()
-                        : "Select patient"}
+                        : tr(language, "Select patient", "เลือกผู้ป่วย")}
                     </SelectValue>
                   </div>
                 </SelectTrigger>
@@ -583,10 +612,10 @@ function CreateEventDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Description
+                {tr(language, "Description", "รายละเอียด")}
               </Label>
               <Input
-                placeholder="Follow-up consultation"
+                placeholder={tr(language, "Follow-up consultation", "ติดตามอาการ")}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="h-10"
@@ -594,7 +623,7 @@ function CreateEventDialog({
             </div>
             <div className="space-y-2">
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Room / Meeting Link
+                {tr(language, "Room / Meeting Link", "ห้อง / ลิงก์ประชุม")}
               </Label>
               <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3.5 py-2 text-sm">
                 <HugeiconsIcon
@@ -602,7 +631,7 @@ function CreateEventDialog({
                   className="size-4 text-amber-500 shrink-0"
                 />
                 <input
-                  placeholder="https://meet.example.com/room or Room 101"
+                  placeholder={tr(language, "https://meet.example.com/room or Room 101", "https://meet.example.com/room หรือ ห้อง 101")}
                   value={room}
                   onChange={(e) => setRoom(e.target.value)}
                   className="bg-transparent outline-none flex-1 placeholder:text-muted-foreground"
@@ -610,8 +639,8 @@ function CreateEventDialog({
               </div>
               <p className="text-[11px] text-muted-foreground">
                 {meetingLinkMode === "off"
-                  ? "Auto-generate link: disabled (set NEXT_PUBLIC_MEETING_LINK_MODE to enable)"
-                  : `Auto-generate link: ${meetingLinkMode} mode when left blank`}
+                  ? tr(language, "Auto-generate link: disabled (set NEXT_PUBLIC_MEETING_LINK_MODE to enable)", "ลิงก์อัตโนมัติ: ปิดใช้งานอยู่ (ตั้งค่า NEXT_PUBLIC_MEETING_LINK_MODE เพื่อเปิด)")
+                  : tr(language, `Auto-generate link: ${meetingLinkMode} mode when left blank`, `ลิงก์อัตโนมัติ: โหมด ${meetingLinkMode} เมื่อปล่อยว่าง`)}
               </p>
             </div>
           </div>
@@ -619,10 +648,10 @@ function CreateEventDialog({
           {/* ── Notes ── */}
           <div className="space-y-2">
             <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              Notes
+              {tr(language, "Notes", "บันทึก")}
             </Label>
             <Textarea
-              placeholder="Additional notes or instructions..."
+              placeholder={tr(language, "Additional notes or instructions...", "หมายเหตุหรือคำสั่งเพิ่มเติม...")}
               value={note}
               onChange={(e) => setNote(e.target.value)}
               rows={2}
@@ -639,7 +668,7 @@ function CreateEventDialog({
             className="text-muted-foreground hover:text-foreground gap-1.5"
             onClick={() => onOpenChange(false)}
           >
-            Cancel
+            {tr(language, "Cancel", "ยกเลิก")}
           </Button>
           <Button
             onClick={handleSubmit}
@@ -651,7 +680,9 @@ function CreateEventDialog({
             ) : (
               <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
             )}
-            {editMeeting ? "Update" : "Schedule"}
+            {editMeeting
+              ? tr(language, "Update", "อัปเดต")
+              : tr(language, "Schedule", "นัดหมาย")}
           </Button>
         </div>
       </DialogContent>
@@ -668,6 +699,7 @@ export function MeetingsContent() {
   const userId = useAuthStore((state) => state.userId);
   const userRole = useAuthStore((state) => state.role);
   const clearToken = useAuthStore((state) => state.clearToken);
+  const language = useLanguageStore((state) => state.language);
 
   const currentWeekStart = useCalendarStore((s) => s.currentWeekStart);
   const goToToday = useCalendarStore((s) => s.goToToday);
@@ -694,10 +726,14 @@ export function MeetingsContent() {
   >("my-meetings");
 
   const weekEnd = addWeeks(currentWeekStart, 1);
-  const weekStart = format(currentWeekStart, "MMM dd");
-  const weekEndLabel = format(
+  const weekStartLabel = formatDateLabel(currentWeekStart, language, {
+    month: "short",
+    day: "numeric",
+  });
+  const weekEndLabel = formatDateLabel(
     new Date(weekEnd.getTime() - 86400000),
-    "MMM dd yyyy"
+    language,
+    { month: "short", day: "numeric", year: "numeric" }
   );
 
   const todayMeetingsCount = meetings.filter(
@@ -798,13 +834,16 @@ export function MeetingsContent() {
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <div className="flex-1 min-w-0">
                   <h1 className="text-sm md:text-base lg:text-lg font-semibold text-foreground truncate mb-0 md:mb-1">
-                    {format(currentWeekStart, "MMMM dd, yyyy")}
+                    {formatDateLabel(currentWeekStart, language, {
+                      day: "numeric",
+                      month: "long",
+                      year: "numeric",
+                    })}
                   </h1>
                   <p className="hidden md:block text-xs text-muted-foreground">
-                    You have {todayMeetingsCount} meeting
-                    {todayMeetingsCount !== 1 ? "s" : ""} and{" "}
-                    {totalEventsCount} event
-                    {totalEventsCount !== 1 ? "s" : ""} today 🗓️
+                    {language === "th"
+                      ? `คุณมีนัดหมาย ${todayMeetingsCount} รายการ และอีเวนต์ ${totalEventsCount} รายการในวันนี้ 🗓️`
+                      : `You have ${todayMeetingsCount} meeting${todayMeetingsCount !== 1 ? "s" : ""} and ${totalEventsCount} event${totalEventsCount !== 1 ? "s" : ""} today 🗓️`}
                   </p>
                 </div>
               </div>
@@ -832,7 +871,7 @@ export function MeetingsContent() {
                   />
                   <PopoverContent align="end" className="w-80 p-0">
                     <div className="p-3 border-b border-border">
-                      <p className="text-sm font-semibold">Notifications</p>
+                      <p className="text-sm font-semibold">{tr(language, "Notifications", "การแจ้งเตือน")}</p>
                     </div>
                     <div className="divide-y divide-border">
                       <div className="flex flex-col items-start gap-1 p-3">
@@ -842,14 +881,18 @@ export function MeetingsContent() {
                             className="size-4 text-green-500"
                           />
                           <span className="text-sm font-medium flex-1">
-                            Meeting confirmed
+                            {tr(language, "Meeting confirmed", "ยืนยันนัดหมายแล้ว")}
                           </span>
                           <span className="text-xs text-muted-foreground">
-                            2m ago
+                            {tr(language, "2m ago", "2 นาทีที่แล้ว")}
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground pl-6">
-                          Daily checkin has been confirmed for tomorrow at 9:00 AM
+                          {tr(
+                            language,
+                            "Daily checkin has been confirmed for tomorrow at 9:00 AM",
+                            "เช็กอินรายวันได้รับการยืนยันสำหรับพรุ่งนี้เวลา 9:00 น."
+                          )}
                         </p>
                       </div>
                       <div className="flex flex-col items-start gap-1 p-3">
@@ -859,14 +902,18 @@ export function MeetingsContent() {
                             className="size-4 text-blue-500"
                           />
                           <span className="text-sm font-medium flex-1">
-                            Reminder
+                            {tr(language, "Reminder", "การแจ้งเตือน")}
                           </span>
                           <span className="text-xs text-muted-foreground">
-                            15m ago
+                            {tr(language, "15m ago", "15 นาทีที่แล้ว")}
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground pl-6">
-                          Team Standup starts in 30 minutes
+                          {tr(
+                            language,
+                            "Team Standup starts in 30 minutes",
+                            "ประชุมทีมเริ่มในอีก 30 นาที"
+                          )}
                         </p>
                       </div>
                       <div className="flex flex-col items-start gap-1 p-3">
@@ -876,20 +923,24 @@ export function MeetingsContent() {
                             className="size-4 text-orange-500"
                           />
                           <span className="text-sm font-medium flex-1">
-                            Event updated
+                            {tr(language, "Event updated", "อัปเดตอีเวนต์แล้ว")}
                           </span>
                           <span className="text-xs text-muted-foreground">
-                            1h ago
+                            {tr(language, "1h ago", "1 ชั่วโมงที่แล้ว")}
                           </span>
                         </div>
                         <p className="text-xs text-muted-foreground pl-6">
-                          Design Workshop time has been changed to 2:00 PM
+                          {tr(
+                            language,
+                            "Design Workshop time has been changed to 2:00 PM",
+                            "เวลาเวิร์กช็อปออกแบบถูกเปลี่ยนเป็น 14:00 น."
+                          )}
                         </p>
                       </div>
                     </div>
                     <div className="p-2 border-t border-border text-center">
                       <span className="text-xs text-muted-foreground">
-                        View all notifications
+                        {tr(language, "View all notifications", "ดูการแจ้งเตือนทั้งหมด")}
                       </span>
                     </div>
                   </PopoverContent>
@@ -897,6 +948,7 @@ export function MeetingsContent() {
 
                 {/* Schedule popover */}
                 <SchedulePopover
+                  language={language}
                   onSchedule={() => {
                     setCreateInitialSlot(null);
                     setCreateOpen(true);
@@ -908,7 +960,7 @@ export function MeetingsContent() {
                     className="size-7 md:size-8 shrink-0 md:w-auto md:px-2 md:gap-1.5"
                   >
                     <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
-                    <span className="hidden lg:inline text-xs">Schedule</span>
+                    <span className="hidden lg:inline text-xs">{tr(language, "Schedule", "นัดหมาย")}</span>
                   </Button>
                 </SchedulePopover>
 
@@ -922,7 +974,7 @@ export function MeetingsContent() {
                       viewMode === "calendar" && "bg-muted text-foreground"
                     )}
                     onClick={() => setViewMode("calendar")}
-                    title="Calendar view"
+                    title={tr(language, "Calendar view", "มุมมองปฏิทิน")}
                   >
                     <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
                   </Button>
@@ -934,7 +986,7 @@ export function MeetingsContent() {
                       viewMode === "queue" && "bg-muted text-foreground"
                     )}
                     onClick={() => setViewMode("queue")}
-                    title="Queue view"
+                    title={tr(language, "Queue view", "มุมมองคิว")}
                   >
                     <HugeiconsIcon icon={UserGroupIcon} className="size-4" />
                   </Button>
@@ -950,7 +1002,7 @@ export function MeetingsContent() {
                   }}
                 >
                   <HugeiconsIcon icon={Add01Icon} className="size-4" />
-                  <span className="hidden lg:inline text-xs">Create Event</span>
+                  <span className="hidden lg:inline text-xs">{tr(language, "Create Event", "สร้างอีเวนต์")}</span>
                 </Button>
               </div>
             </div>
@@ -961,7 +1013,7 @@ export function MeetingsContent() {
           <div className="px-3 md:px-6 py-3 border-b border-border bg-background">
             <div className="flex items-center gap-2 overflow-x-auto">
               <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                Scope:
+                {tr(language, "Scope:", "ขอบเขต:")}
               </span>
               <Button
                 variant={doctorScope === "all-visible" ? "default" : "outline"}
@@ -969,7 +1021,7 @@ export function MeetingsContent() {
                 className="h-7 text-xs whitespace-nowrap"
                 onClick={() => setDoctorScope("all-visible")}
               >
-                All Visible
+                {tr(language, "All Visible", "มองเห็นทั้งหมด")}
               </Button>
               <Button
                 variant={doctorScope === "my-meetings" ? "default" : "outline"}
@@ -977,7 +1029,7 @@ export function MeetingsContent() {
                 className="h-7 text-xs whitespace-nowrap"
                 onClick={() => setDoctorScope("my-meetings")}
               >
-                My Meetings
+                {tr(language, "My Meetings", "นัดหมายของฉัน")}
               </Button>
               <Button
                 variant={doctorScope === "care-team" ? "default" : "outline"}
@@ -985,7 +1037,7 @@ export function MeetingsContent() {
                 className="h-7 text-xs whitespace-nowrap"
                 onClick={() => setDoctorScope("care-team")}
               >
-                Care Team
+                {tr(language, "Care Team", "ทีมดูแล")}
               </Button>
             </div>
           </div>
@@ -1004,7 +1056,7 @@ export function MeetingsContent() {
                   className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
                 />
                 <Input
-                  placeholder="Search in calendar..."
+                  placeholder={tr(language, "Search in calendar...", "ค้นหาในปฏิทิน...")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-9 pr-9 h-8 bg-background"
@@ -1024,7 +1076,7 @@ export function MeetingsContent() {
                 className="h-8 px-3 shrink-0"
                 onClick={goToToday}
               >
-                Today
+                {tr(language, "Today", "วันนี้")}
               </Button>
 
               {/* Date range picker */}
@@ -1043,7 +1095,7 @@ export function MeetingsContent() {
                         className="size-4 text-muted-foreground"
                       />
                       <span className="text-xs text-foreground">
-                        {weekStart} - {weekEndLabel}
+                        {weekStartLabel} - {weekEndLabel}
                       </span>
                     </Button>
                   }
@@ -1077,7 +1129,7 @@ export function MeetingsContent() {
                       )}
                     >
                       <HugeiconsIcon icon={FilterIcon} className="size-4" />
-                      <span className="hidden sm:inline text-xs">Filter</span>
+                      <span className="hidden sm:inline text-xs">{tr(language, "Filter", "ตัวกรอง")}</span>
                       {hasActiveFilters && (
                         <span className="size-1.5 rounded-full bg-primary" />
                       )}
@@ -1095,7 +1147,7 @@ export function MeetingsContent() {
                           icon={Calendar01Icon}
                           className="size-4 text-muted-foreground"
                         />
-                        Room Assignment
+                        {tr(language, "Room Assignment", "การกำหนดห้อง")}
                       </h4>
                       <div className="space-y-1">
                         <Button
@@ -1104,7 +1156,7 @@ export function MeetingsContent() {
                           className="w-full justify-between h-9 px-3"
                           onClick={() => setEventTypeFilter("all")}
                         >
-                          <span className="text-sm">All events</span>
+                          <span className="text-sm">{tr(language, "All events", "ทุกอีเวนต์")}</span>
                           {eventTypeFilter === "all" && (
                             <HugeiconsIcon
                               icon={Tick02Icon}
@@ -1123,7 +1175,7 @@ export function MeetingsContent() {
                               icon={DoorIcon}
                               className="size-4 text-cyan-500"
                             />
-                            <span className="text-sm">With room</span>
+                            <span className="text-sm">{tr(language, "With room", "มีห้อง")}</span>
                           </div>
                           {eventTypeFilter === "with-room" && (
                             <HugeiconsIcon
@@ -1143,7 +1195,7 @@ export function MeetingsContent() {
                               icon={DoorIcon}
                               className="size-4 text-muted-foreground"
                             />
-                            <span className="text-sm">Without room</span>
+                            <span className="text-sm">{tr(language, "Without room", "ไม่มีห้อง")}</span>
                           </div>
                           {eventTypeFilter === "without-room" && (
                             <HugeiconsIcon
@@ -1166,7 +1218,7 @@ export function MeetingsContent() {
                             setEventTypeFilter("all");
                           }}
                         >
-                          Clear all filters
+                          {tr(language, "Clear all filters", "ล้างตัวกรองทั้งหมด")}
                         </Button>
                       </>
                     )}
@@ -1234,6 +1286,7 @@ export function MeetingsContent() {
           editMeeting={editMeeting}
           onCreated={handleMeetingCreated}
           token={token}
+          language={language}
         />
       )}
     </main>

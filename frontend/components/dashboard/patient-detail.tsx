@@ -25,14 +25,29 @@ import {
     type Meeting,
 } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
+import { useLanguageStore } from "@/store/language-store";
+import type { AppLanguage } from "@/store/language-config";
 
 interface PatientDetailContentProps {
     patientId: string;
 }
 
+const tr = (language: AppLanguage, en: string, th: string) =>
+    language === "th" ? th : en;
+
+const getGenderLabel = (value: string | null | undefined, language: AppLanguage): string => {
+    if (!value) return "—";
+    const normalized = value.toLowerCase();
+    if (normalized === "male") return tr(language, "Male", "ชาย");
+    if (normalized === "female") return tr(language, "Female", "หญิง");
+    if (normalized === "other") return tr(language, "Other", "อื่น ๆ");
+    return value;
+};
+
 export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     const token = useAuthStore((state) => state.token);
     const clearToken = useAuthStore((state) => state.clearToken);
+    const language = useLanguageStore((state) => state.language);
     const router = useRouter();
 
     const [patient, setPatient] = useState<Patient | null>(null);
@@ -62,10 +77,10 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                 }
                 setError(
                     status === 404
-                        ? "Patient not found"
+                        ? tr(language, "Patient not found", "ไม่พบผู้ป่วย")
                         : err instanceof Error
                             ? err.message
-                            : "Failed to load patient"
+                            : tr(language, "Failed to load patient", "โหลดข้อมูลผู้ป่วยไม่สำเร็จ")
                 );
             } finally {
                 if (!cancelled) setLoadingPatient(false);
@@ -74,7 +89,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
 
         loadPatient();
         return () => { cancelled = true; };
-    }, [token, patientId]);
+    }, [token, patientId, language]);
 
     useEffect(() => {
         if (!token) return;
@@ -117,14 +132,14 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     };
 
     const formatDate = (dateStr: string) =>
-        new Date(dateStr).toLocaleDateString("en-GB", {
+        new Date(dateStr).toLocaleDateString(language === "th" ? "th-TH" : "en-GB", {
             day: "numeric",
             month: "short",
             year: "numeric",
         });
 
     const formatDateTime = (dateStr: string) =>
-        new Date(dateStr).toLocaleString("en-GB", {
+        new Date(dateStr).toLocaleString(language === "th" ? "th-TH" : "en-GB", {
             day: "numeric",
             month: "short",
             year: "numeric",
@@ -161,10 +176,10 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                     <HugeiconsIcon icon={MedicalMaskIcon} className="size-8 text-destructive/60" />
                 </div>
                 <h3 className="font-bold text-lg text-foreground mb-1">
-                    {error || "Patient not found"}
+                    {error || tr(language, "Patient not found", "ไม่พบผู้ป่วย")}
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                    Unable to load patient data.
+                    {tr(language, "Unable to load patient data.", "ไม่สามารถโหลดข้อมูลผู้ป่วยได้")}
                 </p>
             </div>
         );
@@ -192,7 +207,11 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                         {patient.first_name} {patient.last_name}
                     </h2>
                     <p className="text-sm text-muted-foreground">
-                        {age} years old • {patient.gender ? patient.gender : "N/A"}
+                        {tr(
+                            language,
+                            `${age} years old`,
+                            `${age} ปี`
+                        )} • {patient.gender ? getGenderLabel(patient.gender, language) : tr(language, "N/A", "ไม่มีข้อมูล")}
                     </p>
                 </div>
             </motion.div>
@@ -211,8 +230,8 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                         <HugeiconsIcon icon={Stethoscope02Icon} className="size-4 text-primary" />
                     </div>
                     <div className="flex-1">
-                        <p className="text-sm font-semibold text-foreground">Open Clinical View</p>
-                        <p className="text-xs text-muted-foreground">View full clinical dashboard with timeline, orders & notes</p>
+                        <p className="text-sm font-semibold text-foreground">{tr(language, "Open Clinical View", "เปิดมุมมองคลินิก")}</p>
+                        <p className="text-xs text-muted-foreground">{tr(language, "View full clinical dashboard with timeline, orders & notes", "ดูแดชบอร์ดคลินิกเต็มรูปแบบพร้อมไทม์ไลน์ คำสั่ง และบันทึก")}</p>
                     </div>
                     <svg className="size-4 text-muted-foreground group-hover:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -233,20 +252,20 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                         <div className="p-1.5 bg-primary/10 rounded-md">
                             <HugeiconsIcon icon={UserIcon} className="size-3.5 text-primary" />
                         </div>
-                        Personal Info
+                        {tr(language, "Personal Info", "ข้อมูลส่วนตัว")}
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
-                            <span className="text-muted-foreground text-xs">Date of Birth</span>
+                            <span className="text-muted-foreground text-xs">{tr(language, "Date of Birth", "วันเกิด")}</span>
                             <p className="font-medium text-foreground">{formatDate(patient.date_of_birth)}</p>
                         </div>
                         <div>
-                            <span className="text-muted-foreground text-xs">Age</span>
-                            <p className="font-medium text-foreground">{age} years</p>
+                            <span className="text-muted-foreground text-xs">{tr(language, "Age", "อายุ")}</span>
+                            <p className="font-medium text-foreground">{tr(language, `${age} years`, `${age} ปี`)}</p>
                         </div>
                         <div>
-                            <span className="text-muted-foreground text-xs">Gender</span>
-                            <p className="font-medium text-foreground capitalize">{patient.gender || "—"}</p>
+                            <span className="text-muted-foreground text-xs">{tr(language, "Gender", "เพศ")}</span>
+                            <p className="font-medium text-foreground capitalize">{getGenderLabel(patient.gender, language)}</p>
                         </div>
                     </div>
                 </div>
@@ -257,7 +276,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                         <div className="p-1.5 bg-emerald-500/10 rounded-md">
                             <HugeiconsIcon icon={AiPhone01Icon} className="size-3.5 text-emerald-500" />
                         </div>
-                        Contact
+                        {tr(language, "Contact", "ช่องทางติดต่อ")}
                     </div>
                     <div className="space-y-2 text-sm">
                         {patient.phone && (
@@ -273,7 +292,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                             </div>
                         )}
                         {!hasContact && (
-                            <p className="text-muted-foreground/60 text-xs">No contact info available</p>
+                            <p className="text-muted-foreground/60 text-xs">{tr(language, "No contact info available", "ไม่มีข้อมูลติดต่อ")}</p>
                         )}
                     </div>
                 </div>
@@ -284,10 +303,10 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                         <div className="p-1.5 bg-amber-500/10 rounded-md">
                             <HugeiconsIcon icon={Location01Icon} className="size-3.5 text-amber-500" />
                         </div>
-                        Address
+                        {tr(language, "Address", "ที่อยู่")}
                     </div>
                     <p className="text-sm text-foreground leading-relaxed">
-                        {patient.address || <span className="text-muted-foreground/60">No address recorded</span>}
+                        {patient.address || <span className="text-muted-foreground/60">{tr(language, "No address recorded", "ไม่มีที่อยู่ที่บันทึกไว้")}</span>}
                     </p>
                 </div>
             </motion.div>
@@ -303,7 +322,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                         <div className="p-1.5 bg-primary/10 rounded-md">
                             <HugeiconsIcon icon={CalendarAddIcon} className="size-3.5 text-primary" />
                         </div>
-                        Appointment History
+                        {tr(language, "Appointment History", "ประวัติการนัดหมาย")}
                     </div>
                     {meetingsTotal > 0 && (
                         <Badge variant="secondary" className="text-xs bg-primary/10 text-primary border-transparent">
@@ -321,9 +340,9 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                 ) : meetings.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-8 text-center rounded-xl border border-dashed border-border/60">
                         <HugeiconsIcon icon={CalendarAddIcon} className="size-6 text-muted-foreground/40 mb-2" />
-                        <p className="text-sm font-medium text-muted-foreground">No appointments yet</p>
+                        <p className="text-sm font-medium text-muted-foreground">{tr(language, "No appointments yet", "ยังไม่มีการนัดหมาย")}</p>
                         <p className="text-xs text-muted-foreground/60 mt-0.5">
-                            Appointments will appear here
+                            {tr(language, "Appointments will appear here", "การนัดหมายจะแสดงที่นี่")}
                         </p>
                     </div>
                 ) : (
@@ -365,7 +384,9 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                                                                 : "bg-primary/10 text-primary border-transparent"
                                                             }`}
                                                     >
-                                                        {isPast ? "Completed" : "Upcoming"}
+                                                        {isPast
+                                                            ? tr(language, "Completed", "เสร็จสิ้น")
+                                                            : tr(language, "Upcoming", "กำลังจะมาถึง")}
                                                     </Badge>
                                                 </div>
 
@@ -379,13 +400,13 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                                                     {doctorName && (
                                                         <span className="flex items-center gap-1">
                                                             <HugeiconsIcon icon={UserIcon} className="size-2.5" />
-                                                            Dr. {doctorName}
+                                                            {tr(language, "Dr.", "นพ.")} {doctorName}
                                                         </span>
                                                     )}
                                                     {meeting.room && (
                                                         <span className="flex items-center gap-1">
                                                             <HugeiconsIcon icon={Location01Icon} className="size-2.5" />
-                                                            Room {meeting.room}
+                                                            {tr(language, "Room", "ห้อง")} {meeting.room}
                                                         </span>
                                                     )}
                                                 </div>

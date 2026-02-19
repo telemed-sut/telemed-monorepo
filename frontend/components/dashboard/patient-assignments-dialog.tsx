@@ -32,6 +32,8 @@ import {
   updatePatientAssignment,
 } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
+import { useLanguageStore } from "@/store/language-store";
+import type { AppLanguage } from "@/store/language-config";
 
 interface PatientAssignmentsDialogProps {
   open: boolean;
@@ -40,8 +42,11 @@ interface PatientAssignmentsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function displayName(user: User | undefined): string {
-  if (!user) return "Unknown Doctor";
+const tr = (language: AppLanguage, en: string, th: string) =>
+  language === "th" ? th : en;
+
+function displayName(user: User | undefined, language: AppLanguage): string {
+  if (!user) return tr(language, "Unknown Doctor", "ไม่พบข้อมูลแพทย์");
   const fullName = `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim();
   return fullName || user.email;
 }
@@ -59,6 +64,7 @@ export function PatientAssignmentsDialog({
 }: PatientAssignmentsDialogProps) {
   const USERS_PAGE_LIMIT = 100;
   const token = useAuthStore((state) => state.token);
+  const language = useLanguageStore((state) => state.language);
 
   const [loading, setLoading] = useState(false);
   const [assignments, setAssignments] = useState<PatientAssignment[]>([]);
@@ -105,13 +111,13 @@ export function PatientAssignmentsDialog({
       setAssignments(assignmentRes.items);
       setDoctorOptions(doctors);
     } catch (error) {
-      toast.error("Load failed", {
+      toast.error(tr(language, "Load failed", "โหลดไม่สำเร็จ"), {
         description: getErrorMessage(error, "ไม่สามารถโหลดรายการการ assign แพทย์ได้"),
       });
     } finally {
       setLoading(false);
     }
-  }, [fetchAllDoctors, patientId, token]);
+  }, [fetchAllDoctors, patientId, token, language]);
 
   useEffect(() => {
     if (!open || !patientId) return;
@@ -133,11 +139,11 @@ export function PatientAssignmentsDialog({
     setSubmitting(true);
     try {
       await createPatientAssignment(patientId, { doctor_id: selectedDoctorId }, token);
-      toast.success("Doctor assigned");
+      toast.success(tr(language, "Doctor assigned", "เพิ่มแพทย์ผู้ดูแลแล้ว"));
       setSelectedDoctorId("");
       await refreshData();
     } catch (error) {
-      toast.error("Assign failed", {
+      toast.error(tr(language, "Assign failed", "มอบหมายไม่สำเร็จ"), {
         description: getErrorMessage(error, "ไม่สามารถเพิ่มแพทย์ให้ผู้ป่วยได้"),
       });
     } finally {
@@ -150,10 +156,10 @@ export function PatientAssignmentsDialog({
     setSubmitting(true);
     try {
       await updatePatientAssignment(patientId, assignmentId, { role: "primary" }, token);
-      toast.success("Primary doctor updated");
+      toast.success(tr(language, "Primary doctor updated", "อัปเดตแพทย์หลักแล้ว"));
       await refreshData();
     } catch (error) {
-      toast.error("Update failed", {
+      toast.error(tr(language, "Update failed", "อัปเดตไม่สำเร็จ"), {
         description: getErrorMessage(error, "ไม่สามารถเปลี่ยนแพทย์หลักได้"),
       });
     } finally {
@@ -166,10 +172,10 @@ export function PatientAssignmentsDialog({
     setSubmitting(true);
     try {
       await deletePatientAssignment(patientId, assignmentId, token);
-      toast.success("Doctor removed from patient");
+      toast.success(tr(language, "Doctor removed from patient", "ถอดแพทย์ออกจากผู้ป่วยแล้ว"));
       await refreshData();
     } catch (error) {
-      toast.error("Remove failed", {
+      toast.error(tr(language, "Remove failed", "ถอดไม่สำเร็จ"), {
         description: getErrorMessage(error, "ไม่สามารถถอดแพทย์ออกจากผู้ป่วยได้"),
       });
     } finally {
@@ -181,28 +187,28 @@ export function PatientAssignmentsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Manage Doctors</DialogTitle>
+          <DialogTitle>{tr(language, "Manage Doctors", "จัดการแพทย์ผู้ดูแล")}</DialogTitle>
           <DialogDescription>
-            จัดการแพทย์ผู้ดูแลของผู้ป่วย: <span className="font-medium">{patientName}</span>
+            {tr(language, "Manage doctor assignments for patient:", "จัดการแพทย์ผู้ดูแลของผู้ป่วย:")} <span className="font-medium">{patientName}</span>
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="rounded-md border p-3">
-            <Label className="text-sm font-medium">Add doctor</Label>
+            <Label className="text-sm font-medium">{tr(language, "Add doctor", "เพิ่มแพทย์")}</Label>
             <div className="mt-2 flex flex-col gap-2 sm:flex-row">
               <Select value={selectedDoctorId} onValueChange={(value) => setSelectedDoctorId(value ?? "")}>
                 <SelectTrigger className="sm:flex-1">
                   {selectedDoctorId ? (
                     <SelectValue />
                   ) : (
-                    <span className="text-sm text-muted-foreground">Select doctor</span>
+                    <span className="text-sm text-muted-foreground">{tr(language, "Select doctor", "เลือกแพทย์")}</span>
                   )}
                 </SelectTrigger>
                 <SelectContent>
                   {availableDoctors.map((doctor) => (
                     <SelectItem key={doctor.id} value={doctor.id}>
-                      {displayName(doctor)}
+                      {displayName(doctor, language)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -211,17 +217,17 @@ export function PatientAssignmentsDialog({
                 onClick={() => void handleAddDoctor()}
                 disabled={!selectedDoctorId || submitting}
               >
-                Add
+                {tr(language, "Add", "เพิ่ม")}
               </Button>
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm font-medium">Assigned doctors</Label>
+            <Label className="text-sm font-medium">{tr(language, "Assigned doctors", "แพทย์ที่มอบหมายแล้ว")}</Label>
             {loading ? (
-              <p className="text-sm text-muted-foreground">Loading assignments...</p>
+              <p className="text-sm text-muted-foreground">{tr(language, "Loading assignments...", "กำลังโหลดข้อมูลการมอบหมาย...")}</p>
             ) : assignments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No doctors assigned.</p>
+              <p className="text-sm text-muted-foreground">{tr(language, "No doctors assigned.", "ยังไม่มีการมอบหมายแพทย์")}</p>
             ) : (
               <div className="space-y-2">
                 {assignments.map((assignment) => (
@@ -237,7 +243,9 @@ export function PatientAssignmentsDialog({
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge variant={assignment.role === "primary" ? "default" : "secondary"}>
-                        {assignment.role === "primary" ? "Primary" : "Consulting"}
+                        {assignment.role === "primary"
+                          ? tr(language, "Primary", "แพทย์หลัก")
+                          : tr(language, "Consulting", "ที่ปรึกษา")}
                       </Badge>
                       {assignment.role !== "primary" && (
                         <Button
@@ -246,7 +254,7 @@ export function PatientAssignmentsDialog({
                           disabled={submitting}
                           onClick={() => void handleMakePrimary(assignment.id)}
                         >
-                          Make Primary
+                          {tr(language, "Make Primary", "ตั้งเป็นแพทย์หลัก")}
                         </Button>
                       )}
                       <Button
@@ -255,7 +263,7 @@ export function PatientAssignmentsDialog({
                         disabled={submitting}
                         onClick={() => void handleRemove(assignment.id)}
                       >
-                        Remove
+                        {tr(language, "Remove", "ถอดออก")}
                       </Button>
                     </div>
                   </div>
@@ -267,7 +275,7 @@ export function PatientAssignmentsDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
+            {tr(language, "Close", "ปิด")}
           </Button>
         </DialogFooter>
       </DialogContent>

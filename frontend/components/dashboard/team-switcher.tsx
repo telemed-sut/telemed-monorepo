@@ -22,6 +22,8 @@ import { useRouter } from "next/navigation";
 import { Logout01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { logout } from "@/lib/api";
+import { useLanguageStore } from "@/store/language-store";
+import type { AppLanguage } from "@/store/language-config";
 
 
 type Team = {
@@ -30,12 +32,16 @@ type Team = {
     plan: string;
 };
 
+const tr = (language: AppLanguage, en: string, th: string) =>
+    language === "th" ? th : en;
+
 export function TeamSwitcher({ teams }: { teams: Team[] }) {
     const { isMobile } = useSidebar();
     const [activeTeam, setActiveTeam] = React.useState(teams[0]);
     const token = useAuthStore((state) => state.token);
     const clearToken = useAuthStore((state) => state.clearToken);
     const router = useRouter();
+    const language = useLanguageStore((state) => state.language);
 
     React.useEffect(() => {
         if (teams.length > 0) {
@@ -75,7 +81,7 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
                         >
                             <DropdownMenuGroup>
                                 <DropdownMenuLabel className="text-xs text-muted-foreground">
-                                    Teams
+                                    {tr(language, "Teams", "ทีม")}
                                 </DropdownMenuLabel>
                                 {teams.map((team, index) => (
                                     <DropdownMenuItem
@@ -104,7 +110,7 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
                                 <div className="flex size-6 items-center justify-center rounded-md border bg-background">
                                     <HugeiconsIcon icon={Logout01Icon} className="size-4" />
                                 </div>
-                                <div className="font-medium">Logout</div>
+                                <div className="font-medium">{tr(language, "Logout", "ออกจากระบบ")}</div>
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>
