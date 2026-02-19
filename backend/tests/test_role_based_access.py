@@ -106,3 +106,57 @@ def test_role_requirements_in_jwt(client: TestClient, db: Session):
     assert admin_token != staff_token
     assert len(admin_token) > 0
     assert len(staff_token) > 0
+
+
+def test_admin_only_endpoints_block_doctor_and_staff(client: TestClient, db: Session):
+    admin_user = create_test_user(db, "admin-guard@test.com", UserRole.admin)
+    doctor_user = create_test_user(db, "doctor-guard@test.com", UserRole.doctor)
+    staff_user = create_test_user(db, "staff-guard@test.com", UserRole.staff)
+
+    admin_headers = get_auth_headers(admin_user)
+    doctor_headers = get_auth_headers(doctor_user)
+    staff_headers = get_auth_headers(staff_user)
+
+    invite_resp = client.post(
+        "/users/invites",
+        json={"email": "rbac-doctor-invite@example.com", "role": "doctor"},
+        headers=admin_headers,
+    )
+    assert invite_resp.status_code == 200
+
+    admin_paths = [
+        ("/users", "GET"),
+        ("/users/invites", "GET"),
+        ("/audit/logs", "GET"),
+        ("/security/stats", "GET"),
+    ]
+
+    for path, method in admin_paths:
+        doctor_resp = client.request(method, path, headers=doctor_headers)
+        staff_resp = client.request(method, path, headers=staff_headers)
+        assert doctor_resp.status_code == 403, f"doctor should be blocked on {path}"
+        assert staff_resp.status_code == 403, f"staff should be blocked on {path}"
+
+
+def test_meeting_and_stats_access_matrix(client: TestClient, db: Session):
+    admin_user = create_test_user(db, "admin-matrix@test.com", UserRole.admin)
+    doctor_user = create_test_user(db, "doctor-matrix@test.com", UserRole.doctor)
+    staff_user = create_test_user(db, "staff-matrix@test.com", UserRole.staff)
+
+    admin_headers = get_auth_headers(admin_user)
+    doctor_headers = get_auth_headers(doctor_user)
+    staff_headers = get_auth_headers(staff_user)
+
+    admin_meetings = client.get("/meetings", headers=admin_headers)
+    doctor_meetings = client.get("/meetings", headers=doctor_headers)
+    staff_meetings = client.get("/meetings", headers=staff_headers)
+    assert admin_meetings.status_code == 200
+    assert doctor_meetings.status_code == 200
+    assert staff_meetings.status_code == 403
+
+    admin_stats = client.get("/stats/overview", headers=admin_headers)
+    doctor_stats = client.get("/stats/overview", headers=doctor_headers)
+    staff_stats = client.get("/stats/overview", headers=staff_headers)
+    assert admin_stats.status_code == 200
+    assert doctor_stats.status_code == 200
+    assert staff_stats.status_code == 403

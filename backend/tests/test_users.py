@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
 from app.models.enums import UserRole, VerificationStatus
+from app.models.invite import UserInvite
 from app.models.user import User
 
 
@@ -400,11 +401,22 @@ class TestSoftDelete:
 
         resp = client.post(
             "/users/purge-deleted",
-            json={"older_than_days": 90, "confirm_text": "DELETE"},
+            json={"older_than_days": 90, "confirm_text": "DELETE", "reason": "Quarterly retention policy"},
             headers=_auth(token),
         )
         assert resp.status_code == 400
         assert "confirm_text" in resp.json()["detail"]
+
+    def test_purge_deleted_requires_reason(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-purge-reason@example.com", role=UserRole.admin)
+        token = _login(client, "admin-purge-reason@example.com")
+
+        resp = client.post(
+            "/users/purge-deleted",
+            json={"older_than_days": 90, "confirm_text": "PURGE"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 422
 
     def test_purge_deleted_hard_deletes_old_soft_deleted_accounts(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-purge@example.com", role=UserRole.admin)
@@ -422,7 +434,11 @@ class TestSoftDelete:
 
         purge_resp = client.post(
             "/users/purge-deleted",
-            json={"older_than_days": 90, "confirm_text": "PURGE"},
+            json={
+                "older_than_days": 90,
+                "confirm_text": "PURGE",
+                "reason": "Cleanup soft-deleted records after retention window",
+            },
             headers=_auth(token),
         )
         assert purge_resp.status_code == 200
@@ -460,6 +476,115 @@ class TestValidation:
         assert resp.status_code == 200
         data = resp.json()
         assert data["role"] == "staff"
+
+
+# ──────────────────────────────────────────────────────────
+# Invite lifecycle
+# ──────────────────────────────────────────────────────────
+
+class TestInviteLifecycle:
+    def test_list_active_invites(self, client: TestClient, db: Session):
+        _make_user(db, email="admin-invite-list@example.com", role=UserRole.admin)
+        token = _login(client, "admin-invite-list@example.com")
+
+        create_resp = client.post(
+            "/users/invites",
+            json={"email": "doctor-invite-list@example.com", "role": "doctor"},
+            headers=_auth(token),
+        )
+        assert create_resp.status_code == 200, create_resp.text
+
+        list_resp = client.get("/users/invites?status_filter=active", headers=_auth(token))
+        assert list_resp.status_code == 200
+        payload = list_resp.json()
+        assert payload["total"] >= 1
+        matched = [item for item in payload["items"] if item["email"] == "doctor-invite-list@example.com"]
+        assert len(matched) == 1
+        assert matched[0]["status"] == "active"
+
+    def test_revoke_invite(self, client: TestClient, db: Session):
+        _make_user(db, email="admin-invite-revoke@example.com", role=UserRole.admin)
+        token = _login(client, "admin-invite-revoke@example.com")
+
+        create_resp = client.post(
+            "/users/invites",
+            json={"email": "doctor-invite-revoke@example.com", "role": "doctor"},
+            headers=_auth(token),
+        )
+        assert create_resp.status_code == 200
+
+        invite = db.query(UserInvite).filter(
+            UserInvite.email == "doctor-invite-revoke@example.com"
+        ).order_by(UserInvite.created_at.desc()).first()
+        assert invite is not None
+
+        revoke_resp = client.post(f"/users/invites/{invite.id}/revoke", headers=_auth(token))
+        assert revoke_resp.status_code == 200
+        assert "revoked" in revoke_resp.json()["message"].lower()
+
+        list_closed = client.get("/users/invites?status_filter=closed", headers=_auth(token))
+        assert list_closed.status_code == 200
+        assert any(item["id"] == str(invite.id) for item in list_closed.json()["items"])
+
+    def test_resend_invite_rotates_active_invite(self, client: TestClient, db: Session):
+        _make_user(db, email="admin-invite-resend@example.com", role=UserRole.admin)
+        token = _login(client, "admin-invite-resend@example.com")
+
+        create_resp = client.post(
+            "/users/invites",
+            json={"email": "doctor-invite-resend@example.com", "role": "doctor"},
+            headers=_auth(token),
+        )
+        assert create_resp.status_code == 200
+
+        first_invite = db.query(UserInvite).filter(
+            UserInvite.email == "doctor-invite-resend@example.com"
+        ).order_by(UserInvite.created_at.desc()).first()
+        assert first_invite is not None
+
+        resend_resp = client.post(f"/users/invites/{first_invite.id}/resend", headers=_auth(token))
+        assert resend_resp.status_code == 200
+        assert "/invite/" in resend_resp.json()["invite_url"]
+
+        active_list = client.get(
+            "/users/invites?status_filter=active&q=doctor-invite-resend@example.com",
+            headers=_auth(token),
+        )
+        assert active_list.status_code == 200
+        assert active_list.json()["total"] == 1
+
+        closed_list = client.get(
+            "/users/invites?status_filter=closed&q=doctor-invite-resend@example.com",
+            headers=_auth(token),
+        )
+        assert closed_list.status_code == 200
+        assert closed_list.json()["total"] >= 1
+
+    def test_list_expired_invites(self, client: TestClient, db: Session):
+        _make_user(db, email="admin-invite-expired@example.com", role=UserRole.admin)
+        token = _login(client, "admin-invite-expired@example.com")
+
+        create_resp = client.post(
+            "/users/invites",
+            json={"email": "doctor-invite-expired@example.com", "role": "doctor"},
+            headers=_auth(token),
+        )
+        assert create_resp.status_code == 200
+
+        invite = db.query(UserInvite).filter(
+            UserInvite.email == "doctor-invite-expired@example.com"
+        ).order_by(UserInvite.created_at.desc()).first()
+        assert invite is not None
+        invite.expires_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+        db.add(invite)
+        db.commit()
+
+        expired_list = client.get(
+            "/users/invites?status_filter=expired&q=doctor-invite-expired@example.com",
+            headers=_auth(token),
+        )
+        assert expired_list.status_code == 200
+        assert expired_list.json()["total"] == 1
 
 
 # ──────────────────────────────────────────────────────────
@@ -649,7 +774,11 @@ class TestAuditLog:
 
         purge_resp = client.post(
             "/users/purge-deleted",
-            json={"older_than_days": 90, "confirm_text": "PURGE"},
+            json={
+                "older_than_days": 90,
+                "confirm_text": "PURGE",
+                "reason": "Cleanup soft-deleted records after retention window",
+            },
             headers=_auth(token),
         )
         assert purge_resp.status_code == 200
@@ -661,3 +790,4 @@ class TestAuditLog:
         assert len(logs) >= 1
         detail = json.loads(logs[-1].details)
         assert detail["older_than_days"] == 90
+        assert "retention window" in detail["reason"]
