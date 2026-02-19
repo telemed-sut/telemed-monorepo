@@ -1,0 +1,10 @@
+{
+  "ignore": {
+    "rules": [
+      "react-doctor/no-cascading-set-state",
+      "react-doctor/no-effect-event-handler",
+      "react-doctor/no-giant-component",
+      "react-doctor/prefer-useReducer"
+    ]
+  }
+}
