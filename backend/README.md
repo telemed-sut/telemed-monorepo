@@ -24,6 +24,9 @@ FastAPI backend with JWT auth, PostgreSQL (Neon/Supabase), patient CRUD, Alembic
 - JWT_SECRET: HMAC secret for HS256 tokens
 - JWT_EXPIRES_IN: token lifetime in seconds (e.g., 3600)
 - CORS_ORIGINS: comma-separated origins (default http://localhost:3000,http://localhost:8080)
+- DEVICE_API_SECRET: dedicated secret for device pressure ingestion signatures
+- DEVICE_API_ALLOW_JWT_SECRET_FALLBACK: allow fallback to JWT secret when device secret is missing (default true for backward compatibility)
+- DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE: require `X-Body-Hash` and signature over body hash (recommended true in production)
 
 See [.env.example](.env.example) for a starter file.
 

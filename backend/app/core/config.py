@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     
     # Device API Security
     device_api_secret: str | None = None
+    device_api_allow_jwt_secret_fallback: bool = True
+    device_api_require_body_hash_signature: bool = False
 
     # Auth cookie settings
     auth_cookie_name: str = "access_token"
@@ -92,9 +94,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def apply_device_api_secret_fallback(self):
-        # Fallback to JWT secret when DEVICE_API_SECRET is not explicitly configured.
+        # Backward-compatible fallback for legacy environments.
+        # In production, set DEVICE_API_ALLOW_JWT_SECRET_FALLBACK=false.
         if not self.device_api_secret:
-            self.device_api_secret = self.jwt_secret
+            if self.device_api_allow_jwt_secret_fallback:
+                self.device_api_secret = self.jwt_secret
+            else:
+                raise ValueError(
+                    "DEVICE_API_SECRET is required when DEVICE_API_ALLOW_JWT_SECRET_FALLBACK=false."
+                )
 
         value = self.device_api_secret.strip()
         if not value:

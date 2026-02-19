@@ -1378,8 +1378,28 @@ export async function fetchDeviceStats(token: string, hours: number = 24) {
   return apiFetch<DeviceStats>(`/device/v1/stats?hours=${hours}`, { method: "GET" }, token);
 }
 
-export async function fetchDeviceErrors(token: string, limit: number = 50) {
-  return apiFetch<DeviceErrorLog[]>(`/device/v1/errors?limit=${limit}`, { method: "GET" }, token);
+export interface FetchDeviceErrorsOptions {
+  limit?: number;
+  hours?: number;
+  since?: string;
+  deviceId?: string;
+}
+
+export async function fetchDeviceErrors(token: string, options: FetchDeviceErrorsOptions = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(options.limit ?? 50));
+
+  if (typeof options.hours === "number") {
+    params.set("hours", String(options.hours));
+  }
+  if (options.since) {
+    params.set("since", options.since);
+  }
+  if (options.deviceId) {
+    params.set("device_id", options.deviceId);
+  }
+
+  return apiFetch<DeviceErrorLog[]>(`/device/v1/errors?${params.toString()}`, { method: "GET" }, token);
 }
 
 // ── Audit Logs ──────────────────────────────────────────────────

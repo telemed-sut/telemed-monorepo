@@ -27,7 +27,7 @@ A modern, responsive Patient Management System built with **Next.js 14+ (App Rou
 
 ### Prerequisites
 *   Node.js 18+
-*   npm / yarn / bun
+*   Bun
 
 ### 1. Clone the repository
 ```bash
@@ -37,8 +37,6 @@ cd frontend
 
 ### 2. Install dependencies
 ```bash
-npm install
-# or
 bun install
 ```
 
@@ -50,9 +48,7 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 
 ### 4. Run Locally
 ```bash
-npm run dev
-# or
-bun dev
+bun run dev
 ```
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 

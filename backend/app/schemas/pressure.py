@@ -1,33 +1,46 @@
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, Field, UUID4, field_validator
+from pydantic import BaseModel, Field, UUID4, field_validator, model_validator
 
 class PressureCreate(BaseModel):
     # Map patient_id to user_id in the JSON input
     patient_id: UUID4 = Field(..., alias="user_id")
-    device_id: str = Field(..., min_length=1)
+    device_id: str = Field(..., min_length=1, max_length=128)
     
     heart_rate: int = Field(..., ge=20, le=300)
     sys_rate: int = Field(..., ge=30, le=300) 
     dia_rate: int = Field(..., ge=10, le=250) 
     
     # Map wave_a/wave_b to a/b in the JSON input
-    wave_a: Optional[List[int]] = Field(default=[], max_length=5000, alias="a")
-    wave_b: Optional[List[int]] = Field(default=[], max_length=5000, alias="b")
+    wave_a: Optional[List[int]] = Field(default=None, max_length=5000, alias="a")
+    wave_b: Optional[List[int]] = Field(default=None, max_length=5000, alias="b")
     
     measured_at: Optional[datetime] = Field(default=None)
-    
-    @field_validator('sys_rate')
-    def validate_sys_dia(cls, v, values):
-        # We can't access other fields easily in field_validator if not using model_validator.
-        # But let's keep it simple for now, relying on ranges.
-        return v
+
+    @field_validator("device_id")
+    @classmethod
+    def normalize_device_id(cls, v: str) -> str:
+        value = v.strip()
+        if not value:
+            raise ValueError("device_id must not be empty")
+        return value
     
     @field_validator('wave_a', 'wave_b')
+    @classmethod
     def validate_wave_length(cls, v):
         if v and len(v) > 5000:
             raise ValueError('Waveform array too long (> 5000 points)')
         return v
+
+    @model_validator(mode="after")
+    def validate_pressure_and_waveform(self):
+        if self.sys_rate <= self.dia_rate:
+            raise ValueError("sys_rate must be greater than dia_rate")
+
+        if self.wave_a is not None and self.wave_b is not None and len(self.wave_a) != len(self.wave_b):
+            raise ValueError("a and b must have the same length")
+
+        return self
 
 class PressureResponse(BaseModel):
     id: UUID4

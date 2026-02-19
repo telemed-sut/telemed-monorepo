@@ -1,11 +1,11 @@
 meta {
-  name: Submit Pressure (HMAC)
+  name: Add Pressure (HMAC)
   type: http
   seq: 1
 }
 
 post {
-  url: http://localhost:8000/device/v1/pressure
+  url: http://localhost:8000/add_pressure
   body: json
   auth: inherit
 }
@@ -16,35 +16,31 @@ headers {
 
 body:json {
   {
-      "patient_id": "721e584f-f3f9-4beb-81b0-bfc688e487ce",
-      "device_id": "test_device_001",
-      "heart_rate": 75,
-      "sys_rate": 120,
-      "dia_rate": 80,
-      "wave_a": [1, 2, 3, 4, 5],
-      "wave_b": [5, 4, 3, 2, 1],
-      "measured_at": "{{$isoTimestamp}}"
+      "user_id": "721e584f-f3f9-4beb-81b0-bfc688e487ce",
+      "device_id": "test_device_NEW_006",
+      "heart_rate": 82,
+      "sys_rate": 125,
+      "dia_rate": 85,
+      "a": [10, 20, 30, 40, 50],
+      "b": [5, 15, 25, 35, 45]
   }
 }
 
 script:pre-request {
-  // ใช้ Library ของ Node.js โดยตรง
   const crypto = require('crypto');
-  
-  // 1. ตั้งค่า Secret (ต้องตรงกับในไฟล์ config.py ของ backend)
-  const secret = "change_this_to_a_strong_secret";
-  const deviceId = "test_device_001"; 
-  
-  // 2. สร้าง Timestamp ปัจจุบัน
+
+  // Docker backend currently uses JWT_SECRET=supersecretkey (DEVICE_API_SECRET is empty).
+  const secret = "supersecretkey";
+  const deviceId = "test_device_NEW_006";
+
   const timestamp = Math.floor(Date.now() / 1000).toString();
-  
-  // 3. สร้าง Signature ด้วย HMAC-SHA256
+
+  // Signature = HMAC_SHA256(secret, timestamp + deviceId)
   const message = timestamp + deviceId;
   const signature = crypto.createHmac('sha256', secret)
     .update(message)
     .digest('hex');
-  
-  // 4. ยัดใส่ Header เพื่อส่งไปพร้อม Request
+
   req.setHeader("X-Timestamp", timestamp);
   req.setHeader("X-Signature", signature);
   req.setHeader("X-Device-Id", deviceId);
@@ -56,5 +52,5 @@ settings {
 }
 
 docs {
-  Sends blood pressure data with simulated HMAC headers.
+  Send blood pressure payload to /add_pressure with auto-generated HMAC headers.
 }
