@@ -18,9 +18,10 @@ depends_on = None
 
 def upgrade() -> None:
     # 1. Add new values to user_role ENUM
-    op.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'pharmacist'")
-    op.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'medical_technologist'")
-    op.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'psychologist'")
+    with op.get_context().autocommit_block():
+        op.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'pharmacist'")
+        op.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'medical_technologist'")
+        op.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'psychologist'")
 
     # 2. Create verification_status ENUM
     verification_status = postgresql.ENUM(

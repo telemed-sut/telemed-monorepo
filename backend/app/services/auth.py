@@ -18,6 +18,7 @@ from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.invite import UserInvite
 from app.models.enums import UserRole
 from app.models.user import User
+from app.services import patient as patient_service
 
 settings = get_settings()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
@@ -297,6 +298,7 @@ def _has_active_break_glass(db: Session, user_id: UUID, patient_id: UUID) -> boo
 
 
 def verify_patient_access(
+    request: Request,
     patient_id: UUID = Path(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_doctor_user),
@@ -306,58 +308,42 @@ def verify_patient_access(
     - Admin: always allowed.
     - Doctor: must have an active assignment.
     """
-    if current_user.role == UserRole.admin:
-        return current_user
-
-    if _has_active_assignment(db, current_user.id, patient_id):
-        return current_user
-
-    if settings.enable_break_glass_access and _has_active_break_glass(db, current_user.id, patient_id):
-        return current_user
-
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You are not assigned to this patient. Contact admin to assign access.",
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient_id,
+        ip_address=request.client.host if request.client else None,
     )
+    return current_user
 
 
 def verify_patient_access_doctor(
+    request: Request,
     patient_id: UUID = Path(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_doctor_user),
 ) -> User:
     """Same as verify_patient_access but restricted to doctor (+ admin) roles."""
-    if current_user.role == UserRole.admin:
-        return current_user
-
-    if _has_active_assignment(db, current_user.id, patient_id):
-        return current_user
-
-    if settings.enable_break_glass_access and _has_active_break_glass(db, current_user.id, patient_id):
-        return current_user
-
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You are not assigned to this patient. Contact admin to assign access.",
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient_id,
+        ip_address=request.client.host if request.client else None,
     )
+    return current_user
 
 
 def verify_patient_access_doctor_or_nurse(
+    request: Request,
     patient_id: UUID = Path(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_doctor_user),
 ) -> User:
     """Same as verify_patient_access but retained for compatibility."""
-    if current_user.role == UserRole.admin:
-        return current_user
-
-    if _has_active_assignment(db, current_user.id, patient_id):
-        return current_user
-
-    if settings.enable_break_glass_access and _has_active_break_glass(db, current_user.id, patient_id):
-        return current_user
-
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You are not assigned to this patient. Contact admin to assign access.",
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient_id,
+        ip_address=request.client.host if request.client else None,
     )
+    return current_user

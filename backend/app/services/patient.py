@@ -1,6 +1,8 @@
+import json
 from typing import List, Literal, Optional, Tuple
 from uuid import UUID
 
+from fastapi import HTTPException, status
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -10,6 +12,7 @@ from app.models.enums import UserRole
 from app.models.patient import Patient
 from app.models.user import User
 from app.schemas.patient import PatientCreate, PatientUpdate
+from app.services import audit as audit_service
 
 settings = get_settings()
 AssignmentRole = Literal["primary", "consulting"]
@@ -71,6 +74,89 @@ def _normalize_assignment_role(role: str | None) -> AssignmentRole | None:
     if normalized not in ALLOWED_ASSIGNMENT_ROLES:
         raise ValueError("Role must be either 'primary' or 'consulting'.")
     return normalized  # type: ignore[return-value]
+
+
+def _has_active_assignment(db: Session, doctor_id: UUID, patient_id: UUID) -> bool:
+    exists = db.scalar(
+        select(DoctorPatientAssignment.id).where(
+            DoctorPatientAssignment.doctor_id == doctor_id,
+            DoctorPatientAssignment.patient_id == patient_id,
+        )
+    )
+    return exists is not None
+
+
+def _log_patient_access_denied(
+    db: Session,
+    *,
+    current_user: User,
+    patient_id: UUID,
+    reason: str,
+    ip_address: str | None,
+) -> None:
+    try:
+        audit_service.log_action(
+            db=db,
+            user_id=current_user.id,
+            action="patient_access_denied",
+            resource_type="patient",
+            resource_id=patient_id,
+            details=json.dumps(
+                {
+                    "reason": reason,
+                    "role": current_user.role.value,
+                }
+            ),
+            ip_address=ip_address,
+        )
+    except Exception:
+        # Access denial must still be enforced even if audit insert fails.
+        pass
+
+
+def verify_doctor_patient_access(
+    db: Session,
+    *,
+    current_user: User,
+    patient_id: UUID,
+    ip_address: str | None = None,
+) -> None:
+    """Enforce phase-1 assignment policy at service layer.
+
+    - Admin: full access
+    - Doctor: only assigned patients
+    - Others: forbidden
+    """
+    if current_user.role == UserRole.admin:
+        return
+
+    if current_user.role != UserRole.doctor:
+        _log_patient_access_denied(
+            db,
+            current_user=current_user,
+            patient_id=patient_id,
+            reason="forbidden_role",
+            ip_address=ip_address,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Required roles: ['admin', 'doctor']",
+        )
+
+    if _has_active_assignment(db, current_user.id, patient_id):
+        return
+
+    _log_patient_access_denied(
+        db,
+        current_user=current_user,
+        patient_id=patient_id,
+        reason="not_assigned",
+        ip_address=ip_address,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You are not assigned to this patient. Contact admin to assign access.",
+    )
 
 
 def _list_patient_assignments_for_update(
@@ -304,3 +390,35 @@ def list_patients(
 
     items = db.scalars(stmt).all()
     return items, total
+
+
+def list_patients_for_user(
+    db: Session,
+    *,
+    current_user: User,
+    page: int,
+    limit: int,
+    q: Optional[str],
+    sort: str,
+    order: str,
+) -> Tuple[List[Patient], int]:
+    """List patients with role-aware filtering enforced in service layer."""
+    if current_user.role == UserRole.admin:
+        doctor_id: Optional[UUID] = None
+    elif current_user.role == UserRole.doctor:
+        doctor_id = current_user.id
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Required roles: ['admin', 'doctor']",
+        )
+
+    return list_patients(
+        db,
+        page=page,
+        limit=limit,
+        q=q,
+        sort=sort,
+        order=order,
+        doctor_id=doctor_id,
+    )

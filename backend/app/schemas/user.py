@@ -16,8 +16,8 @@ CLINICAL_ROLES = {
     UserRole.psychologist,
 }
 
-# Thai medical license pattern: ว.NNNNN, พ.NNNNN, MD12345, or plain digits
-LICENSE_NO_PATTERN = re.compile(r"^([A-Za-z\u0E00-\u0E7F]{1,5}\.?\d{4,6}|\d{4,6})$")
+# Thai medical license pattern: ว.NNNNN, พ.NNNNN, MD12345, MD-TEST, or plain digits
+LICENSE_NO_PATTERN = re.compile(r"^([A-Za-z\u0E00-\u0E7F]{1,10}[.-]?[A-Za-z0-9]{0,10}|\d{4,10})$")
 
 
 class UserBase(BaseModel):

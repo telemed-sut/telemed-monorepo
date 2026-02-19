@@ -7,6 +7,7 @@ Create Date: 2026-02-15
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 from passlib.context import CryptContext
 
 # revision identifiers, used by Alembic.
@@ -19,6 +20,8 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def upgrade() -> None:
+    user_role_enum = postgresql.ENUM(name="user_role", create_type=False)
+    verification_status_enum = postgresql.ENUM(name="verification_status", create_type=False)
     users_table = sa.table(
         "users",
         sa.column("id", sa.dialects.postgresql.UUID),
@@ -26,12 +29,12 @@ def upgrade() -> None:
         sa.column("first_name", sa.String),
         sa.column("last_name", sa.String),
         sa.column("password_hash", sa.String),
-        sa.column("role", sa.String),
+        sa.column("role", user_role_enum),
         sa.column("is_active", sa.Boolean),
         sa.column("specialty", sa.String),
         sa.column("department", sa.String),
         sa.column("license_no", sa.String),
-        sa.column("verification_status", sa.String),
+        sa.column("verification_status", verification_status_enum),
     )
 
     admin_hash = pwd_context.hash("AdminSeed@2026")

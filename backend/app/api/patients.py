@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 from uuid import UUID
 
@@ -21,11 +22,12 @@ from app.schemas.patient import PatientCreate, PatientListResponse, PatientOut, 
 from app.services import auth as auth_service
 from app.services import patient as patient_service
 from app.services import novu as novu_service
-from app.services import audit as audit_service  # Added
-from fastapi.encoders import jsonable_encoder  # Added
+from app.services import audit as audit_service
+from fastapi.encoders import jsonable_encoder
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 def notify_staff(db: Session, current_user: User, background_tasks: BackgroundTasks, 
@@ -82,28 +84,14 @@ def list_patients(
     - Admin: can list all patients.
     - Doctor: can list only assigned patients.
     """
-    doctor_id: Optional[UUID] = None
-    
-    if current_user.role == UserRole.doctor:
-        doctor_id = current_user.id
-    elif current_user.role == UserRole.admin:
-        # Admin can see all patients
-        pass
-    else:
-        # Others are forbidden
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. Required roles: ['admin', 'doctor']",
-        )
-
-    items, total = patient_service.list_patients(
+    items, total = patient_service.list_patients_for_user(
         db,
-        page,
-        min(limit, settings.max_limit),
-        q,
-        sort,
-        order,
-        doctor_id=doctor_id,
+        current_user=current_user,
+        page=page,
+        limit=min(limit, settings.max_limit),
+        q=q,
+        sort=sort,
+        order=order,
     )
     return PatientListResponse(items=items, page=page, limit=min(limit, settings.max_limit), total=total)
 
@@ -121,26 +109,16 @@ def get_patient(
     - Admin: can access all.
     - Doctor: only assigned.
     """
-    if current_user.role not in (UserRole.admin, UserRole.doctor):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. Required roles: ['admin', 'doctor']",
-        )
-
     patient = patient_service.get_patient(db, patient_id)
     if not patient:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
-    if current_user.role == UserRole.doctor:
-        try:
-            patient_uuid = UUID(patient_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
-        if not auth_service._has_active_assignment(db, current_user.id, patient_uuid):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You are not assigned to this patient. Contact admin to assign access.",
-            )
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient.id,
+        ip_address=request.client.host if request.client else None,
+    )
 
     return patient
 
@@ -156,24 +134,16 @@ def update_patient(
     current_user: User = Depends(auth_service.get_current_user),
 ):
     """Update patient (admin or assigned doctor)."""
-    if current_user.role not in (UserRole.admin, UserRole.doctor):
-        raise HTTPException(status_code=403, detail="Access denied")
-
     patient = patient_service.get_patient(db, patient_id)
     if not patient:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
-    # Doctors can only edit assigned patients
-    if current_user.role == UserRole.doctor:
-        try:
-            patient_uuid = UUID(patient_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
-        if not auth_service._has_active_assignment(db, current_user.id, patient_uuid):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You are not assigned to this patient. Contact admin to assign access.",
-            )
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient.id,
+        ip_address=request.client.host if request.client else None,
+    )
 
     # Audit: Capture old state
     old_data = jsonable_encoder(patient)
@@ -200,26 +170,13 @@ def update_patient(
                 resource_type="patient",
                 resource_id=updated.id,
                 details=f"Updated patient {updated.first_name} {updated.last_name}",
-                ip_address=request.client.host if request.client else None, # Note: Middleware handles real IP detection? No, we need to extract it manually or rely on middleware setting something?
-                # Actually, api/auth.py uses request.headers logic. It's better to reuse a helper or just grab it.
-                # Since we fixed middleware, request.client.host might be wrong if middleware doesn't patch it.
-                # But wait, we fixed middleware to return response, not patch request object in place for all attributes?
-                # Let's use the same logic as auth.py or rely on a helper.
-                # For now, let's just grab headers as best effort.
+                ip_address=request.client.host if request.client else None,
                 old_values=old_data,
                 new_values=new_data
             )
-             # Wait, dumping *everything* into old/new values might be too big. 
-             # Implementation plan said "Calculate diff". 
-             # But the schema has old_values and new_values columns. Storing full snapshot is easier for "time travel".
-             # Storing just diff is more efficient.
-             # Let's store full snapshots for now as per plan implies "old_values" column.
-             # Actually, re-reading plan: "metrics: Calculate the diff... pass old/new to log_action".
-             # If I pass full objects, the frontend can calc diff. 
-             # Let's pass full objects.
-    except Exception as e:
+    except Exception:
         # Don't fail the request if audit fails
-        print(f"Failed to log audit: {e}")
+        logger.exception("Failed to write patient update audit log")
 
     return updated
 

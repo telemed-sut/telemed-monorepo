@@ -18,9 +18,10 @@ depends_on = None
 
 def upgrade() -> None:
     # ── 1. Add new values to user_role ENUM ──────────────────
-    # ALTER TYPE ... ADD VALUE cannot run inside a transaction in PostgreSQL
-    op.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'doctor'")
-    op.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'nurse'")
+    # ALTER TYPE ... ADD VALUE requires an autocommit block on PostgreSQL
+    with op.get_context().autocommit_block():
+        op.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'doctor'")
+        op.execute("ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'nurse'")
 
     # ── 2. Create new ENUM types ──────────────────
     encounter_type = postgresql.ENUM("inpatient", "outpatient", "emergency", name="encounter_type", create_type=False)
