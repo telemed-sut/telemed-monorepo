@@ -14,6 +14,26 @@ export interface UserInviteCreateResponse {
   expires_at: string;
 }
 
+export type UserInviteStatus = "active" | "expired" | "closed";
+
+export interface UserInviteItem {
+  id: string;
+  email: string;
+  role: string;
+  created_by?: string | null;
+  created_at: string;
+  expires_at: string;
+  used_at?: string | null;
+  status: UserInviteStatus;
+}
+
+export interface UserInviteListResponse {
+  items: UserInviteItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export interface InviteInfoResponse {
   email: string;
   role: string;
@@ -141,6 +161,154 @@ function isProbablyJwt(token: string): boolean {
   return token.split(".").length === 3;
 }
 
+const DEFAULT_PAGE = 1;
+const DEFAULT_LIMIT = 20;
+const MAX_QUERY_LIMIT = 200;
+const DEFAULT_ERROR_MESSAGE_TH = "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง";
+
+const INTERNAL_ERROR_PATTERN =
+  /(traceback|pydantic|validationerror|sqlalchemy|stack trace|line \d+|value_error|type_error)/i;
+
+const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
+  { pattern: /access denied|permission denied|forbidden/i, message: "คุณไม่มีสิทธิ์ทำรายการนี้" },
+  { pattern: /super admin only/i, message: "รายการนี้ทำได้เฉพาะผู้ดูแลระดับสูงเท่านั้น" },
+  { pattern: /user not found|not found/i, message: "ไม่พบข้อมูลผู้ใช้ที่ต้องการ" },
+  { pattern: /already exists|already in use|already assigned/i, message: "ข้อมูลนี้มีอยู่แล้วในระบบ" },
+  { pattern: /confirm_text=\"?purge\"?/i, message: "ต้องพิมพ์คำยืนยัน PURGE ก่อนดำเนินการ" },
+  { pattern: /confirm_text=\"?delete\"?/i, message: "ต้องพิมพ์คำยืนยัน DELETE ก่อนดำเนินการ" },
+  { pattern: /reason must be at least|purge reason must be at least/i, message: "เหตุผลต้องมีอย่างน้อย 8 ตัวอักษร" },
+  { pattern: /temporary password must be at least/i, message: "รหัสผ่านชั่วคราวต้องมีอย่างน้อย 8 ตัวอักษร" },
+  { pattern: /too many requests|rate limit/i, message: "คุณทำรายการถี่เกินไป กรุณาลองใหม่อีกครั้ง" },
+  { pattern: /network error|failed to fetch|network request failed/i, message: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่" },
+  { pattern: /invalid credentials|incorrect password/i, message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" },
+];
+
+function clampPage(page?: number): number {
+  if (!Number.isFinite(page)) return DEFAULT_PAGE;
+  return Math.max(1, Math.floor(page as number));
+}
+
+function clampLimit(limit?: number, max: number = MAX_QUERY_LIMIT): number {
+  if (!Number.isFinite(limit)) return DEFAULT_LIMIT;
+  const normalized = Math.floor(limit as number);
+  if (normalized < 1) return DEFAULT_LIMIT;
+  return Math.min(normalized, max);
+}
+
+function appendPagination(
+  query: URLSearchParams,
+  params: { page?: number; limit?: number },
+  maxLimit: number = MAX_QUERY_LIMIT
+) {
+  query.append("page", clampPage(params.page).toString());
+  query.append("limit", clampLimit(params.limit, maxLimit).toString());
+}
+
+function parseApiErrorDetail(detail: unknown): string | null {
+  if (typeof detail === "string" && detail.trim().length > 0) {
+    return detail;
+  }
+
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((entry) => {
+        if (typeof entry === "string") return entry;
+        if (!entry || typeof entry !== "object") return null;
+
+        const record = entry as Record<string, unknown>;
+        const message =
+          (typeof record.msg === "string" && record.msg) ||
+          (typeof record.message === "string" && record.message) ||
+          null;
+        if (!message) return null;
+        return message;
+      })
+      .filter((item): item is string => Boolean(item));
+
+    if (messages.length > 0) {
+      return messages.join(" | ");
+    }
+    return null;
+  }
+
+  if (detail && typeof detail === "object") {
+    const record = detail as Record<string, unknown>;
+    return (
+      parseApiErrorDetail(record.detail) ||
+      parseApiErrorDetail(record.message) ||
+      parseApiErrorDetail(record.error)
+    );
+  }
+
+  return null;
+}
+
+function extractApiErrorCode(detail: unknown): string | undefined {
+  if (!detail || typeof detail !== "object") return undefined;
+  const code = (detail as Record<string, unknown>).code;
+  if (typeof code === "string" && code.length > 0) return code;
+  return undefined;
+}
+
+function statusFallbackMessage(status?: number, fallback: string = DEFAULT_ERROR_MESSAGE_TH): string {
+  if (status === 0) return "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่";
+  if (status === 400) return "ข้อมูลที่ส่งมาไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง";
+  if (status === 401) return "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่";
+  if (status === 403) return "คุณไม่มีสิทธิ์ทำรายการนี้";
+  if (status === 404) return "ไม่พบข้อมูลที่ต้องการ";
+  if (status === 409) return "ข้อมูลขัดแย้งกับสถานะปัจจุบัน กรุณารีเฟรชแล้วลองใหม่";
+  if (status === 422) return "ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบก่อนบันทึก";
+  if (status === 429) return "คุณทำรายการถี่เกินไป กรุณาลองใหม่อีกครั้ง";
+  if (typeof status === "number" && status >= 500) return "ระบบขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง";
+  return fallback;
+}
+
+function translateKnownMessage(message: string): string | null {
+  const normalized = message.trim();
+  if (!normalized) return null;
+
+  for (const rule of TRANSLATED_MESSAGE_RULES) {
+    if (rule.pattern.test(normalized)) {
+      return rule.message;
+    }
+  }
+  return null;
+}
+
+function sanitizeMessage(rawMessage: string | null | undefined): string | null {
+  if (!rawMessage) return null;
+  const trimmed = rawMessage.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return null;
+  if (INTERNAL_ERROR_PATTERN.test(trimmed)) return null;
+  return trimmed;
+}
+
+function toUserFacingMessage(
+  status: number | undefined,
+  rawMessage: string | null | undefined,
+  fallback: string = DEFAULT_ERROR_MESSAGE_TH,
+): string {
+  const sanitized = sanitizeMessage(rawMessage);
+  if (sanitized) {
+    const translated = translateKnownMessage(sanitized);
+    if (translated) return translated;
+    return sanitized;
+  }
+  return statusFallbackMessage(status, fallback);
+}
+
+export function getErrorMessage(error: unknown, fallback: string = DEFAULT_ERROR_MESSAGE_TH): string {
+  if (error instanceof Error) {
+    const apiError = error as ApiError;
+    return toUserFacingMessage(apiError.status, apiError.message, fallback);
+  }
+  if (typeof error === "string") {
+    return toUserFacingMessage(undefined, error, fallback);
+  }
+  return fallback;
+}
+
 /** Check if a JWT token is expiring within the given buffer (seconds). */
 function isTokenExpiring(token: string, bufferSeconds = 300): boolean {
   try {
@@ -175,9 +343,9 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, token?: stri
       headers,
     });
   } catch (err) {
-    const error: ApiError = new Error(
-      err instanceof TypeError ? `Network error: ${err.message}` : "Network request failed"
-    );
+    const networkMessage =
+      err instanceof TypeError ? `Network error: ${err.message}` : "Network request failed";
+    const error: ApiError = new Error(toUserFacingMessage(0, networkMessage));
     error.status = 0;
     return { ok: false, status: 0, data: null, error };
   }
@@ -191,7 +359,7 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, token?: stri
   const isJson = res.headers.get("content-type")?.includes("application/json");
   const hasBody = contentLength !== "0" && contentLength !== null ? true : isJson;
 
-  let data: any = null;
+  let data: unknown = null;
   if (hasBody && isJson) {
     try {
       data = await res.json();
@@ -201,13 +369,22 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, token?: stri
   }
 
   if (!res.ok) {
-    const msgData = data?.detail || data?.message || res.statusText;
-    const message = typeof msgData === 'object' ? JSON.stringify(msgData) : msgData;
-    const error: ApiError = new Error(message || "Request failed");
+    const payload = data && typeof data === "object"
+      ? (data as Record<string, unknown>)
+      : {};
+    const detail = payload.detail;
+    const rawMessage =
+      parseApiErrorDetail(detail) ||
+      parseApiErrorDetail(payload.message) ||
+      parseApiErrorDetail(payload.error) ||
+      res.statusText ||
+      "Request failed";
+    const error: ApiError = new Error(toUserFacingMessage(res.status, rawMessage));
     error.status = res.status;
-    error.detail = data?.detail;
-    if (typeof data?.detail === "object" && data?.detail?.code) {
-      error.code = String(data.detail.code);
+    error.detail = detail;
+    const errorCode = extractApiErrorCode(detail);
+    if (errorCode) {
+      error.code = errorCode;
     }
     return { ok: false, status: res.status, data: null, error };
   }
@@ -467,6 +644,70 @@ export async function superAdminResetUser2FA(
   );
 }
 
+export interface AdminSecurityUserLookup {
+  user_id: string;
+  email: string;
+  role: string;
+  two_factor_enabled: boolean;
+  is_locked: boolean;
+}
+
+export interface AdminEmergencyUnlockPayload {
+  email?: string;
+  user_id?: string;
+  reason?: string;
+}
+
+export interface AdminEmergencyUnlockResponse {
+  message: string;
+  user_id: string;
+  email: string;
+  was_locked: boolean;
+}
+
+export interface AdminPasswordResetResponse {
+  message: string;
+  user_id: string;
+  email: string;
+  temporary_password: string;
+}
+
+export async function resolveSecurityUserByEmail(email: string, token: string) {
+  const query = new URLSearchParams();
+  query.set("email", email.trim().toLowerCase());
+  return apiFetch<AdminSecurityUserLookup>(`/security/users/resolve?${query.toString()}`, {}, token);
+}
+
+export async function adminEmergencyUnlock(payload: AdminEmergencyUnlockPayload, token: string) {
+  return apiFetch<AdminEmergencyUnlockResponse>(
+    "/security/admin-unlock",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+}
+
+export async function superAdminResetUserPassword(
+  userId: string,
+  reason: string,
+  token: string,
+  temporaryPassword?: string
+) {
+  return apiFetch<AdminPasswordResetResponse>(
+    `/security/users/${userId}/password/reset`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        reason,
+        temporary_password: temporaryPassword || undefined,
+      }),
+    },
+    token
+  );
+}
+
 interface FetchPatientsParams {
   page?: number;
   limit?: number;
@@ -477,8 +718,7 @@ interface FetchPatientsParams {
 
 export async function fetchPatients(params: FetchPatientsParams, token: string) {
   const search = new URLSearchParams();
-  if (params.page) search.set("page", params.page.toString());
-  if (params.limit) search.set("limit", params.limit.toString());
+  appendPagination(search, params);
   if (params.q) search.set("q", params.q);
   if (params.sort) search.set("sort", params.sort);
   if (params.order) search.set("order", params.order);
@@ -651,8 +891,7 @@ interface FetchMeetingsParams {
 
 export async function fetchMeetings(params: FetchMeetingsParams, token: string) {
   const search = new URLSearchParams();
-  if (params.page) search.set("page", params.page.toString());
-  if (params.limit) search.set("limit", params.limit.toString());
+  appendPagination(search, params);
   if (params.q) search.set("q", params.q);
   if (params.doctor_id) search.set("doctor_id", params.doctor_id);
   if (params.patient_id) search.set("patient_id", params.patient_id);
@@ -784,8 +1023,7 @@ export async function fetchUsers(
   token: string
 ) {
   const query = new URLSearchParams();
-  if (params.page) query.append("page", params.page.toString());
-  if (params.limit) query.append("limit", Math.min(params.limit, 100).toString());
+  appendPagination(query, params, 100);
   if (params.q) query.append("q", params.q);
   if (params.sort) query.append("sort", params.sort);
   if (params.order) query.append("order", params.order);
@@ -819,6 +1057,39 @@ export async function createUserInvite(
       method: "POST",
       body: JSON.stringify(data),
     },
+    token
+  );
+}
+
+export async function fetchUserInvites(
+  params: {
+    page?: number;
+    limit?: number;
+    q?: string;
+    status_filter?: UserInviteStatus | "all";
+  },
+  token: string
+) {
+  const query = new URLSearchParams();
+  appendPagination(query, params, 100);
+  if (params.q) query.append("q", params.q);
+  if (params.status_filter) query.append("status_filter", params.status_filter);
+
+  return apiFetch<UserInviteListResponse>(`/users/invites?${query.toString()}`, {}, token);
+}
+
+export async function resendUserInvite(inviteId: string, token: string) {
+  return apiFetch<UserInviteCreateResponse>(
+    `/users/invites/${inviteId}/resend`,
+    { method: "POST" },
+    token
+  );
+}
+
+export async function revokeUserInvite(inviteId: string, token: string) {
+  return apiFetch<{ message: string }>(
+    `/users/invites/${inviteId}/revoke`,
+    { method: "POST" },
     token
   );
 }
@@ -1119,14 +1390,15 @@ export interface AuditLogItem {
   user_email: string | null;
   user_name: string | null;
   action: string;
+  result: "success" | "failure";
   resource_type: string | null;
   resource_id: string | null;
   details: string | null;
   ip_address: string | null;
   is_break_glass: boolean;
   break_glass_reason: string | null;
-  old_values?: Record<string, any> | null;
-  new_values?: Record<string, any> | null;
+  old_values?: Record<string, unknown> | null;
+  new_values?: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -1143,24 +1415,27 @@ export async function fetchAuditLogs(
     page?: number;
     limit?: number;
     user_id?: string;
+    user?: string;
     action?: string;
     resource_type?: string;
     is_break_glass?: boolean;
     date_from?: string;
     date_to?: string;
     search?: string;
+    result?: "success" | "failure";
   }
 ) {
   const query = new URLSearchParams();
-  if (params.page) query.append("page", params.page.toString());
-  if (params.limit) query.append("limit", params.limit.toString());
+  appendPagination(query, params, 200);
   if (params.user_id) query.append("user_id", params.user_id);
+  if (params.user) query.append("user", params.user);
   if (params.action) query.append("action", params.action);
   if (params.resource_type) query.append("resource_type", params.resource_type);
   if (params.is_break_glass !== undefined) query.append("is_break_glass", params.is_break_glass.toString());
   if (params.date_from) query.append("date_from", params.date_from);
   if (params.date_to) query.append("date_to", params.date_to);
   if (params.search) query.append("search", params.search);
+  if (params.result) query.append("result", params.result);
 
   return apiFetch<AuditLogListResponse>(`/audit/logs?${query.toString()}`, {}, token);
 }
@@ -1169,22 +1444,26 @@ export async function exportAuditLogs(
   token: string,
   params: {
     user_id?: string;
+    user?: string;
     action?: string;
     resource_type?: string;
     is_break_glass?: boolean;
     date_from?: string;
     date_to?: string;
     search?: string;
+    result?: "success" | "failure";
   }
 ) {
   const query = new URLSearchParams();
   if (params.user_id) query.append("user_id", params.user_id);
+  if (params.user) query.append("user", params.user);
   if (params.action) query.append("action", params.action);
   if (params.resource_type) query.append("resource_type", params.resource_type);
   if (params.is_break_glass !== undefined) query.append("is_break_glass", params.is_break_glass.toString());
   if (params.date_from) query.append("date_from", params.date_from);
   if (params.date_to) query.append("date_to", params.date_to);
   if (params.search) query.append("search", params.search);
+  if (params.result) query.append("result", params.result);
 
   // Use rawFetch to handle blob/file download
   const url = `${API_BASE_URL}/audit/export?${query.toString()}`;
@@ -1199,7 +1478,23 @@ export async function exportAuditLogs(
   });
 
   if (!res.ok) {
-    throw new Error("Failed to export logs");
+    let detail: unknown = null;
+    try {
+      if (res.headers.get("content-type")?.includes("application/json")) {
+        const payload = (await res.json()) as Record<string, unknown>;
+        detail = payload.detail ?? payload.message ?? payload.error;
+      }
+    } catch {
+      detail = null;
+    }
+
+    const rawMessage = parseApiErrorDetail(detail) || res.statusText || "Failed to export logs";
+    const error: ApiError = new Error(
+      toUserFacingMessage(res.status, rawMessage, "ไม่สามารถส่งออก Audit Logs ได้")
+    );
+    error.status = res.status;
+    error.detail = detail;
+    throw error;
   }
 
   return res.blob();
@@ -1238,8 +1533,14 @@ export interface LoginAttemptListResponse {
 export interface SecurityStats {
   active_ip_bans: number;
   failed_logins_24h: number;
+  failed_logins_1h: number;
   locked_accounts: number;
   total_attempts_24h: number;
+  forbidden_403_1h: number;
+  forbidden_403_baseline_24h: number;
+  forbidden_403_spike: boolean;
+  purge_actions_24h: number;
+  emergency_actions_24h: number;
 }
 
 export async function fetchSecurityStats(token: string) {
@@ -1248,8 +1549,7 @@ export async function fetchSecurityStats(token: string) {
 
 export async function fetchIPBans(params: { page?: number; limit?: number }, token: string) {
   const query = new URLSearchParams();
-  if (params.page) query.set("page", params.page.toString());
-  if (params.limit) query.set("limit", params.limit.toString());
+  appendPagination(query, params, 200);
   const qs = query.toString();
   return apiFetch<IPBanListResponse>(`/security/ip-bans${qs ? `?${qs}` : ""}`, {}, token);
 }
@@ -1274,8 +1574,7 @@ export async function fetchLoginAttempts(
   token: string,
 ) {
   const query = new URLSearchParams();
-  if (params.page) query.set("page", params.page.toString());
-  if (params.limit) query.set("limit", params.limit.toString());
+  appendPagination(query, params, 200);
   if (params.ip_address) query.set("ip_address", params.ip_address);
   if (params.email) query.set("email", params.email);
   if (params.success !== undefined) query.set("success", params.success.toString());
@@ -1338,7 +1637,7 @@ export async function bulkRestoreUsers(ids: string[], token: string) {
 }
 
 export async function purgeDeletedUsers(
-  payload: { older_than_days?: number; confirm_text: string },
+  payload: { older_than_days?: number; confirm_text: string; reason: string },
   token: string
 ) {
   return apiFetch<PurgeDeletedUsersResponse>(

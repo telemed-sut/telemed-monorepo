@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
-import { fetchAuditLogs, exportAuditLogs, type AuditLogItem, type AuditLogListResponse } from "@/lib/api";
+import { exportAuditLogs, fetchAuditLogs, getErrorMessage, type ApiError, type AuditLogItem } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -46,7 +46,6 @@ import {
     ShieldAlert,
     Activity,
     Users,
-    Clock,
     Eye,
     ChevronRight,
     Download,
@@ -91,6 +90,12 @@ const RESOURCE_TYPE_OPTIONS = [
 const BREAK_GLASS_OPTIONS = [
     { value: "all", label: "All Events" },
     { value: "true", label: "Break Glass Only" },
+];
+
+const RESULT_OPTIONS = [
+    { value: "all", label: "All Results" },
+    { value: "success", label: "Success" },
+    { value: "failure", label: "Failure" },
 ];
 
 // ── Helpers ──
@@ -235,6 +240,8 @@ export function AuditLogsContent() {
     const [actionFilter, setActionFilter] = useState("all");
     const [resourceTypeFilter, setResourceTypeFilter] = useState("all");
     const [breakGlassFilter, setBreakGlassFilter] = useState("all");
+    const [resultFilter, setResultFilter] = useState("all");
+    const [userFilter, setUserFilter] = useState("");
     const [dateFrom, setDateFrom] = useState("");
     const [dateTo, setDateTo] = useState("");
 
@@ -256,28 +263,46 @@ export function AuditLogsContent() {
         try {
             if (!silent) setLoading(true);
 
-            const params: Record<string, any> = { page, limit };
+            const params: {
+                page: number;
+                limit: number;
+                search?: string;
+                user?: string;
+                action?: string;
+                resource_type?: string;
+                is_break_glass?: boolean;
+                result?: "success" | "failure";
+                date_from?: string;
+                date_to?: string;
+            } = { page, limit };
             if (search) params.search = search;
+            if (userFilter) params.user = userFilter;
             if (actionFilter !== "all") params.action = actionFilter;
             if (resourceTypeFilter !== "all") params.resource_type = resourceTypeFilter;
             if (breakGlassFilter === "true") params.is_break_glass = true;
+            if (resultFilter !== "all") params.result = resultFilter as "success" | "failure";
             if (dateFrom) params.date_from = dateFrom;
             if (dateTo) params.date_to = dateTo;
 
             const response = await fetchAuditLogs(token, params);
             setLogs(response.items);
             setTotal(response.total);
-        } catch (err: any) {
-            if (err.status === 401) {
+        } catch (err: unknown) {
+            const apiError = err as ApiError;
+            if (apiError.status === 401) {
                 clearToken();
                 router.replace("/login");
                 return;
             }
-            if (!silent) toast.error("Failed to load audit logs");
+            if (!silent) {
+                toast.error("โหลด Audit Logs ไม่สำเร็จ", {
+                    description: getErrorMessage(apiError, "ไม่สามารถโหลด Audit Logs ได้"),
+                });
+            }
         } finally {
             if (!silent) setLoading(false);
         }
-    }, [token, page, limit, search, actionFilter, resourceTypeFilter, breakGlassFilter, dateFrom, dateTo, clearToken, router]);
+    }, [token, page, limit, search, userFilter, actionFilter, resourceTypeFilter, breakGlassFilter, resultFilter, dateFrom, dateTo, clearToken, router]);
 
     // Debounce search & filter changes
     useEffect(() => {
@@ -287,7 +312,7 @@ export function AuditLogsContent() {
         }, 500);
         return () => clearTimeout(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [search, actionFilter, resourceTypeFilter, breakGlassFilter, dateFrom, dateTo]);
+    }, [search, userFilter, actionFilter, resourceTypeFilter, breakGlassFilter, resultFilter, dateFrom, dateTo]);
 
     // Pagination change
     useEffect(() => {
@@ -326,9 +351,11 @@ export function AuditLogsContent() {
                 user_id: undefined, // Filters not implemented yet for export in UI, but API supports it. 
                 // Let's pass current filters
                 search: search || undefined,
+                user: userFilter || undefined,
                 action: actionFilter !== "all" ? actionFilter : undefined,
                 resource_type: resourceTypeFilter !== "all" ? resourceTypeFilter : undefined,
                 is_break_glass: breakGlassFilter === "true" ? true : undefined,
+                result: resultFilter !== "all" ? (resultFilter as "success" | "failure") : undefined,
                 date_from: dateFrom || undefined,
                 date_to: dateTo || undefined,
             });
@@ -343,9 +370,11 @@ export function AuditLogsContent() {
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
 
-            toast.success("Audit logs exported successfully");
-        } catch (err) {
-            toast.error("Failed to export logs");
+            toast.success("ส่งออก Audit Logs สำเร็จ");
+        } catch (err: unknown) {
+            toast.error("ส่งออก Audit Logs ไม่สำเร็จ", {
+                description: getErrorMessage(err, "ไม่สามารถส่งออก Audit Logs ได้"),
+            });
         } finally {
             setIsExporting(false);
         }
@@ -394,6 +423,13 @@ export function AuditLogsContent() {
                                 />
                             </div>
 
+                            <Input
+                                placeholder="User email/name"
+                                className="w-full sm:w-[180px] bg-background/50 border-white/10"
+                                value={userFilter}
+                                onChange={(e) => setUserFilter(e.target.value)}
+                            />
+
                             <Select value={actionFilter} onValueChange={(v) => setActionFilter(v ?? "")}>
                                 <SelectTrigger className="w-[180px] bg-background/50 border-white/10">
                                     <SelectValue>
@@ -429,6 +465,19 @@ export function AuditLogsContent() {
                                 <SelectContent>
                                     {BREAK_GLASS_OPTIONS.map((b) => (
                                         <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+
+                            <Select value={resultFilter} onValueChange={(v) => setResultFilter(v ?? "")}>
+                                <SelectTrigger className="w-[150px] bg-background/50 border-white/10">
+                                    <SelectValue>
+                                        {RESULT_OPTIONS.find((r) => r.value === resultFilter)?.label || "All Results"}
+                                    </SelectValue>
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {RESULT_OPTIONS.map((r) => (
+                                        <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -501,6 +550,7 @@ export function AuditLogsContent() {
                                         <TableHead className="w-[120px]">Time</TableHead>
                                         <TableHead>User</TableHead>
                                         <TableHead>Action</TableHead>
+                                        <TableHead>Result</TableHead>
                                         <TableHead>Resource</TableHead>
                                         <TableHead>IP Address</TableHead>
                                         <TableHead>Break Glass</TableHead>
@@ -510,19 +560,20 @@ export function AuditLogsContent() {
                                 <TableBody>
                                     {loading && logs.length === 0 ? (
                                         Array.from({ length: 8 }).map((_, i) => (
-                                            <TableRow key={i} className="border-white/10">
-                                                <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
-                                                <TableCell><Skeleton className="h-4 w-[150px]" /></TableCell>
-                                                <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
-                                                <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
-                                                <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
-                                                <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
-                                                <TableCell><Skeleton className="h-4 w-[20px]" /></TableCell>
-                                            </TableRow>
+                                                <TableRow key={i} className="border-white/10">
+                                                    <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
+                                                    <TableCell><Skeleton className="h-4 w-[150px]" /></TableCell>
+                                                    <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
+                                                    <TableCell><Skeleton className="h-4 w-[90px]" /></TableCell>
+                                                    <TableCell><Skeleton className="h-4 w-[100px]" /></TableCell>
+                                                    <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
+                                                    <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
+                                                    <TableCell><Skeleton className="h-4 w-[20px]" /></TableCell>
+                                                </TableRow>
                                         ))
                                     ) : logs.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                                            <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                                                 No audit logs found.
                                             </TableCell>
                                         </TableRow>
@@ -559,6 +610,19 @@ export function AuditLogsContent() {
                                                     <TableCell>
                                                         <Badge variant="outline" className={cn("text-xs", getActionColor(log.action))}>
                                                             {formatActionLabel(log.action)}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge
+                                                            variant="outline"
+                                                            className={cn(
+                                                                "text-xs",
+                                                                log.result === "failure"
+                                                                    ? "border-red-500/20 text-red-500 bg-red-500/10"
+                                                                    : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
+                                                            )}
+                                                        >
+                                                            {log.result === "failure" ? "Failure" : "Success"}
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell>
@@ -665,6 +729,17 @@ export function AuditLogsContent() {
                                         <div className="flex items-center gap-2 flex-wrap">
                                             <Badge variant="outline" className={cn("text-xs", getActionColor(selectedLog.action))}>
                                                 {formatActionLabel(selectedLog.action)}
+                                            </Badge>
+                                            <Badge
+                                                variant="outline"
+                                                className={cn(
+                                                    "text-xs",
+                                                    selectedLog.result === "failure"
+                                                        ? "border-red-500/20 text-red-500 bg-red-500/10"
+                                                        : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
+                                                )}
+                                            >
+                                                {selectedLog.result === "failure" ? "Failure" : "Success"}
                                             </Badge>
                                             {selectedLog.is_break_glass && (
                                                 <Badge variant="outline" className="border-red-500/20 text-red-500 bg-red-500/10 text-xs">

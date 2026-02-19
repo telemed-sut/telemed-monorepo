@@ -26,6 +26,7 @@ import {
   deletePatientAssignment,
   fetchPatientAssignments,
   fetchUsers,
+  getErrorMessage,
   type PatientAssignment,
   type User,
   updatePatientAssignment,
@@ -104,8 +105,9 @@ export function PatientAssignmentsDialog({
       setAssignments(assignmentRes.items);
       setDoctorOptions(doctors);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load assignments";
-      toast.error("Load failed", { description: message });
+      toast.error("Load failed", {
+        description: getErrorMessage(error, "ไม่สามารถโหลดรายการการ assign แพทย์ได้"),
+      });
     } finally {
       setLoading(false);
     }
@@ -135,8 +137,9 @@ export function PatientAssignmentsDialog({
       setSelectedDoctorId("");
       await refreshData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to assign doctor";
-      toast.error("Assign failed", { description: message });
+      toast.error("Assign failed", {
+        description: getErrorMessage(error, "ไม่สามารถเพิ่มแพทย์ให้ผู้ป่วยได้"),
+      });
     } finally {
       setSubmitting(false);
     }
@@ -150,8 +153,9 @@ export function PatientAssignmentsDialog({
       toast.success("Primary doctor updated");
       await refreshData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to update assignment";
-      toast.error("Update failed", { description: message });
+      toast.error("Update failed", {
+        description: getErrorMessage(error, "ไม่สามารถเปลี่ยนแพทย์หลักได้"),
+      });
     } finally {
       setSubmitting(false);
     }
@@ -165,8 +169,9 @@ export function PatientAssignmentsDialog({
       toast.success("Doctor removed from patient");
       await refreshData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to remove assignment";
-      toast.error("Remove failed", { description: message });
+      toast.error("Remove failed", {
+        description: getErrorMessage(error, "ไม่สามารถถอดแพทย์ออกจากผู้ป่วยได้"),
+      });
     } finally {
       setSubmitting(false);
     }

@@ -14,7 +14,7 @@ import Link from "next/link";
 import QRCode from "qrcode";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ApiError, login as loginRequest } from "@/lib/api";
+import { ApiError, getErrorMessage, login as loginRequest } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { Logo } from "@/components/ui/logo";
 
@@ -113,7 +113,7 @@ export default function LoginPage() {
         setTrustedDays(typeof detail.trusted_device_days === "number" ? detail.trusted_device_days : null);
         setError(detail.message ?? "Login requires a 2FA code.");
       } else {
-        const message = err instanceof Error ? err.message : "Login failed";
+        const message = getErrorMessage(err, "เข้าสู่ระบบไม่สำเร็จ");
         setError(message);
       }
     } finally {

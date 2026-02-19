@@ -16,15 +16,21 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  adminEmergencyUnlock,
   disable2FA,
   fetch2FAStatus,
   fetchTrustedDevices,
+  getErrorMessage,
   logout,
   regenerateBackupCodes,
+  resolveSecurityUserByEmail,
   reset2FA,
   revokeAllTrustedDevices,
   revokeTrustedDevice,
+  superAdminResetUser2FA,
+  superAdminResetUserPassword,
   verify2FA,
+  type AdminSecurityUserLookup,
   type Admin2FAStatus,
   type TrustedDevice,
 } from "@/lib/api";
@@ -39,18 +45,6 @@ function extractSetupKey(uri: string | null | undefined): string | null {
   } catch {
     return null;
   }
-}
-
-function parseApiError(error: unknown): string {
-  if (error instanceof Error && error.message) {
-    try {
-      const parsed = JSON.parse(error.message) as { message?: string };
-      if (parsed.message) return parsed.message;
-    } catch {
-      return error.message;
-    }
-  }
-  return "Request failed";
 }
 
 function formatDateTime(value: string | null | undefined): string {
@@ -86,6 +80,12 @@ export function SettingsContent() {
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [trustedDevices, setTrustedDevices] = useState<TrustedDevice[]>([]);
   const [trustedLoading, setTrustedLoading] = useState(false);
+  const [emergencyBusy, setEmergencyBusy] = useState(false);
+  const [targetEmail, setTargetEmail] = useState("");
+  const [resolvedUser, setResolvedUser] = useState<AdminSecurityUserLookup | null>(null);
+  const [emergencyReason, setEmergencyReason] = useState("");
+  const [temporaryPasswordInput, setTemporaryPasswordInput] = useState("");
+  const [generatedTempPassword, setGeneratedTempPassword] = useState("");
 
   const isAdmin = role === "admin";
 
@@ -112,7 +112,7 @@ export function SettingsContent() {
       const status = await fetch2FAStatus(token);
       setTwoFA(status);
     } catch (error: unknown) {
-      toast.error(parseApiError(error));
+      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
     } finally {
       setTwoFALoading(false);
     }
@@ -125,7 +125,7 @@ export function SettingsContent() {
       const response = await fetchTrustedDevices(token);
       setTrustedDevices(response.items);
     } catch (error: unknown) {
-      toast.error(parseApiError(error));
+      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
     } finally {
       setTrustedLoading(false);
     }
@@ -136,6 +136,11 @@ export function SettingsContent() {
     void load2FAStatus();
     void loadTrustedDevices();
   }, [hydrated, token]);
+
+  useEffect(() => {
+    setResolvedUser(null);
+    setGeneratedTempPassword("");
+  }, [targetEmail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -186,7 +191,7 @@ export function SettingsContent() {
       setVerifyCode("");
       await load2FAStatus();
     } catch (error: unknown) {
-      toast.error(parseApiError(error));
+      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
     } finally {
       setTwoFABusy(false);
     }
@@ -212,7 +217,7 @@ export function SettingsContent() {
       await loadTrustedDevices();
       toast.success("รีเซ็ต 2FA แล้ว กรุณาสแกน QR ใหม่และยืนยัน");
     } catch (error: unknown) {
-      toast.error(parseApiError(error));
+      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
     } finally {
       setTwoFABusy(false);
     }
@@ -234,7 +239,7 @@ export function SettingsContent() {
       await loadTrustedDevices();
       toast.success("ปิด 2FA เรียบร้อย");
     } catch (error: unknown) {
-      toast.error(parseApiError(error));
+      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
     } finally {
       setTwoFABusy(false);
     }
@@ -248,7 +253,7 @@ export function SettingsContent() {
       setBackupCodes(response.codes);
       toast.success("สร้าง Backup Codes ใหม่แล้ว กรุณาบันทึกไว้ทันที");
     } catch (error: unknown) {
-      toast.error(parseApiError(error));
+      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
     } finally {
       setTwoFABusy(false);
     }
@@ -290,7 +295,7 @@ export function SettingsContent() {
       await loadTrustedDevices();
       toast.success("ยกเลิกอุปกรณ์ที่เชื่อถือแล้ว");
     } catch (error: unknown) {
-      toast.error(parseApiError(error));
+      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
     } finally {
       setTwoFABusy(false);
     }
@@ -304,9 +309,111 @@ export function SettingsContent() {
       await loadTrustedDevices();
       toast.success("ยกเลิกอุปกรณ์ทั้งหมดแล้ว");
     } catch (error: unknown) {
-      toast.error(parseApiError(error));
+      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
     } finally {
       setTwoFABusy(false);
+    }
+  };
+
+  const resolveEmergencyTarget = async () => {
+    if (!token) return;
+    const normalizedEmail = targetEmail.trim().toLowerCase();
+    if (!normalizedEmail) {
+      toast.error("กรุณากรอกอีเมลผู้ใช้งาน");
+      return;
+    }
+
+    setEmergencyBusy(true);
+    try {
+      const user = await resolveSecurityUserByEmail(normalizedEmail, token);
+      setResolvedUser(user);
+      toast.success("พบผู้ใช้แล้ว");
+    } catch (error: unknown) {
+      setResolvedUser(null);
+      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+    } finally {
+      setEmergencyBusy(false);
+    }
+  };
+
+  const handleEmergencyUnlock = async () => {
+    if (!token) return;
+    const normalizedEmail = targetEmail.trim().toLowerCase();
+    if (!normalizedEmail) {
+      toast.error("กรุณากรอกอีเมลผู้ใช้งาน");
+      return;
+    }
+    if (emergencyReason.trim().length < 8) {
+      toast.error("กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร");
+      return;
+    }
+
+    setEmergencyBusy(true);
+    try {
+      await adminEmergencyUnlock(
+        { email: normalizedEmail, reason: emergencyReason.trim() },
+        token
+      );
+      toast.success("ปลดล็อกบัญชีเรียบร้อย");
+      await resolveEmergencyTarget();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+    } finally {
+      setEmergencyBusy(false);
+    }
+  };
+
+  const handleEmergencyReset2FA = async () => {
+    if (!token || !resolvedUser) return;
+    if (emergencyReason.trim().length < 8) {
+      toast.error("กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร");
+      return;
+    }
+
+    setEmergencyBusy(true);
+    try {
+      await superAdminResetUser2FA(resolvedUser.user_id, emergencyReason.trim(), token);
+      toast.success("รีเซ็ต 2FA ให้ผู้ใช้แล้ว");
+      await resolveEmergencyTarget();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+    } finally {
+      setEmergencyBusy(false);
+    }
+  };
+
+  const handleEmergencyResetPassword = async () => {
+    if (!token || !resolvedUser) return;
+    if (emergencyReason.trim().length < 8) {
+      toast.error("กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร");
+      return;
+    }
+
+    setEmergencyBusy(true);
+    try {
+      const response = await superAdminResetUserPassword(
+        resolvedUser.user_id,
+        emergencyReason.trim(),
+        token,
+        temporaryPasswordInput.trim() || undefined
+      );
+      setGeneratedTempPassword(response.temporary_password);
+      toast.success("รีเซ็ตรหัสผ่านเรียบร้อย");
+      await resolveEmergencyTarget();
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+    } finally {
+      setEmergencyBusy(false);
+    }
+  };
+
+  const handleCopyGeneratedPassword = async () => {
+    if (!generatedTempPassword) return;
+    try {
+      await navigator.clipboard.writeText(generatedTempPassword);
+      toast.success("คัดลอกรหัสชั่วคราวแล้ว");
+    } catch {
+      toast.error("คัดลอกไม่สำเร็จ");
     }
   };
 
@@ -522,6 +629,97 @@ export function SettingsContent() {
           )}
         </CardContent>
       </Card>
+
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Admin Emergency Toolkit</CardTitle>
+            <CardDescription>
+              เครื่องมือฉุกเฉินสำหรับปลดล็อกบัญชี / รีเซ็ต 2FA / รีเซ็ตรหัสผ่าน พร้อมบันทึก audit log
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="target_email">Target user email</Label>
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  id="target_email"
+                  placeholder="user@hospital.org"
+                  value={targetEmail}
+                  onChange={(event) => setTargetEmail(event.target.value)}
+                />
+                <Button type="button" variant="outline" onClick={resolveEmergencyTarget} disabled={emergencyBusy}>
+                  Resolve user
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="emergency_reason">Reason (required)</Label>
+              <Input
+                id="emergency_reason"
+                placeholder="เหตุผลสำหรับการทำรายการฉุกเฉิน"
+                value={emergencyReason}
+                onChange={(event) => setEmergencyReason(event.target.value)}
+              />
+            </div>
+
+            {resolvedUser ? (
+              <div className="rounded-md border border-border/60 p-3 text-sm space-y-1">
+                <p><span className="text-muted-foreground">User:</span> {resolvedUser.email}</p>
+                <p><span className="text-muted-foreground">Role:</span> {resolvedUser.role}</p>
+                <p><span className="text-muted-foreground">Locked:</span> {resolvedUser.is_locked ? "Yes" : "No"}</p>
+                <p><span className="text-muted-foreground">2FA Enabled:</span> {resolvedUser.two_factor_enabled ? "Yes" : "No"}</p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Resolve user ก่อน เพื่อยืนยันบัญชีเป้าหมาย</p>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" disabled={emergencyBusy} onClick={handleEmergencyUnlock}>
+                Unlock account
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={emergencyBusy || !resolvedUser}
+                onClick={handleEmergencyReset2FA}
+              >
+                Reset 2FA
+              </Button>
+            </div>
+
+            <div className="space-y-2 border-t border-border pt-4">
+              <Label htmlFor="temporary_password">Temporary password (optional)</Label>
+              <Input
+                id="temporary_password"
+                placeholder="ปล่อยว่างเพื่อให้ระบบ generate"
+                value={temporaryPasswordInput}
+                onChange={(event) => setTemporaryPasswordInput(event.target.value)}
+              />
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={emergencyBusy || !resolvedUser}
+                onClick={handleEmergencyResetPassword}
+              >
+                Reset password
+              </Button>
+              {generatedTempPassword && (
+                <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    Temporary password (แสดงครั้งเดียว):
+                  </p>
+                  <Input value={generatedTempPassword} readOnly />
+                  <Button type="button" variant="outline" onClick={handleCopyGeneratedPassword}>
+                    Copy temporary password
+                  </Button>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
