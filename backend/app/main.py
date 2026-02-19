@@ -1,4 +1,9 @@
+import json
+import logging
+
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
@@ -10,9 +15,12 @@ from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.db.session import SessionLocal
 from app.middleware import IPBanMiddleware, SecurityAuditMiddleware, SecurityHeadersMiddleware
+from app.models.device_error_log import DeviceErrorLog
 from app.services.security import record_login_attempt
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
+DEVICE_INGEST_PATHS = {"/add_pressure", "/device/v1/pressure"}
 
 app = FastAPI(title=settings.app_name)
 app.state.limiter = limiter
@@ -50,6 +58,63 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
             "retry_after": retry_after,
         },
     )
+
+
+def _extract_client_ip(request: Request) -> str:
+    x_forwarded = request.headers.get("x-forwarded-for")
+    if x_forwarded:
+        return x_forwarded.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+
+def _format_validation_summary(exc: RequestValidationError, max_items: int = 6) -> str:
+    errors = []
+    for err in exc.errors():
+        loc = ".".join(str(part) for part in err.get("loc", []) if part != "body")
+        message = str(err.get("msg", "invalid value"))
+        errors.append(f"{loc}: {message}" if loc else message)
+
+    if not errors:
+        return "invalid_request_payload"
+
+    summary = " | ".join(errors[:max_items])
+    return summary[:1000]
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    if request.method == "POST" and request.url.path in DEVICE_INGEST_PATHS:
+        device_id = (request.headers.get("x-device-id") or "").strip() or "unknown"
+
+        try:
+            raw_body = await request.body()
+            if raw_body:
+                payload = json.loads(raw_body.decode("utf-8"))
+                if isinstance(payload, dict):
+                    payload_device_id = payload.get("device_id")
+                    if isinstance(payload_device_id, str) and payload_device_id.strip() and device_id == "unknown":
+                        device_id = payload_device_id.strip()
+        except Exception:
+            # keep fallback device_id
+            pass
+
+        try:
+            with SessionLocal() as db:
+                db.add(
+                    DeviceErrorLog(
+                        device_id=device_id,
+                        error_message=f"VALIDATION_FAILED:{_format_validation_summary(exc)}",
+                        ip_address=_extract_client_ip(request),
+                        endpoint=str(request.url),
+                    )
+                )
+                db.commit()
+        except Exception:
+            logger.exception("Failed to write validation log for device ingest path %s", request.url.path)
+
+    return await request_validation_exception_handler(request, exc)
 
 app.add_middleware(
     CORSMiddleware,

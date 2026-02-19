@@ -241,9 +241,11 @@ export default function DeviceMonitorPage() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [deviceHealthPageSize, setDeviceHealthPageSize] = useState(10);
   const [deviceHealthPageIndex, setDeviceHealthPageIndex] = useState(0);
-  const isFetchingRef = useRef(false);
+  const isFetchingAllRef = useRef(false);
+  const isFetchingStatsRef = useRef(false);
+  const isFetchingErrorsRef = useRef(false);
   const hasLoadedRef = useRef(false);
-  const lastErrorCursorRef = useRef<string | null>(null);
+  const lastErrorCursorRef = useRef<number | null>(null);
   const periodLabelsByLang = useMemo<Record<TimePeriod, string>>(
     () => ({
       6: tr(language, "Last 6 Hours", "6 ชั่วโมงล่าสุด"),
@@ -252,52 +254,110 @@ export default function DeviceMonitorPage() {
     }),
     [language]
   );
+  const statsRefreshIntervalMs = useMemo(
+    () => Math.max(5000, refreshIntervalMs * 5),
+    [refreshIntervalMs]
+  );
 
-  const loadData = useCallback(async (forceFullSync: boolean = false) => {
-    if (!token) return;
-    if (isFetchingRef.current) return;
+  const toLoadError = useCallback(
+    (error: unknown) =>
+      error instanceof Error
+        ? error
+        : new Error(tr(language, "Failed to load device data", "โหลดข้อมูลอุปกรณ์ไม่สำเร็จ")),
+    [language]
+  );
 
-    isFetchingRef.current = true;
-    const isInitialLoad = !hasLoadedRef.current;
-    if (isInitialLoad) {
-      setLoading(true);
-    }
-    setIsRefreshing(true);
-    setErrorObj(null);
-    try {
-      const [statsData, errorLogs] = await Promise.all([
-        fetchDeviceStats(token, periodHours),
-        fetchDeviceErrors(token, {
+  const loadStats = useCallback(
+    async (throwOnError: boolean = false) => {
+      if (!token || isFetchingStatsRef.current) return;
+      isFetchingStatsRef.current = true;
+      try {
+        const statsData = await fetchDeviceStats(token, periodHours, { topDevices: 50 });
+        setStats(statsData);
+      } catch (error) {
+        if (throwOnError) throw error;
+      } finally {
+        isFetchingStatsRef.current = false;
+      }
+    },
+    [token, periodHours]
+  );
+
+  const loadErrors = useCallback(
+    async (forceFullSync: boolean = false, throwOnError: boolean = false) => {
+      if (!token || isFetchingErrorsRef.current) return;
+      isFetchingErrorsRef.current = true;
+      try {
+        const errorLogs = await fetchDeviceErrors(token, {
           limit: 200,
           hours: periodHours,
-          since: !forceFullSync ? (lastErrorCursorRef.current ?? undefined) : undefined,
-        }),
-      ]);
+          sinceId: !forceFullSync ? (lastErrorCursorRef.current ?? undefined) : undefined,
+        });
 
-      setStats(statsData);
-      setErrors((prev) => {
-        let next: DeviceErrorLog[];
-        if (forceFullSync || !lastErrorCursorRef.current) {
-          next = errorLogs;
-        } else {
-          next = mergeDeviceErrors(prev, errorLogs, 500);
-        }
+        setErrors((prev) => {
+          const next =
+            forceFullSync || !lastErrorCursorRef.current
+              ? errorLogs
+              : mergeDeviceErrors(prev, errorLogs, 500);
 
-        lastErrorCursorRef.current = next[0]?.occurred_at ?? new Date().toISOString();
-        return next;
-      });
-      setLastUpdated(new Date());
-    } catch (error) {
-      setErrorObj(error instanceof Error ? error : new Error(tr(language, "Failed to load device data", "โหลดข้อมูลอุปกรณ์ไม่สำเร็จ")));
-    } finally {
-      if (isInitialLoad) {
-        setLoading(false);
-        hasLoadedRef.current = true;
+          const latestId = next.reduce((maxId, item) => Math.max(maxId, item.id), 0);
+          lastErrorCursorRef.current = latestId > 0 ? latestId : null;
+          return next;
+        });
+      } catch (error) {
+        if (throwOnError) throw error;
+      } finally {
+        isFetchingErrorsRef.current = false;
       }
-      setIsRefreshing(false);
-      isFetchingRef.current = false;
+    },
+    [token, periodHours]
+  );
+
+  const loadData = useCallback(
+    async (forceFullSync: boolean = false) => {
+      if (!token || isFetchingAllRef.current) return;
+
+      isFetchingAllRef.current = true;
+      const isInitialLoad = !hasLoadedRef.current;
+      if (isInitialLoad) {
+        setLoading(true);
+      }
+      setIsRefreshing(true);
+      setErrorObj(null);
+      try {
+        await Promise.all([loadStats(true), loadErrors(forceFullSync, true)]);
+        setLastUpdated(new Date());
+      } catch (error) {
+        setErrorObj(toLoadError(error));
+      } finally {
+        if (isInitialLoad) {
+          setLoading(false);
+          hasLoadedRef.current = true;
+        }
+        setIsRefreshing(false);
+        isFetchingAllRef.current = false;
+      }
+    },
+    [token, loadStats, loadErrors, toLoadError]
+  );
+
+  const refreshErrorsOnly = useCallback(async () => {
+    try {
+      await loadErrors(false, false);
+      setLastUpdated(new Date());
+    } catch {
+      // Keep stale data on background refresh errors.
     }
-  }, [token, periodHours, language]);
+  }, [loadErrors]);
+
+  const refreshStatsOnly = useCallback(async () => {
+    try {
+      await loadStats(false);
+      setLastUpdated(new Date());
+    } catch {
+      // Keep stale data on background refresh errors.
+    }
+  }, [loadStats]);
 
   const allDeviceErrorData = useMemo(() => {
     if (!stats) return [];
@@ -551,13 +611,25 @@ export default function DeviceMonitorPage() {
     let interval: NodeJS.Timeout | undefined;
     if (isAutoRefresh && token) {
       interval = setInterval(() => {
-        void loadData(false);
+        void refreshErrorsOnly();
       }, refreshIntervalMs);
     }
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isAutoRefresh, token, loadData, refreshIntervalMs]);
+  }, [isAutoRefresh, token, refreshErrorsOnly, refreshIntervalMs]);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | undefined;
+    if (isAutoRefresh && token) {
+      interval = setInterval(() => {
+        void refreshStatsOnly();
+      }, statsRefreshIntervalMs);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isAutoRefresh, token, refreshStatsOnly, statsRefreshIntervalMs]);
 
   useEffect(() => {
     setDeviceHealthPageIndex((prev) => Math.min(prev, deviceHealthPageCount - 1));
@@ -1185,7 +1257,9 @@ export default function DeviceMonitorPage() {
                       <TableRow>
                         <TableHead>{tr(language, "Time", "เวลา")}</TableHead>
                         <TableHead>{tr(language, "Device", "อุปกรณ์")}</TableHead>
+                        <TableHead>{tr(language, "Code", "รหัสปัญหา")}</TableHead>
                         <TableHead>{tr(language, "Error", "ข้อผิดพลาด")}</TableHead>
+                        <TableHead>{tr(language, "Suggestion", "คำแนะนำแก้ไข")}</TableHead>
                       </TableRow>
                     </TableHeader>
                   <TableBody>
@@ -1195,14 +1269,20 @@ export default function DeviceMonitorPage() {
                           {new Date(log.occurred_at).toLocaleTimeString(localeOf(language))}
                         </TableCell>
                         <TableCell className="font-medium text-xs">{log.device_id}</TableCell>
-                        <TableCell className="text-xs text-red-500 max-w-[160px] truncate" title={log.error_message}>
+                        <TableCell className="text-xs font-mono text-amber-600 max-w-[170px] truncate" title={log.error_code || "-"}>
+                          {log.error_code || "-"}
+                        </TableCell>
+                        <TableCell className="text-xs text-red-500 max-w-[220px] truncate" title={log.error_message}>
                           {log.error_message}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[340px] truncate" title={log.suggestion || ""}>
+                          {log.suggestion || tr(language, "Check backend logs for details", "ดู backend logs เพิ่มเติม")}
                         </TableCell>
                       </TableRow>
                     ))}
                     {recentScopedErrors.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={3} className="text-center text-muted-foreground">
+                        <TableCell colSpan={5} className="text-center text-muted-foreground">
                           {tr(language, "No errors found", "ไม่พบข้อผิดพลาด")}
                           {selectedDeviceId
                             ? tr(language, ` for ${selectedDeviceId}`, ` สำหรับ ${selectedDeviceId}`)

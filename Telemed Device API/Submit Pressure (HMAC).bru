@@ -5,7 +5,7 @@ meta {
 }
 
 post {
-  url: http://localhost:8000/add_pressure
+  url: {{baseUrl}}/add_pressure
   body: json
   auth: inherit
 }
@@ -17,7 +17,7 @@ headers {
 body:json {
   {
       "user_id": "721e584f-f3f9-4beb-81b0-bfc688e487ce",
-      "device_id": "test_device_NEW_006",
+      "device_id": "{{deviceId}}",
       "heart_rate": 82,
       "sys_rate": 125,
       "dia_rate": 85,
@@ -29,14 +29,41 @@ body:json {
 script:pre-request {
   const crypto = require('crypto');
 
-  // Docker backend currently uses JWT_SECRET=supersecretkey (DEVICE_API_SECRET is empty).
-  const secret = "supersecretkey";
-  const deviceId = "test_device_NEW_006";
+  const secret = bru.getEnvVar("deviceSecret");
+  const deviceId = bru.getEnvVar("deviceId") || "test_device_NEW_006";
+  if (!secret) {
+    throw new Error('Please set Bruno Environment variable "deviceSecret".');
+  }
 
   const timestamp = Math.floor(Date.now() / 1000).toString();
+  const nonce = crypto.randomBytes(16).toString('hex');
 
-  // Signature = HMAC_SHA256(secret, timestamp + deviceId)
-  const message = timestamp + deviceId;
+  // Pre-request runs before Bruno interpolation, so resolve {{vars}} on raw body text.
+  const bodyRawFromRequest = req.getBody({ raw: true });
+  let rawBody = typeof bodyRawFromRequest === "string"
+    ? bodyRawFromRequest
+    : JSON.stringify(bodyRawFromRequest ?? {});
+  rawBody = rawBody.replace(/\{\{\s*([^}]+)\s*\}\}/g, (_m, key) => {
+    const envValue = bru.getEnvVar(key.trim());
+    return envValue !== undefined && envValue !== null ? String(envValue) : "";
+  });
+  // Ensure outgoing payload bytes are exactly what we hash.
+  if (typeof req.setBody === "function") {
+    req.setBody(rawBody);
+  }
+
+  const bodyHash = crypto.createHash('sha256').update(rawBody, "utf8").digest('hex');
+
+  // Toggle based on backend config:
+  // - DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE
+  // - DEVICE_API_REQUIRE_NONCE
+  const requireBodyHash = true;
+  const requireNonce = true;
+
+  let message = timestamp + deviceId;
+  if (requireBodyHash) message += bodyHash;
+  if (requireNonce) message += nonce;
+
   const signature = crypto.createHmac('sha256', secret)
     .update(message)
     .digest('hex');
@@ -44,6 +71,8 @@ script:pre-request {
   req.setHeader("X-Timestamp", timestamp);
   req.setHeader("X-Signature", signature);
   req.setHeader("X-Device-Id", deviceId);
+  if (requireBodyHash) req.setHeader("X-Body-Hash", bodyHash);
+  if (requireNonce) req.setHeader("X-Nonce", nonce);
 }
 
 settings {

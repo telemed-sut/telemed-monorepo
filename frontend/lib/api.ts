@@ -1372,16 +1372,33 @@ export interface DeviceErrorLog {
   ip_address: string;
   endpoint: string;
   occurred_at: string;
+  error_code?: string;
+  suggestion?: string;
 }
 
-export async function fetchDeviceStats(token: string, hours: number = 24) {
-  return apiFetch<DeviceStats>(`/device/v1/stats?hours=${hours}`, { method: "GET" }, token);
+export interface FetchDeviceStatsOptions {
+  topDevices?: number;
+}
+
+export async function fetchDeviceStats(
+  token: string,
+  hours: number = 24,
+  options: FetchDeviceStatsOptions = {}
+) {
+  const params = new URLSearchParams();
+  params.set("hours", String(hours));
+  if (typeof options.topDevices === "number") {
+    params.set("top_devices", String(options.topDevices));
+  }
+
+  return apiFetch<DeviceStats>(`/device/v1/stats?${params.toString()}`, { method: "GET" }, token);
 }
 
 export interface FetchDeviceErrorsOptions {
   limit?: number;
   hours?: number;
   since?: string;
+  sinceId?: number;
   deviceId?: string;
 }
 
@@ -1394,6 +1411,9 @@ export async function fetchDeviceErrors(token: string, options: FetchDeviceError
   }
   if (options.since) {
     params.set("since", options.since);
+  }
+  if (typeof options.sinceId === "number") {
+    params.set("since_id", String(options.sinceId));
   }
   if (options.deviceId) {
     params.set("device_id", options.deviceId);
