@@ -57,64 +57,78 @@ import {
     AlertTriangle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useLanguageStore } from "@/store/language-store";
+import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
 
 // ── Helpers ──
 
-function timeAgo(dateStr: string): string {
+const tr = (language: AppLanguage, en: string, th: string) =>
+    language === "th" ? th : en;
+const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
+
+function timeAgo(dateStr: string, language: AppLanguage): string {
     const now = Date.now();
     const then = new Date(dateStr).getTime();
     const diffSec = Math.floor((now - then) / 1000);
 
-    if (diffSec < 60) return "Just now";
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-    if (diffSec < 604800) return `${Math.floor(diffSec / 86400)}d ago`;
-    return new Date(dateStr).toLocaleDateString();
+    if (diffSec < 60) return tr(language, "Just now", "เมื่อสักครู่");
+    if (diffSec < 3600) return tr(language, `${Math.floor(diffSec / 60)}m ago`, `${Math.floor(diffSec / 60)} นาทีที่แล้ว`);
+    if (diffSec < 86400) return tr(language, `${Math.floor(diffSec / 3600)}h ago`, `${Math.floor(diffSec / 3600)} ชั่วโมงที่แล้ว`);
+    if (diffSec < 604800) return tr(language, `${Math.floor(diffSec / 86400)}d ago`, `${Math.floor(diffSec / 86400)} วันที่แล้ว`);
+    return new Date(dateStr).toLocaleDateString(localeOf(language));
 }
 
-function formatBannedUntil(dateStr: string | null): string {
-    if (!dateStr) return "Permanent";
+function formatBannedUntil(dateStr: string | null, language: AppLanguage): string {
+    if (!dateStr) return tr(language, "Permanent", "ถาวร");
     const d = new Date(dateStr);
     const now = new Date();
-    if (d <= now) return "Expired";
+    if (d <= now) return tr(language, "Expired", "หมดอายุ");
     const diffMin = Math.floor((d.getTime() - now.getTime()) / 60000);
-    if (diffMin < 60) return `${diffMin}m remaining`;
-    if (diffMin < 1440) return `${Math.floor(diffMin / 60)}h remaining`;
-    return d.toLocaleString();
+    if (diffMin < 60) return tr(language, `${diffMin}m remaining`, `เหลือ ${diffMin} นาที`);
+    if (diffMin < 1440) return tr(language, `${Math.floor(diffMin / 60)}h remaining`, `เหลือ ${Math.floor(diffMin / 60)} ชั่วโมง`);
+    return d.toLocaleString(localeOf(language));
 }
 
 // ── Stats Cards ──
 
-function SecurityStatsCards({ stats, loading }: { stats: SecurityStats | null; loading: boolean }) {
+function SecurityStatsCards({
+    stats,
+    loading,
+    language,
+}: {
+    stats: SecurityStats | null;
+    loading: boolean;
+    language: AppLanguage;
+}) {
     const cards = [
         {
-            title: "Active IP Bans",
+            title: tr(language, "Active IP Bans", "IP ที่ถูกแบนอยู่"),
             value: stats?.active_ip_bans ?? 0,
-            subtitle: "Currently blocked IPs",
+            subtitle: tr(language, "Currently blocked IPs", "จำนวน IP ที่ถูกบล็อก"),
             icon: ShieldAlert,
             iconColor: (stats?.active_ip_bans ?? 0) > 0 ? "text-red-500" : "text-muted-foreground",
             bgColor: (stats?.active_ip_bans ?? 0) > 0 ? "bg-red-500/10" : "bg-muted/50",
         },
         {
-            title: "Failed Logins (24h)",
+            title: tr(language, "Failed Logins (24h)", "ล็อกอินล้มเหลว (24 ชม.)"),
             value: stats?.failed_logins_24h ?? 0,
-            subtitle: "Failed attempts today",
+            subtitle: tr(language, "Failed attempts today", "ความพยายามล้มเหลววันนี้"),
             icon: XCircle,
             iconColor: (stats?.failed_logins_24h ?? 0) > 5 ? "text-amber-500" : "text-muted-foreground",
             bgColor: (stats?.failed_logins_24h ?? 0) > 5 ? "bg-amber-500/10" : "bg-muted/50",
         },
         {
-            title: "Locked Accounts",
+            title: tr(language, "Locked Accounts", "บัญชีที่ถูกล็อก"),
             value: stats?.locked_accounts ?? 0,
-            subtitle: "Currently locked",
+            subtitle: tr(language, "Currently locked", "กำลังถูกล็อก"),
             icon: Lock,
             iconColor: (stats?.locked_accounts ?? 0) > 0 ? "text-red-500" : "text-emerald-500",
             bgColor: (stats?.locked_accounts ?? 0) > 0 ? "bg-red-500/10" : "bg-emerald-500/10",
         },
         {
-            title: "Total Attempts (24h)",
+            title: tr(language, "Total Attempts (24h)", "ความพยายามทั้งหมด (24 ชม.)"),
             value: stats?.total_attempts_24h ?? 0,
-            subtitle: "All login attempts",
+            subtitle: tr(language, "All login attempts", "ความพยายามล็อกอินทั้งหมด"),
             icon: Activity,
             iconColor: "text-[#7ac2f0]",
             bgColor: "bg-[#7ac2f0]/10",
@@ -150,16 +164,16 @@ function SecurityStatsCards({ stats, loading }: { stats: SecurityStats | null; l
                             403 (1h): {stats.forbidden_403_1h}
                         </Badge>
                         <Badge variant="outline">
-                            Failed login (1h): {stats.failed_logins_1h}
+                            {tr(language, "Failed login (1h)", "ล็อกอินล้มเหลว (1 ชม.)")}: {stats.failed_logins_1h}
                         </Badge>
                         <Badge variant="outline">
-                            Purge actions (24h): {stats.purge_actions_24h}
+                            {tr(language, "Purge actions (24h)", "การลบถาวร (24 ชม.)")}: {stats.purge_actions_24h}
                         </Badge>
                         <Badge variant="outline">
-                            Emergency actions (24h): {stats.emergency_actions_24h}
+                            {tr(language, "Emergency actions (24h)", "การกู้ฉุกเฉิน (24 ชม.)")}: {stats.emergency_actions_24h}
                         </Badge>
                         {stats.forbidden_403_spike && (
-                            <Badge className="bg-red-500/90 text-white">403 spike detected</Badge>
+                            <Badge className="bg-red-500/90 text-white">{tr(language, "403 spike detected", "พบ 403 พุ่งสูงผิดปกติ")}</Badge>
                         )}
                     </div>
                 </div>
@@ -175,6 +189,7 @@ export function SecurityContent() {
     const token = useAuthStore((state) => state.token);
     const hydrated = useAuthStore((state) => state.hydrated);
     const clearToken = useAuthStore((state) => state.clearToken);
+    const language = useLanguageStore((state) => state.language);
 
     // Stats
     const [stats, setStats] = useState<SecurityStats | null>(null);
@@ -234,14 +249,17 @@ export function SecurityContent() {
                 router.replace("/login");
             }
             if (!silent) {
-                toast.error("โหลดรายการ IP Ban ไม่สำเร็จ", {
-                    description: getErrorMessage(apiError, "ไม่สามารถโหลดรายการ IP ที่ถูกแบนได้"),
+                toast.error(tr(language, "Failed to load IP bans", "โหลดรายการ IP Ban ไม่สำเร็จ"), {
+                    description: getErrorMessage(
+                        apiError,
+                        tr(language, "Unable to load blocked IP list", "ไม่สามารถโหลดรายการ IP ที่ถูกแบนได้")
+                    ),
                 });
             }
         } finally {
             if (!silent) setBansLoading(false);
         }
-    }, [token, bansPage, clearToken, router]);
+    }, [token, bansPage, clearToken, router, language]);
 
     const loadAttempts = useCallback(async (silent = false) => {
         if (!token) return;
@@ -264,14 +282,17 @@ export function SecurityContent() {
                 router.replace("/login");
             }
             if (!silent) {
-                toast.error("โหลดประวัติการล็อกอินไม่สำเร็จ", {
-                    description: getErrorMessage(apiError, "ไม่สามารถโหลดประวัติการล็อกอินได้"),
+                toast.error(tr(language, "Failed to load login attempts", "โหลดประวัติการล็อกอินไม่สำเร็จ"), {
+                    description: getErrorMessage(
+                        apiError,
+                        tr(language, "Unable to load login attempt history", "ไม่สามารถโหลดประวัติการล็อกอินได้")
+                    ),
                 });
             }
         } finally {
             if (!silent) setAttemptsLoading(false);
         }
-    }, [token, attemptsPage, attemptsFilter, attemptsSearch, clearToken, router]);
+    }, [token, attemptsPage, attemptsFilter, attemptsSearch, clearToken, router, language]);
 
     // Initial load
     useEffect(() => {
@@ -320,35 +341,35 @@ export function SecurityContent() {
         if (!token) return;
         try {
             await deleteIPBan(ipAddress, token);
-            toast.success(`IP ${ipAddress} has been unbanned`);
+            toast.success(tr(language, `IP ${ipAddress} has been unbanned`, `ปลดแบน IP ${ipAddress} แล้ว`));
             loadBans();
             loadStats();
         } catch (err: unknown) {
-            toast.error("ปลดแบน IP ไม่สำเร็จ", {
-                description: getErrorMessage(err, "ไม่สามารถปลดแบน IP ได้"),
+            toast.error(tr(language, "Failed to unban IP", "ปลดแบน IP ไม่สำเร็จ"), {
+                description: getErrorMessage(err, tr(language, "Unable to unban IP", "ไม่สามารถปลดแบน IP ได้")),
             });
         }
     };
 
     const handleBan = (ipAddress: string) => {
-        toast.warningAction("Ban IP for 24 hours?", {
+        toast.warningAction(tr(language, "Ban IP for 24 hours?", "แบน IP เป็นเวลา 24 ชั่วโมงใช่ไหม?"), {
             description: (
                 <>
-                    Confirm to ban <span className="font-mono">{ipAddress}</span> for 24 hours.
+                    {tr(language, "Confirm to ban", "ยืนยันการแบน")} <span className="font-mono">{ipAddress}</span> {tr(language, "for 24 hours.", "เป็นเวลา 24 ชั่วโมง")}
                 </>
             ),
             button: {
-                title: "Ban IP",
+                title: tr(language, "Ban IP", "แบน IP"),
                 onClick: async () => {
                     if (!token) return;
                     try {
-                        await createIPBan(ipAddress, "Manual ban by admin", 1440, token);
-                        toast.success(`IP ${ipAddress} has been banned for 24 hours`);
+                        await createIPBan(ipAddress, tr(language, "Manual ban by admin", "ผู้ดูแลแบนด้วยตนเอง"), 1440, token);
+                        toast.success(tr(language, `IP ${ipAddress} has been banned for 24 hours`, `แบน IP ${ipAddress} เป็นเวลา 24 ชั่วโมงแล้ว`));
                         loadBans();
                         loadStats();
                     } catch (err: unknown) {
-                        toast.error("แบน IP ไม่สำเร็จ", {
-                            description: getErrorMessage(err, "ไม่สามารถแบน IP ได้"),
+                        toast.error(tr(language, "Failed to ban IP", "แบน IP ไม่สำเร็จ"), {
+                            description: getErrorMessage(err, tr(language, "Unable to ban IP", "ไม่สามารถแบน IP ได้")),
                         });
                     }
                 },
@@ -373,7 +394,7 @@ export function SecurityContent() {
 
     return (
         <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 bg-background w-full">
-            <SecurityStatsCards stats={stats} loading={statsLoading} />
+            <SecurityStatsCards stats={stats} loading={statsLoading} language={language} />
 
             {/* IP Bans Section */}
             <Card className="border-white/10 bg-white/5 backdrop-blur-xl shadow-2xl">
@@ -382,17 +403,17 @@ export function SecurityContent() {
                         <div>
                             <CardTitle className="text-xl font-semibold flex items-center gap-2">
                                 <ShieldAlert className="w-5 h-5 text-red-500" />
-                                IP Bans
+                                {tr(language, "IP Bans", "การแบน IP")}
                             </CardTitle>
                             <CardDescription className="flex items-center gap-2">
-                                Automatically or manually blocked IP addresses. Total: {bansTotal}
+                                {tr(language, "Automatically or manually blocked IP addresses. Total:", "รายการ IP ที่ถูกบล็อกอัตโนมัติหรือด้วยผู้ดูแล ทั้งหมด:")} {bansTotal}
                                 {isPolling && (
                                     <span className="inline-flex items-center gap-1 text-xs text-emerald-500">
                                         <span className="relative flex h-2 w-2">
                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                                             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                                         </span>
-                                        Auto-refreshing
+                                        {tr(language, "Auto-refreshing", "กำลังรีเฟรชอัตโนมัติ")}
                                     </span>
                                 )}
                             </CardDescription>
@@ -413,7 +434,9 @@ export function SecurityContent() {
                                 className="text-xs"
                                 onClick={() => setIsPolling((p) => !p)}
                             >
-                                {isPolling ? "Pause" : "Resume"} auto-refresh
+                                {isPolling
+                                    ? tr(language, "Pause auto-refresh", "หยุดรีเฟรชอัตโนมัติ")
+                                    : tr(language, "Resume auto-refresh", "เริ่มรีเฟรชอัตโนมัติ")}
                             </Button>
                         </div>
                     </div>
@@ -424,12 +447,12 @@ export function SecurityContent() {
                             <Table>
                                 <TableHeader className="sticky top-0 z-20 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
                                     <TableRow className="hover:bg-transparent border-white/10">
-                                        <TableHead>IP Address</TableHead>
-                                        <TableHead>Reason</TableHead>
-                                        <TableHead>Failed Attempts</TableHead>
-                                        <TableHead>Expires</TableHead>
-                                        <TableHead>Banned At</TableHead>
-                                        <TableHead className="w-[80px]">Actions</TableHead>
+                                        <TableHead>{tr(language, "IP Address", "ไอพีแอดเดรส")}</TableHead>
+                                        <TableHead>{tr(language, "Reason", "เหตุผล")}</TableHead>
+                                        <TableHead>{tr(language, "Failed Attempts", "จำนวนครั้งที่ล้มเหลว")}</TableHead>
+                                        <TableHead>{tr(language, "Expires", "หมดอายุ")}</TableHead>
+                                        <TableHead>{tr(language, "Banned At", "เวลาที่แบน")}</TableHead>
+                                        <TableHead className="w-[80px]">{tr(language, "Actions", "การทำงาน")}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -449,7 +472,7 @@ export function SecurityContent() {
                                             <TableCell colSpan={6} className="h-24 text-center">
                                                 <div className="flex flex-col items-center gap-2 text-muted-foreground">
                                                     <ShieldOff className="h-8 w-8" />
-                                                    <p>No active IP bans</p>
+                                                    <p>{tr(language, "No active IP bans", "ไม่มี IP ที่ถูกแบนอยู่")}</p>
                                                 </div>
                                             </TableCell>
                                         </TableRow>
@@ -476,11 +499,11 @@ export function SecurityContent() {
                                                     <TableCell className="text-sm">
                                                         <span className="flex items-center gap-1 text-muted-foreground">
                                                             <Clock className="h-3 w-3" />
-                                                            {formatBannedUntil(ban.banned_until)}
+                                                            {formatBannedUntil(ban.banned_until, language)}
                                                         </span>
                                                     </TableCell>
                                                     <TableCell className="text-sm text-muted-foreground">
-                                                        {timeAgo(ban.created_at)}
+                                                        {timeAgo(ban.created_at, language)}
                                                     </TableCell>
                                                     <TableCell>
                                                         <Button
@@ -490,7 +513,7 @@ export function SecurityContent() {
                                                             onClick={() => handleUnban(ban.ip_address)}
                                                         >
                                                             <Unlock className="h-4 w-4 mr-1" />
-                                                            Unban
+                                                            {tr(language, "Unban", "ปลดแบน")}
                                                         </Button>
                                                     </TableCell>
                                                 </motion.tr>
@@ -505,7 +528,7 @@ export function SecurityContent() {
                     {bansTotalPages > 1 && (
                         <div className="flex items-center justify-between gap-2 border-t border-white/10 py-4">
                             <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-medium text-muted-foreground">
-                                Page {bansPage} of {bansTotalPages}
+                                {tr(language, "Page", "หน้า")} {bansPage} {tr(language, "of", "จาก")} {bansTotalPages}
                             </span>
                             <div className="flex items-center gap-2">
                                 <Button
@@ -515,7 +538,7 @@ export function SecurityContent() {
                                     onClick={() => setBansPage((p) => Math.max(1, p - 1))}
                                     disabled={bansPage === 1}
                                 >
-                                    Previous
+                                    {tr(language, "Previous", "ก่อนหน้า")}
                                 </Button>
                                 <Button
                                     variant="outline"
@@ -524,7 +547,7 @@ export function SecurityContent() {
                                     onClick={() => setBansPage((p) => p + 1)}
                                     disabled={bansPage >= bansTotalPages}
                                 >
-                                    Next
+                                    {tr(language, "Next", "ถัดไป")}
                                 </Button>
                             </div>
                         </div>
@@ -539,17 +562,17 @@ export function SecurityContent() {
                         <div>
                             <CardTitle className="text-xl font-semibold flex items-center gap-2">
                                 <Activity className="w-5 h-5 text-[#7ac2f0]" />
-                                Login Attempts
+                                {tr(language, "Login Attempts", "ความพยายามเข้าสู่ระบบ")}
                             </CardTitle>
                             <CardDescription>
-                                Recent authentication attempts. Total: {attemptsTotal}
+                                {tr(language, "Recent authentication attempts. Total:", "ความพยายามยืนยันตัวตนล่าสุด ทั้งหมด:")} {attemptsTotal}
                             </CardDescription>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                             <div className="relative">
                                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                                 <Input
-                                    placeholder="Filter by email..."
+                                    placeholder={tr(language, "Filter by email...", "ค้นหาด้วยอีเมล...")}
                                     className="pl-9 w-full sm:w-[200px] bg-background/50 border-white/10"
                                     value={attemptsSearch}
                                     onChange={(e) => setAttemptsSearch(e.target.value)}
@@ -561,13 +584,17 @@ export function SecurityContent() {
                             >
                                 <SelectTrigger className="w-[140px] bg-background/50 border-white/10">
                                     <SelectValue>
-                                        {attemptsFilter === "all" ? "All" : attemptsFilter === "failed" ? "Failed Only" : "Success Only"}
+                                        {attemptsFilter === "all"
+                                            ? tr(language, "All", "ทั้งหมด")
+                                            : attemptsFilter === "failed"
+                                                ? tr(language, "Failed Only", "เฉพาะล้มเหลว")
+                                                : tr(language, "Success Only", "เฉพาะสำเร็จ")}
                                     </SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">All</SelectItem>
-                                    <SelectItem value="failed">Failed Only</SelectItem>
-                                    <SelectItem value="success">Success Only</SelectItem>
+                                    <SelectItem value="all">{tr(language, "All", "ทั้งหมด")}</SelectItem>
+                                    <SelectItem value="failed">{tr(language, "Failed Only", "เฉพาะล้มเหลว")}</SelectItem>
+                                    <SelectItem value="success">{tr(language, "Success Only", "เฉพาะสำเร็จ")}</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -579,11 +606,11 @@ export function SecurityContent() {
                             <Table>
                                 <TableHeader className="sticky top-0 z-20 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
                                     <TableRow className="hover:bg-transparent border-white/10">
-                                        <TableHead className="w-[120px]">Time</TableHead>
-                                        <TableHead>IP Address</TableHead>
-                                        <TableHead>Email</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead className="w-[80px]">Actions</TableHead>
+                                        <TableHead className="w-[120px]">{tr(language, "Time", "เวลา")}</TableHead>
+                                        <TableHead>{tr(language, "IP Address", "ไอพีแอดเดรส")}</TableHead>
+                                        <TableHead>{tr(language, "Email", "อีเมล")}</TableHead>
+                                        <TableHead>{tr(language, "Status", "สถานะ")}</TableHead>
+                                        <TableHead className="w-[80px]">{tr(language, "Actions", "การทำงาน")}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -600,7 +627,7 @@ export function SecurityContent() {
                                     ) : attempts.length === 0 ? (
                                         <TableRow>
                                             <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                                                No login attempts found.
+                                                {tr(language, "No login attempts found.", "ไม่พบประวัติการเข้าสู่ระบบ")}
                                             </TableCell>
                                         </TableRow>
                                     ) : (
@@ -618,8 +645,8 @@ export function SecurityContent() {
                                                     )}
                                                 >
                                                     <TableCell className="text-sm">
-                                                        <span className="text-muted-foreground" title={new Date(attempt.created_at).toLocaleString()}>
-                                                            {timeAgo(attempt.created_at)}
+                                                        <span className="text-muted-foreground" title={new Date(attempt.created_at).toLocaleString(localeOf(language))}>
+                                                            {timeAgo(attempt.created_at, language)}
                                                         </span>
                                                     </TableCell>
                                                     <TableCell className="font-mono text-sm">{attempt.ip_address}</TableCell>
@@ -628,17 +655,17 @@ export function SecurityContent() {
                                                         {attempt.success ? (
                                                             <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20 flex items-center gap-1 w-fit">
                                                                 <CheckCircle2 className="w-3 h-3" />
-                                                                Success
+                                                                {tr(language, "Success", "สำเร็จ")}
                                                             </Badge>
                                                         ) : attempt.details?.includes("Rate Limit") ? (
                                                             <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/20 flex items-center gap-1 w-fit">
                                                                 <AlertTriangle className="w-3 h-3" />
-                                                                Blocked (Rate Limit)
+                                                                {tr(language, "Blocked (Rate Limit)", "ถูกบล็อก (เกินอัตรา)")}
                                                             </Badge>
                                                         ) : (
                                                             <Badge variant="outline" className="bg-red-500/10 text-red-500 border-red-500/20 flex items-center gap-1 w-fit">
                                                                 <XCircle className="w-3 h-3" />
-                                                                Failed
+                                                                {tr(language, "Failed", "ล้มเหลว")}
                                                             </Badge>
                                                         )}
                                                     </TableCell>
@@ -648,10 +675,10 @@ export function SecurityContent() {
                                                             size="sm"
                                                             className="text-amber-500 hover:text-amber-400 hover:bg-amber-500/10"
                                                             onClick={() => handleBan(attempt.ip_address)}
-                                                            title="Ban IP for 24h"
+                                                            title={tr(language, "Ban IP for 24h", "แบน IP 24 ชั่วโมง")}
                                                         >
                                                             <ShieldAlert className="h-4 w-4 mr-1" />
-                                                            Ban
+                                                            {tr(language, "Ban", "แบน")}
                                                         </Button>
                                                     </TableCell>
                                                 </motion.tr>
@@ -666,7 +693,7 @@ export function SecurityContent() {
                     {/* Pagination */}
                     <div className="flex items-center justify-between gap-2 border-t border-white/10 py-4">
                         <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-medium text-muted-foreground">
-                            Page {attemptsPage} of {attemptsTotalPages || 1}
+                            {tr(language, "Page", "หน้า")} {attemptsPage} {tr(language, "of", "จาก")} {attemptsTotalPages || 1}
                         </span>
                         <div className="flex items-center gap-2">
                             <Button
@@ -676,7 +703,7 @@ export function SecurityContent() {
                                 onClick={() => setAttemptsPage((p) => Math.max(1, p - 1))}
                                 disabled={attemptsPage === 1 || attemptsLoading}
                             >
-                                Previous
+                                {tr(language, "Previous", "ก่อนหน้า")}
                             </Button>
                             <Button
                                 variant="outline"
@@ -685,7 +712,7 @@ export function SecurityContent() {
                                 onClick={() => setAttemptsPage((p) => p + 1)}
                                 disabled={attemptsPage >= attemptsTotalPages || attemptsLoading}
                             >
-                                Next
+                                {tr(language, "Next", "ถัดไป")}
                             </Button>
                         </div>
                     </div>

@@ -8,11 +8,18 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { APP_LANGUAGE_OPTIONS, type AppLanguage } from "@/store/language-config";
+import { useLanguageStore } from "@/store/language-store";
+
+const tr = (language: AppLanguage, en: string, th: string) =>
+  language === "th" ? th : en;
 
 export default function InviteRegisterPage() {
   const router = useRouter();
   const params = useParams<{ token: string }>();
   const token = params.token;
+  const language = useLanguageStore((state) => state.language);
+  const setLanguage = useLanguageStore((state) => state.setLanguage);
 
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
@@ -34,29 +41,31 @@ export default function InviteRegisterPage() {
         setEmail(info.email);
         setRole(info.role);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Invite link is invalid or expired";
+        const message = err instanceof Error
+          ? err.message
+          : tr(language, "Invite link is invalid or expired", "ลิงก์คำเชิญไม่ถูกต้องหรือหมดอายุแล้ว");
         setError(message);
       } finally {
         setLoading(false);
       }
     };
     loadInvite();
-  }, [token]);
+  }, [token, language]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
 
     if (password.length < 8) {
-      setError("Password must be at least 8 characters");
+      setError(tr(language, "Password must be at least 8 characters", "รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร"));
       return;
     }
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      setError(tr(language, "Passwords do not match", "รหัสผ่านไม่ตรงกัน"));
       return;
     }
     if (isClinicalInvite && !licenseNo.trim()) {
-      setError("License number is required for clinical roles.");
+      setError(tr(language, "License number is required for clinical roles.", "ตำแหน่งสายคลินิกต้องระบุเลขใบอนุญาต"));
       return;
     }
 
@@ -70,7 +79,9 @@ export default function InviteRegisterPage() {
       });
       router.replace("/login");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to create account";
+      const message = err instanceof Error
+        ? err.message
+        : tr(language, "Failed to create account", "ไม่สามารถสร้างบัญชีได้");
       setError(message);
     } finally {
       setSubmitting(false);
@@ -80,7 +91,9 @@ export default function InviteRegisterPage() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
-        <p className="text-muted-foreground">Loading invite...</p>
+        <p className="text-muted-foreground">
+          {tr(language, "Loading invite...", "กำลังโหลดคำเชิญ...")}
+        </p>
       </div>
     );
   }
@@ -89,9 +102,28 @@ export default function InviteRegisterPage() {
     <div className="flex min-h-screen items-center justify-center bg-background">
       <Card className="w-full max-w-md mx-4 border-border shadow-xl">
         <CardHeader className="space-y-1 text-center">
-          <h2 className="text-2xl font-semibold">Complete your account setup</h2>
+          <div className="flex justify-end">
+            <div className="inline-flex rounded-md border border-input bg-background p-0.5">
+              {APP_LANGUAGE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`h-7 rounded px-2 text-xs transition-colors ${option.value === language
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:bg-muted"
+                    }`}
+                  onClick={() => setLanguage(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <h2 className="text-2xl font-semibold">
+            {tr(language, "Complete your account setup", "ตั้งค่าบัญชีของคุณให้เสร็จ")}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            This invitation was created by an administrator.
+            {tr(language, "This invitation was created by an administrator.", "คำเชิญนี้ถูกสร้างโดยผู้ดูแลระบบ")}
           </p>
         </CardHeader>
         <CardContent>
@@ -99,60 +131,75 @@ export default function InviteRegisterPage() {
             <div className="space-y-4">
               <p className="text-sm text-destructive">{error}</p>
               <Link href="/login" className="text-primary hover:underline text-sm">
-                Back to sign in
+                {tr(language, "Back to sign in", "กลับไปหน้าเข้าสู่ระบบ")}
               </Link>
             </div>
           ) : (
             <form onSubmit={onSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label>Email</Label>
+                <Label>{tr(language, "Email", "อีเมล")}</Label>
                 <Input value={email} disabled />
               </div>
 
               <div className="space-y-2">
-                <Label>Assigned role</Label>
-                <Input value={ROLE_LABEL_MAP[role] || role} disabled />
+                <Label>{tr(language, "Assigned role", "บทบาทที่ได้รับมอบหมาย")}</Label>
+                <Input
+                  value={language === "th"
+                    ? ({
+                      admin: "ผู้ดูแลระบบ",
+                      doctor: "แพทย์",
+                      staff: "เจ้าหน้าที่",
+                      nurse: "พยาบาล",
+                      pharmacist: "เภสัชกร",
+                      medical_technologist: "นักเทคนิคการแพทย์",
+                      psychologist: "นักจิตวิทยา",
+                    }[role] || role)
+                    : (ROLE_LABEL_MAP[role] || role)}
+                  disabled
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="first_name">First name</Label>
+                  <Label htmlFor="first_name">{tr(language, "First name", "ชื่อ")}</Label>
                   <Input
                     id="first_name"
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="First name"
+                    placeholder={tr(language, "First name", "ชื่อ")}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="last_name">Last name</Label>
+                  <Label htmlFor="last_name">{tr(language, "Last name", "นามสกุล")}</Label>
                   <Input
                     id="last_name"
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Last name"
+                    placeholder={tr(language, "Last name", "นามสกุล")}
                   />
                 </div>
               </div>
 
               {isClinicalInvite && (
                 <div className="space-y-2">
-                  <Label htmlFor="license_no">License Number <span className="text-red-500">*</span></Label>
+                  <Label htmlFor="license_no">
+                    {tr(language, "License Number", "เลขใบอนุญาต")} <span className="text-red-500">*</span>
+                  </Label>
                   <Input
                     id="license_no"
                     value={licenseNo}
                     required
                     onChange={(e) => setLicenseNo(e.target.value)}
-                    placeholder="e.g., MD-12345"
+                    placeholder={tr(language, "e.g., MD-12345", "เช่น MD-12345")}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Required for clinical roles.
+                    {tr(language, "Required for clinical roles.", "จำเป็นสำหรับตำแหน่งสายคลินิก")}
                   </p>
                 </div>
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{tr(language, "Password", "รหัสผ่าน")}</Label>
                 <Input
                   id="password"
                   type="password"
@@ -160,12 +207,12 @@ export default function InviteRegisterPage() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 8 characters"
+                  placeholder={tr(language, "At least 8 characters", "อย่างน้อย 8 ตัวอักษร")}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="confirm_password">Confirm password</Label>
+                <Label htmlFor="confirm_password">{tr(language, "Confirm password", "ยืนยันรหัสผ่าน")}</Label>
                 <Input
                   id="confirm_password"
                   type="password"
@@ -173,7 +220,7 @@ export default function InviteRegisterPage() {
                   required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Re-enter password"
+                  placeholder={tr(language, "Re-enter password", "กรอกรหัสผ่านอีกครั้ง")}
                 />
               </div>
 
@@ -184,7 +231,9 @@ export default function InviteRegisterPage() {
               )}
 
               <Button type="submit" className="w-full" disabled={submitting}>
-                {submitting ? "Creating account..." : "Create account"}
+                {submitting
+                  ? tr(language, "Creating account...", "กำลังสร้างบัญชี...")
+                  : tr(language, "Create account", "สร้างบัญชี")}
               </Button>
             </form>
           )}

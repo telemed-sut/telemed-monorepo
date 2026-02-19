@@ -1,11 +1,10 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback } from "react";
-import { isToday, format, addMinutes } from "date-fns";
+import { useRef, useEffect, useState } from "react";
+import { isToday, addMinutes } from "date-fns";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   PencilEdit01Icon,
-  FileEditIcon,
   Layers01Icon,
   Delete01Icon,
   Cancel01Icon,
@@ -47,6 +46,8 @@ import { toast } from "@/components/ui/toast";
 import { deleteMeeting, createMeeting } from "@/lib/api";
 import type { MeetingCreatePayload } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
+import { useLanguageStore } from "@/store/language-store";
+import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
 
 /* ── Helpers ── */
 
@@ -56,19 +57,47 @@ export interface CalendarSlotSelection {
   startMinute: number;
 }
 
-function formatTime12(dateTime: string): string {
-  const d = new Date(dateTime);
-  const hour = d.getHours();
-  const minute = d.getMinutes();
-  const period = hour >= 12 ? "PM" : "AM";
-  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-  return `${displayHour}:${minute.toString().padStart(2, "0")} ${period}`;
+const tr = (language: AppLanguage, en: string, th: string) =>
+  language === "th" ? th : en;
+const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
+const TH_MEETING_STATUS_LABELS: Partial<Record<MeetingStatus, string>> = {
+  scheduled: "กำหนดการ",
+  waiting: "รอพบแพทย์",
+  in_progress: "กำลังตรวจ",
+  completed: "เสร็จสิ้น",
+  cancelled: "ยกเลิก",
+  overtime: "เกินเวลา",
+};
+function getMeetingStatusLabel(status: MeetingStatus, language: AppLanguage): string {
+  if (language === "th") {
+    return TH_MEETING_STATUS_LABELS[status] ?? "กำหนดการ";
+  }
+  return MEETING_STATUS_LABELS[status] || "Scheduled";
 }
 
-function getTimeRange(dateTime: string, durationMin: number = 60) {
+function formatTime12(dateTime: string, language: AppLanguage): string {
+  const d = new Date(dateTime);
+  return d.toLocaleTimeString(localeOf(language), {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function formatHourLabel(index: number, language: AppLanguage): string {
+  const hour = index % 24;
+  const period = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+  if (language === "th") {
+    return `${displayHour} ${period === "AM" ? "เช้า" : "บ่าย"}`;
+  }
+  return `${displayHour} ${period}`;
+}
+
+function getTimeRange(dateTime: string, language: AppLanguage, durationMin: number = 60) {
   const start = new Date(dateTime);
   const end = addMinutes(start, durationMin);
-  return `${formatTime12(dateTime)} - ${formatTime12(end.toISOString())}`;
+  return `${formatTime12(dateTime, language)} - ${formatTime12(end.toISOString(), language)}`;
 }
 
 /** Status → dot color + border accent */
@@ -116,18 +145,19 @@ function normalizeRoomTarget(room?: string | null): string | null {
 // Hours Column (Square UI calendar-hours-column.tsx)
 // ══════════════════════════════════════════════════════════
 function HoursColumn() {
+  const language = useLanguageStore((state) => state.language);
   return (
     <div
       className="w-[80px] md:w-[104px] shrink-0 relative sticky left-0 z-30 bg-background border-r border-border"
     >
-      {HOURS_24.map((hour, i) => (
+      {HOURS_24.map((_, i) => (
         <div
           key={i}
           className="relative"
           style={{ height: HOUR_HEIGHT }}
         >
           <span className="absolute -top-[0.6em] left-2 md:left-3 text-xs md:text-sm text-muted-foreground bg-background px-0.5 leading-none">
-            {i > 0 ? hour : ""}
+            {i > 0 ? formatHourLabel(i, language) : ""}
           </span>
         </div>
       ))}
@@ -171,6 +201,7 @@ function EventCard({
   meeting: Meeting;
   onClick: () => void;
 }) {
+  const language = useLanguageStore((state) => state.language);
   const top = getEventTop(meeting.date_time) + 4;
   const duration = getMeetingDuration(meeting);
   const height = Math.max((duration / 60) * HOUR_HEIGHT - 8, 28);
@@ -181,8 +212,8 @@ function EventCard({
     meeting.description ||
     (meeting.patient
       ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
-      : "Appointment");
-  const timeStr = getTimeRange(meeting.date_time, duration);
+      : tr(language, "Appointment", "นัดหมาย"));
+  const timeStr = getTimeRange(meeting.date_time, language, duration);
   const statusColor = getStatusColor(meeting.status);
 
   const participants = [
@@ -216,7 +247,7 @@ function EventCard({
           {title}
         </h4>
         <span className="text-[9px] text-muted-foreground shrink-0">
-          {formatTime12(meeting.date_time)}
+          {formatTime12(meeting.date_time, language)}
         </span>
       </div>
     );
@@ -272,7 +303,7 @@ function EventCard({
             <span className={cn("text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0", statusColor.text, "bg-current/10")}
               style={{ backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)" }}
             >
-              {MEETING_STATUS_LABELS[meeting.status] || "Scheduled"}
+              {getMeetingStatusLabel(meeting.status, language)}
             </span>
           </div>
           <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-2">
@@ -417,6 +448,7 @@ export function EventDetailSheet({
   const token = useAuthStore((s) => s.token);
   const role = useAuthStore((s) => s.role);
   const currentUserId = useAuthStore((s) => s.userId);
+  const language = useLanguageStore((state) => state.language);
   const setMeetings = useCalendarStore((s) => s.setMeetings);
   const [deleting, setDeleting] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
@@ -425,15 +457,19 @@ export function EventDetailSheet({
 
   const doctorName = meeting.doctor
     ? `Dr. ${meeting.doctor.first_name || ""} ${meeting.doctor.last_name || ""}`.trim()
-    : "Unassigned Doctor";
+    : tr(language, "Unassigned Doctor", "ยังไม่ระบุแพทย์");
   const patientName = meeting.patient
     ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
-    : "Unassigned Patient";
+    : tr(language, "Unassigned Patient", "ยังไม่ระบุผู้ป่วย");
   const meetingDate = new Date(meeting.date_time);
-  const dateStr = format(meetingDate, "EEEE, MMMM dd");
-  const startTimeStr = formatTime12(meeting.date_time);
-  const endTimeStr = formatTime12(addMinutes(meetingDate, 60).toISOString());
-  const title = meeting.description || "Appointment";
+  const dateStr = meetingDate.toLocaleDateString(localeOf(language), {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+  const startTimeStr = formatTime12(meeting.date_time, language);
+  const endTimeStr = formatTime12(addMinutes(meetingDate, 60).toISOString(), language);
+  const title = meeting.description || tr(language, "Appointment", "นัดหมาย");
   const roomTarget = normalizeRoomTarget(meeting.room);
   const canOpenRoom = Boolean(roomTarget);
   const statusColor = getStatusColor(meeting.status);
@@ -465,7 +501,7 @@ export function EventDetailSheet({
   const handleDelete = async () => {
     if (!token || deleting) return;
     if (!canDelete) {
-      toast.error("Only admin can delete meetings");
+      toast.error(tr(language, "Only admin can delete meetings", "เฉพาะผู้ดูแลระบบเท่านั้นที่ลบนัดหมายได้"));
       return;
     }
     setDeleting(true);
@@ -473,11 +509,11 @@ export function EventDetailSheet({
       await deleteMeeting(meeting.id, token);
       const current = useCalendarStore.getState().meetings;
       setMeetings(current.filter((m) => m.id !== meeting.id));
-      toast.success("Appointment deleted");
+      toast.success(tr(language, "Appointment deleted", "ลบนัดหมายแล้ว"));
       onOpenChange(false);
       await onRefresh?.();
     } catch {
-      toast.error("Failed to delete appointment");
+      toast.error(tr(language, "Failed to delete appointment", "ลบนัดหมายไม่สำเร็จ"));
     } finally {
       setDeleting(false);
     }
@@ -485,10 +521,10 @@ export function EventDetailSheet({
 
   const handleDeleteAction = () => {
     if (deleting) return;
-    toast.destructiveAction("Delete appointment?", {
-      description: "This action cannot be undone.",
+    toast.destructiveAction(tr(language, "Delete appointment?", "ลบนัดหมายนี้ใช่ไหม?"), {
+      description: tr(language, "This action cannot be undone.", "การกระทำนี้ไม่สามารถย้อนกลับได้"),
       button: {
-        title: "Delete",
+        title: tr(language, "Delete", "ลบ"),
         onClick: () => {
           void handleDelete();
         },
@@ -499,7 +535,7 @@ export function EventDetailSheet({
 
   const handleEdit = () => {
     if (!canWrite) {
-      toast.error("This meeting is read-only for your account");
+      toast.error(tr(language, "This meeting is read-only for your account", "บัญชีของคุณดูได้อย่างเดียวสำหรับนัดหมายนี้"));
       return;
     }
     if (onEdit) {
@@ -511,28 +547,28 @@ export function EventDetailSheet({
   const handleCopy = () => {
     const lines: string[] = [
       `📅 ${title}`,
-      `Date: ${dateStr}`,
-      `Time: ${startTimeStr} - ${endTimeStr} (ICT)`,
-      `Doctor: ${doctorName}`,
-      `Patient: ${patientName}`,
+      `${tr(language, "Date", "วันที่")}: ${dateStr}`,
+      `${tr(language, "Time", "เวลา")}: ${startTimeStr} - ${endTimeStr} (${tr(language, "ICT", "เวลา ICT")})`,
+      `${tr(language, "Doctor", "แพทย์")}: ${doctorName}`,
+      `${tr(language, "Patient", "ผู้ป่วย")}: ${patientName}`,
     ];
-    if (meeting.room) lines.push(`Room: ${meeting.room}`);
-    if (meeting.note) lines.push(`Note: ${meeting.note}`);
+    if (meeting.room) lines.push(`${tr(language, "Room", "ห้อง")}: ${meeting.room}`);
+    if (meeting.note) lines.push(`${tr(language, "Note", "บันทึก")}: ${meeting.note}`);
     navigator.clipboard.writeText(lines.join("\n"));
-    toast.success("Appointment details copied to clipboard");
+    toast.success(tr(language, "Appointment details copied to clipboard", "คัดลอกรายละเอียดนัดหมายแล้ว"));
   };
 
   const handleDuplicate = async () => {
     if (!token || duplicating) return;
     if (!canWrite) {
-      toast.error("This meeting is read-only for your account");
+      toast.error(tr(language, "This meeting is read-only for your account", "บัญชีของคุณดูได้อย่างเดียวสำหรับนัดหมายนี้"));
       return;
     }
 
     const doctorId = meeting.doctor_id || meeting.doctor?.id || "";
     const patientId = meeting.user_id || meeting.patient?.id || "";
     if (!doctorId || !patientId) {
-      toast.error("Cannot duplicate: missing doctor or patient information");
+      toast.error(tr(language, "Cannot duplicate: missing doctor or patient information", "ทำซ้ำไม่ได้: ข้อมูลแพทย์หรือผู้ป่วยไม่ครบ"));
       return;
     }
 
@@ -549,11 +585,11 @@ export function EventDetailSheet({
       const newMeeting = await createMeeting(payload, token);
       const current = useCalendarStore.getState().meetings;
       setMeetings([...current, newMeeting]);
-      toast.success("Appointment duplicated");
+      toast.success(tr(language, "Appointment duplicated", "ทำซ้ำนัดหมายแล้ว"));
       onOpenChange(false);
       await onRefresh?.();
     } catch {
-      toast.error("Failed to duplicate appointment");
+      toast.error(tr(language, "Failed to duplicate appointment", "ทำซ้ำนัดหมายไม่สำเร็จ"));
     } finally {
       setDuplicating(false);
     }
@@ -561,7 +597,7 @@ export function EventDetailSheet({
 
   const handleOpenRoom = () => {
     if (!roomTarget) {
-      toast.error("This room does not have a valid meeting link");
+      toast.error(tr(language, "This room does not have a valid meeting link", "ห้องนี้ไม่มีลิงก์ประชุมที่ใช้งานได้"));
       return;
     }
 
@@ -593,7 +629,7 @@ export function EventDetailSheet({
                       size="icon"
                       className="size-8 hover:bg-muted"
                       onClick={handleEdit}
-                      title="Edit appointment"
+                      title={tr(language, "Edit appointment", "แก้ไขนัดหมาย")}
                     >
                       <HugeiconsIcon
                         icon={PencilEdit01Icon}
@@ -606,7 +642,7 @@ export function EventDetailSheet({
                     size="icon"
                     className="size-8 hover:bg-muted"
                     onClick={handleCopy}
-                    title="Copy appointment details"
+                    title={tr(language, "Copy appointment details", "คัดลอกรายละเอียดนัดหมาย")}
                   >
                     <HugeiconsIcon
                       icon={Copy01Icon}
@@ -620,7 +656,7 @@ export function EventDetailSheet({
                       className="size-8 hover:bg-muted"
                       onClick={handleDuplicate}
                       disabled={duplicating}
-                      title="Duplicate appointment"
+                      title={tr(language, "Duplicate appointment", "ทำซ้ำนัดหมาย")}
                     >
                       <HugeiconsIcon
                         icon={Layers01Icon}
@@ -635,7 +671,7 @@ export function EventDetailSheet({
                       className="size-8 hover:bg-muted"
                       onClick={handleDeleteAction}
                       disabled={deleting}
-                      title="Delete appointment"
+                      title={tr(language, "Delete appointment", "ลบนัดหมาย")}
                     >
                       <HugeiconsIcon
                         icon={Delete01Icon}
@@ -670,7 +706,7 @@ export function EventDetailSheet({
                     className={cn("text-[11px] font-medium px-2 py-0.5 rounded-full", statusColor.text)}
                     style={{ backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)" }}
                   >
-                    {MEETING_STATUS_LABELS[meeting.status] || "Scheduled"}
+                    {getMeetingStatusLabel(meeting.status, language)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-[13px] font-medium text-muted-foreground">
@@ -680,14 +716,14 @@ export function EventDetailSheet({
                     {startTimeStr} - {endTimeStr}
                   </span>
                   <span className="size-1 rounded-full bg-muted-foreground" />
-                  <span>ICT</span>
+                  <span>{tr(language, "ICT", "เวลา ICT")}</span>
                 </div>
               </div>
 
                 {/* Propose new time */}
                 <div className="flex gap-2">
                   <Button variant="outline" className="flex-1" disabled={!canWrite}>
-                    <span>Propose new time</span>
+                    <span>{tr(language, "Propose new time", "เสนอเวลาใหม่")}</span>
                     <HugeiconsIcon
                       icon={ArrowUpRight01Icon}
                     className="size-4"
@@ -703,7 +739,7 @@ export function EventDetailSheet({
                     }}
                   >
                     <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
-                    <span>View in Calendar</span>
+                    <span>{tr(language, "View in Calendar", "ดูในปฏิทิน")}</span>
                   </Button>
                 )}
               </div>
@@ -740,12 +776,12 @@ export function EventDetailSheet({
                               </p>
                               {participant.isOrganizer && (
                                 <span className="text-[10px] font-medium text-cyan-500 px-0.5 py-0.5 rounded-full">
-                                  Organizer
+                                  {tr(language, "Organizer", "ผู้จัด")}
                                 </span>
                               )}
                               {participant.isYou && (
                                 <span className="text-[10px] font-medium text-foreground px-0.5 py-0.5 rounded-full">
-                                  You
+                                  {tr(language, "You", "คุณ")}
                                 </span>
                               )}
                             </div>
@@ -792,7 +828,7 @@ export function EventDetailSheet({
                         </svg>
                       </div>
                       <p className="text-xs font-medium text-muted-foreground flex-1">
-                        Room Assignment
+                        {tr(language, "Room Assignment", "ห้องที่มอบหมาย")}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {meeting.room}
@@ -806,8 +842,8 @@ export function EventDetailSheet({
                       >
                         <span>
                           {canOpenRoom
-                            ? `Go to ${meeting.room}`
-                            : "Meeting link unavailable"}
+                            ? tr(language, `Go to ${meeting.room}`, `ไปที่ ${meeting.room}`)
+                            : tr(language, "Meeting link unavailable", "ไม่มีลิงก์ประชุม")}
                         </span>
                       </Button>
                       <Button
@@ -816,14 +852,14 @@ export function EventDetailSheet({
                         className="h-8 gap-2 text-xs border-border"
                         onClick={() => {
                           navigator.clipboard.writeText(meeting.room || "");
-                          toast.success("Room copied");
+                          toast.success(tr(language, "Room copied", "คัดลอกห้องแล้ว"));
                         }}
                       >
                         <HugeiconsIcon
                           icon={LinkSquare01Icon}
                           className="size-4"
                         />
-                        <span>Copy</span>
+                        <span>{tr(language, "Copy", "คัดลอก")}</span>
                       </Button>
                     </div>
                   </div>
@@ -838,7 +874,7 @@ export function EventDetailSheet({
                         className="size-4"
                       />
                     </div>
-                    <span>Reminder: 30min before</span>
+                    <span>{tr(language, "Reminder: 30min before", "แจ้งเตือน: ก่อนเวลา 30 นาที")}</span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <div className="p-1">
@@ -848,7 +884,7 @@ export function EventDetailSheet({
                       />
                     </div>
                     <span>
-                      Doctor: {meeting.doctor?.email || doctorName}
+                      {tr(language, "Doctor", "แพทย์")}: {meeting.doctor?.email || doctorName}
                     </span>
                   </div>
                   {meeting.room && (
@@ -859,7 +895,7 @@ export function EventDetailSheet({
                           className="size-4"
                         />
                       </div>
-                      <span>Room: {meeting.room}</span>
+                      <span>{tr(language, "Room", "ห้อง")}: {meeting.room}</span>
                     </div>
                   )}
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -870,16 +906,16 @@ export function EventDetailSheet({
                       />
                     </div>
                     <span>
-                      {sheetParticipants.length} persons
+                      {sheetParticipants.length} {tr(language, "persons", "คน")}
                       <span className="mx-1">•</span>
-                      {yesCount} yes
+                      {yesCount} {tr(language, "yes", "ตอบรับ")}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <div className="p-1">
                       <HugeiconsIcon icon={NoteIcon} className="size-4" />
                     </div>
-                    <span>Notes from Doctor</span>
+                    <span>{tr(language, "Notes from Doctor", "บันทึกจากแพทย์")}</span>
                   </div>
                 </div>
 
@@ -913,6 +949,7 @@ export function CalendarView({
   onEditMeeting?: (meeting: Meeting) => void;
   onRefresh?: () => Promise<void> | void;
 }) {
+  const language = useLanguageStore((state) => state.language);
   const getWeekDays = useCalendarStore((s) => s.getWeekDays);
   const getMeetingsForDate = useCalendarStore((s) => s.getMeetingsForDate);
   const selectedMeeting = useCalendarStore((s) => s.selectedMeeting);
@@ -981,7 +1018,12 @@ export function CalendarView({
                     isToday(day) ? "text-[#7ac2f0]" : "text-foreground"
                   )}
                 >
-                  {format(day, "dd EEE").toUpperCase()}
+                  {day
+                    .toLocaleDateString(localeOf(language), {
+                      day: "2-digit",
+                      weekday: "short",
+                    })
+                    .toUpperCase()}
                 </div>
               </div>
             ))}

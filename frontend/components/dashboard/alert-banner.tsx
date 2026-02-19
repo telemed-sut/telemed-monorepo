@@ -9,9 +9,46 @@ import {
 } from "@hugeicons/core-free-icons";
 import { fetchMeetings } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
+import { useLanguageStore } from "@/store/language-store";
+import type { AppLanguage } from "@/store/language-config";
+
+const I18N: Record<
+  AppLanguage,
+  {
+    youHave: string;
+    appointmentsToday: (count: number) => string;
+    and: string;
+    totalScheduled: string;
+    consultations: string;
+    export: string;
+    newAppointment: string;
+  }
+> = {
+  en: {
+    youHave: "You have",
+    appointmentsToday: (count) =>
+      `${count} Appointment${count !== 1 ? "s" : ""} Today,`,
+    and: "and",
+    totalScheduled: "Total Scheduled",
+    consultations: "consultations.",
+    export: "Export",
+    newAppointment: "New Appointment",
+  },
+  th: {
+    youHave: "วันนี้คุณมี",
+    appointmentsToday: (count) => `${count} นัดหมาย`,
+    and: "และมี",
+    totalScheduled: "นัดหมายทั้งหมด",
+    consultations: "",
+    export: "ส่งออก",
+    newAppointment: "นัดหมายใหม่",
+  },
+};
 
 export function AlertBanner() {
   const token = useAuthStore((state) => state.token);
+  const language = useLanguageStore((state) => state.language);
+  const t = I18N[language];
   const [todayCount, setTodayCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
 
@@ -34,24 +71,23 @@ export function AlertBanner() {
       <div className="flex items-start sm:items-center gap-4">
         <span className="text-4xl">🩺</span>
         <p className="text-sm sm:text-base leading-relaxed">
-          <span className="text-muted-foreground">You have </span>
-          <span className="font-semibold">{todayCount} Appointment{todayCount !== 1 ? "s" : ""} Today,</span>
-          <span> and </span>
-          <span className="font-semibold">{pendingCount} Total Scheduled</span>
-          <span className="text-muted-foreground"> consultations.</span>
+          <span className="text-muted-foreground">{t.youHave} </span>
+          <span className="font-semibold">{t.appointmentsToday(todayCount)}</span>
+          <span> {t.and} </span>
+          <span className="font-semibold">{pendingCount} {t.totalScheduled}</span>
+          <span className="text-muted-foreground"> {t.consultations}</span>
         </p>
       </div>
       <div className="flex items-center gap-3">
         <Button variant="outline" size="sm" className="gap-2">
           <HugeiconsIcon icon={FileExportIcon} className="size-4" />
-          Export
+          {t.export}
         </Button>
         <Button size="sm" className="gap-2 bg-[#7ac2f0] text-white hover:bg-[#5aade0]">
           <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
-          New Appointment
+          {t.newAppointment}
         </Button>
       </div>
     </div>
   );
 }
-

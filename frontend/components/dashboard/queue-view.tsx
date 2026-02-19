@@ -24,6 +24,7 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useCalendarStore } from "@/store/calendar-store";
 import { useAuthStore } from "@/store/auth-store";
+import { useLanguageStore } from "@/store/language-store";
 import { EventDetailSheet } from "./calendar-view";
 import {
   updateMeeting,
@@ -35,9 +36,22 @@ import {
   MEETING_STATUS_LABELS,
   MEETING_STATUSES,
 } from "@/lib/api";
+import type { AppLanguage } from "@/store/language-config";
+
+const tr = (language: AppLanguage, en: string, th: string) =>
+  language === "th" ? th : en;
+
+const MEETING_STATUS_LABELS_TH: Record<MeetingStatus, string> = {
+  scheduled: "กำหนดการ",
+  waiting: "รอพบแพทย์",
+  in_progress: "กำลังตรวจ",
+  overtime: "เกินเวลา",
+  completed: "เสร็จสิ้น",
+  cancelled: "ยกเลิก",
+};
 
 /* ── Status visual helpers ── */
-function getStatusConfig(status: MeetingStatus) {
+function getStatusConfig(status: MeetingStatus, language: AppLanguage) {
   switch (status) {
     case "waiting":
       return {
@@ -45,7 +59,7 @@ function getStatusConfig(status: MeetingStatus) {
         bg: "bg-amber-500/10",
         text: "text-amber-600 dark:text-amber-400",
         border: "border-amber-500/30",
-        label: "Waiting",
+        label: tr(language, "Waiting", "รอพบแพทย์"),
         icon: Clock01Icon,
       };
     case "in_progress":
@@ -54,7 +68,7 @@ function getStatusConfig(status: MeetingStatus) {
         bg: "bg-blue-500/10",
         text: "text-blue-600 dark:text-blue-400",
         border: "border-blue-500/30",
-        label: "In Progress",
+        label: tr(language, "In Progress", "กำลังตรวจ"),
         icon: Loading03Icon,
       };
     case "overtime":
@@ -63,7 +77,7 @@ function getStatusConfig(status: MeetingStatus) {
         bg: "bg-red-500/10",
         text: "text-red-600 dark:text-red-400",
         border: "border-red-500/30",
-        label: "Overtime",
+        label: tr(language, "Overtime", "เกินเวลา"),
         icon: AlertCircleIcon,
       };
     case "completed":
@@ -72,7 +86,7 @@ function getStatusConfig(status: MeetingStatus) {
         bg: "bg-emerald-500/10",
         text: "text-emerald-600 dark:text-emerald-400",
         border: "border-emerald-500/30",
-        label: "Completed",
+        label: tr(language, "Completed", "เสร็จสิ้น"),
         icon: Tick02Icon,
       };
     case "cancelled":
@@ -81,7 +95,7 @@ function getStatusConfig(status: MeetingStatus) {
         bg: "bg-gray-400/10",
         text: "text-gray-500",
         border: "border-gray-400/30",
-        label: "Cancelled",
+        label: tr(language, "Cancelled", "ยกเลิก"),
         icon: Cancel01Icon,
       };
     case "scheduled":
@@ -91,7 +105,7 @@ function getStatusConfig(status: MeetingStatus) {
         bg: "bg-cyan-500/10",
         text: "text-cyan-600 dark:text-cyan-400",
         border: "border-cyan-500/30",
-        label: "Scheduled",
+        label: tr(language, "Scheduled", "กำหนดการ"),
         icon: Calendar01Icon,
       };
   }
@@ -128,8 +142,14 @@ function getInitial(name: string | null | undefined): string {
 }
 
 /* ── Status Badge ── */
-function StatusBadge({ status }: { status: MeetingStatus }) {
-  const config = getStatusConfig(status);
+function StatusBadge({
+  status,
+  language,
+}: {
+  status: MeetingStatus;
+  language: AppLanguage;
+}) {
+  const config = getStatusConfig(status, language);
   return (
     <span
       className={cn(
@@ -151,19 +171,21 @@ function StatusActionButton({
   nextStatus,
   onClick,
   loading,
+  language,
 }: {
   nextStatus: MeetingStatus;
   onClick: () => void;
   loading: boolean;
+  language: AppLanguage;
 }) {
-  const config = getStatusConfig(nextStatus);
+  const config = getStatusConfig(nextStatus, language);
 
   const labelMap: Record<string, string> = {
-    waiting: "Check In",
-    in_progress: "Start Visit",
-    completed: "Complete",
-    overtime: "Mark Overtime",
-    cancelled: "Cancel",
+    waiting: tr(language, "Check In", "เช็กอิน"),
+    in_progress: tr(language, "Start Visit", "เริ่มตรวจ"),
+    completed: tr(language, "Complete", "เสร็จสิ้น"),
+    overtime: tr(language, "Mark Overtime", "ทำเครื่องหมายเกินเวลา"),
+    cancelled: tr(language, "Cancel", "ยกเลิก"),
   };
 
   const isCancelAction = nextStatus === "cancelled";
@@ -190,7 +212,10 @@ function StatusActionButton({
       ) : (
         <>
           <HugeiconsIcon icon={config.icon} className="size-3.5" />
-          {labelMap[nextStatus] || MEETING_STATUS_LABELS[nextStatus]}
+          {labelMap[nextStatus] ||
+            (language === "th"
+              ? MEETING_STATUS_LABELS_TH[nextStatus]
+              : MEETING_STATUS_LABELS[nextStatus])}
         </>
       )}
     </Button>
@@ -209,6 +234,7 @@ function QueueCard({
   loading,
   canWrite,
   canDelete,
+  language,
 }: {
   meeting: Meeting;
   onStatusChange: (meeting: Meeting, newStatus: MeetingStatus) => void;
@@ -220,8 +246,9 @@ function QueueCard({
   loading: boolean;
   canWrite: boolean;
   canDelete: boolean;
+  language: AppLanguage;
 }) {
-  const config = getStatusConfig(meeting.status);
+  const config = getStatusConfig(meeting.status, language);
   const nextStatuses = STATUS_TRANSITIONS[meeting.status] || [];
   const undoTarget = UNDO_TRANSITIONS[meeting.status];
   const isTerminal =
@@ -229,10 +256,10 @@ function QueueCard({
 
   const patientName = meeting.patient
     ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
-    : "Unknown Patient";
+    : tr(language, "Unknown Patient", "ไม่ทราบชื่อผู้ป่วย");
   const doctorName = meeting.doctor
     ? `Dr. ${meeting.doctor.first_name || ""} ${meeting.doctor.last_name || ""}`.trim()
-    : "Unassigned";
+    : tr(language, "Unassigned", "ยังไม่ระบุ");
 
   return (
     <div
@@ -267,7 +294,7 @@ function QueueCard({
               {patientName}
             </h4>
             <p className="text-xs text-muted-foreground truncate">
-              {meeting.description || "General consultation"}
+              {meeting.description || tr(language, "General consultation", "ปรึกษาทั่วไป")}
             </p>
           </div>
         </div>
@@ -282,7 +309,7 @@ function QueueCard({
                   e.stopPropagation();
                   onEdit(meeting);
                 }}
-                title="Edit"
+                title={tr(language, "Edit", "แก้ไข")}
               >
                 <HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />
               </Button>
@@ -295,7 +322,7 @@ function QueueCard({
                   onDuplicate(meeting);
                 }}
                 disabled={loading}
-                title="Duplicate"
+                title={tr(language, "Duplicate", "ทำซ้ำ")}
               >
                 <HugeiconsIcon icon={Layers01Icon} className="size-3.5" />
               </Button>
@@ -311,12 +338,12 @@ function QueueCard({
                 onDelete(meeting);
               }}
               disabled={loading}
-              title="Delete"
+              title={tr(language, "Delete", "ลบ")}
             >
               <HugeiconsIcon icon={Delete01Icon} className="size-3.5" />
             </Button>
           )}
-          <StatusBadge status={meeting.status} />
+          <StatusBadge status={meeting.status} language={language} />
         </div>
       </div>
 
@@ -358,6 +385,7 @@ function QueueCard({
                   nextStatus={nextStatus}
                   onClick={() => onStatusChange(meeting, nextStatus)}
                   loading={loading}
+                  language={language}
                 />
               ))}
             {nextStatuses.includes("cancelled") && (
@@ -365,6 +393,7 @@ function QueueCard({
                 nextStatus="cancelled"
                 onClick={() => onCancelClick(meeting)}
                 loading={loading}
+                language={language}
               />
             )}
             {undoTarget && (
@@ -376,12 +405,12 @@ function QueueCard({
                 disabled={loading}
               >
                 <HugeiconsIcon icon={ArrowTurnBackwardIcon} className="size-3.5" />
-                Undo
+                {tr(language, "Undo", "ย้อนกลับ")}
               </Button>
             )}
           </>
         ) : (
-          <span className="text-xs text-muted-foreground">Read only</span>
+          <span className="text-xs text-muted-foreground">{tr(language, "Read only", "ดูได้อย่างเดียว")}</span>
         )}
       </div>
     </div>
@@ -393,10 +422,12 @@ function StatusSummary({
   meetings,
   activeFilter,
   onFilterChange,
+  language,
 }: {
   meetings: Meeting[];
   activeFilter: MeetingStatus | "all";
   onFilterChange: (filter: MeetingStatus | "all") => void;
+  language: AppLanguage;
 }) {
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: meetings.length };
@@ -408,13 +439,13 @@ function StatusSummary({
   }, [meetings]);
 
   const items: { key: MeetingStatus | "all"; label: string; count: number }[] = [
-    { key: "all", label: "All", count: counts.all },
-    { key: "scheduled", label: "Scheduled", count: counts.scheduled || 0 },
-    { key: "waiting", label: "Waiting", count: counts.waiting || 0 },
-    { key: "in_progress", label: "In Progress", count: counts.in_progress || 0 },
-    { key: "overtime", label: "Overtime", count: counts.overtime || 0 },
-    { key: "completed", label: "Completed", count: counts.completed || 0 },
-    { key: "cancelled", label: "Cancelled", count: counts.cancelled || 0 },
+    { key: "all", label: tr(language, "All", "ทั้งหมด"), count: counts.all },
+    { key: "scheduled", label: tr(language, "Scheduled", "กำหนดการ"), count: counts.scheduled || 0 },
+    { key: "waiting", label: tr(language, "Waiting", "รอพบแพทย์"), count: counts.waiting || 0 },
+    { key: "in_progress", label: tr(language, "In Progress", "กำลังตรวจ"), count: counts.in_progress || 0 },
+    { key: "overtime", label: tr(language, "Overtime", "เกินเวลา"), count: counts.overtime || 0 },
+    { key: "completed", label: tr(language, "Completed", "เสร็จสิ้น"), count: counts.completed || 0 },
+    { key: "cancelled", label: tr(language, "Cancelled", "ยกเลิก"), count: counts.cancelled || 0 },
   ];
 
   return (
@@ -422,7 +453,7 @@ function StatusSummary({
       {items.map((item) => {
         const active = activeFilter === item.key;
         const config =
-          item.key === "all" ? null : getStatusConfig(item.key as MeetingStatus);
+          item.key === "all" ? null : getStatusConfig(item.key as MeetingStatus, language);
         return (
           <button
             key={item.key}
@@ -476,6 +507,7 @@ export function QueueView({
   const token = useAuthStore((s) => s.token);
   const role = useAuthStore((s) => s.role);
   const currentUserId = useAuthStore((s) => s.userId);
+  const language = useLanguageStore((s) => s.language);
   const meetings = useCalendarStore((s) => s.meetings);
   const setMeetings = useCalendarStore((s) => s.setMeetings);
 
@@ -564,26 +596,38 @@ export function QueueView({
 
       if (allDatesCount > 0) {
         setDateFilter("all");
-        toast.info(`Switched to All Dates for ${MEETING_STATUS_LABELS[resolvedFilter]}`, {
-          description: `No ${MEETING_STATUS_LABELS[resolvedFilter].toLowerCase()} meetings today, but found ${allDatesCount} in all dates.`,
+        const statusLabel =
+          language === "th"
+            ? MEETING_STATUS_LABELS_TH[resolvedFilter]
+            : MEETING_STATUS_LABELS[resolvedFilter];
+        toast.info(tr(language, `Switched to All Dates for ${statusLabel}`, `สลับเป็นทุกช่วงวันสำหรับสถานะ ${statusLabel}`), {
+          description: tr(
+            language,
+            `No ${statusLabel.toLowerCase()} meetings today, but found ${allDatesCount} in all dates.`,
+            `ไม่พบสถานะ ${statusLabel} ในวันนี้ แต่พบทั้งหมด ${allDatesCount} รายการในทุกช่วงวัน`
+          ),
           duration: 5000,
         });
         return;
       }
 
-      toast.info(`No ${MEETING_STATUS_LABELS[resolvedFilter].toLowerCase()} meetings`, {
-        description: "Try another status or create a new meeting.",
+      const statusLabel =
+        language === "th"
+          ? MEETING_STATUS_LABELS_TH[resolvedFilter]
+          : MEETING_STATUS_LABELS[resolvedFilter];
+      toast.info(tr(language, `No ${statusLabel.toLowerCase()} meetings`, `ไม่พบนัดหมายสถานะ ${statusLabel}`), {
+        description: tr(language, "Try another status or create a new meeting.", "ลองเลือกสถานะอื่นหรือสร้างนัดหมายใหม่"),
         duration: 4000,
       });
     },
-    [statusFilter, dateFilter, dateScopedMeetings, meetings]
+    [statusFilter, dateFilter, dateScopedMeetings, meetings, language]
   );
 
   const handleStatusChange = useCallback(
     async (meeting: Meeting, newStatus: MeetingStatus) => {
       if (!token || updatingId) return;
       if (!canWriteMeeting(meeting)) {
-        toast.error("This meeting is read-only for your account");
+        toast.error(tr(language, "This meeting is read-only for your account", "บัญชีของคุณดูได้อย่างเดียวสำหรับนัดหมายนี้"));
         return;
       }
       setUpdatingId(meeting.id);
@@ -596,30 +640,32 @@ export function QueueView({
         setMeetings(
           meetings.map((m) => (m.id === meeting.id ? updated : m))
         );
-        toast.success(
-          `Status updated to ${MEETING_STATUS_LABELS[newStatus]}`
-        );
+        const statusLabel =
+          language === "th"
+            ? MEETING_STATUS_LABELS_TH[newStatus]
+            : MEETING_STATUS_LABELS[newStatus];
+        toast.success(tr(language, `Status updated to ${statusLabel}`, `อัปเดตสถานะเป็น ${statusLabel}`));
       } catch {
-        toast.error("Failed to update status");
+        toast.error(tr(language, "Failed to update status", "อัปเดตสถานะไม่สำเร็จ"));
       } finally {
         setUpdatingId(null);
       }
     },
-    [token, updatingId, meetings, setMeetings, canWriteMeeting]
+    [token, updatingId, meetings, setMeetings, canWriteMeeting, language]
   );
 
   const handleDuplicate = useCallback(
     async (meeting: Meeting) => {
       if (!token || duplicatingId) return;
       if (!canWriteMeeting(meeting)) {
-        toast.error("This meeting is read-only for your account");
+        toast.error(tr(language, "This meeting is read-only for your account", "บัญชีของคุณดูได้อย่างเดียวสำหรับนัดหมายนี้"));
         return;
       }
 
       const doctorId = meeting.doctor_id || meeting.doctor?.id || "";
       const patientId = meeting.user_id || meeting.patient?.id || "";
       if (!doctorId || !patientId) {
-        toast.error("Cannot duplicate: missing doctor or patient information");
+        toast.error(tr(language, "Cannot duplicate: missing doctor or patient information", "ทำซ้ำไม่ได้: ข้อมูลแพทย์หรือผู้ป่วยไม่ครบ"));
         return;
       }
 
@@ -636,53 +682,53 @@ export function QueueView({
         const newMeeting = await createMeeting(payload, token);
         const current = useCalendarStore.getState().meetings;
         setMeetings([...current, newMeeting]);
-        toast.success("Meeting duplicated");
+        toast.success(tr(language, "Meeting duplicated", "ทำซ้ำนัดหมายแล้ว"));
         await onRefresh();
       } catch {
-        toast.error("Failed to duplicate meeting");
+        toast.error(tr(language, "Failed to duplicate meeting", "ทำซ้ำนัดหมายไม่สำเร็จ"));
       } finally {
         setDuplicatingId(null);
       }
     },
-    [token, duplicatingId, setMeetings, onRefresh, canWriteMeeting]
+    [token, duplicatingId, setMeetings, onRefresh, canWriteMeeting, language]
   );
 
   const handleCancel = useCallback(
     async (meeting: Meeting) => {
       if (!token || updatingId) return;
       if (!canWriteMeeting(meeting)) {
-        toast.error("This meeting is read-only for your account");
+        toast.error(tr(language, "This meeting is read-only for your account", "บัญชีของคุณดูได้อย่างเดียวสำหรับนัดหมายนี้"));
         return;
       }
       setUpdatingId(meeting.id);
       try {
         const updated = await updateMeeting(
           meeting.id,
-          { status: "cancelled", reason: "Cancelled by admin" },
+          { status: "cancelled", reason: tr(language, "Cancelled by admin", "ยกเลิกโดยผู้ดูแลระบบ") },
           token
         );
         setMeetings(
           meetings.map((m) => (m.id === meeting.id ? updated : m))
         );
-        toast.success("Appointment cancelled");
+        toast.success(tr(language, "Appointment cancelled", "ยกเลิกนัดหมายแล้ว"));
       } catch {
-        toast.error("Failed to cancel appointment");
+        toast.error(tr(language, "Failed to cancel appointment", "ยกเลิกนัดหมายไม่สำเร็จ"));
       } finally {
         setUpdatingId(null);
       }
     },
-    [token, updatingId, meetings, setMeetings, canWriteMeeting]
+    [token, updatingId, meetings, setMeetings, canWriteMeeting, language]
   );
 
   const requestCancel = useCallback(
     (meeting: Meeting) => {
       const patientName = meeting.patient
         ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
-        : "this patient";
-      toast.warningAction("Cancel appointment?", {
-        description: `Cancel appointment for ${patientName}?`,
+        : tr(language, "this patient", "ผู้ป่วยรายนี้");
+      toast.warningAction(tr(language, "Cancel appointment?", "ยกเลิกนัดหมายใช่ไหม?"), {
+        description: tr(language, `Cancel appointment for ${patientName}?`, `ยกเลิกนัดหมายของ ${patientName} ใช่หรือไม่?`),
         button: {
-          title: "Cancel Appointment",
+          title: tr(language, "Cancel Appointment", "ยืนยันยกเลิกนัดหมาย"),
           onClick: () => {
             void handleCancel(meeting);
           },
@@ -690,39 +736,43 @@ export function QueueView({
         duration: 9000,
       });
     },
-    [handleCancel]
+    [handleCancel, language]
   );
 
   const handleDelete = useCallback(
     async (meeting: Meeting) => {
       if (!token || deleting) return;
       if (!canDeleteMeeting) {
-        toast.error("Only admin can delete meetings");
+        toast.error(tr(language, "Only admin can delete meetings", "เฉพาะผู้ดูแลระบบเท่านั้นที่ลบนัดหมายได้"));
         return;
       }
       setDeleting(true);
       try {
         await deleteMeeting(meeting.id, token);
         setMeetings(meetings.filter((m) => m.id !== meeting.id));
-        toast.success("Appointment deleted");
+        toast.success(tr(language, "Appointment deleted", "ลบนัดหมายแล้ว"));
       } catch {
-        toast.error("Failed to delete appointment");
+        toast.error(tr(language, "Failed to delete appointment", "ลบนัดหมายไม่สำเร็จ"));
       } finally {
         setDeleting(false);
       }
     },
-    [token, deleting, meetings, setMeetings, canDeleteMeeting]
+    [token, deleting, meetings, setMeetings, canDeleteMeeting, language]
   );
 
   const requestDelete = useCallback(
     (meeting: Meeting) => {
       const patientName = meeting.patient
         ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
-        : "this patient";
-      toast.destructiveAction("Delete appointment?", {
-        description: `Delete appointment for ${patientName}? This action cannot be undone.`,
+        : tr(language, "this patient", "ผู้ป่วยรายนี้");
+      toast.destructiveAction(tr(language, "Delete appointment?", "ลบนัดหมายใช่ไหม?"), {
+        description: tr(
+          language,
+          `Delete appointment for ${patientName}? This action cannot be undone.`,
+          `ลบนัดหมายของ ${patientName} ใช่หรือไม่? การกระทำนี้ไม่สามารถย้อนกลับได้`
+        ),
         button: {
-          title: "Delete",
+          title: tr(language, "Delete", "ลบ"),
           onClick: () => {
             void handleDelete(meeting);
           },
@@ -730,7 +780,7 @@ export function QueueView({
         duration: 9000,
       });
     },
-    [handleDelete]
+    [handleDelete, language]
   );
 
   return (
@@ -750,7 +800,7 @@ export function QueueView({
               )}
               onClick={() => setDateFilter("today")}
             >
-              Today
+              {tr(language, "Today", "วันนี้")}
             </Button>
             <Button
               variant={dateFilter === "all" ? "default" : "outline"}
@@ -762,11 +812,15 @@ export function QueueView({
               )}
               onClick={() => setDateFilter("all")}
             >
-              All Dates
+              {tr(language, "All Dates", "ทุกช่วงวัน")}
             </Button>
           </div>
           <span className="text-xs text-muted-foreground">
-            {filteredMeetings.length} meeting{filteredMeetings.length !== 1 ? "s" : ""}
+            {tr(
+              language,
+              `${filteredMeetings.length} meeting${filteredMeetings.length !== 1 ? "s" : ""}`,
+              `${filteredMeetings.length} นัดหมาย`
+            )}
           </span>
         </div>
 
@@ -775,9 +829,10 @@ export function QueueView({
           meetings={dateScopedMeetings}
           activeFilter={statusFilter}
           onFilterChange={handleStatusFilterChange}
+          language={language}
         />
         <p className="text-[11px] text-muted-foreground">
-          Tip: click the active status again to clear filter.
+          {tr(language, "Tip: click the active status again to clear filter.", "เคล็ดลับ: กดสถานะที่เลือกอีกครั้งเพื่อล้างตัวกรอง")}
         </p>
       </div>
 
@@ -786,11 +841,11 @@ export function QueueView({
         {filteredMeetings.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
             <HugeiconsIcon icon={Calendar01Icon} className="size-12 opacity-30" />
-            <p className="text-sm">No meetings found</p>
+            <p className="text-sm">{tr(language, "No meetings found", "ไม่พบนัดหมาย")}</p>
             <p className="text-xs">
               {dateFilter === "today"
-                ? "No meetings scheduled for today. Try switching to 'All Dates'."
-                : "No meetings match the current filter."}
+                ? tr(language, "No meetings scheduled for today. Try switching to 'All Dates'.", "ไม่มีนัดหมายสำหรับวันนี้ ลองสลับเป็น 'ทุกช่วงวัน'")
+                : tr(language, "No meetings match the current filter.", "ไม่มีนัดหมายตรงกับตัวกรองปัจจุบัน")}
             </p>
           </div>
         ) : (
@@ -808,6 +863,7 @@ export function QueueView({
                 loading={updatingId === meeting.id || duplicatingId === meeting.id}
                 canWrite={canWriteMeeting(meeting)}
                 canDelete={canDeleteMeeting}
+                language={language}
               />
             ))}
           </div>

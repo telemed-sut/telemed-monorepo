@@ -4,8 +4,10 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthInitializer } from "@/components/auth-initializer";
+import { LanguageInitializer } from "@/components/language-initializer";
 import { ProgressBar } from "@/components/progress-bar";
 import { TranslationSafeguard } from "@/components/translation-safeguard";
+import { I18nProvider } from "@/components/i18n-provider";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -41,11 +43,14 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <ProgressBar />
-          <TranslationSafeguard />
-          <AuthInitializer />
-          {children}
-          <Toaster />
+          <I18nProvider>
+            <ProgressBar />
+            <TranslationSafeguard />
+            <AuthInitializer />
+            <LanguageInitializer />
+            {children}
+            <Toaster />
+          </I18nProvider>
         </ThemeProvider>
       </body>
     </html>

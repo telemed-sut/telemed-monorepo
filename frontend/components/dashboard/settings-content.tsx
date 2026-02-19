@@ -36,6 +36,26 @@ import {
 } from "@/lib/api";
 import { toast } from "@/components/ui/toast";
 import { useAuthStore } from "@/store/auth-store";
+import { useLanguageStore } from "@/store/language-store";
+import type { AppLanguage } from "@/store/language-config";
+
+const tr = (language: AppLanguage, en: string, th: string) =>
+  language === "th" ? th : en;
+
+const ROLE_LABEL_MAP_TH: Record<string, string> = {
+  admin: "ผู้ดูแลระบบ",
+  doctor: "แพทย์",
+  staff: "เจ้าหน้าที่",
+  nurse: "พยาบาล",
+  pharmacist: "เภสัชกร",
+  medical_technologist: "นักเทคนิคการแพทย์",
+  psychologist: "นักจิตวิทยา",
+};
+
+const getRoleLabel = (role: string, language: AppLanguage): string => {
+  if (language === "th") return ROLE_LABEL_MAP_TH[role] || role;
+  return role;
+};
 
 function extractSetupKey(uri: string | null | undefined): string | null {
   if (!uri) return null;
@@ -47,11 +67,14 @@ function extractSetupKey(uri: string | null | undefined): string | null {
   }
 }
 
-function formatDateTime(value: string | null | undefined): string {
+function formatDateTime(
+  value: string | null | undefined,
+  language: AppLanguage
+): string {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("th-TH", {
+  return date.toLocaleString(language === "th" ? "th-TH" : "en-US", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -63,6 +86,7 @@ function formatDateTime(value: string | null | undefined): string {
 export function SettingsContent() {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
+  const language = useLanguageStore((state) => state.language);
   const token = useAuthStore((state) => state.token);
   const role = useAuthStore((state) => state.role);
   const hydrated = useAuthStore((state) => state.hydrated);
@@ -112,7 +136,7 @@ export function SettingsContent() {
       const status = await fetch2FAStatus(token);
       setTwoFA(status);
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setTwoFALoading(false);
     }
@@ -125,7 +149,7 @@ export function SettingsContent() {
       const response = await fetchTrustedDevices(token);
       setTrustedDevices(response.items);
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setTrustedLoading(false);
     }
@@ -171,27 +195,27 @@ export function SettingsContent() {
   }, [twoFA?.provisioning_uri]);
 
   const ttlLabel = useMemo(() => {
-    if (!tokenTTL) return "Expired";
+    if (!tokenTTL) return tr(language, "Expired", "หมดอายุแล้ว");
     const minutes = Math.floor(tokenTTL / 60);
     const seconds = tokenTTL % 60;
     return `${minutes}m ${seconds}s`;
-  }, [tokenTTL]);
+  }, [tokenTTL, language]);
 
   const handleVerify2FA = async () => {
     if (!token) return;
     if (!verifyCode.trim()) {
-      toast.error("กรุณากรอกรหัส 2FA");
+      toast.error(tr(language, "Please enter 2FA code", "กรุณากรอกรหัส 2FA"));
       return;
     }
 
     setTwoFABusy(true);
     try {
       await verify2FA(verifyCode, token);
-      toast.success("ยืนยัน 2FA สำเร็จ");
+      toast.success(tr(language, "2FA verified successfully", "ยืนยัน 2FA สำเร็จ"));
       setVerifyCode("");
       await load2FAStatus();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setTwoFABusy(false);
     }
@@ -200,7 +224,7 @@ export function SettingsContent() {
   const handleReset2FA = async () => {
     if (!token) return;
     if (twoFA?.enabled && !resetCode.trim()) {
-      toast.error("กรุณากรอกรหัส 2FA ปัจจุบัน");
+      toast.error(tr(language, "Please enter current 2FA code", "กรุณากรอกรหัส 2FA ปัจจุบัน"));
       return;
     }
 
@@ -208,16 +232,22 @@ export function SettingsContent() {
     try {
       const status = await reset2FA(token, {
         current_otp_code: twoFA?.enabled ? resetCode : undefined,
-        reason: "Reset from settings page",
+        reason: tr(language, "Reset from settings page", "รีเซ็ตจากหน้าการตั้งค่า"),
       });
       setTwoFA(status);
       setResetCode("");
       setVerifyCode("");
       setBackupCodes([]);
       await loadTrustedDevices();
-      toast.success("รีเซ็ต 2FA แล้ว กรุณาสแกน QR ใหม่และยืนยัน");
+      toast.success(
+        tr(
+          language,
+          "2FA has been reset. Please scan new QR and verify.",
+          "รีเซ็ต 2FA แล้ว กรุณาสแกน QR ใหม่และยืนยัน"
+        )
+      );
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setTwoFABusy(false);
     }
@@ -226,7 +256,7 @@ export function SettingsContent() {
   const handleDisable2FA = async () => {
     if (!token) return;
     if (!disableCode.trim()) {
-      toast.error("กรุณากรอกรหัส 2FA ปัจจุบันเพื่อปิดระบบ");
+      toast.error(tr(language, "Please enter current 2FA code to disable", "กรุณากรอกรหัส 2FA ปัจจุบันเพื่อปิดระบบ"));
       return;
     }
 
@@ -237,9 +267,9 @@ export function SettingsContent() {
       setBackupCodes([]);
       await load2FAStatus();
       await loadTrustedDevices();
-      toast.success("ปิด 2FA เรียบร้อย");
+      toast.success(tr(language, "2FA disabled", "ปิด 2FA เรียบร้อย"));
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setTwoFABusy(false);
     }
@@ -251,9 +281,15 @@ export function SettingsContent() {
     try {
       const response = await regenerateBackupCodes(token);
       setBackupCodes(response.codes);
-      toast.success("สร้าง Backup Codes ใหม่แล้ว กรุณาบันทึกไว้ทันที");
+      toast.success(
+        tr(
+          language,
+          "Backup codes regenerated. Save them now.",
+          "สร้าง Backup Codes ใหม่แล้ว กรุณาบันทึกไว้ทันที"
+        )
+      );
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setTwoFABusy(false);
     }
@@ -261,30 +297,30 @@ export function SettingsContent() {
 
   const handleCopyBackupCodes = async () => {
     if (backupCodes.length === 0) {
-      toast.error("ยังไม่มี Backup Codes");
+      toast.error(tr(language, "No backup codes yet", "ยังไม่มี Backup Codes"));
       return;
     }
     try {
       await navigator.clipboard.writeText(backupCodes.join("\n"));
-      toast.success("คัดลอก Backup Codes แล้ว");
+      toast.success(tr(language, "Backup codes copied", "คัดลอก Backup Codes แล้ว"));
     } catch {
-      toast.error("คัดลอกไม่สำเร็จ");
+      toast.error(tr(language, "Copy failed", "คัดลอกไม่สำเร็จ"));
     }
   };
 
   const handleDownloadBackupCodes = () => {
     if (backupCodes.length === 0) {
-      toast.error("ยังไม่มี Backup Codes");
+      toast.error(tr(language, "No backup codes yet", "ยังไม่มี Backup Codes"));
       return;
     }
     const blob = new Blob([backupCodes.join("\n")], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "backup-codes.txt";
+    link.download = tr(language, "backup-codes.txt", "รหัสสำรอง-2fa.txt");
     link.click();
     URL.revokeObjectURL(url);
-    toast.success("ดาวน์โหลด Backup Codes แล้ว");
+    toast.success(tr(language, "Backup codes downloaded", "ดาวน์โหลด Backup Codes แล้ว"));
   };
 
   const handleRevokeTrustedDevice = async (deviceId: string) => {
@@ -293,9 +329,9 @@ export function SettingsContent() {
     try {
       await revokeTrustedDevice(deviceId, token);
       await loadTrustedDevices();
-      toast.success("ยกเลิกอุปกรณ์ที่เชื่อถือแล้ว");
+      toast.success(tr(language, "Trusted device revoked", "ยกเลิกอุปกรณ์ที่เชื่อถือแล้ว"));
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setTwoFABusy(false);
     }
@@ -307,9 +343,9 @@ export function SettingsContent() {
     try {
       await revokeAllTrustedDevices(token);
       await loadTrustedDevices();
-      toast.success("ยกเลิกอุปกรณ์ทั้งหมดแล้ว");
+      toast.success(tr(language, "All trusted devices revoked", "ยกเลิกอุปกรณ์ทั้งหมดแล้ว"));
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setTwoFABusy(false);
     }
@@ -319,7 +355,7 @@ export function SettingsContent() {
     if (!token) return;
     const normalizedEmail = targetEmail.trim().toLowerCase();
     if (!normalizedEmail) {
-      toast.error("กรุณากรอกอีเมลผู้ใช้งาน");
+      toast.error(tr(language, "Please enter user email", "กรุณากรอกอีเมลผู้ใช้งาน"));
       return;
     }
 
@@ -327,10 +363,10 @@ export function SettingsContent() {
     try {
       const user = await resolveSecurityUserByEmail(normalizedEmail, token);
       setResolvedUser(user);
-      toast.success("พบผู้ใช้แล้ว");
+      toast.success(tr(language, "User found", "พบผู้ใช้แล้ว"));
     } catch (error: unknown) {
       setResolvedUser(null);
-      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setEmergencyBusy(false);
     }
@@ -340,11 +376,11 @@ export function SettingsContent() {
     if (!token) return;
     const normalizedEmail = targetEmail.trim().toLowerCase();
     if (!normalizedEmail) {
-      toast.error("กรุณากรอกอีเมลผู้ใช้งาน");
+      toast.error(tr(language, "Please enter user email", "กรุณากรอกอีเมลผู้ใช้งาน"));
       return;
     }
     if (emergencyReason.trim().length < 8) {
-      toast.error("กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร");
+      toast.error(tr(language, "Please enter reason with at least 8 characters", "กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร"));
       return;
     }
 
@@ -354,10 +390,10 @@ export function SettingsContent() {
         { email: normalizedEmail, reason: emergencyReason.trim() },
         token
       );
-      toast.success("ปลดล็อกบัญชีเรียบร้อย");
+      toast.success(tr(language, "Account unlocked", "ปลดล็อกบัญชีเรียบร้อย"));
       await resolveEmergencyTarget();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setEmergencyBusy(false);
     }
@@ -366,17 +402,17 @@ export function SettingsContent() {
   const handleEmergencyReset2FA = async () => {
     if (!token || !resolvedUser) return;
     if (emergencyReason.trim().length < 8) {
-      toast.error("กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร");
+      toast.error(tr(language, "Please enter reason with at least 8 characters", "กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร"));
       return;
     }
 
     setEmergencyBusy(true);
     try {
       await superAdminResetUser2FA(resolvedUser.user_id, emergencyReason.trim(), token);
-      toast.success("รีเซ็ต 2FA ให้ผู้ใช้แล้ว");
+      toast.success(tr(language, "User 2FA reset successfully", "รีเซ็ต 2FA ให้ผู้ใช้แล้ว"));
       await resolveEmergencyTarget();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setEmergencyBusy(false);
     }
@@ -385,7 +421,7 @@ export function SettingsContent() {
   const handleEmergencyResetPassword = async () => {
     if (!token || !resolvedUser) return;
     if (emergencyReason.trim().length < 8) {
-      toast.error("กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร");
+      toast.error(tr(language, "Please enter reason with at least 8 characters", "กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร"));
       return;
     }
 
@@ -398,10 +434,10 @@ export function SettingsContent() {
         temporaryPasswordInput.trim() || undefined
       );
       setGeneratedTempPassword(response.temporary_password);
-      toast.success("รีเซ็ตรหัสผ่านเรียบร้อย");
+      toast.success(tr(language, "Password reset successfully", "รีเซ็ตรหัสผ่านเรียบร้อย"));
       await resolveEmergencyTarget();
     } catch (error: unknown) {
-      toast.error(getErrorMessage(error, "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง"));
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setEmergencyBusy(false);
     }
@@ -411,9 +447,9 @@ export function SettingsContent() {
     if (!generatedTempPassword) return;
     try {
       await navigator.clipboard.writeText(generatedTempPassword);
-      toast.success("คัดลอกรหัสชั่วคราวแล้ว");
+      toast.success(tr(language, "Temporary password copied", "คัดลอกรหัสชั่วคราวแล้ว"));
     } catch {
-      toast.error("คัดลอกไม่สำเร็จ");
+      toast.error(tr(language, "Copy failed", "คัดลอกไม่สำเร็จ"));
     }
   };
 
@@ -421,30 +457,30 @@ export function SettingsContent() {
     <main className="w-full flex-1 overflow-auto p-4 sm:p-6 space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Appearance</CardTitle>
-          <CardDescription>Select your preferred dashboard theme.</CardDescription>
+          <CardTitle>{tr(language, "Appearance", "การแสดงผล")}</CardTitle>
+          <CardDescription>{tr(language, "Select your preferred dashboard theme.", "เลือกธีมแดชบอร์ดที่ต้องการ")}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Button variant={theme === "light" ? "default" : "outline"} onClick={() => setTheme("light")}>
-            Light
+            {tr(language, "Light", "สว่าง")}
           </Button>
           <Button variant={theme === "dark" ? "default" : "outline"} onClick={() => setTheme("dark")}>
-            Dark
+            {tr(language, "Dark", "มืด")}
           </Button>
           <Button variant={theme === "system" ? "default" : "outline"} onClick={() => setTheme("system")}>
-            System
+            {tr(language, "System", "ตามระบบ")}
           </Button>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Account</CardTitle>
-          <CardDescription>Manage your profile and session.</CardDescription>
+          <CardTitle>{tr(language, "Account", "บัญชี")}</CardTitle>
+          <CardDescription>{tr(language, "Manage your profile and session.", "จัดการโปรไฟล์และเซสชันของคุณ")}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => router.push("/profile")}>
-            Open profile
+            {tr(language, "Open profile", "เปิดโปรไฟล์")}
           </Button>
           <Button
             variant="destructive"
@@ -455,126 +491,143 @@ export function SettingsContent() {
               });
             }}
           >
-            Log out
+            {tr(language, "Log out", "ออกจากระบบ")}
           </Button>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Two-Factor Authentication</CardTitle>
+          <CardTitle>{tr(language, "Two-Factor Authentication", "การยืนยันตัวตนสองชั้น")}</CardTitle>
           <CardDescription>
-            จัดการความปลอดภัยบัญชีด้วย Authenticator, Backup Codes และ Trusted Devices
+            {tr(
+              language,
+              "Manage account security with Authenticator, Backup Codes and Trusted Devices",
+              "จัดการความปลอดภัยบัญชีด้วย Authenticator, Backup Codes และ Trusted Devices"
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           {twoFALoading ? (
-            <p className="text-sm text-muted-foreground">Loading 2FA status...</p>
+            <p className="text-sm text-muted-foreground">{tr(language, "Loading 2FA status...", "กำลังโหลดสถานะ 2FA...")}</p>
           ) : twoFA ? (
             <>
               <div className="space-y-1">
                 <p className="text-sm">
-                  Status: <span className="font-medium">{twoFA.enabled ? "Enabled" : "Not enabled"}</span>
+                  {tr(language, "Status", "สถานะ")}:{" "}
+                  <span className="font-medium">
+                    {twoFA.enabled
+                      ? tr(language, "Enabled", "เปิดใช้งาน")
+                      : tr(language, "Not enabled", "ยังไม่เปิดใช้งาน")}
+                  </span>
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {twoFA.required
-                    ? `Required by policy${isAdmin ? " (Admin)" : ""}`
-                    : "Optional for your role"}
+                    ? tr(
+                      language,
+                      `Required by policy${isAdmin ? " (Admin)" : ""}`,
+                      `บังคับตามนโยบาย${isAdmin ? " (ผู้ดูแลระบบ)" : ""}`
+                    )
+                    : tr(language, "Optional for your role", "ไม่บังคับสำหรับบทบาทของคุณ")}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Trusted device expires in {twoFA.trusted_device_days ?? (isAdmin ? 7 : 30)} days
+                  {tr(language, "Trusted device expires in", "อุปกรณ์ที่เชื่อถือจะหมดอายุใน")} {twoFA.trusted_device_days ?? (isAdmin ? 7 : 30)} {tr(language, "days", "วัน")}
                 </p>
               </div>
 
               {(twoFA.setup_required || twoFA.provisioning_uri) && twoFA.provisioning_uri && (
                 <div className="space-y-2 rounded-lg border border-border p-3">
                   <p className="text-xs text-muted-foreground">
-                    สแกน QR ด้วยแอป Authenticator แล้วกรอกรหัส 6 หลักเพื่อยืนยัน
+                    {tr(language, "Scan QR with your authenticator app and enter 6-digit code to verify", "สแกน QR ด้วยแอป Authenticator แล้วกรอกรหัส 6 หลักเพื่อยืนยัน")}
                   </p>
                   <div className="flex justify-center rounded-md bg-white p-2">
                     {qrCodeDataUrl ? (
                       <img
                         src={qrCodeDataUrl}
-                        alt="2FA QR code"
+                        alt={tr(language, "2FA QR code", "คิวอาร์โค้ด 2FA")}
                         className="h-[220px] w-[220px]"
                       />
                     ) : (
-                      <p className="py-8 text-xs text-muted-foreground">Generating QR code...</p>
+                      <p className="py-8 text-xs text-muted-foreground">{tr(language, "Generating QR code...", "กำลังสร้าง QR code...")}</p>
                     )}
                   </div>
                   <p className="break-all text-[11px] text-muted-foreground">
-                    Setup key: {extractSetupKey(twoFA.provisioning_uri) ?? "-"}
+                    {tr(language, "Setup key", "รหัสตั้งค่า")}: {extractSetupKey(twoFA.provisioning_uri) ?? "-"}
                   </p>
                 </div>
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="two_fa_verify">2FA Verification Code</Label>
+                <Label htmlFor="two_fa_verify">{tr(language, "2FA Verification Code", "รหัสยืนยัน 2FA")}</Label>
                 <Input
                   id="two_fa_verify"
                   inputMode="numeric"
                   maxLength={12}
-                  placeholder="123456"
+                  placeholder={tr(language, "123456", "123456")}
                   value={verifyCode}
                   onChange={(event) => setVerifyCode(event.target.value)}
                 />
                 <Button type="button" onClick={handleVerify2FA} disabled={twoFABusy}>
-                  {twoFABusy ? "Verifying..." : "Verify 2FA"}
+                  {twoFABusy
+                    ? tr(language, "Verifying...", "กำลังยืนยัน...")
+                    : tr(language, "Verify 2FA", "ยืนยัน 2FA")}
                 </Button>
               </div>
 
               <div className="space-y-2 border-t border-border pt-4">
-                <p className="text-sm font-medium">Reset Authenticator</p>
+                <p className="text-sm font-medium">{tr(language, "Reset Authenticator", "รีเซ็ต Authenticator")}</p>
                 {twoFA.enabled && (
                   <>
-                    <Label htmlFor="two_fa_reset_code">Current 2FA code</Label>
+                    <Label htmlFor="two_fa_reset_code">{tr(language, "Current 2FA code", "รหัส 2FA ปัจจุบัน")}</Label>
                     <Input
                       id="two_fa_reset_code"
                       inputMode="numeric"
                       maxLength={12}
-                      placeholder="123456"
+                      placeholder={tr(language, "123456", "123456")}
                       value={resetCode}
                       onChange={(event) => setResetCode(event.target.value)}
                     />
                   </>
                 )}
                 <Button type="button" variant="outline" onClick={handleReset2FA} disabled={twoFABusy}>
-                  {twoFABusy ? "Resetting..." : "Reset 2FA and generate new QR"}
+                  {twoFABusy
+                    ? tr(language, "Resetting...", "กำลังรีเซ็ต...")
+                    : tr(language, "Reset 2FA and generate new QR", "รีเซ็ต 2FA และสร้าง QR ใหม่")}
                 </Button>
               </div>
 
               {!isAdmin && twoFA.enabled && (
                 <div className="space-y-2 border-t border-border pt-4">
-                  <p className="text-sm font-medium">Disable 2FA</p>
-                  <Label htmlFor="two_fa_disable_code">Current 2FA code</Label>
+                  <p className="text-sm font-medium">{tr(language, "Disable 2FA", "ปิดใช้งาน 2FA")}</p>
+                  <Label htmlFor="two_fa_disable_code">{tr(language, "Current 2FA code", "รหัส 2FA ปัจจุบัน")}</Label>
                   <Input
                     id="two_fa_disable_code"
                     inputMode="numeric"
                     maxLength={12}
-                    placeholder="123456"
+                    placeholder={tr(language, "123456", "123456")}
                     value={disableCode}
                     onChange={(event) => setDisableCode(event.target.value)}
                   />
                   <Button type="button" variant="destructive" onClick={handleDisable2FA} disabled={twoFABusy}>
-                    Disable 2FA
+                    {tr(language, "Disable 2FA", "ปิดใช้งาน 2FA")}
                   </Button>
                 </div>
               )}
 
               <div className="space-y-2 border-t border-border pt-4">
-                <p className="text-sm font-medium">Backup Codes</p>
+                <p className="text-sm font-medium">{tr(language, "Backup Codes", "รหัสสำรอง")}</p>
                 <p className="text-xs text-muted-foreground">
-                  ใช้แทนรหัส 2FA ได้ครั้งละ 1 โค้ดเมื่อเข้า Authenticator ไม่ได้
+                  {tr(language, "Use one code at a time when you cannot access authenticator app", "ใช้แทนรหัส 2FA ได้ครั้งละ 1 โค้ดเมื่อเข้า Authenticator ไม่ได้")}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="outline" onClick={handleRegenerateBackupCodes} disabled={twoFABusy || !twoFA.enabled}>
-                    Generate / Regenerate
+                    {tr(language, "Generate / Regenerate", "สร้าง / สร้างใหม่")}
                   </Button>
                   <Button type="button" variant="ghost" onClick={handleCopyBackupCodes} disabled={backupCodes.length === 0}>
-                    Copy
+                    {tr(language, "Copy", "คัดลอก")}
                   </Button>
                   <Button type="button" variant="ghost" onClick={handleDownloadBackupCodes} disabled={backupCodes.length === 0}>
-                    Download
+                    {tr(language, "Download", "ดาวน์โหลด")}
                   </Button>
                 </div>
                 {backupCodes.length > 0 && (
@@ -585,30 +638,32 @@ export function SettingsContent() {
               </div>
 
               <div className="space-y-2 border-t border-border pt-4">
-                <p className="text-sm font-medium">Trusted Devices</p>
+                <p className="text-sm font-medium">{tr(language, "Trusted Devices", "อุปกรณ์ที่เชื่อถือ")}</p>
                 <div className="flex flex-wrap gap-2">
                   <Button type="button" variant="outline" onClick={() => void loadTrustedDevices()} disabled={twoFABusy || trustedLoading}>
-                    Refresh
+                    {tr(language, "Refresh", "รีเฟรช")}
                   </Button>
                   <Button type="button" variant="destructive" onClick={handleRevokeAllTrustedDevices} disabled={twoFABusy || trustedDevices.length === 0}>
-                    Revoke All
+                    {tr(language, "Revoke All", "เพิกถอนทั้งหมด")}
                   </Button>
                 </div>
                 {trustedLoading ? (
-                  <p className="text-sm text-muted-foreground">Loading trusted devices...</p>
+                  <p className="text-sm text-muted-foreground">{tr(language, "Loading trusted devices...", "กำลังโหลดอุปกรณ์ที่เชื่อถือ...")}</p>
                 ) : trustedDevices.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No trusted devices.</p>
+                  <p className="text-sm text-muted-foreground">{tr(language, "No trusted devices.", "ไม่มีอุปกรณ์ที่เชื่อถือ")}</p>
                 ) : (
                   <div className="space-y-2">
                     {trustedDevices.map((device) => (
                       <div key={device.id} className="rounded-md border border-border p-3 text-sm">
                         <p className="font-medium">
-                          {device.current_device ? "Current device" : "Trusted device"}
+                          {device.current_device
+                            ? tr(language, "Current device", "อุปกรณ์ปัจจุบัน")
+                            : tr(language, "Trusted device", "อุปกรณ์ที่เชื่อถือ")}
                         </p>
-                        <p className="text-xs text-muted-foreground">IP: {device.ip_address || "unknown"}</p>
-                        <p className="text-xs text-muted-foreground">Created: {formatDateTime(device.created_at)}</p>
-                        <p className="text-xs text-muted-foreground">Last used: {formatDateTime(device.last_used_at)}</p>
-                        <p className="text-xs text-muted-foreground">Expires: {formatDateTime(device.expires_at)}</p>
+                        <p className="text-xs text-muted-foreground">{tr(language, "IP", "ไอพี")}: {device.ip_address || tr(language, "unknown", "ไม่ทราบ")}</p>
+                        <p className="text-xs text-muted-foreground">{tr(language, "Created", "สร้างเมื่อ")}: {formatDateTime(device.created_at, language)}</p>
+                        <p className="text-xs text-muted-foreground">{tr(language, "Last used", "ใช้งานล่าสุด")}: {formatDateTime(device.last_used_at, language)}</p>
+                        <p className="text-xs text-muted-foreground">{tr(language, "Expires", "หมดอายุ")}: {formatDateTime(device.expires_at, language)}</p>
                         <Button
                           type="button"
                           variant="ghost"
@@ -616,7 +671,7 @@ export function SettingsContent() {
                           onClick={() => void handleRevokeTrustedDevice(device.id)}
                           disabled={twoFABusy}
                         >
-                          Revoke
+                          {tr(language, "Revoke", "เพิกถอน")}
                         </Button>
                       </div>
                     ))}
@@ -625,7 +680,7 @@ export function SettingsContent() {
               </div>
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">Unable to load 2FA status.</p>
+            <p className="text-sm text-muted-foreground">{tr(language, "Unable to load 2FA status.", "ไม่สามารถโหลดสถานะ 2FA ได้")}</p>
           )}
         </CardContent>
       </Card>
@@ -633,32 +688,32 @@ export function SettingsContent() {
       {isAdmin && (
         <Card>
           <CardHeader>
-            <CardTitle>Admin Emergency Toolkit</CardTitle>
+            <CardTitle>{tr(language, "Admin Emergency Toolkit", "ชุดเครื่องมือฉุกเฉินผู้ดูแลระบบ")}</CardTitle>
             <CardDescription>
-              เครื่องมือฉุกเฉินสำหรับปลดล็อกบัญชี / รีเซ็ต 2FA / รีเซ็ตรหัสผ่าน พร้อมบันทึก audit log
+              {tr(language, "Emergency tools for account unlock / reset 2FA / reset password with audit log", "เครื่องมือฉุกเฉินสำหรับปลดล็อกบัญชี / รีเซ็ต 2FA / รีเซ็ตรหัสผ่าน พร้อมบันทึก audit log")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="target_email">Target user email</Label>
+              <Label htmlFor="target_email">{tr(language, "Target user email", "อีเมลผู้ใช้เป้าหมาย")}</Label>
               <div className="flex flex-wrap gap-2">
                 <Input
                   id="target_email"
-                  placeholder="user@hospital.org"
+                  placeholder={tr(language, "user@hospital.org", "user@hospital.org")}
                   value={targetEmail}
                   onChange={(event) => setTargetEmail(event.target.value)}
                 />
                 <Button type="button" variant="outline" onClick={resolveEmergencyTarget} disabled={emergencyBusy}>
-                  Resolve user
+                  {tr(language, "Resolve user", "ค้นหาผู้ใช้")}
                 </Button>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="emergency_reason">Reason (required)</Label>
+              <Label htmlFor="emergency_reason">{tr(language, "Reason (required)", "เหตุผล (จำเป็น)")}</Label>
               <Input
                 id="emergency_reason"
-                placeholder="เหตุผลสำหรับการทำรายการฉุกเฉิน"
+                placeholder={tr(language, "Reason for emergency action", "เหตุผลสำหรับการทำรายการฉุกเฉิน")}
                 value={emergencyReason}
                 onChange={(event) => setEmergencyReason(event.target.value)}
               />
@@ -666,18 +721,18 @@ export function SettingsContent() {
 
             {resolvedUser ? (
               <div className="rounded-md border border-border/60 p-3 text-sm space-y-1">
-                <p><span className="text-muted-foreground">User:</span> {resolvedUser.email}</p>
-                <p><span className="text-muted-foreground">Role:</span> {resolvedUser.role}</p>
-                <p><span className="text-muted-foreground">Locked:</span> {resolvedUser.is_locked ? "Yes" : "No"}</p>
-                <p><span className="text-muted-foreground">2FA Enabled:</span> {resolvedUser.two_factor_enabled ? "Yes" : "No"}</p>
+                <p><span className="text-muted-foreground">{tr(language, "User", "ผู้ใช้")}:</span> {resolvedUser.email}</p>
+                <p><span className="text-muted-foreground">{tr(language, "Role", "บทบาท")}:</span> {getRoleLabel(resolvedUser.role, language)}</p>
+                <p><span className="text-muted-foreground">{tr(language, "Locked", "ล็อกอยู่")}:</span> {resolvedUser.is_locked ? tr(language, "Yes", "ใช่") : tr(language, "No", "ไม่")}</p>
+                <p><span className="text-muted-foreground">{tr(language, "2FA Enabled", "เปิดใช้งาน 2FA")}:</span> {resolvedUser.two_factor_enabled ? tr(language, "Yes", "ใช่") : tr(language, "No", "ไม่")}</p>
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">Resolve user ก่อน เพื่อยืนยันบัญชีเป้าหมาย</p>
+              <p className="text-xs text-muted-foreground">{tr(language, "Resolve user first to confirm target account", "ค้นหาผู้ใช้ก่อน เพื่อยืนยันบัญชีเป้าหมาย")}</p>
             )}
 
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" disabled={emergencyBusy} onClick={handleEmergencyUnlock}>
-                Unlock account
+                {tr(language, "Unlock account", "ปลดล็อกบัญชี")}
               </Button>
               <Button
                 type="button"
@@ -685,15 +740,15 @@ export function SettingsContent() {
                 disabled={emergencyBusy || !resolvedUser}
                 onClick={handleEmergencyReset2FA}
               >
-                Reset 2FA
+                {tr(language, "Reset 2FA", "รีเซ็ต 2FA")}
               </Button>
             </div>
 
             <div className="space-y-2 border-t border-border pt-4">
-              <Label htmlFor="temporary_password">Temporary password (optional)</Label>
+              <Label htmlFor="temporary_password">{tr(language, "Temporary password (optional)", "รหัสผ่านชั่วคราว (ไม่บังคับ)")}</Label>
               <Input
                 id="temporary_password"
-                placeholder="ปล่อยว่างเพื่อให้ระบบ generate"
+                placeholder={tr(language, "Leave blank to auto-generate", "ปล่อยว่างเพื่อให้ระบบ generate")}
                 value={temporaryPasswordInput}
                 onChange={(event) => setTemporaryPasswordInput(event.target.value)}
               />
@@ -703,16 +758,16 @@ export function SettingsContent() {
                 disabled={emergencyBusy || !resolvedUser}
                 onClick={handleEmergencyResetPassword}
               >
-                Reset password
+                {tr(language, "Reset password", "รีเซ็ตรหัสผ่าน")}
               </Button>
               {generatedTempPassword && (
                 <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
                   <p className="text-xs text-muted-foreground">
-                    Temporary password (แสดงครั้งเดียว):
+                    {tr(language, "Temporary password (shown once):", "รหัสผ่านชั่วคราว (แสดงครั้งเดียว):")}
                   </p>
                   <Input value={generatedTempPassword} readOnly />
                   <Button type="button" variant="outline" onClick={handleCopyGeneratedPassword}>
-                    Copy temporary password
+                    {tr(language, "Copy temporary password", "คัดลอกรหัสผ่านชั่วคราว")}
                   </Button>
                 </div>
               )}
@@ -723,12 +778,12 @@ export function SettingsContent() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Session</CardTitle>
-          <CardDescription>Current access token status.</CardDescription>
+          <CardTitle>{tr(language, "Session", "เซสชัน")}</CardTitle>
+          <CardDescription>{tr(language, "Current access token status.", "สถานะ access token ปัจจุบัน")}</CardDescription>
         </CardHeader>
         <CardContent>
           <p className="text-sm">
-            Token TTL: <span className="font-medium">{ttlLabel}</span>
+            {tr(language, "Token TTL", "อายุโทเคนคงเหลือ")}: <span className="font-medium">{ttlLabel}</span>
           </p>
         </CardContent>
       </Card>

@@ -85,6 +85,8 @@ import { fetchPatients, createPatient, updatePatient, deletePatient, type Patien
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
 import { PatientAssignmentsDialog } from "./patient-assignments-dialog";
+import { useLanguageStore } from "@/store/language-store";
+import type { AppLanguage } from "@/store/language-config";
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100, 200];
 
@@ -108,10 +110,14 @@ const emptyForm: PatientFormState = {
   address: "",
 };
 
+const tr = (language: AppLanguage, en: string, th: string) =>
+  language === "th" ? th : en;
+
 export function PatientsTable() {
   const token = useAuthStore((state) => state.token);
   const role = useAuthStore((state) => state.role);
   const clearToken = useAuthStore((state) => state.clearToken);
+  const language = useLanguageStore((state) => state.language);
   const router = useRouter();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [page, setPage] = useState(1);
@@ -234,7 +240,7 @@ export function PatientsTable() {
             router.replace("/login");
             return;
           }
-          const message = err instanceof Error ? err.message : "Failed to load patients";
+          const message = err instanceof Error ? err.message : tr(language, "Failed to load patients", "โหลดข้อมูลผู้ป่วยไม่สำเร็จ");
           setError(message);
           setPatients([]);
           setTotal(0);
@@ -273,26 +279,26 @@ export function PatientsTable() {
 
   const validateForm = () => {
     const errors: Record<string, string> = {};
-    if (!formData.first_name.trim()) errors.first_name = "First name is required";
-    if (!formData.last_name.trim()) errors.last_name = "Last name is required";
-    if (!formData.date_of_birth) errors.date_of_birth = "Date of birth is required";
+    if (!formData.first_name.trim()) errors.first_name = tr(language, "First name is required", "จำเป็นต้องกรอกชื่อ");
+    if (!formData.last_name.trim()) errors.last_name = tr(language, "Last name is required", "จำเป็นต้องกรอกนามสกุล");
+    if (!formData.date_of_birth) errors.date_of_birth = tr(language, "Date of birth is required", "จำเป็นต้องระบุวันเกิด");
 
     if (formData.email) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(formData.email)) {
-        errors.email = "Invalid email format";
+        errors.email = tr(language, "Invalid email format", "รูปแบบอีเมลไม่ถูกต้อง");
       }
     }
 
     if (formData.phone) {
       if (formData.phone.length < 8) {
-        errors.phone = "Phone number must be at least 8 characters";
+        errors.phone = tr(language, "Phone number must be at least 8 characters", "หมายเลขโทรศัพท์ต้องมีอย่างน้อย 8 ตัวอักษร");
       }
     }
 
     if (formData.address) {
       if (formData.address.length < 5) {
-        errors.address = "Address must be at least 5 characters";
+        errors.address = tr(language, "Address must be at least 5 characters", "ที่อยู่ต้องมีอย่างน้อย 5 ตัวอักษร");
       }
     }
 
@@ -311,7 +317,7 @@ export function PatientsTable() {
     if (!token) return;
 
     if (!validateForm()) {
-      toast.error("Please fix the errors in the form");
+      toast.error(tr(language, "Please fix the errors in the form", "กรุณาแก้ไขข้อมูลในฟอร์มให้ถูกต้อง"));
       return;
     }
 
@@ -335,7 +341,11 @@ export function PatientsTable() {
       } else {
         await createPatient(cleanedData, token);
       }
-      toast.success(editing ? "Patient updated successfully" : "Patient created successfully");
+      toast.success(
+        editing
+          ? tr(language, "Patient updated successfully", "อัปเดตผู้ป่วยสำเร็จ")
+          : tr(language, "Patient created successfully", "สร้างผู้ป่วยสำเร็จ")
+      );
       closeForm();
       // Refresh list and reset to first page to show new record
       setPage(1);
@@ -351,7 +361,7 @@ export function PatientsTable() {
       }
 
       // Try to parse backend validation errors and map them to form fields
-      const message = err instanceof Error ? err.message : "Save failed";
+      const message = err instanceof Error ? err.message : tr(language, "Save failed", "บันทึกไม่สำเร็จ");
       try {
         const parsed = JSON.parse(message);
         if (Array.isArray(parsed)) {
@@ -359,14 +369,14 @@ export function PatientsTable() {
           parsed.forEach((item: { loc?: string[]; msg?: string }) => {
             if (item.loc && item.loc.length >= 2) {
               const field = item.loc[1]; // e.g., "phone", "email", "address"
-              newFormErrors[field] = item.msg || "Invalid value";
+              newFormErrors[field] = item.msg || tr(language, "Invalid value", "ค่าข้อมูลไม่ถูกต้อง");
             }
           });
           if (Object.keys(newFormErrors).length > 0) {
             setFormErrors(prev => ({ ...prev, ...newFormErrors }));
-            toast.error("Please fix the validation errors");
+            toast.error(tr(language, "Please fix the validation errors", "กรุณาแก้ไขข้อผิดพลาดการตรวจสอบข้อมูล"));
           } else {
-            toast.error("Validation failed. Please check your input.");
+            toast.error(tr(language, "Validation failed. Please check your input.", "การตรวจสอบข้อมูลไม่ผ่าน กรุณาตรวจสอบข้อมูลที่กรอก"));
           }
         } else {
           toast.error(message);
@@ -385,7 +395,7 @@ export function PatientsTable() {
     setError(null);
     try {
       await deletePatient(id, token);
-      toast.success("Patient deleted successfully");
+      toast.success(tr(language, "Patient deleted successfully", "ลบข้อมูลผู้ป่วยสำเร็จ"));
       const res = await fetchPatients({ page, limit, q: debouncedSearch, sort, order }, token);
       setPatients(res.items);
       setTotal(res.total);
@@ -399,17 +409,17 @@ export function PatientsTable() {
         router.replace("/login");
         return;
       }
-      const message = err instanceof Error ? err.message : "Delete failed";
+      const message = err instanceof Error ? err.message : tr(language, "Delete failed", "ลบข้อมูลไม่สำเร็จ");
       setError(message);
       toast.error(message);
     }
   };
 
   const handleDelete = (id: string) => {
-    toast.destructiveAction("Delete patient record?", {
-      description: "This action cannot be undone.",
+    toast.destructiveAction(tr(language, "Delete patient record?", "ลบข้อมูลผู้ป่วยนี้ใช่ไหม?"), {
+      description: tr(language, "This action cannot be undone.", "การกระทำนี้ไม่สามารถย้อนกลับได้"),
       button: {
-        title: "Delete",
+        title: tr(language, "Delete", "ลบ"),
         onClick: () => {
           void confirmDelete(id);
         },
@@ -435,6 +445,14 @@ export function PatientsTable() {
     return age;
   };
 
+  const getGenderLabel = (value: string) => {
+    const normalized = value.toLowerCase();
+    if (normalized === "male") return tr(language, "Male", "ชาย");
+    if (normalized === "female") return tr(language, "Female", "หญิง");
+    if (normalized === "other") return tr(language, "Other", "อื่น ๆ");
+    return value;
+  };
+
   const renderEmptyState = () => (
     <div className="flex flex-col items-center justify-center py-24 text-center">
       <div className="relative mb-6 group">
@@ -444,9 +462,11 @@ export function PatientsTable() {
         </div>
       </div>
       <div className="space-y-2 max-w-sm mx-auto">
-        <h3 className="font-bold text-xl tracking-tight text-foreground">No patients found</h3>
+        <h3 className="font-bold text-xl tracking-tight text-foreground">{tr(language, "No patients found", "ไม่พบผู้ป่วย")}</h3>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          {search ? "We couldn't find any patients matching your search query. Try adjusting your filters." : "Get started by adding your first patient to the system."}
+          {search
+            ? tr(language, "We couldn't find any patients matching your search query. Try adjusting your filters.", "ไม่พบผู้ป่วยที่ตรงกับคำค้นหา ลองปรับตัวกรองแล้วค้นหาอีกครั้ง")
+            : tr(language, "Get started by adding your first patient to the system.", "เริ่มต้นโดยเพิ่มผู้ป่วยคนแรกเข้าสู่ระบบ")}
         </p>
       </div>
       {search && (
@@ -456,13 +476,13 @@ export function PatientsTable() {
           onClick={() => setSearch("")}
         >
           <HugeiconsIcon icon={RefreshIcon} className="size-4" />
-          Clear Search
+          {tr(language, "Clear Search", "ล้างการค้นหา")}
         </Button>
       )}
       {!search && (
         <Button onClick={() => resetForm()} size="lg" className="mt-6 shadow-md hover:shadow-lg transition-all rounded-full">
           <HugeiconsIcon icon={Add01Icon} className="size-4 mr-2" />
-          Add first patient
+          {tr(language, "Add first patient", "เพิ่มผู้ป่วยคนแรก")}
         </Button>
       )}
     </div>
@@ -477,7 +497,7 @@ export function PatientsTable() {
             <HugeiconsIcon icon={UserGroupIcon} className="w-24 h-24 text-primary transform rotate-12 translate-x-4 -translate-y-4" />
           </div>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Patients</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{tr(language, "Total Patients", "ผู้ป่วยทั้งหมด")}</CardTitle>
             <div className="p-2 bg-primary/10 rounded-lg group-hover:bg-primary/20 transition-colors">
               <HugeiconsIcon icon={UserGroupIcon} className="h-4 w-4 text-primary" />
             </div>
@@ -485,7 +505,7 @@ export function PatientsTable() {
           <CardContent className="relative z-10">
             <div className="text-3xl font-bold tracking-tight text-foreground">{stats.total}</div>
             <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-              <span className="text-primary font-medium">Synced</span> in system
+              <span className="text-primary font-medium">{tr(language, "Synced", "ซิงก์แล้ว")}</span> {tr(language, "in system", "ในระบบ")}
             </p>
           </CardContent>
         </Card>
@@ -495,7 +515,7 @@ export function PatientsTable() {
             <HugeiconsIcon icon={AiPhone01Icon} className="w-24 h-24 text-emerald-500 transform rotate-12 translate-x-4 -translate-y-4" />
           </div>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Active Contacts</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{tr(language, "Active Contacts", "ผู้ติดต่อที่ใช้งานอยู่")}</CardTitle>
             <div className="p-2 bg-emerald-500/10 rounded-lg group-hover:bg-emerald-500/20 transition-colors">
               <HugeiconsIcon icon={AiPhone01Icon} className="h-4 w-4 text-emerald-500" />
             </div>
@@ -503,7 +523,7 @@ export function PatientsTable() {
           <CardContent className="relative z-10">
             <div className="text-3xl font-bold tracking-tight text-foreground">{stats.active}</div>
             <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-              <span className="text-emerald-500 font-medium">{(stats.active / stats.total * 100).toFixed(0)}%</span> response rate
+              <span className="text-emerald-500 font-medium">{(stats.active / stats.total * 100).toFixed(0)}%</span> {tr(language, "response rate", "อัตราการตอบกลับ")}
             </p>
           </CardContent>
         </Card>
@@ -513,7 +533,7 @@ export function PatientsTable() {
             <HugeiconsIcon icon={CalendarAddIcon} className="w-24 h-24 text-amber-500 transform rotate-12 translate-x-4 -translate-y-4" />
           </div>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
-            <CardTitle className="text-sm font-medium text-muted-foreground">New This Week</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{tr(language, "New This Week", "ใหม่สัปดาห์นี้")}</CardTitle>
             <div className="p-2 bg-amber-500/10 rounded-lg group-hover:bg-amber-500/20 transition-colors">
               <HugeiconsIcon icon={CalendarAddIcon} className="h-4 w-4 text-amber-500" />
             </div>
@@ -521,7 +541,7 @@ export function PatientsTable() {
           <CardContent className="relative z-10">
             <div className="text-3xl font-bold tracking-tight text-foreground">{stats.recent}</div>
             <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-              <span className="text-amber-500 font-medium">+{stats.recent}</span> last 7 days
+              <span className="text-amber-500 font-medium">+{stats.recent}</span> {tr(language, "last 7 days", "7 วันที่ผ่านมา")}
             </p>
           </CardContent>
         </Card>
@@ -532,14 +552,14 @@ export function PatientsTable() {
         <CardHeader className="pb-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-1">
-              <CardTitle className="flex items-center gap-2 text-xl tracking-tight">
-                <div className="flex items-center justify-center p-2 rounded-lg bg-primary/10">
-                  <HugeiconsIcon icon={MedicalMaskIcon} className="size-5 text-primary" />
-                </div>
-                Patient Directory
+                <CardTitle className="flex items-center gap-2 text-xl tracking-tight">
+                  <div className="flex items-center justify-center p-2 rounded-lg bg-primary/10">
+                    <HugeiconsIcon icon={MedicalMaskIcon} className="size-5 text-primary" />
+                  </div>
+                {tr(language, "Patient Directory", "รายชื่อผู้ป่วย")}
               </CardTitle>
               <CardDescription className="ml-11">
-                Manage your patient records, appointments, and contact details.
+                {tr(language, "Manage your patient records, appointments, and contact details.", "จัดการข้อมูลผู้ป่วย การนัดหมาย และข้อมูลติดต่อ")}
               </CardDescription>
             </div>
 
@@ -550,7 +570,7 @@ export function PatientsTable() {
                   className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground group-focus-within:text-primary transition-colors"
                 />
                 <Input
-                  placeholder="Search patients..."
+                  placeholder={tr(language, "Search patients...", "ค้นหาผู้ป่วย...")}
                   value={search}
                   onChange={(e) => {
                     setSearch(e.target.value);
@@ -561,13 +581,13 @@ export function PatientsTable() {
               </div>
               <Button variant="glass-primary" className="gap-2" onClick={() => resetForm()}>
                 <HugeiconsIcon icon={Add01Icon} className="size-4" />
-                Add Patient
+                {tr(language, "Add Patient", "เพิ่มผู้ป่วย")}
               </Button>
               <Button
                 variant="outline"
                 size="icon"
                 className="size-10 shadow-sm"
-                title="Reset Filters"
+                title={tr(language, "Reset Filters", "รีเซ็ตตัวกรอง")}
                 onClick={async () => {
                   setSearch("");
                   setDebouncedSearch("");
@@ -589,7 +609,10 @@ export function PatientsTable() {
                         clearToken();
                         router.replace("/login");
                       } else {
-                        console.error("Reset error:", err);
+                        const message = err instanceof Error
+                          ? err.message
+                          : tr(language, "Unable to reset filters", "ไม่สามารถรีเซ็ตตัวกรองได้");
+                        toast.error(message);
                       }
                     } finally {
                       setLoading(false);
@@ -627,32 +650,32 @@ export function PatientsTable() {
                   <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground min-w-[200px]">
                     <div className="flex items-center gap-2">
                       <HugeiconsIcon icon={UserIcon} className="size-4" />
-                      Patient
+                      {tr(language, "Patient", "ผู้ป่วย")}
                     </div>
                   </TableHead>
                   <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground min-w-[120px]">
                     <div className="flex items-center gap-2">
                       <HugeiconsIcon icon={Calendar03Icon} className="size-4" />
-                      Age & DOB
+                      {tr(language, "Age & DOB", "อายุและวันเกิด")}
                     </div>
                   </TableHead>
                   <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden md:table-cell min-w-[100px]">
-                    Gender
+                    {tr(language, "Gender", "เพศ")}
                   </TableHead>
                   <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden lg:table-cell min-w-[180px]">
                     <div className="flex items-center gap-2">
                       <HugeiconsIcon icon={AiPhone01Icon} className="size-4" />
-                      Contact
+                      {tr(language, "Contact", "ติดต่อ")}
                     </div>
                   </TableHead>
                   <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden xl:table-cell min-w-[200px]">
                     <div className="flex items-center gap-2">
                       <HugeiconsIcon icon={Location01Icon} className="size-4" />
-                      Address
+                      {tr(language, "Address", "ที่อยู่")}
                     </div>
                   </TableHead>
                   <TableHead className="h-12 px-4 align-middle font-medium text-muted-foreground text-right min-w-[100px]">
-                    Actions
+                    {tr(language, "Actions", "การทำงาน")}
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -728,10 +751,12 @@ export function PatientsTable() {
                           </TableCell>
 
                           <TableCell className="p-4 align-middle">
-                            <div className="space-y-1">
-                              <div className="font-medium text-foreground">{age} years <span className="text-muted-foreground font-normal">old</span></div>
+                              <div className="space-y-1">
+                              <div className="font-medium text-foreground">
+                                {age} {tr(language, "years", "ปี")} <span className="text-muted-foreground font-normal">{tr(language, "old", "อายุ")}</span>
+                              </div>
                               <div className="text-xs text-muted-foreground">
-                                {new Date(patient.date_of_birth).toLocaleDateString('en-GB')}
+                                {new Date(patient.date_of_birth).toLocaleDateString(language === "th" ? "th-TH" : "en-GB")}
                               </div>
                             </div>
                           </TableCell>
@@ -739,7 +764,7 @@ export function PatientsTable() {
                           <TableCell className="p-4 align-middle hidden md:table-cell">
                             {patient.gender ? (
                               <Badge variant="secondary" className="capitalize font-normal border-transparent bg-secondary/50 hover:bg-secondary">
-                                {patient.gender}
+                                {getGenderLabel(patient.gender)}
                               </Badge>
                             ) : (
                               <span className="text-muted-foreground">—</span>
@@ -777,7 +802,7 @@ export function PatientsTable() {
                           <TableCell className="p-4 align-middle text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background transition-colors data-[state=open]:bg-muted">
-                                <span className="sr-only">Open menu</span>
+                                <span className="sr-only">{tr(language, "Open menu", "เปิดเมนู")}</span>
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4 text-muted-foreground">
                                   <circle cx="12" cy="12" r="1" />
                                   <circle cx="19" cy="12" r="1" />
@@ -787,19 +812,19 @@ export function PatientsTable() {
                               <DropdownMenuContent align="end" className="w-40">
                                 <DropdownMenuItem onClick={() => {
                                   navigator.clipboard.writeText(patient.id);
-                                  toast.success("ID copied to clipboard");
+                                  toast.success(tr(language, "ID copied to clipboard", "คัดลอก ID แล้ว"));
                                 }}>
                                   <HugeiconsIcon icon={Copy01Icon} className="size-4 mr-2" />
-                                  Copy ID
+                                  {tr(language, "Copy ID", "คัดลอก ID")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => resetForm(patient)}>
                                   <HugeiconsIcon icon={Edit01Icon} className="size-4 mr-2" />
-                                  Edit Patient
+                                  {tr(language, "Edit Patient", "แก้ไขผู้ป่วย")}
                                 </DropdownMenuItem>
                                 {role === "admin" && (
                                   <DropdownMenuItem onClick={() => setAssignmentPatient(patient)}>
                                     <HugeiconsIcon icon={Stethoscope02Icon} className="size-4 mr-2" />
-                                    Manage Doctors
+                                    {tr(language, "Manage Doctors", "จัดการแพทย์")}
                                   </DropdownMenuItem>
                                 )}
                                 {role === "admin" && (
@@ -808,7 +833,7 @@ export function PatientsTable() {
                                     className="text-destructive focus:text-destructive"
                                   >
                                     <HugeiconsIcon icon={Delete01Icon} className="size-4 mr-2" />
-                                    Delete
+                                    {tr(language, "Delete", "ลบ")}
                                   </DropdownMenuItem>
                                 )}
                               </DropdownMenuContent>
@@ -896,7 +921,7 @@ export function PatientsTable() {
 
           <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
             <span className="text-xs text-muted-foreground font-medium bg-muted/30 px-3 py-1 rounded-full">
-              {startEntry}-{endEntry} of {total}
+              {startEntry}-{endEntry} {tr(language, "of", "จาก")} {total}
             </span>
 
             <div className="flex items-center gap-2">
@@ -910,45 +935,45 @@ export function PatientsTable() {
                   <div className="flex items-center gap-2">
                     <HugeiconsIcon icon={FilterHorizontalIcon} className="size-3.5 text-muted-foreground" />
                     <span className="truncate">
-                      {sort === 'created_at' && order === 'desc' && "Newest First"}
-                      {sort === 'created_at' && order === 'asc' && "Oldest First"}
-                      {sort === 'first_name' && order === 'asc' && "Name (A-Z)"}
-                      {sort === 'first_name' && order === 'desc' && "Name (Z-A)"}
+                      {sort === 'created_at' && order === 'desc' && tr(language, "Newest First", "ใหม่สุดก่อน")}
+                      {sort === 'created_at' && order === 'asc' && tr(language, "Oldest First", "เก่าสุดก่อน")}
+                      {sort === 'first_name' && order === 'asc' && tr(language, "Name (A-Z)", "ชื่อ (ก-ฮ)")}
+                      {sort === 'first_name' && order === 'desc' && tr(language, "Name (Z-A)", "ชื่อ (ฮ-ก)")}
                     </span>
                   </div>
                 </SelectTrigger>
                 <SelectContent align="end" className="w-[200px]">
                   <SelectGroup>
-                    <SelectLabel>Date Added</SelectLabel>
+                    <SelectLabel>{tr(language, "Date Added", "วันที่เพิ่ม")}</SelectLabel>
                     <SelectItem value="created_at-desc" className="cursor-pointer">
                       <div className="flex items-center gap-2">
                         <HugeiconsIcon icon={CalendarAddIcon} className="size-4 text-muted-foreground" />
-                        <span className="flex-1">Newest First</span>
+                        <span className="flex-1">{tr(language, "Newest First", "ใหม่สุดก่อน")}</span>
                         <HugeiconsIcon icon={ArrowDown01Icon} className="size-3 text-muted-foreground/50" />
                       </div>
                     </SelectItem>
                     <SelectItem value="created_at-asc" className="cursor-pointer">
                       <div className="flex items-center gap-2">
                         <HugeiconsIcon icon={Calendar03Icon} className="size-4 text-muted-foreground" />
-                        <span className="flex-1">Oldest First</span>
+                        <span className="flex-1">{tr(language, "Oldest First", "เก่าสุดก่อน")}</span>
                         <HugeiconsIcon icon={ArrowUp01Icon} className="size-3 text-muted-foreground/50" />
                       </div>
                     </SelectItem>
                   </SelectGroup>
                   <SelectSeparator />
                   <SelectGroup>
-                    <SelectLabel>Patient Name</SelectLabel>
+                    <SelectLabel>{tr(language, "Patient Name", "ชื่อผู้ป่วย")}</SelectLabel>
                     <SelectItem value="first_name-asc" className="cursor-pointer">
                       <div className="flex items-center gap-2">
                         <HugeiconsIcon icon={UserIcon} className="size-4 text-muted-foreground" />
-                        <span className="flex-1">Name (A-Z)</span>
+                        <span className="flex-1">{tr(language, "Name (A-Z)", "ชื่อ (ก-ฮ)")}</span>
                         <HugeiconsIcon icon={ArrowDown01Icon} className="size-3 text-muted-foreground/50" />
                       </div>
                     </SelectItem>
                     <SelectItem value="first_name-desc" className="cursor-pointer">
                       <div className="flex items-center gap-2">
                         <HugeiconsIcon icon={UserIcon} className="size-4 text-muted-foreground" />
-                        <span className="flex-1">Name (Z-A)</span>
+                        <span className="flex-1">{tr(language, "Name (Z-A)", "ชื่อ (ฮ-ก)")}</span>
                         <HugeiconsIcon icon={ArrowUp01Icon} className="size-3 text-muted-foreground/50" />
                       </div>
                     </SelectItem>
@@ -958,7 +983,7 @@ export function PatientsTable() {
 
               <DropdownMenu>
                 <DropdownMenuTrigger className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl border border-white/25 dark:border-white/15 bg-white/10 dark:bg-white/5 backdrop-blur-xl shadow-[4px_4px_12px_rgba(0,0,0,0.08),-4px_-4px_12px_rgba(255,255,255,0.06),inset_0_1px_0_rgba(255,255,255,0.3)] hover:bg-white/20 dark:hover:bg-white/10 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">
-                  {limit === 10000 ? "All" : limit} / page
+                  {limit === 10000 ? tr(language, "All", "ทั้งหมด") : limit} / {tr(language, "page", "หน้า")}
                   <HugeiconsIcon icon={ArrowRight01Icon} className="size-2.5 rotate-90" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="min-w-[4rem]">
@@ -971,7 +996,7 @@ export function PatientsTable() {
                       }}
                       className={cn(limit === size && "bg-muted", "text-xs justify-center cursor-pointer")}
                     >
-                      {size === 10000 ? "All" : size}
+                      {size === 10000 ? tr(language, "All", "ทั้งหมด") : size}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
@@ -994,9 +1019,17 @@ export function PatientsTable() {
       >
         <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editing ? "Edit patient" : "Add patient"}</DialogTitle>
+            <DialogTitle>{editing ? tr(language, "Edit patient", "แก้ไขผู้ป่วย") : tr(language, "Add patient", "เพิ่มผู้ป่วย")}</DialogTitle>
             <DialogDescription>
-              Fields marked with <span className="text-red-500 font-medium">*</span> are required. Other fields are optional.
+              {tr(
+                language,
+                "Fields marked with",
+                "ฟิลด์ที่มีเครื่องหมาย"
+              )} <span className="text-red-500 font-medium">*</span> {tr(
+                language,
+                "are required. Other fields are optional.",
+                "จำเป็นต้องกรอก ส่วนฟิลด์อื่นเป็นข้อมูลเพิ่มเติมได้"
+              )}
             </DialogDescription>
           </DialogHeader>
 
@@ -1009,7 +1042,7 @@ export function PatientsTable() {
                     <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
-                    First name <span className="text-red-500">*</span>
+                    {tr(language, "First name", "ชื่อ")} <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     id="first_name"
@@ -1018,13 +1051,13 @@ export function PatientsTable() {
                       setFormData({ ...formData, first_name: e.target.value });
                       if (formErrors.first_name) setFormErrors({ ...formErrors, first_name: "" });
                     }}
-                    placeholder="Enter first name"
+                    placeholder={tr(language, "Enter first name", "กรอกชื่อ")}
                     className={cn("h-11", formErrors.first_name && "border-red-500 focus-visible:ring-red-500")}
                   />
                   {formErrors.first_name ? (
                     <p className="text-xs text-red-500">{formErrors.first_name}</p>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Patient's given name</p>
+                    <p className="text-xs text-muted-foreground">{tr(language, "Patient's given name", "ชื่อจริงของผู้ป่วย")}</p>
                   )}
                 </div>
 
@@ -1033,7 +1066,7 @@ export function PatientsTable() {
                     <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
-                    Last name <span className="text-red-500">*</span>
+                    {tr(language, "Last name", "นามสกุล")} <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     id="last_name"
@@ -1042,13 +1075,13 @@ export function PatientsTable() {
                       setFormData({ ...formData, last_name: e.target.value });
                       if (formErrors.last_name) setFormErrors({ ...formErrors, last_name: "" });
                     }}
-                    placeholder="Enter last name"
+                    placeholder={tr(language, "Enter last name", "กรอกนามสกุล")}
                     className={cn("h-11", formErrors.last_name && "border-red-500 focus-visible:ring-red-500")}
                   />
                   {formErrors.last_name ? (
                     <p className="text-xs text-red-500">{formErrors.last_name}</p>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Patient's family name</p>
+                    <p className="text-xs text-muted-foreground">{tr(language, "Patient's family name", "นามสกุลของผู้ป่วย")}</p>
                   )}
                 </div>
               </div>
@@ -1060,13 +1093,13 @@ export function PatientsTable() {
                     <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
-                    Date of birth <span className="text-red-500">*</span>
+                    {tr(language, "Date of birth", "วันเกิด")} <span className="text-red-500">*</span>
                   </Label>
                   <div className="relative">
                     <Input
                       value={formData.date_of_birth ? format(new Date(formData.date_of_birth), "PPP") : ""}
                       readOnly
-                      placeholder="Pick a date"
+                      placeholder={tr(language, "Pick a date", "เลือกวันที่")}
                       className={cn(
                         "h-11 pr-12 cursor-pointer",
                         formErrors.date_of_birth && "border-red-500 focus-visible:ring-red-500"
@@ -1105,7 +1138,7 @@ export function PatientsTable() {
                   {formErrors.date_of_birth ? (
                     <p className="text-xs text-red-500">{formErrors.date_of_birth}</p>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Patient's date of birth</p>
+                    <p className="text-xs text-muted-foreground">{tr(language, "Patient's date of birth", "วันเกิดของผู้ป่วย")}</p>
                   )}
                 </div>
 
@@ -1115,7 +1148,7 @@ export function PatientsTable() {
                       <circle cx="12" cy="8" r="4" strokeWidth={2} />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 12v9m-4-7l4 4 4-4" />
                     </svg>
-                    Gender
+                    {tr(language, "Gender", "เพศ")}
                   </Label>
                   <Select
                     value={formData.gender || ""}
@@ -1123,15 +1156,15 @@ export function PatientsTable() {
                   >
                     <SelectTrigger id="gender" className="h-11">
                       {/* Manual placeholder handling since SelectValue might not support it in this version */}
-                      {formData.gender ? <SelectValue /> : <span className="text-muted-foreground">Select gender</span>}
+                      {formData.gender ? <SelectValue /> : <span className="text-muted-foreground">{tr(language, "Select gender", "เลือกเพศ")}</span>}
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Male">Male</SelectItem>
-                      <SelectItem value="Female">Female</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
+                      <SelectItem value="Male">{tr(language, "Male", "ชาย")}</SelectItem>
+                      <SelectItem value="Female">{tr(language, "Female", "หญิง")}</SelectItem>
+                      <SelectItem value="Other">{tr(language, "Other", "อื่น ๆ")}</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">Optional: Patient's gender identity</p>
+                  <p className="text-xs text-muted-foreground">{tr(language, "Optional: Patient's gender identity", "ไม่บังคับ: อัตลักษณ์ทางเพศของผู้ป่วย")}</p>
                 </div>
               </div>
 
@@ -1142,7 +1175,7 @@ export function PatientsTable() {
                     <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                     </svg>
-                    Phone
+                    {tr(language, "Phone", "โทรศัพท์")}
                   </Label>
                   <Input
                     id="phone"
@@ -1151,14 +1184,14 @@ export function PatientsTable() {
                       setFormData({ ...formData, phone: e.target.value });
                       if (formErrors.phone) setFormErrors({ ...formErrors, phone: "" });
                     }}
-                    placeholder="e.g., +66 12-345-6789"
+                    placeholder={tr(language, "e.g., +66 12-345-6789", "เช่น +66 12-345-6789")}
                     type="tel"
                     className={cn("h-11", formErrors.phone && "border-red-500 focus-visible:ring-red-500")}
                   />
                   {formErrors.phone ? (
                     <p className="text-xs text-red-500">{formErrors.phone}</p>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Contact phone number</p>
+                    <p className="text-xs text-muted-foreground">{tr(language, "Contact phone number", "หมายเลขโทรศัพท์ติดต่อ")}</p>
                   )}
                 </div>
 
@@ -1167,7 +1200,7 @@ export function PatientsTable() {
                     <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                     </svg>
-                    Email
+                    {tr(language, "Email", "อีเมล")}
                   </Label>
                   <Input
                     id="email"
@@ -1183,7 +1216,7 @@ export function PatientsTable() {
                   {formErrors.email ? (
                     <p className="text-xs text-red-500">{formErrors.email}</p>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Email address for contact</p>
+                    <p className="text-xs text-muted-foreground">{tr(language, "Email address for contact", "อีเมลสำหรับติดต่อ")}</p>
                   )}
                 </div>
               </div>
@@ -1191,12 +1224,12 @@ export function PatientsTable() {
               {/* Address */}
               <div className="space-y-2">
                 <Label htmlFor="address" className="text-sm font-medium flex items-center gap-1.5">
-                  <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  Address
-                </Label>
+                    <svg className="w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    {tr(language, "Address", "ที่อยู่")}
+                  </Label>
                 <Textarea
                   id="address"
                   value={formData.address}
@@ -1204,20 +1237,20 @@ export function PatientsTable() {
                     setFormData({ ...formData, address: e.target.value });
                     if (formErrors.address) setFormErrors({ ...formErrors, address: "" });
                   }}
-                  placeholder="Enter full address including street, city, postal code..."
+                  placeholder={tr(language, "Enter full address including street, city, postal code...", "กรอกที่อยู่โดยละเอียด เช่น ถนน เมือง รหัสไปรษณีย์")}
                   className={cn("resize-none min-h-[100px] max-h-[150px] overflow-y-auto", formErrors.address && "border-red-500 focus-visible:ring-red-500")}
                 />
                 {formErrors.address ? (
                   <p className="text-xs text-red-500">{formErrors.address}</p>
                 ) : (
-                  <p className="text-xs text-muted-foreground">Complete residential address</p>
+                  <p className="text-xs text-muted-foreground">{tr(language, "Complete residential address", "ที่อยู่ปัจจุบันโดยละเอียด")}</p>
                 )}
               </div>
 
               {/* Action Buttons */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t">
                 <Button variant="ghost" type="button" onClick={closeForm} disabled={saving} className="min-w-[100px]">
-                  Cancel
+                  {tr(language, "Cancel", "ยกเลิก")}
                 </Button>
                 <Button type="submit" disabled={saving} className="min-w-[140px]">
                   {saving ? (
@@ -1226,14 +1259,16 @@ export function PatientsTable() {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
-                      Saving...
+                      {tr(language, "Saving...", "กำลังบันทึก...")}
                     </>
                   ) : (
                     <>
                       <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      {editing ? "Save changes" : "Create patient"}
+                      {editing
+                        ? tr(language, "Save changes", "บันทึกการเปลี่ยนแปลง")
+                        : tr(language, "Create patient", "สร้างผู้ป่วย")}
                     </>
                   )}
                 </Button>

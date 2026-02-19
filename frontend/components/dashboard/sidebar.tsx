@@ -46,35 +46,104 @@ import { Logo } from "@/components/ui/logo";
 import { useAuthStore } from "@/store/auth-store";
 import { fetchCurrentUser, logout, UserMe, ROLE_LABEL_MAP } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useLanguageStore } from "@/store/language-store";
+import { type AppLanguage } from "@/store/language-config";
 
 interface NavItem {
   id: string;
-  title: string;
   icon: React.ElementType;
   link: string;
 }
 
 const baseRoutes: NavItem[] = [
-  { id: "overview", title: "Overview", icon: Home, link: "/overview" },
-  { id: "patients", title: "Patients", icon: Users, link: "/patients" },
+  { id: "overview", icon: Home, link: "/overview" },
+  { id: "patients", icon: Users, link: "/patients" },
 ];
 
 const meetingsRoute: NavItem = {
   id: "meetings",
-  title: "Meetings",
   icon: CalendarDays,
   link: "/meetings",
 };
 
 const adminOnlyRoutes: NavItem[] = [
-  { id: "users", title: "Users", icon: UserCog, link: "/users" },
-  { id: "device-monitor", title: "Device Monitor", icon: Activity, link: "/device-monitor" }, // Updated
-  { id: "audit-logs", title: "Audit Logs", icon: ScrollText, link: "/audit-logs" },
-  { id: "security", title: "Security", icon: Shield, link: "/security" },
+  { id: "users", icon: UserCog, link: "/users" },
+  { id: "device-monitor", icon: Activity, link: "/device-monitor" },
+  { id: "audit-logs", icon: ScrollText, link: "/audit-logs" },
+  { id: "security", icon: Shield, link: "/security" },
 ];
 
-function getRoleLabel(role: string): string {
-  return ROLE_LABEL_MAP[role] || role.charAt(0).toUpperCase() + role.slice(1);
+const SIDEBAR_LABELS: Record<
+  AppLanguage,
+  {
+    routes: Record<string, string>;
+    helpCenter: string;
+    loading: string;
+    account: string;
+    profile: string;
+    settings: string;
+    logOut: string;
+  }
+> = {
+  en: {
+    routes: {
+      overview: "Overview",
+      patients: "Patients",
+      meetings: "Meetings",
+      users: "Users",
+      "device-monitor": "Device Monitor",
+      "audit-logs": "Audit Logs",
+      security: "Security",
+    },
+    helpCenter: "Help Center",
+    loading: "Loading...",
+    account: "Account",
+    profile: "Profile",
+    settings: "Settings",
+    logOut: "Log out",
+  },
+  th: {
+    routes: {
+      overview: "ภาพรวม",
+      patients: "ผู้ป่วย",
+      meetings: "การนัดหมาย",
+      users: "ผู้ใช้",
+      "device-monitor": "มอนิเตอร์อุปกรณ์",
+      "audit-logs": "บันทึก Audit",
+      security: "ความปลอดภัย",
+    },
+    helpCenter: "ศูนย์ช่วยเหลือ",
+    loading: "กำลังโหลด...",
+    account: "บัญชีผู้ใช้",
+    profile: "โปรไฟล์",
+    settings: "ตั้งค่า",
+    logOut: "ออกจากระบบ",
+  },
+};
+
+function getRouteTitle(routeId: string, language: AppLanguage): string {
+  return SIDEBAR_LABELS[language].routes[routeId] || routeId;
+}
+
+const ROLE_LABELS_BY_LANGUAGE: Record<AppLanguage, Record<string, string>> = {
+  en: ROLE_LABEL_MAP,
+  th: {
+    admin: "ผู้ดูแลระบบ",
+    doctor: "แพทย์",
+    staff: "เจ้าหน้าที่",
+    nurse: "พยาบาล",
+    pharmacist: "เภสัชกร",
+    medical_technologist: "นักเทคนิคการแพทย์",
+    psychologist: "นักจิตวิทยา",
+  },
+};
+
+function getRoleLabel(role: string, language: AppLanguage): string {
+  return (
+    ROLE_LABELS_BY_LANGUAGE[language][role] ||
+    ROLE_LABEL_MAP[role] ||
+    role.charAt(0).toUpperCase() + role.slice(1)
+  );
 }
 
 function getUserDisplayName(user: UserMe): string {
@@ -96,6 +165,8 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const { state } = useSidebar();
   const pathname = usePathname();
   const router = useRouter();
+  const language = useLanguageStore((state) => state.language);
+  const t = SIDEBAR_LABELS[language];
   const token = useAuthStore((state) => state.token);
   const userRole = useAuthStore((state) => state.role);
   const clearToken = useAuthStore((state) => state.clearToken);
@@ -162,7 +233,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                     <SidebarMenuButton
                       id={`sidebar-item-${route.id}`}
                       isActive={active}
-                      tooltip={route.title}
+                      tooltip={getRouteTitle(route.id, language)}
                       className={cn(
                         "h-9 border border-sidebar-border/60 transition-[padding,border-color,background-color] duration-200 hover:border-sidebar-border sm:h-[38px] data-[active=true]:border-sidebar-border data-[active=true]:shadow-[0_0_0_1px_hsl(var(--sidebar-border))]",
                         isCollapsed && "justify-center px-0"
@@ -177,7 +248,9 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                         )}
                       >
                         <Icon className="size-4 sm:size-5" />
-                        {!isCollapsed && <span className="text-sm">{route.title}</span>}
+                        {!isCollapsed && (
+                          <span className="text-sm">{getRouteTitle(route.id, language)}</span>
+                        )}
                         {!isCollapsed && active && (
                           <ChevronRight className="ml-auto size-4 text-muted-foreground opacity-60" />
                         )}
@@ -200,11 +273,11 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
           <SidebarMenuItem className={cn(isCollapsed && "flex justify-center")}>
             <SidebarMenuButton
               id="sidebar-help-button"
-              tooltip="Help Center"
+              tooltip={t.helpCenter}
               className={cn("h-9 sm:h-[38px]", isCollapsed && "justify-center px-0")}
             >
               <HelpCircle className="size-4 sm:size-5" />
-              {!isCollapsed && <span className="text-sm">Help Center</span>}
+              {!isCollapsed && <span className="text-sm">{t.helpCenter}</span>}
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -230,7 +303,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
               <>
                 <div className="min-w-0 flex-1 text-left">
                   <p className="truncate text-xs font-semibold sm:text-sm">
-                    {currentUser ? getUserDisplayName(currentUser) : "Loading..."}
+                    {currentUser ? getUserDisplayName(currentUser) : t.loading}
                   </p>
                   <p className="truncate text-[10px] text-muted-foreground sm:text-xs">
                     {currentUser?.email || ""}
@@ -243,21 +316,21 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
           <DropdownMenuContent align={isCollapsed ? "center" : "end"} className="w-[200px]">
             <DropdownMenuGroup>
               <DropdownMenuLabel className="text-xs text-muted-foreground">
-                {currentUser ? getRoleLabel(currentUser.role) : "Account"}
+                {currentUser ? getRoleLabel(currentUser.role, language) : t.account}
               </DropdownMenuLabel>
             </DropdownMenuGroup>
             <DropdownMenuItem onClick={() => router.push("/profile")}>
               <UserCircle className="size-4 mr-2" />
-              Profile
+              {t.profile}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => router.push("/settings")}>
               <Settings className="size-4 mr-2" />
-              Settings
+              {t.settings}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive" onClick={handleLogout}>
               <LogOut className="size-4 mr-2" />
-              Log out
+              {t.logOut}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

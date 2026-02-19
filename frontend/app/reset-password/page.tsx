@@ -8,11 +8,18 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { resetPassword } from "@/lib/api";
+import { APP_LANGUAGE_OPTIONS, type AppLanguage } from "@/store/language-config";
+import { useLanguageStore } from "@/store/language-store";
+
+const tr = (language: AppLanguage, en: string, th: string) =>
+  language === "th" ? th : en;
 
 function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tokenFromQuery = searchParams.get("token") || "";
+  const language = useLanguageStore((state) => state.language);
+  const setLanguage = useLanguageStore((state) => state.setLanguage);
 
   const [token, setToken] = useState(tokenFromQuery);
   const [newPassword, setNewPassword] = useState("");
@@ -25,15 +32,15 @@ function ResetPasswordForm() {
     setError(null);
 
     if (!token) {
-      setError("Reset token is required");
+      setError(tr(language, "Reset token is required", "ต้องระบุรีเซ็ตโทเคน"));
       return;
     }
     if (newPassword.length < 8) {
-      setError("Password must be at least 8 characters");
+      setError(tr(language, "Password must be at least 8 characters", "รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร"));
       return;
     }
     if (newPassword !== confirmPassword) {
-      setError("Passwords do not match");
+      setError(tr(language, "Passwords do not match", "รหัสผ่านไม่ตรงกัน"));
       return;
     }
 
@@ -42,7 +49,9 @@ function ResetPasswordForm() {
       await resetPassword(token, newPassword);
       router.replace("/login");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to reset password";
+      const message = err instanceof Error
+        ? err.message
+        : tr(language, "Unable to reset password", "ไม่สามารถรีเซ็ตรหัสผ่านได้");
       setError(message);
     } finally {
       setLoading(false);
@@ -53,26 +62,43 @@ function ResetPasswordForm() {
     <div className="flex min-h-screen items-center justify-center bg-background">
       <Card className="w-full max-w-md mx-4 border-border shadow-xl">
         <CardHeader className="space-y-1 text-center">
-          <h2 className="text-2xl font-semibold">Reset password</h2>
+          <div className="flex justify-end">
+            <div className="inline-flex rounded-md border border-input bg-background p-0.5">
+              {APP_LANGUAGE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`h-7 rounded px-2 text-xs transition-colors ${option.value === language
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:bg-muted"
+                    }`}
+                  onClick={() => setLanguage(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <h2 className="text-2xl font-semibold">{tr(language, "Reset password", "ตั้งรหัสผ่านใหม่")}</h2>
           <p className="text-sm text-muted-foreground">
-            Enter your reset token and set a new password.
+            {tr(language, "Enter your reset token and set a new password.", "กรอกรีเซ็ตโทเคนและตั้งรหัสผ่านใหม่")}
           </p>
         </CardHeader>
         <CardContent>
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="token">Reset token</Label>
+              <Label htmlFor="token">{tr(language, "Reset token", "รีเซ็ตโทเคน")}</Label>
               <Input
                 id="token"
                 required
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                placeholder="Paste reset token"
+                placeholder={tr(language, "Paste reset token", "วางรีเซ็ตโทเคน")}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="new_password">New password</Label>
+              <Label htmlFor="new_password">{tr(language, "New password", "รหัสผ่านใหม่")}</Label>
               <Input
                 id="new_password"
                 type="password"
@@ -80,12 +106,12 @@ function ResetPasswordForm() {
                 minLength={8}
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="At least 8 characters"
+                placeholder={tr(language, "At least 8 characters", "อย่างน้อย 8 ตัวอักษร")}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="confirm_password">Confirm password</Label>
+              <Label htmlFor="confirm_password">{tr(language, "Confirm password", "ยืนยันรหัสผ่าน")}</Label>
               <Input
                 id="confirm_password"
                 type="password"
@@ -93,7 +119,7 @@ function ResetPasswordForm() {
                 minLength={8}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Re-enter new password"
+                placeholder={tr(language, "Re-enter new password", "กรอกรหัสผ่านใหม่อีกครั้ง")}
               />
             </div>
 
@@ -104,13 +130,15 @@ function ResetPasswordForm() {
             )}
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Resetting..." : "Reset password"}
+              {loading
+                ? tr(language, "Resetting...", "กำลังรีเซ็ต...")
+                : tr(language, "Reset password", "รีเซ็ตรหัสผ่าน")}
             </Button>
           </form>
 
           <div className="mt-4 text-sm text-center">
             <Link href="/login" className="text-primary hover:underline">
-              Back to sign in
+              {tr(language, "Back to sign in", "กลับไปหน้าเข้าสู่ระบบ")}
             </Link>
           </div>
         </CardContent>

@@ -17,6 +17,8 @@ import { useRouter } from "next/navigation";
 import { ApiError, getErrorMessage, login as loginRequest } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { Logo } from "@/components/ui/logo";
+import { APP_LANGUAGE_OPTIONS, type AppLanguage } from "@/store/language-config";
+import { useLanguageStore } from "@/store/language-store";
 
 interface Admin2FAErrorDetail {
   code?: string;
@@ -38,6 +40,8 @@ function extractSetupKey(uri: string | null): string | null {
   }
 }
 
+const tr = (language: AppLanguage, en: string, th: string) =>
+  language === "th" ? th : en;
 
 export default function LoginPage() {
   const router = useRouter();
@@ -45,6 +49,8 @@ export default function LoginPage() {
   const hydrate = useAuthStore((state) => state.hydrate);
   const hydrated = useAuthStore((state) => state.hydrated);
   const setToken = useAuthStore((state) => state.setToken);
+  const language = useLanguageStore((state) => state.language);
+  const setLanguage = useLanguageStore((state) => state.setLanguage);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -111,9 +117,12 @@ export default function LoginPage() {
         setRequiresTwoFactor(true);
         setProvisioningUri(detail.provisioning_uri ?? null);
         setTrustedDays(typeof detail.trusted_device_days === "number" ? detail.trusted_device_days : null);
-        setError(detail.message ?? "Login requires a 2FA code.");
+        setError(detail.message ?? tr(language, "Login requires a 2FA code.", "การเข้าสู่ระบบต้องใช้รหัส 2FA"));
       } else {
-        const message = getErrorMessage(err, "เข้าสู่ระบบไม่สำเร็จ");
+        const message = getErrorMessage(
+          err,
+          tr(language, "Unable to sign in", "เข้าสู่ระบบไม่สำเร็จ")
+        );
         setError(message);
       }
     } finally {
@@ -131,27 +140,46 @@ export default function LoginPage() {
     <div className="flex items-center justify-center min-h-screen bg-background">
       <Card className="w-full max-w-md mx-4 pb-8 shadow-xl border-border">
         <CardHeader className="space-y-1 text-center mb-2 mt-4">
+          <div className="flex justify-end">
+            <div className="inline-flex rounded-md border border-input bg-background p-0.5">
+              {APP_LANGUAGE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`h-7 rounded px-2 text-xs transition-colors ${option.value === language
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:bg-muted"
+                    }`}
+                  onClick={() => setLanguage(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex justify-center mb-4">
             <Logo className="size-10" />
           </div>
           <div>
-            <h2 className="text-2xl font-semibold">Welcome Back</h2>
+            <h2 className="text-2xl font-semibold">
+              {tr(language, "Welcome Back", "ยินดีต้อนรับกลับ")}
+            </h2>
             <p className="text-muted-foreground text-sm">
-              Sign in to continue to your secure workspace.
+              {tr(language, "Sign in to continue to your secure workspace.", "เข้าสู่ระบบเพื่อใช้งานพื้นที่ทำงานที่ปลอดภัย")}
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              Authorized users only.
+              {tr(language, "Authorized users only.", "สำหรับผู้ใช้งานที่ได้รับอนุญาตเท่านั้น")}
             </p>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
           <form onSubmit={onSubmit} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="email">Email address</Label>
+              <Label htmlFor="email">{tr(language, "Email address", "อีเมล")}</Label>
                 <Input
                   id="email"
                   type="email"
-                  placeholder="Enter your email"
+                  placeholder={tr(language, "Enter your email", "กรอกอีเมล")}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
@@ -159,19 +187,19 @@ export default function LoginPage() {
             </div>
             <div className="space-y-0">
               <div className="flex items-center justify-between mb-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{tr(language, "Password", "รหัสผ่าน")}</Label>
                 <Link
                   href="/forgot-password"
                   className="text-sm text-primary hover:underline"
                 >
-                  Need help signing in?
+                  {tr(language, "Need help signing in?", "มีปัญหาในการเข้าสู่ระบบ?")}
                 </Link>
               </div>
               <div className="relative">
                 <Input
                   id="password"
                   className="pe-9"
-                  placeholder="Enter your password"
+                  placeholder={tr(language, "Enter your password", "กรอกรหัสผ่าน")}
                   type={isPasswordVisible ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -182,7 +210,9 @@ export default function LoginPage() {
                   type="button"
                   onClick={togglePasswordVisibility}
                   aria-label={
-                    isPasswordVisible ? "Hide password" : "Show password"
+                    isPasswordVisible
+                      ? tr(language, "Hide password", "ซ่อนรหัสผ่าน")
+                      : tr(language, "Show password", "แสดงรหัสผ่าน")
                   }
                   aria-pressed={isPasswordVisible}
                   aria-controls="password"
@@ -198,12 +228,14 @@ export default function LoginPage() {
             {requiresTwoFactor && (
               <div className="space-y-3 rounded-lg border border-border p-3">
                 <div className="space-y-2">
-                  <Label htmlFor="otpCode">2FA Code / Backup Code</Label>
+                  <Label htmlFor="otpCode">
+                    {tr(language, "2FA Code / Backup Code", "รหัส 2FA / รหัสสำรอง")}
+                  </Label>
                   <Input
                     id="otpCode"
                     inputMode="numeric"
                     maxLength={12}
-                    placeholder="123456 หรือ BACKUPCODE"
+                    placeholder={tr(language, "123456 or BACKUPCODE", "123456 หรือ BACKUPCODE")}
                     value={otpCode}
                     onChange={(e) => setOtpCode(e.target.value)}
                     required={requiresTwoFactor}
@@ -213,26 +245,36 @@ export default function LoginPage() {
                 {provisioningUri ? (
                   <div className="space-y-2">
                     <p className="text-xs text-muted-foreground">
-                      สแกน QR ด้วยแอป Authenticator แล้วกรอกรหัส 6 หลัก หรือใช้ Backup Code
+                      {tr(
+                        language,
+                        "Scan this QR with your authenticator app, then enter a 6-digit code or backup code.",
+                        "สแกน QR ด้วยแอป Authenticator แล้วกรอกรหัส 6 หลัก หรือใช้ Backup Code"
+                      )}
                     </p>
                     <div className="flex justify-center rounded-md bg-white p-2">
                       {qrCodeDataUrl ? (
                         <img
                           src={qrCodeDataUrl}
-                          alt="Admin 2FA QR code"
+                          alt={tr(language, "Admin 2FA QR code", "คิวอาร์โค้ด 2FA สำหรับผู้ดูแล")}
                           className="h-[220px] w-[220px]"
                         />
                       ) : (
-                        <p className="text-xs text-muted-foreground py-8">Generating QR code...</p>
+                        <p className="text-xs text-muted-foreground py-8">
+                          {tr(language, "Generating QR code...", "กำลังสร้าง QR code...")}
+                        </p>
                       )}
                     </div>
                     <p className="text-[11px] text-muted-foreground break-all">
-                      Setup key: {extractSetupKey(provisioningUri) ?? "-"}
+                      {tr(language, "Setup key", "รหัสตั้งค่า")}: {extractSetupKey(provisioningUri) ?? "-"}
                     </p>
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    ถ้าไม่มีเครื่องที่ผูก Authenticator เดิม ให้ใช้ Backup Code หรือให้ super admin รีเซ็ต 2FA ให้บัญชีนี้
+                    {tr(
+                      language,
+                      "If your original authenticator device is unavailable, use a backup code or ask a super admin to reset 2FA for this account.",
+                      "ถ้าไม่มีเครื่องที่ผูก Authenticator เดิม ให้ใช้ Backup Code หรือให้ super admin รีเซ็ต 2FA ให้บัญชีนี้"
+                    )}
                   </p>
                 )}
 
@@ -243,7 +285,12 @@ export default function LoginPage() {
                     onCheckedChange={(value) => setRememberDevice(Boolean(value))}
                   />
                   <Label htmlFor="remember_device" className="text-sm font-normal">
-                    เชื่อถืออุปกรณ์นี้{trustedDays ? ` (${trustedDays} วัน)` : ""}
+                    {tr(language, "Trust this device", "เชื่อถืออุปกรณ์นี้")}
+                    {trustedDays
+                      ? language === "th"
+                        ? ` (${trustedDays} วัน)`
+                        : ` (${trustedDays} days)`
+                      : ""}
                   </Label>
                 </div>
               </div>
@@ -256,7 +303,9 @@ export default function LoginPage() {
             )}
 
             <Button variant="glass-primary" className="w-full" type="submit" disabled={loading}>
-              {loading ? "Signing in..." : "Sign In"}
+              {loading
+                ? tr(language, "Signing in...", "กำลังเข้าสู่ระบบ...")
+                : tr(language, "Sign In", "เข้าสู่ระบบ")}
             </Button>
           </form>
         </CardContent>

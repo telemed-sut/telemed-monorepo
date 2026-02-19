@@ -3,31 +3,94 @@
 import { usePathname } from "next/navigation";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Settings, RefreshCw } from "lucide-react";
+import { Settings, RefreshCw, Languages, Check } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useDashboardStore } from "@/store/dashboard-store";
+import { APP_LANGUAGE_OPTIONS, type AppLanguage } from "@/store/language-config";
+import { useLanguageStore } from "@/store/language-store";
 
-const pageTitles: Record<string, string> = {
-  "/overview": "Overview",
-  "/": "Overview",
-  "/patients": "Patients",
-  "/users": "Users",
-  "/meetings": "Meetings",
-  "/audit-logs": "Audit Logs",
-  "/security": "Security",
-  "/profile": "Profile",
-  "/settings": "Settings",
+const pageTitles: Record<AppLanguage, Record<string, string>> = {
+  en: {
+    "/overview": "Overview",
+    "/": "Overview",
+    "/patients": "Patients",
+    "/users": "Users",
+    "/meetings": "Meetings",
+    "/audit-logs": "Audit Logs",
+    "/security": "Security",
+    "/profile": "Profile",
+    "/settings": "Settings",
+    "/device-monitor": "Device Monitor",
+  },
+  th: {
+    "/overview": "ภาพรวม",
+    "/": "ภาพรวม",
+    "/patients": "ผู้ป่วย",
+    "/users": "ผู้ใช้",
+    "/meetings": "การนัดหมาย",
+    "/audit-logs": "บันทึก Audit",
+    "/security": "ความปลอดภัย",
+    "/profile": "โปรไฟล์",
+    "/settings": "ตั้งค่า",
+    "/device-monitor": "มอนิเตอร์อุปกรณ์",
+  },
+};
+
+const labels: Record<
+  AppLanguage,
+  {
+    dashboard: string;
+    editLayout: string;
+    alertBanner: string;
+    statsCards: string;
+    visitTrendsChart: string;
+    patientsTable: string;
+    resetLayout: string;
+    charts: string;
+    usersTable: string;
+    language: string;
+  }
+> = {
+  en: {
+    dashboard: "Dashboard",
+    editLayout: "Edit Layout",
+    alertBanner: "Alert Banner",
+    statsCards: "Stats Cards",
+    visitTrendsChart: "Visit Trends Chart",
+    patientsTable: "Patients Table",
+    resetLayout: "Reset Layout",
+    charts: "Charts",
+    usersTable: "Users Table",
+    language: "Language",
+  },
+  th: {
+    dashboard: "แดชบอร์ด",
+    editLayout: "จัดวางหน้า",
+    alertBanner: "แบนเนอร์แจ้งเตือน",
+    statsCards: "การ์ดสถิติ",
+    visitTrendsChart: "กราฟแนวโน้มการเข้ารับบริการ",
+    patientsTable: "ตารางผู้ป่วย",
+    resetLayout: "รีเซ็ตเลย์เอาต์",
+    charts: "กราฟ",
+    usersTable: "ตารางผู้ใช้",
+    language: "ภาษา",
+  },
 };
 
 export function DashboardHeader() {
   const pathname = usePathname();
+  const language = useLanguageStore((state) => state.language);
+  const setLanguage = useLanguageStore((state) => state.setLanguage);
+  const t = labels[language];
 
   // Overview layout
   const showAlertBanner = useDashboardStore((s) => s.showAlertBanner);
@@ -61,7 +124,10 @@ export function DashboardHeader() {
   const isUsers = pathname === "/users";
   const hasEditLayout = isOverview || isPatients || isUsers;
 
-  const pageTitle = pageTitles[pathname] || "Dashboard";
+  const pageTitle = pageTitles[language][pathname] || t.dashboard;
+  const selectedLanguageLabel =
+    APP_LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ||
+    APP_LANGUAGE_OPTIONS.find((option) => option.value === "en")?.label;
 
   return (
     <header className="flex items-center gap-2 sm:gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b bg-card sticky top-0 z-30 w-full">
@@ -73,7 +139,7 @@ export function DashboardHeader() {
           <DropdownMenu>
             <DropdownMenuTrigger id="header-edit-layout-button" className="inline-flex items-center justify-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground h-8 sm:h-9">
               <Settings className="size-4" />
-              <span className="hidden sm:inline">Edit Layout</span>
+              <span className="hidden sm:inline">{t.editLayout}</span>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-52">
               {isOverview && (
@@ -82,30 +148,30 @@ export function DashboardHeader() {
                     checked={showAlertBanner}
                     onCheckedChange={setShowAlertBanner}
                   >
-                    Alert Banner
+                    {t.alertBanner}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuCheckboxItem
                     checked={showStatsCards}
                     onCheckedChange={setShowStatsCards}
                   >
-                    Stats Cards
+                    {t.statsCards}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuCheckboxItem
                     checked={showChart}
                     onCheckedChange={setShowChart}
                   >
-                    Visit Trends Chart
+                    {t.visitTrendsChart}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuCheckboxItem
                     checked={showTable}
                     onCheckedChange={setShowTable}
                   >
-                    Patients Table
+                    {t.patientsTable}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={resetLayout}>
                     <RefreshCw className="size-4 mr-2" />
-                    Reset Layout
+                    {t.resetLayout}
                   </DropdownMenuItem>
                 </>
               )}
@@ -115,18 +181,18 @@ export function DashboardHeader() {
                     checked={showPatientStats}
                     onCheckedChange={setShowPatientStats}
                   >
-                    Stats Cards
+                    {t.statsCards}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuCheckboxItem
                     checked={showPatientTable}
                     onCheckedChange={setShowPatientTable}
                   >
-                    Patients Table
+                    {t.patientsTable}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={resetPatientsLayout}>
                     <RefreshCw className="size-4 mr-2" />
-                    Reset Layout
+                    {t.resetLayout}
                   </DropdownMenuItem>
                 </>
               )}
@@ -136,30 +202,59 @@ export function DashboardHeader() {
                     checked={showUserStats}
                     onCheckedChange={setShowUserStats}
                   >
-                    Stats Cards
+                    {t.statsCards}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuCheckboxItem
                     checked={showUserCharts}
                     onCheckedChange={setShowUserCharts}
                   >
-                    Charts
+                    {t.charts}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuCheckboxItem
                     checked={showUserTable}
                     onCheckedChange={setShowUserTable}
                   >
-                    Users Table
+                    {t.usersTable}
                   </DropdownMenuCheckboxItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={resetUsersLayout}>
                     <RefreshCw className="size-4 mr-2" />
-                    Reset Layout
+                    {t.resetLayout}
                   </DropdownMenuItem>
                 </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
         )}
+
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            id="header-language-button"
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-input bg-background px-2.5 sm:px-3 py-1.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground h-8 sm:h-9"
+          >
+            <Languages className="size-4" />
+            <span className="hidden sm:inline">{selectedLanguageLabel}</span>
+            <span className="sm:hidden">{language.toUpperCase()}</span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>{t.language}</DropdownMenuLabel>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              {APP_LANGUAGE_OPTIONS.map((option) => (
+                <DropdownMenuItem
+                  key={option.value}
+                  onClick={() => setLanguage(option.value)}
+                  className="flex items-center justify-between"
+                >
+                  <span>{option.label}</span>
+                  {option.value === language && <Check className="size-4 text-primary" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <ThemeToggle />
       </div>

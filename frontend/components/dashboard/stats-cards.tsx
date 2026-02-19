@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -12,37 +12,73 @@ import {
 } from "@hugeicons/core-free-icons";
 import { fetchPatients, fetchMeetings } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
+import { useLanguageStore } from "@/store/language-store";
+import type { AppLanguage } from "@/store/language-config";
+
+const I18N: Record<
+  AppLanguage,
+  {
+    totalPatients: string;
+    todayAppointments: string;
+    thisWeek: string;
+    loading: string;
+    thisMonth: (count: number) => string;
+    totalScheduled: (count: number) => string;
+    todayCount: (count: number) => string;
+  }
+> = {
+  en: {
+    totalPatients: "Total Patients",
+    todayAppointments: "Today's Appointments",
+    thisWeek: "This Week",
+    loading: "Loading...",
+    thisMonth: (count) => `+${count} this month`,
+    totalScheduled: (count) => `${count} total scheduled`,
+    todayCount: (count) => `${count} today`,
+  },
+  th: {
+    totalPatients: "ผู้ป่วยทั้งหมด",
+    todayAppointments: "นัดหมายวันนี้",
+    thisWeek: "สัปดาห์นี้",
+    loading: "กำลังโหลด...",
+    thisMonth: (count) => `+${count} เดือนนี้`,
+    totalScheduled: (count) => `นัดหมายทั้งหมด ${count}`,
+    todayCount: (count) => `${count} วันนี้`,
+  },
+};
 
 interface StatItem {
   title: string;
   value: string;
   subtitle: string;
-  icon: any;
-  subtitleIcon: any;
+  icon: ComponentProps<typeof HugeiconsIcon>["icon"];
+  subtitleIcon: ComponentProps<typeof HugeiconsIcon>["icon"];
 }
 
 export function StatsCards() {
   const token = useAuthStore((state) => state.token);
+  const language = useLanguageStore((state) => state.language);
+  const t = I18N[language];
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<StatItem[]>([
     {
-      title: "Total Patients",
+      title: t.totalPatients,
       value: "—",
-      subtitle: "Loading...",
+      subtitle: t.loading,
       icon: UserGroupIcon,
       subtitleIcon: InformationCircleIcon,
     },
     {
-      title: "Today's Appointments",
+      title: t.todayAppointments,
       value: "—",
-      subtitle: "Loading...",
+      subtitle: t.loading,
       icon: Calendar01Icon,
       subtitleIcon: InformationCircleIcon,
     },
     {
-      title: "This Week",
+      title: t.thisWeek,
       value: "—",
-      subtitle: "Loading...",
+      subtitle: t.loading,
       icon: Stethoscope02Icon,
       subtitleIcon: InformationCircleIcon,
     },
@@ -86,23 +122,23 @@ export function StatsCards() {
 
         setStats([
           {
-            title: "Total Patients",
+            title: t.totalPatients,
             value: patientsData.total.toString(),
-            subtitle: `+${newThisMonth} this month`,
+            subtitle: t.thisMonth(newThisMonth),
             icon: UserGroupIcon,
             subtitleIcon: InformationCircleIcon,
           },
           {
-            title: "Today's Appointments",
+            title: t.todayAppointments,
             value: todayMeetings.length.toString(),
-            subtitle: `${meetingsData.total} total scheduled`,
+            subtitle: t.totalScheduled(meetingsData.total),
             icon: Calendar01Icon,
             subtitleIcon: InformationCircleIcon,
           },
           {
-            title: "This Week",
+            title: t.thisWeek,
             value: thisWeekMeetings.length.toString(),
-            subtitle: `${todayMeetings.length} today`,
+            subtitle: t.todayCount(todayMeetings.length),
             icon: Stethoscope02Icon,
             subtitleIcon: InformationCircleIcon,
           },
@@ -115,7 +151,7 @@ export function StatsCards() {
     };
 
     loadStats();
-  }, [token]);
+  }, [token, t]);
 
   if (loading) {
     return (
@@ -161,4 +197,3 @@ export function StatsCards() {
     </div>
   );
 }
-

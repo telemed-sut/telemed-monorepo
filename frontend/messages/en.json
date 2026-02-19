@@ -1,0 +1,8 @@
+{
+  "auditRuntime": {
+    "autoTranslate": "Auto-translate content",
+    "translating": "Translating...",
+    "translated": "Translated",
+    "serviceUnavailable": "Automatic translation is unavailable in free mode."
+  }
+}

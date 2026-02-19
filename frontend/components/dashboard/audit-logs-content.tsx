@@ -39,6 +39,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
+import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
 import {
     ScrollText,
     Search,
@@ -51,52 +52,361 @@ import {
     Download,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useLanguageStore } from "@/store/language-store";
 
 // ── Constants ──
+
+type AuditLanguage = AppLanguage;
+
+const I18N = {
+    en: {
+        language: "Language",
+        allActions: "All Actions",
+        allResources: "All Resources",
+        allEvents: "All Events",
+        breakGlassOnly: "Break Glass Only",
+        allResults: "All Results",
+        success: "Success",
+        failure: "Failure",
+        justNow: "Just now",
+        searchLogs: "Search logs...",
+        userEmailOrName: "User email/name",
+        from: "From",
+        to: "To",
+        pause: "Pause",
+        resume: "Resume",
+        autoRefresh: "auto-refresh",
+        exportCsv: "Export CSV",
+        auditLogs: "Audit Logs",
+        systemActivityAndSecurityEvents: "System activity and security events. Total:",
+        autoRefreshing: "Auto-refreshing",
+        totalLogs: "Total Logs",
+        allAuditEntries: "All audit entries",
+        breakGlass: "Break Glass",
+        requiresReview: "Requires review",
+        noIncidents: "No incidents",
+        uniqueUsers: "Unique Users",
+        inCurrentView: "In current view",
+        todaysActivity: "Today's Activity",
+        eventsToday: "Events today",
+        time: "Time",
+        user: "User",
+        action: "Action",
+        result: "Result",
+        resource: "Resource",
+        ipAddress: "IP Address",
+        breakGlassColumn: "Break Glass",
+        noAuditLogsFound: "No audit logs found.",
+        yes: "Yes",
+        pageOf: "Page",
+        previous: "Previous",
+        next: "Next",
+        perPage: "/ page",
+        auditLogDetailView: "Audit log detail view",
+        unknown: "Unknown",
+        userId: "User ID",
+        resourceType: "Type",
+        resourceId: "Resource ID",
+        breakGlassAccess: "Break Glass Access",
+        noReasonProvided: "No reason provided",
+        details: "Details",
+        changeHistory: "Change History",
+        noSpecificChangesDetected: "No specific changes detected.",
+        field: "Field",
+        oldValue: "Old Value",
+        newValue: "New Value",
+        logId: "Log ID",
+        loadAuditLogsFailed: "Failed to load audit logs",
+        cannotLoadAuditLogs: "Unable to load audit logs",
+        exportAuditLogsFailed: "Failed to export audit logs",
+        cannotExportAuditLogs: "Unable to export audit logs",
+    },
+    th: {
+        language: "ภาษา",
+        allActions: "ทุกการกระทำ",
+        allResources: "ทุกทรัพยากร",
+        allEvents: "ทุกเหตุการณ์",
+        breakGlassOnly: "เฉพาะการเข้าถึงฉุกเฉิน",
+        allResults: "ทุกผลลัพธ์",
+        success: "สำเร็จ",
+        failure: "ล้มเหลว",
+        justNow: "เมื่อสักครู่",
+        searchLogs: "ค้นหาบันทึก...",
+        userEmailOrName: "อีเมล/ชื่อผู้ใช้",
+        from: "จาก",
+        to: "ถึง",
+        pause: "หยุด",
+        resume: "เล่นต่อ",
+        autoRefresh: "รีเฟรชอัตโนมัติ",
+        exportCsv: "ส่งออก CSV",
+        auditLogs: "บันทึก Audit",
+        systemActivityAndSecurityEvents: "กิจกรรมระบบและเหตุการณ์ความปลอดภัย ทั้งหมด:",
+        autoRefreshing: "กำลังรีเฟรชอัตโนมัติ",
+        totalLogs: "จำนวน Log ทั้งหมด",
+        allAuditEntries: "รายการบันทึกทั้งหมด",
+        breakGlass: "การเข้าถึงฉุกเฉิน",
+        requiresReview: "ต้องตรวจสอบ",
+        noIncidents: "ไม่มีเหตุการณ์",
+        uniqueUsers: "ผู้ใช้ไม่ซ้ำ",
+        inCurrentView: "ในมุมมองปัจจุบัน",
+        todaysActivity: "กิจกรรมวันนี้",
+        eventsToday: "เหตุการณ์วันนี้",
+        time: "เวลา",
+        user: "ผู้ใช้",
+        action: "การกระทำ",
+        result: "ผลลัพธ์",
+        resource: "ทรัพยากร",
+        ipAddress: "ไอพีแอดเดรส",
+        breakGlassColumn: "ฉุกเฉิน",
+        noAuditLogsFound: "ไม่พบบันทึก Audit",
+        yes: "ใช่",
+        pageOf: "หน้า",
+        previous: "ก่อนหน้า",
+        next: "ถัดไป",
+        perPage: "/ หน้า",
+        auditLogDetailView: "รายละเอียดบันทึก Audit",
+        unknown: "ไม่ทราบ",
+        userId: "รหัสผู้ใช้",
+        resourceType: "ประเภท",
+        resourceId: "รหัสทรัพยากร",
+        breakGlassAccess: "การเข้าถึงฉุกเฉิน",
+        noReasonProvided: "ไม่ได้ระบุเหตุผล",
+        details: "รายละเอียด",
+        changeHistory: "ประวัติการเปลี่ยนแปลง",
+        noSpecificChangesDetected: "ไม่พบการเปลี่ยนแปลงที่เฉพาะเจาะจง",
+        field: "ฟิลด์",
+        oldValue: "ค่าเดิม",
+        newValue: "ค่าใหม่",
+        logId: "รหัสบันทึก",
+        loadAuditLogsFailed: "โหลด Audit Logs ไม่สำเร็จ",
+        cannotLoadAuditLogs: "ไม่สามารถโหลด Audit Logs ได้",
+        exportAuditLogsFailed: "ส่งออก Audit Logs ไม่สำเร็จ",
+        cannotExportAuditLogs: "ไม่สามารถส่งออก Audit Logs ได้",
+    },
+} as const;
+
+type TranslationKey = keyof (typeof I18N)["en"];
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200];
 
 const ACTION_OPTIONS = [
-    { value: "all", label: "All Actions" },
-    { value: "user_create", label: "User Create" },
-    { value: "user_update", label: "User Update" },
-    { value: "user_delete", label: "User Delete" },
-    { value: "user_verify", label: "User Verify" },
-    { value: "user_invite", label: "User Invite" },
-    { value: "view_patient_summary", label: "View Patient Summary" },
-    { value: "view_patient_timeline", label: "View Patient Timeline" },
-    { value: "view_active_orders", label: "View Active Orders" },
-    { value: "view_lab_trends", label: "View Lab Trends" },
-    { value: "create_medication_order", label: "Create Medication Order" },
-    { value: "create_lab_order", label: "Create Lab Order" },
-    { value: "create_imaging_order", label: "Create Imaging Order" },
-    { value: "create_note", label: "Create Note" },
-    { value: "break_glass", label: "Break Glass" },
-    { value: "acknowledge_alert", label: "Acknowledge Alert" },
+    "all",
+    "user_create",
+    "user_update",
+    "user_delete",
+    "user_delete_denied",
+    "user_verify",
+    "user_invite",
+    "user_invite_resend",
+    "user_invite_revoke",
+    "user_restore",
+    "user_restore_denied",
+    "user_bulk_delete_denied",
+    "user_bulk_delete_summary",
+    "user_bulk_restore_summary",
+    "user_purge_deleted_denied",
+    "user_purge_deleted_summary",
+    "invite_accept",
+    "update_patient",
+    "patient_assignment_create",
+    "patient_assignment_update",
+    "patient_assignment_delete",
+    "patient_access_denied",
+    "http_403_denied",
+    "admin_emergency_unlock",
+    "admin_force_2fa_reset",
+    "admin_force_2fa_reset_denied",
+    "admin_force_password_reset",
+    "admin_force_password_reset_denied",
+    "two_factor_verified",
+    "two_factor_disabled",
+    "two_factor_reset",
+    "two_factor_backup_codes_regenerated",
+    "two_factor_backup_code_used",
+    "two_factor_challenge",
+    "trusted_device_created",
+    "trusted_device_revoked",
+    "trusted_devices_revoked_all",
+    "login_failed",
+    "login_failed_2fa",
+    "login_with_backup_code",
+    "view_patient_summary",
+    "view_patient_timeline",
+    "view_active_orders",
+    "view_lab_trends",
+    "create_medication_order",
+    "create_lab_order",
+    "create_imaging_order",
+    "create_note",
+    "break_glass",
+    "acknowledge_alert",
 ];
 
 const RESOURCE_TYPE_OPTIONS = [
-    { value: "all", label: "All Resources" },
-    { value: "user", label: "User" },
-    { value: "user_invite", label: "User Invite" },
-    { value: "patient", label: "Patient" },
-    { value: "note", label: "Note" },
-    { value: "alert", label: "Alert" },
-    { value: "medication", label: "Medication" },
-    { value: "lab", label: "Lab" },
-    { value: "imaging", label: "Imaging" },
+    "all",
+    "user",
+    "user_invite",
+    "patient",
+    "doctor_patient_assignment",
+    "http_request",
+    "user_trusted_device",
+    "note",
+    "alert",
+    "medication",
+    "lab",
+    "imaging",
 ];
 
-const BREAK_GLASS_OPTIONS = [
-    { value: "all", label: "All Events" },
-    { value: "true", label: "Break Glass Only" },
-];
+const BREAK_GLASS_OPTIONS = ["all", "true"];
 
-const RESULT_OPTIONS = [
-    { value: "all", label: "All Results" },
-    { value: "success", label: "Success" },
-    { value: "failure", label: "Failure" },
-];
+const RESULT_OPTIONS = ["all", "success", "failure"];
+
+const ACTION_LABELS: Record<AuditLanguage, Record<string, string>> = {
+    en: {
+        patient_assignment_create: "Create Patient Assignment",
+        patient_assignment_update: "Update Patient Assignment",
+        patient_assignment_delete: "Delete Patient Assignment",
+        patient_access_denied: "Patient Access Denied",
+        http_403_denied: "HTTP 403 Denied",
+        invite_accept: "Invite Accepted",
+        user_invite_resend: "Resend User Invite",
+        user_invite_revoke: "Revoke User Invite",
+    },
+    th: {
+        user_create: "สร้างผู้ใช้",
+        user_update: "อัปเดตผู้ใช้",
+        user_delete: "ลบผู้ใช้",
+        user_delete_denied: "ปฏิเสธการลบผู้ใช้",
+        user_verify: "ยืนยันผู้ใช้",
+        user_invite: "ส่งคำเชิญผู้ใช้",
+        user_invite_resend: "ส่งคำเชิญซ้ำ",
+        user_invite_revoke: "เพิกถอนคำเชิญ",
+        user_restore: "กู้คืนผู้ใช้",
+        user_restore_denied: "ปฏิเสธการกู้คืนผู้ใช้",
+        user_bulk_delete_denied: "ปฏิเสธการลบผู้ใช้แบบกลุ่ม",
+        user_bulk_delete_summary: "สรุปการลบผู้ใช้แบบกลุ่ม",
+        user_bulk_restore_summary: "สรุปการกู้คืนผู้ใช้แบบกลุ่ม",
+        user_purge_deleted_denied: "ปฏิเสธการล้างข้อมูลถาวร",
+        user_purge_deleted_summary: "สรุปการล้างข้อมูลถาวร",
+        invite_accept: "ตอบรับคำเชิญ",
+        update_patient: "อัปเดตข้อมูลผู้ป่วย",
+        patient_assignment_create: "เพิ่มการมอบหมายผู้ป่วย",
+        patient_assignment_update: "แก้ไขการมอบหมายผู้ป่วย",
+        patient_assignment_delete: "ลบการมอบหมายผู้ป่วย",
+        patient_access_denied: "ปฏิเสธการเข้าถึงผู้ป่วย",
+        http_403_denied: "ปฏิเสธ HTTP 403",
+        admin_emergency_unlock: "ปลดล็อกฉุกเฉินโดยผู้ดูแล",
+        admin_force_2fa_reset: "รีเซ็ต 2FA โดยผู้ดูแล",
+        admin_force_2fa_reset_denied: "ปฏิเสธการรีเซ็ต 2FA โดยผู้ดูแล",
+        admin_force_password_reset: "รีเซ็ตรหัสผ่านโดยผู้ดูแล",
+        admin_force_password_reset_denied: "ปฏิเสธการรีเซ็ตรหัสผ่านโดยผู้ดูแล",
+        two_factor_verified: "ยืนยัน 2FA สำเร็จ",
+        two_factor_disabled: "ปิดการใช้งาน 2FA",
+        two_factor_reset: "รีเซ็ต 2FA",
+        two_factor_backup_codes_regenerated: "สร้างรหัสสำรอง 2FA ใหม่",
+        two_factor_backup_code_used: "ใช้รหัสสำรอง 2FA",
+        two_factor_challenge: "ทดสอบยืนยันตัวตน 2FA",
+        trusted_device_created: "เพิ่มอุปกรณ์ที่เชื่อถือได้",
+        trusted_device_revoked: "เพิกถอนอุปกรณ์ที่เชื่อถือได้",
+        trusted_devices_revoked_all: "เพิกถอนอุปกรณ์ที่เชื่อถือได้ทั้งหมด",
+        login_failed: "เข้าสู่ระบบล้มเหลว",
+        login_failed_2fa: "เข้าสู่ระบบล้มเหลว (2FA)",
+        login_with_backup_code: "เข้าสู่ระบบด้วยรหัสสำรอง",
+        view_patient_summary: "ดูสรุปผู้ป่วย",
+        view_patient_timeline: "ดูไทม์ไลน์ผู้ป่วย",
+        view_active_orders: "ดูคำสั่งที่ยังใช้งาน",
+        view_lab_trends: "ดูแนวโน้มผลแล็บ",
+        create_medication_order: "สร้างคำสั่งยา",
+        create_lab_order: "สร้างคำสั่งแล็บ",
+        create_imaging_order: "สร้างคำสั่งภาพถ่าย",
+        create_note: "สร้างบันทึก",
+        break_glass: "เข้าถึงฉุกเฉิน",
+        acknowledge_alert: "รับทราบการแจ้งเตือน",
+    },
+};
+
+const RESOURCE_LABELS: Record<AuditLanguage, Record<string, string>> = {
+    en: {
+        user_invite: "User Invite",
+        doctor_patient_assignment: "Doctor-Patient Assignment",
+        http_request: "HTTP Request",
+        user_trusted_device: "Trusted Device",
+    },
+    th: {
+        user: "ผู้ใช้",
+        user_invite: "คำเชิญผู้ใช้",
+        patient: "ผู้ป่วย",
+        doctor_patient_assignment: "การมอบหมายแพทย์-ผู้ป่วย",
+        http_request: "คำขอ HTTP",
+        user_trusted_device: "อุปกรณ์ที่เชื่อถือได้",
+        note: "บันทึก",
+        alert: "การแจ้งเตือน",
+        medication: "ยา",
+        lab: "แล็บ",
+        imaging: "ภาพถ่าย",
+    },
+};
+
+const FIELD_LABELS: Record<AuditLanguage, Record<string, string>> = {
+    en: {},
+    th: {
+        first_name: "ชื่อ",
+        last_name: "นามสกุล",
+        full_name: "ชื่อเต็ม",
+        email: "อีเมล",
+        phone: "เบอร์โทรศัพท์",
+        role: "บทบาท",
+        status: "สถานะ",
+        verification_status: "สถานะการยืนยัน",
+        is_active: "สถานะใช้งาน",
+        is_verified: "ยืนยันแล้ว",
+        two_factor_enabled: "เปิดใช้งาน 2FA",
+        setup_required: "ต้องตั้งค่าเพิ่มเติม",
+        required: "บังคับใช้",
+        enabled: "เปิดใช้งาน",
+        trusted_device_days: "จำนวนวันอุปกรณ์ที่เชื่อถือได้",
+        assigned_at: "วันที่มอบหมาย",
+        reason: "เหตุผล",
+        resource_type: "ประเภททรัพยากร",
+        resource_id: "รหัสทรัพยากร",
+        ip_address: "ไอพีแอดเดรส",
+        user_id: "รหัสผู้ใช้",
+        date_of_birth: "วันเกิด",
+        gender: "เพศ",
+        address: "ที่อยู่",
+        created_at: "สร้างเมื่อ",
+        updated_at: "อัปเดตเมื่อ",
+        deleted_at: "ลบเมื่อ",
+    },
+};
+
+const ROLE_VALUE_LABELS: Record<AuditLanguage, Record<string, string>> = {
+    en: {},
+    th: {
+        admin: "ผู้ดูแลระบบ",
+        doctor: "แพทย์",
+        staff: "เจ้าหน้าที่",
+        nurse: "พยาบาล",
+        pharmacist: "เภสัชกร",
+        medical_technologist: "นักเทคนิคการแพทย์",
+        psychologist: "นักจิตวิทยา",
+    },
+};
+
+const STATUS_VALUE_LABELS: Record<AuditLanguage, Record<string, string>> = {
+    en: {},
+    th: {
+        pending: "รอดำเนินการ",
+        active: "ใช้งาน",
+        inactive: "ไม่ใช้งาน",
+        verified: "ยืนยันแล้ว",
+        unverified: "ยังไม่ยืนยัน",
+        success: "สำเร็จ",
+        failure: "ล้มเหลว",
+        true: "ใช่",
+        false: "ไม่ใช่",
+    },
+};
 
 // ── Helpers ──
 
@@ -115,16 +425,40 @@ function formatActionLabel(action: string): string {
         .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function timeAgo(dateStr: string): string {
+function translateResourceLabel(resourceType: string | null, language: AuditLanguage): string {
+    if (!resourceType) return I18N[language].unknown;
+    return RESOURCE_LABELS[language][resourceType] ?? formatActionLabel(resourceType);
+}
+
+function translateFieldLabel(field: string, language: AuditLanguage): string {
+    return FIELD_LABELS[language][field] ?? formatActionLabel(field);
+}
+
+function translateFieldValue(field: string, value: unknown, language: AuditLanguage): string {
+    if (value === null || value === undefined) return "-";
+    if (typeof value === "object") return JSON.stringify(value);
+
+    const normalized = String(value);
+    if (field === "role") {
+        return ROLE_VALUE_LABELS[language][normalized] ?? normalized;
+    }
+    if (field === "status" || field === "verification_status" || field.startsWith("is_")) {
+        return STATUS_VALUE_LABELS[language][normalized] ?? normalized;
+    }
+    return normalized;
+}
+
+function timeAgo(dateStr: string, language: AuditLanguage): string {
     const now = Date.now();
     const then = new Date(dateStr).getTime();
     const diffSec = Math.floor((now - then) / 1000);
+    const rtf = new Intl.RelativeTimeFormat(APP_LOCALE_MAP[language], { numeric: "auto" });
 
-    if (diffSec < 60) return "Just now";
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-    if (diffSec < 604800) return `${Math.floor(diffSec / 86400)}d ago`;
-    return new Date(dateStr).toLocaleDateString();
+    if (diffSec < 45) return I18N[language].justNow;
+    if (diffSec < 3600) return rtf.format(-Math.floor(diffSec / 60), "minute");
+    if (diffSec < 86400) return rtf.format(-Math.floor(diffSec / 3600), "hour");
+    if (diffSec < 604800) return rtf.format(-Math.floor(diffSec / 86400), "day");
+    return new Date(dateStr).toLocaleDateString(APP_LOCALE_MAP[language]);
 }
 
 function shortenId(id: string | null): string {
@@ -146,10 +480,12 @@ function tryFormatJson(text: string | null): string {
 function AuditStatsCards({
     total,
     logs,
+    t,
 }: {
 
     total: number;
     logs: AuditLogItem[];
+    t: (key: TranslationKey) => string;
 }) {
     const breakGlassCount = logs.filter((l) => l.is_break_glass).length;
     const uniqueUsers = new Set(logs.map((l) => l.user_id).filter(Boolean)).size;
@@ -161,33 +497,33 @@ function AuditStatsCards({
 
     const stats = [
         {
-            title: "Total Logs",
+            title: t("totalLogs"),
             value: total,
-            subtitle: "All audit entries",
+            subtitle: t("allAuditEntries"),
             icon: ScrollText,
             iconColor: "text-[#7ac2f0]",
             bgColor: "bg-[#7ac2f0]/10",
         },
         {
-            title: "Break Glass",
+            title: t("breakGlass"),
             value: breakGlassCount,
-            subtitle: breakGlassCount > 0 ? "Requires review" : "No incidents",
+            subtitle: breakGlassCount > 0 ? t("requiresReview") : t("noIncidents"),
             icon: ShieldAlert,
             iconColor: breakGlassCount > 0 ? "text-red-500" : "text-muted-foreground",
             bgColor: breakGlassCount > 0 ? "bg-red-500/10" : "bg-muted/50",
         },
         {
-            title: "Unique Users",
+            title: t("uniqueUsers"),
             value: uniqueUsers,
-            subtitle: "In current view",
+            subtitle: t("inCurrentView"),
             icon: Users,
             iconColor: "text-emerald-500",
             bgColor: "bg-emerald-500/10",
         },
         {
-            title: "Today's Activity",
+            title: t("todaysActivity"),
             value: todayCount,
-            subtitle: "Events today",
+            subtitle: t("eventsToday"),
             icon: Activity,
             iconColor: "text-amber-500",
             bgColor: "bg-amber-500/10",
@@ -227,6 +563,7 @@ export function AuditLogsContent() {
     const token = useAuthStore((state) => state.token);
     const hydrated = useAuthStore((state) => state.hydrated);
     const clearToken = useAuthStore((state) => state.clearToken);
+    const language = useLanguageStore((state) => state.language);
 
     // Data
     const [logs, setLogs] = useState<AuditLogItem[]>([]);
@@ -249,6 +586,31 @@ export function AuditLogsContent() {
     const [selectedLog, setSelectedLog] = useState<AuditLogItem | null>(null);
     const [isPolling, setIsPolling] = useState(true);
     const [isExporting, setIsExporting] = useState(false);
+
+    const t = useCallback(
+        (key: TranslationKey) => I18N[language][key] ?? I18N.en[key],
+        [language]
+    );
+
+    const localizeDateTime = useCallback(
+        (value: string) => new Date(value).toLocaleString(APP_LOCALE_MAP[language]),
+        [language]
+    );
+
+    const actionLabel = useCallback(
+        (action: string) => ACTION_LABELS[language][action] ?? formatActionLabel(action),
+        [language]
+    );
+
+    const resourceLabel = useCallback(
+        (resourceType: string | null) => translateResourceLabel(resourceType, language),
+        [language]
+    );
+
+    const resultLabel = useCallback(
+        (result: "success" | "failure") => (result === "failure" ? t("failure") : t("success")),
+        [t]
+    );
 
     // Auth guard
     useEffect(() => {
@@ -295,14 +657,14 @@ export function AuditLogsContent() {
                 return;
             }
             if (!silent) {
-                toast.error("โหลด Audit Logs ไม่สำเร็จ", {
-                    description: getErrorMessage(apiError, "ไม่สามารถโหลด Audit Logs ได้"),
+                toast.error(t("loadAuditLogsFailed"), {
+                    description: getErrorMessage(apiError, t("cannotLoadAuditLogs")),
                 });
             }
         } finally {
             if (!silent) setLoading(false);
         }
-    }, [token, page, limit, search, userFilter, actionFilter, resourceTypeFilter, breakGlassFilter, resultFilter, dateFrom, dateTo, clearToken, router]);
+    }, [token, page, limit, search, userFilter, actionFilter, resourceTypeFilter, breakGlassFilter, resultFilter, dateFrom, dateTo, clearToken, router, t]);
 
     // Debounce search & filter changes
     useEffect(() => {
@@ -370,10 +732,12 @@ export function AuditLogsContent() {
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
 
-            toast.success("ส่งออก Audit Logs สำเร็จ");
+            toast.success(t("success"), {
+                description: t("exportCsv"),
+            });
         } catch (err: unknown) {
-            toast.error("ส่งออก Audit Logs ไม่สำเร็จ", {
-                description: getErrorMessage(err, "ไม่สามารถส่งออก Audit Logs ได้"),
+            toast.error(t("exportAuditLogsFailed"), {
+                description: getErrorMessage(err, t("cannotExportAuditLogs")),
             });
         } finally {
             setIsExporting(false);
@@ -388,7 +752,7 @@ export function AuditLogsContent() {
 
     return (
         <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 bg-background w-full">
-            <AuditStatsCards total={total} logs={logs} />
+            <AuditStatsCards total={total} logs={logs} t={t} />
 
             <Card className="border-white/10 bg-white/5 backdrop-blur-xl shadow-2xl">
                 <CardHeader>
@@ -396,17 +760,17 @@ export function AuditLogsContent() {
                         <div>
                             <CardTitle className="text-xl font-semibold flex items-center gap-2">
                                 <ScrollText className="w-5 h-5 text-primary" />
-                                Audit Logs
+                                {t("auditLogs")}
                             </CardTitle>
                             <CardDescription className="flex items-center gap-2">
-                                System activity and security events. Total: {total}
+                                {t("systemActivityAndSecurityEvents")} {total}
                                 {isPolling && (
                                     <span className="inline-flex items-center gap-1 text-xs text-emerald-500">
                                         <span className="relative flex h-2 w-2">
                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                                             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                                         </span>
-                                        Auto-refreshing
+                                        {t("autoRefreshing")}
                                     </span>
                                 )}
                             </CardDescription>
@@ -416,7 +780,7 @@ export function AuditLogsContent() {
                             <div className="relative">
                                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                                 <Input
-                                    placeholder="Search logs..."
+                                    placeholder={t("searchLogs")}
                                     className="pl-9 w-full sm:w-[200px] bg-background/50 border-white/10"
                                     value={search}
                                     onChange={(e) => setSearch(e.target.value)}
@@ -424,7 +788,7 @@ export function AuditLogsContent() {
                             </div>
 
                             <Input
-                                placeholder="User email/name"
+                                placeholder={t("userEmailOrName")}
                                 className="w-full sm:w-[180px] bg-background/50 border-white/10"
                                 value={userFilter}
                                 onChange={(e) => setUserFilter(e.target.value)}
@@ -433,12 +797,14 @@ export function AuditLogsContent() {
                             <Select value={actionFilter} onValueChange={(v) => setActionFilter(v ?? "")}>
                                 <SelectTrigger className="w-[180px] bg-background/50 border-white/10">
                                     <SelectValue>
-                                        {ACTION_OPTIONS.find((a) => a.value === actionFilter)?.label || "All Actions"}
+                                        {actionFilter === "all" ? t("allActions") : actionLabel(actionFilter)}
                                     </SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {ACTION_OPTIONS.map((a) => (
-                                        <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+                                    {ACTION_OPTIONS.map((action) => (
+                                        <SelectItem key={action} value={action}>
+                                            {action === "all" ? t("allActions") : actionLabel(action)}
+                                        </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -446,12 +812,14 @@ export function AuditLogsContent() {
                             <Select value={resourceTypeFilter} onValueChange={(v) => setResourceTypeFilter(v ?? "")}>
                                 <SelectTrigger className="w-[160px] bg-background/50 border-white/10">
                                     <SelectValue>
-                                        {RESOURCE_TYPE_OPTIONS.find((r) => r.value === resourceTypeFilter)?.label || "All Resources"}
+                                        {resourceTypeFilter === "all" ? t("allResources") : resourceLabel(resourceTypeFilter)}
                                     </SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {RESOURCE_TYPE_OPTIONS.map((r) => (
-                                        <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                                    {RESOURCE_TYPE_OPTIONS.map((resourceType) => (
+                                        <SelectItem key={resourceType} value={resourceType}>
+                                            {resourceType === "all" ? t("allResources") : resourceLabel(resourceType)}
+                                        </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -459,12 +827,14 @@ export function AuditLogsContent() {
                             <Select value={breakGlassFilter} onValueChange={(v) => setBreakGlassFilter(v ?? "")}>
                                 <SelectTrigger className="w-[160px] bg-background/50 border-white/10">
                                     <SelectValue>
-                                        {BREAK_GLASS_OPTIONS.find((b) => b.value === breakGlassFilter)?.label || "All Events"}
+                                        {breakGlassFilter === "true" ? t("breakGlassOnly") : t("allEvents")}
                                     </SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {BREAK_GLASS_OPTIONS.map((b) => (
-                                        <SelectItem key={b.value} value={b.value}>{b.label}</SelectItem>
+                                    {BREAK_GLASS_OPTIONS.map((breakGlassOption) => (
+                                        <SelectItem key={breakGlassOption} value={breakGlassOption}>
+                                            {breakGlassOption === "true" ? t("breakGlassOnly") : t("allEvents")}
+                                        </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -472,12 +842,14 @@ export function AuditLogsContent() {
                             <Select value={resultFilter} onValueChange={(v) => setResultFilter(v ?? "")}>
                                 <SelectTrigger className="w-[150px] bg-background/50 border-white/10">
                                     <SelectValue>
-                                        {RESULT_OPTIONS.find((r) => r.value === resultFilter)?.label || "All Results"}
+                                        {resultFilter === "all" ? t("allResults") : resultLabel(resultFilter as "success" | "failure")}
                                     </SelectValue>
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {RESULT_OPTIONS.map((r) => (
-                                        <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                                    {RESULT_OPTIONS.map((resultOption) => (
+                                        <SelectItem key={resultOption} value={resultOption}>
+                                            {resultOption === "all" ? t("allResults") : resultLabel(resultOption as "success" | "failure")}
+                                        </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -487,7 +859,7 @@ export function AuditLogsContent() {
                     {/* Date Range Filters */}
                     <div className="flex flex-wrap items-center gap-2 pt-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">From:</span>
+                            <span className="text-xs text-muted-foreground">{t("from")}:</span>
                             <Input
                                 type="date"
                                 className="w-[160px] bg-background/50 border-white/10"
@@ -496,7 +868,7 @@ export function AuditLogsContent() {
                             />
                         </div>
                         <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">To:</span>
+                            <span className="text-xs text-muted-foreground">{t("to")}:</span>
                             <Input
                                 type="date"
                                 className="w-[160px] bg-background/50 border-white/10"
@@ -521,7 +893,7 @@ export function AuditLogsContent() {
                             className="text-xs"
                             onClick={() => setIsPolling((p) => !p)}
                         >
-                            {isPolling ? "Pause" : "Resume"} auto-refresh
+                            {isPolling ? t("pause") : t("resume")} {t("autoRefresh")}
                         </Button>
 
                         <Button
@@ -536,7 +908,7 @@ export function AuditLogsContent() {
                             ) : (
                                 <Download className="h-3.5 w-3.5" />
                             )}
-                            Export CSV
+                            {t("exportCsv")}
                         </Button>
                     </div>
                 </CardHeader>
@@ -547,13 +919,13 @@ export function AuditLogsContent() {
                             <Table>
                                 <TableHeader className="sticky top-0 z-20 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
                                     <TableRow className="hover:bg-transparent border-white/10">
-                                        <TableHead className="w-[120px]">Time</TableHead>
-                                        <TableHead>User</TableHead>
-                                        <TableHead>Action</TableHead>
-                                        <TableHead>Result</TableHead>
-                                        <TableHead>Resource</TableHead>
-                                        <TableHead>IP Address</TableHead>
-                                        <TableHead>Break Glass</TableHead>
+                                        <TableHead className="w-[120px]">{t("time")}</TableHead>
+                                        <TableHead>{t("user")}</TableHead>
+                                        <TableHead>{t("action")}</TableHead>
+                                        <TableHead>{t("result")}</TableHead>
+                                        <TableHead>{t("resource")}</TableHead>
+                                        <TableHead>{t("ipAddress")}</TableHead>
+                                        <TableHead>{t("breakGlassColumn")}</TableHead>
                                         <TableHead className="w-[40px]"></TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -574,7 +946,7 @@ export function AuditLogsContent() {
                                     ) : logs.length === 0 ? (
                                         <TableRow>
                                             <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
-                                                No audit logs found.
+                                                {t("noAuditLogsFound")}
                                             </TableCell>
                                         </TableRow>
                                     ) : (
@@ -593,8 +965,8 @@ export function AuditLogsContent() {
                                                     onClick={() => setSelectedLog(log)}
                                                 >
                                                     <TableCell className="text-sm">
-                                                        <div title={new Date(log.created_at).toLocaleString()}>
-                                                            <span className="text-muted-foreground">{timeAgo(log.created_at)}</span>
+                                                        <div title={localizeDateTime(log.created_at)}>
+                                                            <span className="text-muted-foreground">{timeAgo(log.created_at, language)}</span>
                                                         </div>
                                                     </TableCell>
                                                     <TableCell>
@@ -609,7 +981,7 @@ export function AuditLogsContent() {
                                                     </TableCell>
                                                     <TableCell>
                                                         <Badge variant="outline" className={cn("text-xs", getActionColor(log.action))}>
-                                                            {formatActionLabel(log.action)}
+                                                            {actionLabel(log.action)}
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell>
@@ -622,12 +994,12 @@ export function AuditLogsContent() {
                                                                     : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
                                                             )}
                                                         >
-                                                            {log.result === "failure" ? "Failure" : "Success"}
+                                                            {resultLabel(log.result)}
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell>
                                                         <div className="min-w-0">
-                                                            <span className="block text-sm">{log.resource_type || "-"}</span>
+                                                            <span className="block text-sm">{resourceLabel(log.resource_type)}</span>
                                                             <span className="block text-xs text-muted-foreground font-mono">
                                                                 {shortenId(log.resource_id)}
                                                             </span>
@@ -640,7 +1012,7 @@ export function AuditLogsContent() {
                                                         {log.is_break_glass ? (
                                                             <Badge variant="outline" className="border-red-500/20 text-red-500 bg-red-500/10 flex items-center gap-1 w-fit">
                                                                 <ShieldAlert className="w-3 h-3" />
-                                                                Yes
+                                                                {t("yes")}
                                                             </Badge>
                                                         ) : (
                                                             <span className="text-xs text-muted-foreground">-</span>
@@ -662,7 +1034,7 @@ export function AuditLogsContent() {
                     <div className="flex flex-col gap-3 border-t border-white/10 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex flex-wrap items-center gap-2">
                             <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-medium text-muted-foreground">
-                                Page {page} of {totalPages || 1}
+                                {t("pageOf")} {page} / {totalPages || 1}
                             </span>
                             <Select
                                 value={limit.toString()}
@@ -682,7 +1054,7 @@ export function AuditLogsContent() {
                                     ))}
                                 </SelectContent>
                             </Select>
-                            <span className="text-xs text-muted-foreground">/ page</span>
+                            <span className="text-xs text-muted-foreground">{t("perPage")}</span>
                         </div>
                         <div className="flex items-center space-x-2">
                             <Button
@@ -692,7 +1064,7 @@ export function AuditLogsContent() {
                                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                                 disabled={page === 1 || loading}
                             >
-                                Previous
+                                {t("previous")}
                             </Button>
                             <Button
                                 variant="outline"
@@ -701,7 +1073,7 @@ export function AuditLogsContent() {
                                 onClick={() => setPage((p) => p + 1)}
                                 disabled={page >= totalPages || loading}
                             >
-                                Next
+                                {t("next")}
                             </Button>
                         </div>
                     </div>
@@ -728,7 +1100,7 @@ export function AuditLogsContent() {
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 flex-wrap">
                                             <Badge variant="outline" className={cn("text-xs", getActionColor(selectedLog.action))}>
-                                                {formatActionLabel(selectedLog.action)}
+                                                {actionLabel(selectedLog.action)}
                                             </Badge>
                                             <Badge
                                                 variant="outline"
@@ -739,21 +1111,21 @@ export function AuditLogsContent() {
                                                         : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
                                                 )}
                                             >
-                                                {selectedLog.result === "failure" ? "Failure" : "Success"}
+                                                {resultLabel(selectedLog.result)}
                                             </Badge>
                                             {selectedLog.is_break_glass && (
                                                 <Badge variant="outline" className="border-red-500/20 text-red-500 bg-red-500/10 text-xs">
-                                                    Break Glass
+                                                    {t("breakGlass")}
                                                 </Badge>
                                             )}
                                         </div>
                                         <p className="text-xs text-muted-foreground mt-1">
-                                            {new Date(selectedLog.created_at).toLocaleString()} ({timeAgo(selectedLog.created_at)})
+                                            {localizeDateTime(selectedLog.created_at)} ({timeAgo(selectedLog.created_at, language)})
                                         </p>
                                     </div>
                                 </SheetTitle>
                                 <SheetDescription className="sr-only">
-                                    Audit log detail view
+                                    {t("auditLogDetailView")}
                                 </SheetDescription>
                             </SheetHeader>
 
@@ -762,24 +1134,24 @@ export function AuditLogsContent() {
                                 <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
                                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
                                         <Users className="w-3.5 h-3.5" />
-                                        User
+                                        {t("user")}
                                     </p>
                                     <div className="flex items-center gap-3">
                                         <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm uppercase shrink-0">
                                             {selectedLog.user_name ? selectedLog.user_name[0] : selectedLog.user_email ? selectedLog.user_email[0] : "?"}
                                         </div>
                                         <div className="min-w-0">
-                                            <p className="text-sm font-medium truncate">{selectedLog.user_name || "Unknown"}</p>
+                                            <p className="text-sm font-medium truncate">{selectedLog.user_name || t("unknown")}</p>
                                             <p className="text-xs text-muted-foreground truncate">{selectedLog.user_email || "-"}</p>
                                         </div>
                                     </div>
                                     <div className="mt-3 pt-3 border-t border-border/40 grid grid-cols-2 gap-3">
                                         <div>
-                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">User ID</p>
+                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("userId")}</p>
                                             <p className="text-xs font-mono text-muted-foreground mt-0.5 truncate">{selectedLog.user_id || "-"}</p>
                                         </div>
                                         <div>
-                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">IP Address</p>
+                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("ipAddress")}</p>
                                             <p className="text-xs font-mono text-muted-foreground mt-0.5">{selectedLog.ip_address || "-"}</p>
                                         </div>
                                     </div>
@@ -789,15 +1161,15 @@ export function AuditLogsContent() {
                                 <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
                                     <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
                                         <Activity className="w-3.5 h-3.5" />
-                                        Resource
+                                        {t("resource")}
                                     </p>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
-                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Type</p>
-                                            <p className="text-sm mt-0.5">{selectedLog.resource_type || "-"}</p>
+                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("resourceType")}</p>
+                                            <p className="text-sm mt-0.5">{resourceLabel(selectedLog.resource_type)}</p>
                                         </div>
                                         <div>
-                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Resource ID</p>
+                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("resourceId")}</p>
                                             <p className="text-xs font-mono text-muted-foreground mt-0.5 break-all">{selectedLog.resource_id || "-"}</p>
                                         </div>
                                     </div>
@@ -808,12 +1180,12 @@ export function AuditLogsContent() {
                                     <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4 space-y-2">
                                         <p className="text-xs font-medium text-red-500 uppercase tracking-wide flex items-center gap-1.5">
                                             <ShieldAlert className="w-3.5 h-3.5" />
-                                            Break Glass Access
+                                            {t("breakGlassAccess")}
                                         </p>
                                         {selectedLog.break_glass_reason ? (
                                             <p className="text-sm text-foreground">{selectedLog.break_glass_reason}</p>
                                         ) : (
-                                            <p className="text-sm text-muted-foreground italic">No reason provided</p>
+                                            <p className="text-sm text-muted-foreground italic">{t("noReasonProvided")}</p>
                                         )}
                                     </div>
                                 )}
@@ -823,7 +1195,7 @@ export function AuditLogsContent() {
                                     <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
                                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
                                             <ScrollText className="w-3.5 h-3.5" />
-                                            Details
+                                            {t("details")}
                                         </p>
                                         <pre className="text-sm bg-background rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words font-mono text-foreground border border-border/40">
                                             {tryFormatJson(selectedLog.details)}
@@ -836,7 +1208,7 @@ export function AuditLogsContent() {
                                     <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
                                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
                                             <Activity className="w-3.5 h-3.5" />
-                                            Change History
+                                            {t("changeHistory")}
                                         </p>
                                         <div className="space-y-4">
                                             {(() => {
@@ -848,7 +1220,7 @@ export function AuditLogsContent() {
                                                 const changedKeys = allKeys.filter(key => JSON.stringify(oldVals[key]) !== JSON.stringify(newVals[key]));
 
                                                 if (changedKeys.length === 0) {
-                                                    return <p className="text-sm text-muted-foreground italic">No specific changes detected.</p>;
+                                                    return <p className="text-sm text-muted-foreground italic">{t("noSpecificChangesDetected")}</p>;
                                                 }
 
                                                 return (
@@ -856,22 +1228,22 @@ export function AuditLogsContent() {
                                                         <Table>
                                                             <TableHeader className="bg-muted/30">
                                                                 <TableRow className="border-border/40 hover:bg-transparent">
-                                                                    <TableHead className="h-8 text-xs font-medium">Field</TableHead>
-                                                                    <TableHead className="h-8 text-xs font-medium text-red-500/80">Old Value</TableHead>
-                                                                    <TableHead className="h-8 text-xs font-medium text-emerald-500/80">New Value</TableHead>
+                                                                    <TableHead className="h-8 text-xs font-medium">{t("field")}</TableHead>
+                                                                    <TableHead className="h-8 text-xs font-medium text-red-500/80">{t("oldValue")}</TableHead>
+                                                                    <TableHead className="h-8 text-xs font-medium text-emerald-500/80">{t("newValue")}</TableHead>
                                                                 </TableRow>
                                                             </TableHeader>
                                                             <TableBody>
                                                                 {changedKeys.map((key) => (
                                                                     <TableRow key={key} className="border-border/40 hover:bg-transparent">
                                                                         <TableCell className="py-2 text-xs font-medium font-mono text-muted-foreground">
-                                                                            {key}
+                                                                            {translateFieldLabel(key, language)}
                                                                         </TableCell>
                                                                         <TableCell className="py-2 text-xs font-mono text-red-600/90 break-all bg-red-500/5">
-                                                                            {typeof oldVals[key] === 'object' ? JSON.stringify(oldVals[key]) : String(oldVals[key] ?? "-")}
+                                                                            {translateFieldValue(key, oldVals[key], language)}
                                                                         </TableCell>
                                                                         <TableCell className="py-2 text-xs font-mono text-emerald-600/90 break-all bg-emerald-500/5">
-                                                                            {typeof newVals[key] === 'object' ? JSON.stringify(newVals[key]) : String(newVals[key] ?? "-")}
+                                                                            {translateFieldValue(key, newVals[key], language)}
                                                                         </TableCell>
                                                                     </TableRow>
                                                                 ))}
@@ -886,7 +1258,7 @@ export function AuditLogsContent() {
 
                                 {/* Metadata Footer */}
                                 <div className="pt-2 border-t border-border/40">
-                                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Log ID</p>
+                                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("logId")}</p>
                                     <p className="text-xs font-mono text-muted-foreground mt-0.5 break-all">{selectedLog.id}</p>
                                 </div>
                             </div>
