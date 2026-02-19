@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import List, Any
-from datetime import datetime, timedelta
+from typing import Any
+from datetime import datetime, timedelta, timezone
 
 from app.services.auth import get_db, get_admin_user
 from app.models.device_error_log import DeviceErrorLog
@@ -17,20 +17,21 @@ def device_health_check(request: Request):
     """
     Simple health check for device connectivity.
     """
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 @router.get("/device/v1/stats")
+@limiter.limit("240/minute")
 def get_device_stats(
     request: Request,
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_admin_user),
-    hours: int = 24
+    hours: int = Query(default=24, ge=1, le=168),
 ):
     """
     Get statistics for device usage in the last N hours.
     Requires Admin privileges.
     """
-    since = datetime.now() - timedelta(hours=hours)
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
 
     # Count successful records
     success_count = db.query(func.count(PressureRecord.id)).filter(
@@ -58,18 +59,36 @@ def get_device_stats(
     }
 
 @router.get("/device/v1/errors")
+@limiter.limit("240/minute")
 def get_device_errors(
     request: Request,
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_admin_user),
-    limit: int = 50
+    limit: int = Query(default=50, ge=1, le=500),
+    hours: int | None = Query(default=None, ge=1, le=168),
+    since: datetime | None = None,
+    device_id: str | None = Query(default=None, min_length=1, max_length=128),
 ):
     """
     Get latest device error logs.
     Requires Superuser privileges.
     """
-    errors = db.query(DeviceErrorLog).order_by(
-        DeviceErrorLog.occurred_at.desc()
+    query = db.query(DeviceErrorLog)
+
+    if device_id:
+        query = query.filter(DeviceErrorLog.device_id == device_id.strip())
+
+    now_utc = datetime.now(timezone.utc)
+    if hours is not None:
+        query = query.filter(DeviceErrorLog.occurred_at >= now_utc - timedelta(hours=hours))
+
+    if since is not None:
+        since_utc = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+        query = query.filter(DeviceErrorLog.occurred_at > since_utc)
+
+    errors = query.order_by(
+        DeviceErrorLog.occurred_at.desc(),
+        DeviceErrorLog.id.desc(),
     ).limit(limit).all()
 
     return errors

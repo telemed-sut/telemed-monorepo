@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
@@ -18,6 +18,10 @@ class PressureService:
                 detail=f"Patient with ID {pressure_in.patient_id} not found"
             )
 
+        measured_at = pressure_in.measured_at or datetime.now(timezone.utc)
+        if measured_at.tzinfo is None:
+            measured_at = measured_at.replace(tzinfo=timezone.utc)
+
         # Create record
         db_obj = PressureRecord(
             patient_id=pressure_in.patient_id,
@@ -27,7 +31,7 @@ class PressureService:
             dia_rate=pressure_in.dia_rate,
             wave_a=pressure_in.wave_a,
             wave_b=pressure_in.wave_b,
-            measured_at=pressure_in.measured_at or datetime.now(),
+            measured_at=measured_at,
             # created_at is handled by DB default
         )
         
@@ -41,7 +45,7 @@ class PressureService:
             # Find the existing record to be idempotent
             existing = db.query(PressureRecord).filter(
                 PressureRecord.device_id == pressure_in.device_id,
-                PressureRecord.measured_at == pressure_in.measured_at
+                PressureRecord.measured_at == measured_at
             ).first()
             if existing:
                 return existing

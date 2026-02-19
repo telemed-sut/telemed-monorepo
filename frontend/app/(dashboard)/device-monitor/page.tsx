@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthStore } from "@/store/auth-store";
 import { fetchDeviceStats, fetchDeviceErrors, DeviceStats, DeviceErrorLog } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -74,6 +74,7 @@ type ChartType = "bar" | "line" | "area";
 type TimePeriod = 6 | 24 | 72;
 
 const timePeriods: TimePeriod[] = [6, 24, 72];
+const refreshIntervalOptions = [1000, 2000, 5000, 10000] as const;
 
 type RiskLevel = "stable" | "warning" | "critical";
 
@@ -166,6 +167,31 @@ function formatPeriodHours(hours: TimePeriod, language: AppLanguage): string {
   return language === "th" ? `${hours} ชม.` : `${hours}h`;
 }
 
+function formatRefreshInterval(ms: number, language: AppLanguage): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms % 1000 === 0) {
+    const sec = ms / 1000;
+    return language === "th" ? `${sec} วินาที` : `${sec}s`;
+  }
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function mergeDeviceErrors(current: DeviceErrorLog[], incoming: DeviceErrorLog[], maxItems = 500) {
+  if (incoming.length === 0) return current;
+
+  const merged = new Map<number, DeviceErrorLog>();
+  current.forEach((item) => merged.set(item.id, item));
+  incoming.forEach((item) => merged.set(item.id, item));
+
+  return Array.from(merged.values())
+    .sort((a, b) => {
+      const tsDiff = new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime();
+      if (tsDiff !== 0) return tsDiff;
+      return b.id - a.id;
+    })
+    .slice(0, maxItems);
+}
+
 function DeviceErrorTooltip({
   active,
   payload,
@@ -203,8 +229,10 @@ export default function DeviceMonitorPage() {
   const [stats, setStats] = useState<DeviceStats | null>(null);
   const [errors, setErrors] = useState<DeviceErrorLog[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorObj, setErrorObj] = useState<Error | null>(null);
   const [isAutoRefresh, setIsAutoRefresh] = useState(true);
+  const [refreshIntervalMs, setRefreshIntervalMs] = useState<number>(1000);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [chartType, setChartType] = useState<ChartType>("bar");
   const [showGrid, setShowGrid] = useState(true);
@@ -213,6 +241,9 @@ export default function DeviceMonitorPage() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [deviceHealthPageSize, setDeviceHealthPageSize] = useState(10);
   const [deviceHealthPageIndex, setDeviceHealthPageIndex] = useState(0);
+  const isFetchingRef = useRef(false);
+  const hasLoadedRef = useRef(false);
+  const lastErrorCursorRef = useRef<string | null>(null);
   const periodLabelsByLang = useMemo<Record<TimePeriod, string>>(
     () => ({
       6: tr(language, "Last 6 Hours", "6 ชั่วโมงล่าสุด"),
@@ -222,19 +253,49 @@ export default function DeviceMonitorPage() {
     [language]
   );
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (forceFullSync: boolean = false) => {
     if (!token) return;
-    setLoading(true);
+    if (isFetchingRef.current) return;
+
+    isFetchingRef.current = true;
+    const isInitialLoad = !hasLoadedRef.current;
+    if (isInitialLoad) {
+      setLoading(true);
+    }
+    setIsRefreshing(true);
     setErrorObj(null);
     try {
-      const statsData = await fetchDeviceStats(token, periodHours);
+      const [statsData, errorLogs] = await Promise.all([
+        fetchDeviceStats(token, periodHours),
+        fetchDeviceErrors(token, {
+          limit: 200,
+          hours: periodHours,
+          since: !forceFullSync ? (lastErrorCursorRef.current ?? undefined) : undefined,
+        }),
+      ]);
+
       setStats(statsData);
-      const errorsData = await fetchDeviceErrors(token, 200);
-      setErrors(errorsData);
+      setErrors((prev) => {
+        let next: DeviceErrorLog[];
+        if (forceFullSync || !lastErrorCursorRef.current) {
+          next = errorLogs;
+        } else {
+          next = mergeDeviceErrors(prev, errorLogs, 500);
+        }
+
+        lastErrorCursorRef.current = next[0]?.occurred_at ?? new Date().toISOString();
+        return next;
+      });
+      setLastUpdated(new Date());
     } catch (error) {
       setErrorObj(error instanceof Error ? error : new Error(tr(language, "Failed to load device data", "โหลดข้อมูลอุปกรณ์ไม่สำเร็จ")));
     } finally {
-      setLoading(false);
+      if (isInitialLoad) {
+        setLoading(false);
+        hasLoadedRef.current = true;
+      }
+      setIsRefreshing(false);
+      isFetchingRef.current = false;
     }
   }, [token, periodHours, language]);
 
@@ -481,26 +542,22 @@ export default function DeviceMonitorPage() {
   );
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    lastErrorCursorRef.current = null;
+    setErrors([]);
+    void loadData(true);
+  }, [loadData, periodHours]);
 
   useEffect(() => {
     let interval: NodeJS.Timeout | undefined;
     if (isAutoRefresh && token) {
       interval = setInterval(() => {
-        loadData();
-      }, 5000);
+        void loadData(false);
+      }, refreshIntervalMs);
     }
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isAutoRefresh, token, loadData]);
-
-  useEffect(() => {
-    if (stats) {
-      setLastUpdated(new Date());
-    }
-  }, [stats]);
+  }, [isAutoRefresh, token, loadData, refreshIntervalMs]);
 
   useEffect(() => {
     setDeviceHealthPageIndex((prev) => Math.min(prev, deviceHealthPageCount - 1));
@@ -530,7 +587,7 @@ export default function DeviceMonitorPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={loadData}
+                  onClick={() => void loadData(true)}
                   className="mt-4 border-destructive/20 hover:bg-destructive/20"
                 >
                   {tr(language, "Retry", "ลองอีกครั้ง")}
@@ -560,8 +617,35 @@ export default function DeviceMonitorPage() {
             <Switch id="auto-refresh" checked={isAutoRefresh} onCheckedChange={setIsAutoRefresh} />
             <Label htmlFor="auto-refresh">{tr(language, "Auto-refresh", "รีเฟรชอัตโนมัติ")}</Label>
           </div>
-          <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+
+          <div className="flex items-center gap-2">
+            <Label htmlFor="refresh-interval" className="text-xs text-muted-foreground">
+              {tr(language, "Interval", "ช่วงเวลา")}
+            </Label>
+            <Select
+              value={String(refreshIntervalMs)}
+              onValueChange={(value) => {
+                const parsed = Number(value);
+                if (Number.isFinite(parsed) && parsed >= 1000) {
+                  setRefreshIntervalMs(parsed);
+                }
+              }}
+            >
+              <SelectTrigger id="refresh-interval" className="h-8 w-[110px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {refreshIntervalOptions.map((intervalMs) => (
+                  <SelectItem key={intervalMs} value={String(intervalMs)}>
+                    {formatRefreshInterval(intervalMs, language)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Button variant="outline" size="sm" onClick={() => void loadData(true)} disabled={isRefreshing}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
             {tr(language, "Refresh", "รีเฟรช")}
           </Button>
         </div>

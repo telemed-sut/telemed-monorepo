@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   frontend:
     build: ./frontend
@@ -19,8 +17,11 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://user:password@db:5432/patient_db
-      - JWT_SECRET=supersecretkey
+      - JWT_SECRET=${JWT_SECRET:-change_this_jwt_secret_for_local_dev_only_32_chars_minimum}
       - JWT_EXPIRES_IN=3600
+      - DEVICE_API_SECRET=${DEVICE_API_SECRET:-change_this_device_secret_for_local_dev_only_32_chars_minimum}
+      - DEVICE_API_ALLOW_JWT_SECRET_FALLBACK=${DEVICE_API_ALLOW_JWT_SECRET_FALLBACK:-false}
+      - DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE=${DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE:-false}
     volumes:
       - ./backend:/app
     depends_on:
