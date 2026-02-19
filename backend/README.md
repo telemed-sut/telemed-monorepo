@@ -55,18 +55,20 @@ See [.env.example](.env.example) for a starter file.
 
 JWT payload: sub (user id), role, exp. Token type bearer.
 
-### Role-based Access Control
-- **Admin users**: Full access to all patient operations (create, read, update, delete)
-- **Staff users**: Can create, read, and update patients, but cannot delete
-- Delete operations require admin role (403 Forbidden for staff users)
+### Role-based Access Control (Phase-1)
+- **Admin users**: Full access to patient operations and assignment management.
+- **Doctor users**: Access only assigned patients (own + explicitly assigned).
+- **Staff users**: No patient clinical access.
+- **Break-glass**: disabled by policy in phase-1.
 
 ### Patients API
-- POST /patients (create) - Admin/Staff
-- GET /patients?page=1&limit=20&q=term&sort=created_at&order=desc - Admin/Staff
-	- Search q matches first_name, last_name, email, phone (ILIKE)
-	- Sort: created_at|updated_at|last_name; order asc|desc
-- GET /patients/{id} - Admin/Staff
-- PUT /patients/{id} - Admin/Staff
+- POST /patients (create) - Admin/Doctor
+- GET /patients?page=1&limit=20&q=term&sort=created_at&order=desc - Admin/Doctor
+  - Doctor results are assignment-filtered.
+  - Search q matches first_name, last_name, email, phone (ILIKE).
+  - Sort: created_at|updated_at|last_name|first_name; order asc|desc.
+- GET /patients/{id} - Admin/Doctor (doctor must be assigned)
+- PUT /patients/{id} - Admin/Doctor (doctor must be assigned)
 - DELETE /patients/{id} (hard delete) - **Admin only**
 
 Pagination response: {items, page, limit, total}. Validation -> 422; missing -> 404; auth -> 401; forbidden -> 403 with detail.
