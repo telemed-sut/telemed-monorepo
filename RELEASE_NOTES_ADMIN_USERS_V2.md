@@ -149,3 +149,30 @@ Rolling back the migrations alone is **not sufficient**. The following code chan
 | Frontend: Form Validation | 25 | Pass |
 | Frontend: Type Structure | 7 | Pass |
 | **Total** | **93** | **All pass** |
+
+---
+
+## Release Checklist — Security/RBAC Hardening (Current Batch)
+
+- [ ] CI gate ผ่านครบ: backend tests, frontend typecheck, frontend lint (critical modules), frontend tests, alembic head check
+- [ ] ตรวจ `alembic heads` เหลือ head เดียว
+- [ ] ตรวจ RBAC endpoints สำคัญ: `/users`, `/users/invites*`, `/audit/logs`, `/security/stats`, `/meetings`, `/stats/overview`
+- [ ] ตรวจ Audit Logs filter หน้าใช้งานจริง: action/user/date/result + export CSV
+- [ ] ตรวจ Invite lifecycle: create/resend/revoke/expired filter
+- [ ] ตรวจ Purge safety: reason + confirm text (`PURGE`) + export snapshot ก่อน purge
+- [ ] ตรวจ Emergency toolkit: unlock / reset 2FA / reset password และมี audit log
+- [ ] ตรวจ 2FA UX: setup QR, backup codes, trusted devices
+- [ ] ตรวจ Meetings segregation: admin, doctor-owner, doctor-assigned, staff
+- [ ] ตรวจข้อความ error/toast ว่าไม่แสดง raw JSON/pydantic trace
+
+## Rollback Note — Security/RBAC Hardening (Current Batch)
+
+ถ้าต้อง rollback เร่งด่วน ให้ย้อนเป็นลำดับ:
+
+1. Revert frontend ชุดนี้ก่อน (`/frontend/lib/api.ts`, `/frontend/components/dashboard/*`, `/frontend/components/ui/toast.ts`, `/frontend/app/login/page.tsx`) เพื่อหยุด UX flow ใหม่
+2. Revert backend API/security ชุดนี้ (`/backend/app/api/audit.py`, `/backend/app/api/security.py`, `/backend/app/middleware/__init__.py`, `/backend/app/schemas/audit.py`)
+3. Revert CI gate update (`/.github/workflows/backend-tests.yml`) หาก pipeline ใหม่ block deploy
+4. ตรวจสอบหลัง rollback:
+   - login/admin flow ใช้งานได้
+   - `/meetings` และ `/users` ไม่เกิด 5xx
+   - audit export และ security stats ตอบสนองได้
