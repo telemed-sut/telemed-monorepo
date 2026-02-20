@@ -206,7 +206,7 @@ For full schemas and request/response models, use Swagger:
 1. Create a feature branch from your working branch.
 2. Keep changes scoped and include migration files for schema changes.
 3. Run local checks before opening PR:
-   - backend: `pytest`
+   - backend: `cd backend && python -m pytest`
    - frontend: `npx tsc --noEmit && npm run lint && npm run test`
 4. Open PR and request review.
 5. Merge only after CI passes.

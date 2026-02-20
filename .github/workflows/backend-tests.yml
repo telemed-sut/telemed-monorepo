@@ -80,7 +80,7 @@ jobs:
         JWT_SECRET: test-secret-key
         JWT_EXPIRES_IN: 3600
       run: |
-        pytest --cov=app --cov-report=xml --cov-report=term
+        python -m pytest --cov=app --cov-report=xml --cov-report=term
     
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3
@@ -114,3 +114,35 @@ jobs:
     - name: Run frontend tests
       working-directory: ./frontend
       run: bun run test
+
+  backend-device-security-strict:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+
+    - name: Install dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run strict device security smoke tests
+      working-directory: ./backend
+      env:
+        DATABASE_URL: sqlite:///./strict_test.db
+        JWT_SECRET: test-secret-key
+        JWT_EXPIRES_IN: 3600
+        DEVICE_API_ALLOW_JWT_SECRET_FALLBACK: "false"
+        DEVICE_API_REQUIRE_REGISTERED_DEVICE: "true"
+        DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE: "true"
+        DEVICE_API_REQUIRE_NONCE: "true"
+        DEVICE_API_SECRETS: '{"strict-device-001":"strict_device_secret_001_1234567890abcdef1234567890abc"}'
+      run: |
+        python -m pytest -q tests/test_pressure_security.py::test_add_pressure_accepts_strict_mode_with_registered_device

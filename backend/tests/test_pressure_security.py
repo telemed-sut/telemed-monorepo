@@ -287,3 +287,50 @@ def test_add_pressure_accepts_per_device_secret_map(client: TestClient, db: Sess
         pressure_api.settings.device_api_secrets = original_secret_map
         pressure_api.settings.device_api_require_registered_device = original_require_registered
         pressure_api.settings.device_api_secret = original_global_secret
+
+
+def test_add_pressure_accepts_strict_mode_with_registered_device(client: TestClient, db: Session):
+    patient = _create_patient(db)
+    device_id = "strict-device-001"
+    device_secret = "strict_device_secret_001_1234567890abcdef1234567890abc"
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": device_id,
+        "heart_rate": 83,
+        "sys_rate": 126,
+        "dia_rate": 84,
+        "a": None,
+        "b": None,
+    }
+    payload_raw = json.dumps(payload, separators=(",", ":"))
+    body_hash = hashlib.sha256(payload_raw.encode("utf-8")).hexdigest()
+    nonce = f"strict-{int(time.time() * 1000)}"
+    headers = _sign_headers(
+        device_id=device_id,
+        timestamp=str(int(time.time())),
+        body_hash=body_hash,
+        nonce=nonce,
+        secret=device_secret,
+    )
+    headers["Content-Type"] = "application/json"
+
+    original_secret_map = dict(pressure_api.settings.device_api_secrets)
+    original_require_registered = pressure_api.settings.device_api_require_registered_device
+    original_require_body_hash = pressure_api.settings.device_api_require_body_hash_signature
+    original_require_nonce = pressure_api.settings.device_api_require_nonce
+    original_global_secret = pressure_api.settings.device_api_secret
+
+    pressure_api.settings.device_api_secrets = {device_id: device_secret}
+    pressure_api.settings.device_api_require_registered_device = True
+    pressure_api.settings.device_api_require_body_hash_signature = True
+    pressure_api.settings.device_api_require_nonce = True
+    pressure_api.settings.device_api_secret = None
+    try:
+        response = client.post("/add_pressure", data=payload_raw, headers=headers)
+        assert response.status_code == 201, response.text
+    finally:
+        pressure_api.settings.device_api_secrets = original_secret_map
+        pressure_api.settings.device_api_require_registered_device = original_require_registered
+        pressure_api.settings.device_api_require_body_hash_signature = original_require_body_hash
+        pressure_api.settings.device_api_require_nonce = original_require_nonce
+        pressure_api.settings.device_api_secret = original_global_secret
