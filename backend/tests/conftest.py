@@ -10,6 +10,9 @@ from sqlalchemy.pool import StaticPool
 # Ensure required secrets are available in test environment.
 os.environ.setdefault("DEVICE_API_SECRET", "test_device_secret_1234567890abcdef1234567890abcdef")
 os.environ.setdefault("ADMIN_2FA_REQUIRED", "false")
+os.environ.setdefault("DEVICE_API_REQUIRE_REGISTERED_DEVICE", "false")
+os.environ.setdefault("DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE", "false")
+os.environ.setdefault("DEVICE_API_REQUIRE_NONCE", "false")
 
 from app.core.config import get_settings
 from app.db.base import Base

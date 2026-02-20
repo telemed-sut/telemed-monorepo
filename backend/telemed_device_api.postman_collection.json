@@ -2,7 +2,7 @@
     "info": {
         "_postman_id": "b7d8f9e0-1a2b-4c3d-5e6f-7g8h9i0j1k2l",
         "name": "Telemed Device API",
-        "description": "Collection for testing the Physical Device Blood Pressure API with HMAC security.",
+        "description": "Collection for testing the Physical Device Blood Pressure API with HMAC security. Primary endpoint is /device/v1/pressure.",
         "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
     },
     "item": [
@@ -14,23 +14,54 @@
                     "script": {
                         "exec": [
                             "// Configuration",
-                            "const secret = 'change_this_to_a_strong_secret';",
-                            "const deviceId = 'test_device_001';",
+                            "const secret = pm.environment.get('deviceSecret') || pm.collectionVariables.get('deviceSecret');",
+                            "const deviceId = pm.environment.get('deviceId') || pm.collectionVariables.get('deviceId') || 'test_device_001';",
+                            "const requireBodyHash = String(pm.environment.get('requireBodyHash') || pm.collectionVariables.get('requireBodyHash') || 'true').toLowerCase() === 'true';",
+                            "const requireNonce = String(pm.environment.get('requireNonce') || pm.collectionVariables.get('requireNonce') || 'true').toLowerCase() === 'true';",
+                            "if (!secret) {",
+                            "    throw new Error('Set deviceSecret in environment or collection variables.');",
+                            "}",
                             "",
                             "// Generate Timestamp",
                             "const timestamp = Math.floor(Date.now() / 1000).toString();",
+                            "const nonce = CryptoJS.lib.WordArray.random(16).toString(CryptoJS.enc.Hex);",
                             "",
-                            "// Generate Signature: HMAC-SHA256(secret, timestamp + deviceId)",
-                            "const message = timestamp + deviceId;",
+                            "// Pre-request runs before interpolation; resolve {{vars}} on the raw body.",
+                            "let rawBody = (pm.request.body && pm.request.body.raw) ? pm.request.body.raw : '{}';",
+                            "rawBody = rawBody.replace(/\\{\\{\\s*([^}]+)\\s*\\}\\}/g, (_, key) => {",
+                            "    const k = key.trim();",
+                            "    const envVal = pm.environment.get(k);",
+                            "    if (envVal !== undefined && envVal !== null) return String(envVal);",
+                            "    const colVal = pm.collectionVariables.get(k);",
+                            "    if (colVal !== undefined && colVal !== null) return String(colVal);",
+                            "    return '';",
+                            "});",
+                            "if (pm.request.body && pm.request.body.mode === 'raw') {",
+                            "    pm.request.body.update(rawBody);",
+                            "}",
+                            "",
+                            "const bodyHash = CryptoJS.SHA256(CryptoJS.enc.Utf8.parse(rawBody)).toString(CryptoJS.enc.Hex);",
+                            "",
+                            "// Signature format: timestamp + deviceId (+ bodyHash) (+ nonce)",
+                            "let message = timestamp + deviceId;",
+                            "if (requireBodyHash) message += bodyHash;",
+                            "if (requireNonce) message += nonce;",
                             "const signature = CryptoJS.HmacSHA256(message, secret).toString(CryptoJS.enc.Hex);",
                             "",
                             "// Set Headers",
-                            "pm.request.headers.add({key: 'X-Timestamp', value: timestamp});",
-                            "pm.request.headers.add({key: 'X-Signature', value: signature});",
-                            "pm.request.headers.add({key: 'X-Device-Id', value: deviceId});",
-                            "",
-                            "console.log('Timestamp:', timestamp);",
-                            "console.log('Signature:', signature);"
+                            "pm.request.headers.upsert({key: 'X-Timestamp', value: timestamp});",
+                            "pm.request.headers.upsert({key: 'X-Signature', value: signature});",
+                            "pm.request.headers.upsert({key: 'X-Device-Id', value: deviceId});",
+                            "if (requireBodyHash) {",
+                            "    pm.request.headers.upsert({key: 'X-Body-Hash', value: bodyHash});",
+                            "} else {",
+                            "    pm.request.headers.remove('X-Body-Hash');",
+                            "}",
+                            "if (requireNonce) {",
+                            "    pm.request.headers.upsert({key: 'X-Nonce', value: nonce});",
+                            "} else {",
+                            "    pm.request.headers.remove('X-Nonce');",
+                            "}"
                         ],
                         "type": "text/javascript"
                     }
@@ -47,29 +78,43 @@
                 ],
                 "body": {
                     "mode": "raw",
-                    "raw": "{\n    \"patient_id\": \"721e584f-f3f9-4beb-81b0-bfc688e487ce\",\n    \"device_id\": \"test_device_001\",\n    \"heart_rate\": 75,\n    \"sys_rate\": 120,\n    \"dia_rate\": 80,\n    \"wave_a\": [1, 2, 3, 4, 5],\n    \"wave_b\": [5, 4, 3, 2, 1],\n    \"measured_at\": \"{{$isoTimestamp}}\"\n}",
+                    "raw": "{\n    \"user_id\": \"{{patientId}}\",\n    \"device_id\": \"{{deviceId}}\",\n    \"heart_rate\": 75,\n    \"sys_rate\": 120,\n    \"dia_rate\": 80,\n    \"a\": [1, 2, 3, 4, 5],\n    \"b\": [5, 4, 3, 2, 1],\n    \"measured_at\": \"{{$isoTimestamp}}\"\n}",
                     "options": {
                         "raw": {
                             "language": "json"
                         }
                     }
                 },
-                "url": {
-                    "raw": "http://localhost:8000/device/v1/pressure",
-                    "protocol": "http",
-                    "host": [
-                        "localhost"
-                    ],
-                    "port": "8000",
-                    "path": [
-                        "device",
-                        "v1",
-                        "pressure"
-                    ]
-                },
-                "description": "Sends blood pressure data with simulated HMAC headers."
+                "url": "{{baseUrl}}/device/v1/pressure",
+                "description": "Sends blood pressure data with HMAC headers. `/add_pressure` is deprecated and kept for backward compatibility."
             },
             "response": []
+        }
+    ],
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:8000"
+        },
+        {
+            "key": "deviceId",
+            "value": "test_device_001"
+        },
+        {
+            "key": "patientId",
+            "value": "721e584f-f3f9-4beb-81b0-bfc688e487ce"
+        },
+        {
+            "key": "deviceSecret",
+            "value": ""
+        },
+        {
+            "key": "requireBodyHash",
+            "value": "true"
+        },
+        {
+            "key": "requireNonce",
+            "value": "true"
         }
     ]
 }

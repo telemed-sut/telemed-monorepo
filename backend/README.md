@@ -81,10 +81,53 @@ JWT payload: sub (user id), role, exp. Token type bearer.
 
 Pagination response: {items, page, limit, total}. Validation -> 422; missing -> 404; auth -> 401; forbidden -> 403 with detail.
 
+### Device Pressure API Contract
+- Primary endpoint: `POST /device/v1/pressure`
+- Legacy endpoint: `POST /add_pressure` (deprecated alias, same behavior)
+
+Required request headers:
+- `X-Device-Id`
+- `X-Timestamp` (unix seconds)
+- `X-Signature`
+- `X-Body-Hash` (required only when `DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE=true`)
+- `X-Nonce` (required only when `DEVICE_API_REQUIRE_NONCE=true`)
+
+Request body:
+```json
+{
+  "user_id": "721e584f-f3f9-4beb-81b0-bfc688e487ce",
+  "device_id": "test_device_001",
+  "heart_rate": 80,
+  "sys_rate": 120,
+  "dia_rate": 70,
+  "a": [100, 110, 120, 110, 100],
+  "b": [80, 85, 90, 85, 80],
+  "measured_at": "2026-02-20T12:00:00Z"
+}
+```
+
+Response body (`201 Created`):
+```json
+{
+  "id": "ecf958f4-ef8c-4e0d-b2f3-6f2f1a92c3b0",
+  "received_at": "2026-02-20T12:00:02.312Z",
+  "patient_id": "721e584f-f3f9-4beb-81b0-bfc688e487ce"
+}
+```
+
+Validation highlights:
+- `user_id` must be UUID.
+- `sys_rate` must be greater than `dia_rate`.
+- `a` and `b` must be equal length when both provided.
+
 ### Testing
-- Unit tests: `pytest` (requires test dependencies)
+- Unit tests: `python -m pytest` (requires test dependencies)
 - API tests: Import `Patient_Management_API.postman_collection.json` into Postman
 - Test coverage includes auth, patients CRUD, role-based access, and error handling
+- Test matrix profiles:
+  - compat profile (full suite): `./scripts/run_test_matrix.sh compat`
+  - strict profile (device security smoke test): `./scripts/run_test_matrix.sh strict`
+  - both profiles: `./scripts/run_test_matrix.sh all`
 
 ### Real device style simulation (HTTP ingest)
 Use this when you want to simulate an actual machine sending signed payloads to `/device/v1/pressure`.
