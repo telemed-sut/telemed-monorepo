@@ -1948,9 +1948,10 @@ export function MonthCalendarPopover({
               );
 
               return (
-                <button
+                <div
                   key={dateKey}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   data-month-date={dateKey}
                   className={cn(
                     "min-h-[78px] md:min-h-[84px] border-r border-b border-zinc-800/90 p-2 text-left align-top transition-colors last:border-r-0",
@@ -1961,6 +1962,13 @@ export function MonthCalendarPopover({
                   onClick={() => {
                     setSelectedDate(new Date(day));
                     setMeetingPopover(null);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedDate(new Date(day));
+                      setMeetingPopover(null);
+                    }
                   }}
                   onDoubleClick={(event) => {
                     openComposerByDoubleClick(event.clientX, event.clientY, day, 9 * 60);
@@ -2022,6 +2030,7 @@ export function MonthCalendarPopover({
                             openContextMenuForMeeting(event, meeting)
                           }
                           onClick={(event) => {
+                            event.stopPropagation();
                             setSelectedDate(new Date(effectiveDateTime));
                             openMeetingPopover(event, meeting, "compact");
                           }}
@@ -2048,7 +2057,7 @@ export function MonthCalendarPopover({
                       </div>
                     ) : null}
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
