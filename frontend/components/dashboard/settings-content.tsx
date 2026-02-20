@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import QRCode from "qrcode";
@@ -160,11 +161,6 @@ export function SettingsContent() {
     void load2FAStatus();
     void loadTrustedDevices();
   }, [hydrated, token]);
-
-  useEffect(() => {
-    setResolvedUser(null);
-    setGeneratedTempPassword("");
-  }, [targetEmail]);
 
   useEffect(() => {
     let cancelled = false;
@@ -542,9 +538,12 @@ export function SettingsContent() {
                   </p>
                   <div className="flex justify-center rounded-md bg-white p-2">
                     {qrCodeDataUrl ? (
-                      <img
+                      <Image
                         src={qrCodeDataUrl}
                         alt={tr(language, "2FA QR code", "คิวอาร์โค้ด 2FA")}
+                        width={220}
+                        height={220}
+                        unoptimized
                         className="h-[220px] w-[220px]"
                       />
                     ) : (
@@ -701,7 +700,11 @@ export function SettingsContent() {
                   id="target_email"
                   placeholder={tr(language, "user@hospital.org", "user@hospital.org")}
                   value={targetEmail}
-                  onChange={(event) => setTargetEmail(event.target.value)}
+                  onChange={(event) => {
+                    setTargetEmail(event.target.value);
+                    setResolvedUser(null);
+                    setGeneratedTempPassword("");
+                  }}
                 />
                 <Button type="button" variant="outline" onClick={resolveEmergencyTarget} disabled={emergencyBusy}>
                   {tr(language, "Resolve user", "ค้นหาผู้ใช้")}

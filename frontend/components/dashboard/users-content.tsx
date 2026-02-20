@@ -244,8 +244,8 @@ function CustomTooltip({
         {label}
       </p>
       <div className="space-y-1 sm:space-y-1.5">
-        {payload.map((entry, i) => (
-          <div key={i} className="flex items-center gap-1.5 sm:gap-2">
+        {payload.map((entry) => (
+          <div key={`${entry.name ?? "metric"}-${entry.dataKey ?? "value"}-${entry.color ?? "default"}`} className="flex items-center gap-1.5 sm:gap-2">
             <div
               className="size-2 sm:size-2.5 rounded-full"
               style={{ background: entry.color }}
@@ -478,9 +478,9 @@ function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: 
                 }
               />
               <div className="flex-1 flex items-center gap-1">
-                {insights.map((_, index) => (
+                {insights.map((insight, index) => (
                   <div
-                    key={index}
+                    key={insight}
                     className={`flex-1 h-0.5 rounded-full transition-colors ${
                       index === currentInsight
                         ? "bg-foreground"
@@ -796,8 +796,8 @@ function UsersByRoleChart({ users, language }: { users: User[]; language: AppLan
                 onMouseEnter={onPieEnter}
                 onMouseLeave={onPieLeave}
               >
-                {roleData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
+                {roleData.map((entry) => (
+                  <Cell key={entry.name} fill={entry.color} />
                 ))}
               </Pie>
             </PieChart>

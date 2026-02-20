@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
     UserIcon,
@@ -189,9 +189,10 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     const hasContact = !!(patient.phone || patient.email);
 
     return (
+        <LazyMotion features={domAnimation}>
         <div className="space-y-6 py-2 overflow-y-auto">
             {/* Patient Header */}
-            <motion.div
+            <m.div
                 initial={{ opacity: 0, y: -5 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2 }}
@@ -214,10 +215,10 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                         )} • {patient.gender ? getGenderLabel(patient.gender, language) : tr(language, "N/A", "ไม่มีข้อมูล")}
                     </p>
                 </div>
-            </motion.div>
+            </m.div>
 
             {/* Clinical View Link */}
-            <motion.div
+            <m.div
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: 0.03 }}
@@ -237,10 +238,10 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                 </button>
-            </motion.div>
+            </m.div>
 
             {/* Info Sections */}
-            <motion.div
+            <m.div
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: 0.05 }}
@@ -309,10 +310,10 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                         {patient.address || <span className="text-muted-foreground/60">{tr(language, "No address recorded", "ไม่มีที่อยู่ที่บันทึกไว้")}</span>}
                     </p>
                 </div>
-            </motion.div>
+            </m.div>
 
             {/* Meetings History */}
-            <motion.div
+            <m.div
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, delay: 0.1 }}
@@ -355,7 +356,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                                     : null;
 
                                 return (
-                                    <motion.div
+                                    <m.div
                                         key={meeting.id}
                                         initial={{ opacity: 0, y: 3 }}
                                         animate={{ opacity: 1, y: 0 }}
@@ -418,13 +419,14 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                                                 )}
                                             </div>
                                         </div>
-                                    </motion.div>
+                                    </m.div>
                                 );
                             })}
                         </AnimatePresence>
                     </div>
                 )}
-            </motion.div>
+            </m.div>
         </div>
+        </LazyMotion>
     );
 }

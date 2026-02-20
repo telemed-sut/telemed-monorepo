@@ -16,11 +16,19 @@ from app.db.base import Base
 from app.main import app
 from app.services.auth import get_db
 
-# Allow PostgreSQL JSONB columns to compile under SQLite test database.
+# Disable rate limiting during tests
+app.state.limiter.enabled = False
+
+# Allow PostgreSQL JSONB and UUID columns to compile under SQLite test database.
+from sqlalchemy.dialects.postgresql import UUID
+
+@compiles(UUID, "sqlite")
+def _compile_uuid_sqlite(_type, _compiler, **_kw):
+    return "VARCHAR"
+
 @compiles(JSONB, "sqlite")
 def _compile_jsonb_sqlite(_type, _compiler, **_kw):
     return "JSON"
-
 
 @compiles(ARRAY, "sqlite")
 def _compile_array_sqlite(_type, _compiler, **_kw):

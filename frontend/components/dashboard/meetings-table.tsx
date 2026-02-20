@@ -27,7 +27,7 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -307,7 +307,7 @@ export function MeetingsTable() {
 
     const isUpcoming = (iso: string) => new Date(iso) > new Date();
 
-    const renderEmptyState = () => (
+    const emptyStateContent = (
         <div className="flex flex-col items-center justify-center py-24 text-center">
             <div className="relative mb-6 group">
                 <div className="absolute inset-0 bg-violet-500/20 rounded-full blur-xl scale-150 animate-pulse opacity-50 group-hover:opacity-100 transition-opacity" />
@@ -342,6 +342,7 @@ export function MeetingsTable() {
     );
 
     return (
+        <LazyMotion features={domAnimation}>
         <div className="space-y-6">
             {/* Stats Cards */}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -549,7 +550,7 @@ export function MeetingsTable() {
                                     ))
                                 ) : meetings.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={7}>{renderEmptyState()}</TableCell>
+                                        <TableCell colSpan={7}>{emptyStateContent}</TableCell>
                                     </TableRow>
                                 ) : (
                                     <AnimatePresence mode="wait">
@@ -558,7 +559,7 @@ export function MeetingsTable() {
                                             const upcoming = isUpcoming(meeting.date_time);
 
                                             return (
-                                                <motion.tr
+                                                <m.tr
                                                     key={meeting.id}
                                                     initial={{ opacity: 0, y: 5 }}
                                                     animate={{ opacity: 1, y: 0 }}
@@ -676,7 +677,7 @@ export function MeetingsTable() {
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
                                                     </TableCell>
-                                                </motion.tr>
+                                                </m.tr>
                                             );
                                         })}
                                     </AnimatePresence>
@@ -907,5 +908,6 @@ export function MeetingsTable() {
             </Sheet>
 
         </div>
+        </LazyMotion>
     );
 }

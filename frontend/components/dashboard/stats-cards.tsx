@@ -156,8 +156,8 @@ export function StatsCards() {
   if (loading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="relative p-5 rounded-xl border bg-card overflow-hidden">
+        {[1, 2, 3].map((slot) => (
+          <div key={slot} className="relative p-5 rounded-xl border bg-card overflow-hidden">
             <Skeleton className="h-4 w-24 mb-3" />
             <Skeleton className="h-8 w-16 mb-4" />
             <Skeleton className="h-4 w-32" />
