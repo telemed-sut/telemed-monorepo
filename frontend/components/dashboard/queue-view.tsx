@@ -269,6 +269,13 @@ function QueueCard({
         isTerminal && "opacity-60"
       )}
       onClick={() => onClick(meeting)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onClick(meeting);
+      }}
     >
       {/* Top row: patient + actions + status */}
       <div className="flex items-start justify-between gap-3">
@@ -374,7 +381,12 @@ function QueueCard({
       )}
 
       {/* Action buttons */}
-      <div className="flex items-center gap-2 pt-1 mt-auto border-t border-border/50" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="flex items-center gap-2 pt-1 mt-auto border-t border-border/50"
+        role="group"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
         {canWrite ? (
           <>
             {nextStatuses

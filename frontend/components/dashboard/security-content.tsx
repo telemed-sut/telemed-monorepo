@@ -56,7 +56,7 @@ import {
     Clock,
     AlertTriangle,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
 
@@ -138,8 +138,8 @@ function SecurityStatsCards({
     return (
         <div className="bg-card rounded-xl border">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 lg:divide-x">
-                {cards.map((card, i) => (
-                    <div key={i} className="flex items-start gap-3 p-4 sm:p-5">
+                {cards.map((card) => (
+                    <div key={card.title} className="flex items-start gap-3 p-4 sm:p-5">
                         <div className={`p-2.5 rounded-lg ${card.bgColor}`}>
                             <card.icon className={`size-5 ${card.iconColor}`} />
                         </div>
@@ -393,6 +393,7 @@ export function SecurityContent() {
     const attemptsTotalPages = Math.ceil(attemptsTotal / 50);
 
     return (
+        <LazyMotion features={domAnimation}>
         <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 bg-background w-full">
             <SecurityStatsCards stats={stats} loading={statsLoading} language={language} />
 
@@ -479,7 +480,7 @@ export function SecurityContent() {
                                     ) : (
                                         <AnimatePresence mode="popLayout">
                                             {bans.map((ban) => (
-                                                <motion.tr
+                                                <m.tr
                                                     key={ban.id}
                                                     initial={{ opacity: 0, y: 10 }}
                                                     animate={{ opacity: 1, y: 0 }}
@@ -516,7 +517,7 @@ export function SecurityContent() {
                                                             {tr(language, "Unban", "ปลดแบน")}
                                                         </Button>
                                                     </TableCell>
-                                                </motion.tr>
+                                                </m.tr>
                                             ))}
                                         </AnimatePresence>
                                     )}
@@ -633,7 +634,7 @@ export function SecurityContent() {
                                     ) : (
                                         <AnimatePresence mode="popLayout">
                                             {attempts.map((attempt) => (
-                                                <motion.tr
+                                                <m.tr
                                                     key={attempt.id}
                                                     initial={{ opacity: 0, y: 10 }}
                                                     animate={{ opacity: 1, y: 0 }}
@@ -681,7 +682,7 @@ export function SecurityContent() {
                                                             {tr(language, "Ban", "แบน")}
                                                         </Button>
                                                     </TableCell>
-                                                </motion.tr>
+                                                </m.tr>
                                             ))}
                                         </AnimatePresence>
                                     )}
@@ -720,5 +721,6 @@ export function SecurityContent() {
             </Card>
 
         </main>
+        </LazyMotion>
     );
 }

@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
-
-import InviteRegisterClientPage from "./invite-register-client";
+import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
   title: "Accept Invitation",
   description: "Complete account setup from an invitation link.",
 };
 
-export default function InviteRegisterPage() {
-  return <InviteRegisterClientPage />;
+export default function InviteLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return children;
 }

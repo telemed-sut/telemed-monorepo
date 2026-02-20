@@ -51,7 +51,7 @@ import {
     ChevronRight,
     Download,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import { useLanguageStore } from "@/store/language-store";
 
 // ── Constants ──
@@ -533,8 +533,8 @@ function AuditStatsCards({
     return (
         <div className="bg-card rounded-xl border">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 lg:divide-x">
-                {stats.map((stat, i) => (
-                    <div key={i} className="flex items-start gap-3 p-4 sm:p-5">
+                {stats.map((stat) => (
+                    <div key={stat.title} className="flex items-start gap-3 p-4 sm:p-5">
                         <div className={`p-2.5 rounded-lg ${stat.bgColor}`}>
                             <stat.icon className={`size-5 ${stat.iconColor}`} />
                         </div>
@@ -751,6 +751,7 @@ export function AuditLogsContent() {
     const totalPages = Math.ceil(total / limit);
 
     return (
+        <LazyMotion features={domAnimation}>
         <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 bg-background w-full">
             <AuditStatsCards total={total} logs={logs} t={t} />
 
@@ -952,7 +953,7 @@ export function AuditLogsContent() {
                                     ) : (
                                         <AnimatePresence mode="popLayout">
                                             {logs.map((log) => (
-                                                <motion.tr
+                                                <m.tr
                                                     key={log.id}
                                                     initial={{ opacity: 0, y: 10 }}
                                                     animate={{ opacity: 1, y: 0 }}
@@ -1021,7 +1022,7 @@ export function AuditLogsContent() {
                                                     <TableCell>
                                                         <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                                                     </TableCell>
-                                                </motion.tr>
+                                                </m.tr>
                                             ))}
                                         </AnimatePresence>
                                     )}
@@ -1267,5 +1268,6 @@ export function AuditLogsContent() {
                 </SheetContent>
             </Sheet >
         </main >
+        </LazyMotion>
     );
 }

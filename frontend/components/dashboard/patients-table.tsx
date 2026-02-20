@@ -34,7 +34,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -453,7 +453,7 @@ export function PatientsTable() {
     return value;
   };
 
-  const renderEmptyState = () => (
+  const emptyStateContent = (
     <div className="flex flex-col items-center justify-center py-24 text-center">
       <div className="relative mb-6 group">
         <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl scale-150 animate-pulse opacity-50 group-hover:opacity-100 transition-opacity"></div>
@@ -489,6 +489,7 @@ export function PatientsTable() {
   );
 
   return (
+    <LazyMotion features={domAnimation}>
     <div className="space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -714,7 +715,7 @@ export function PatientsTable() {
                   ))
                 ) : patients.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7}>{renderEmptyState()}</TableCell>
+                    <TableCell colSpan={7}>{emptyStateContent}</TableCell>
                   </TableRow>
                 ) : (
                   <AnimatePresence mode="wait">
@@ -724,7 +725,7 @@ export function PatientsTable() {
                       const rowNumber = (page - 1) * limit + index + 1;
 
                       return (
-                        <motion.tr
+                        <m.tr
                           key={patient.id}
                           initial={{ opacity: 0, y: 5 }}
                           animate={{ opacity: 1, y: 0 }}
@@ -839,7 +840,7 @@ export function PatientsTable() {
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>
-                        </motion.tr>
+                        </m.tr>
                       );
                     })}
                   </AnimatePresence>
@@ -1290,5 +1291,6 @@ export function PatientsTable() {
       />
 
     </div>
+    </LazyMotion>
   );
 }

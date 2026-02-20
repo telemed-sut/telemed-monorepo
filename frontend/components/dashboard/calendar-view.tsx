@@ -150,14 +150,14 @@ function HoursColumn() {
     <div
       className="w-[80px] md:w-[104px] shrink-0 relative sticky left-0 z-30 bg-background border-r border-border"
     >
-      {HOURS_24.map((_, i) => (
+      {HOURS_24.map((hour) => (
         <div
-          key={i}
+          key={hour}
           className="relative"
           style={{ height: HOUR_HEIGHT }}
         >
           <span className="absolute -top-[0.6em] left-2 md:left-3 text-xs md:text-sm text-muted-foreground bg-background px-0.5 leading-none">
-            {i > 0 ? formatHourLabel(i, language) : ""}
+            {hour > 0 ? formatHourLabel(hour, language) : ""}
           </span>
         </div>
       ))}
@@ -169,7 +169,7 @@ function HoursColumn() {
 // Current Time Indicator
 // ══════════════════════════════════════════════════════════
 function CurrentTimeIndicator() {
-  const [top, setTop] = useState(getCurrentTimePosition());
+  const [top, setTop] = useState(() => getCurrentTimePosition());
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -234,7 +234,8 @@ function EventCard({
   // Very short event – single-line card
   if (isVeryShort) {
     return (
-      <div
+      <button
+        type="button"
         className={cn("absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg px-2 py-1 z-10 flex items-center gap-1.5 cursor-pointer hover:bg-muted transition-colors", statusColor.border)}
         style={{ top, height }}
         onClick={(event) => {
@@ -249,14 +250,15 @@ function EventCard({
         <span className="text-[9px] text-muted-foreground shrink-0">
           {formatTime12(meeting.date_time, language)}
         </span>
-      </div>
+      </button>
     );
   }
 
   // Medium event – title + time
   if (isMedium) {
     return (
-      <div
+      <button
+        type="button"
         className={cn("absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg px-2.5 py-2 z-10 cursor-pointer hover:bg-muted transition-colors", statusColor.border)}
         style={{ top, height }}
         onClick={(event) => {
@@ -275,13 +277,14 @@ function EventCard({
             {timeStr}
           </p>
         </div>
-      </div>
+      </button>
     );
   }
 
   // Full event card
   return (
-    <div
+    <button
+      type="button"
       className={cn("absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg p-3 z-10 cursor-pointer hover:bg-muted transition-colors", statusColor.border, meeting.status === "cancelled" && "opacity-60")}
       style={{ top, height }}
       onClick={(event) => {
@@ -351,7 +354,7 @@ function EventCard({
           </div>
         )}
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -407,10 +410,19 @@ function DayColumn({
         className={cn("relative", onSlotSelect && "cursor-cell")}
         style={{ height: columnHeight }}
         onClick={handleSlotClick}
+        role="button"
+        tabIndex={0}
+        aria-disabled={!onSlotSelect}
+        onKeyDown={(event) => {
+          if (!onSlotSelect) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+          }
+        }}
       >
-        {HOURS_24.map((_, i) => (
+        {HOURS_24.map((hour) => (
           <div
-            key={i}
+            key={`slot-${hour}`}
             style={{ height: HOUR_HEIGHT }}
           />
         ))}
@@ -1007,9 +1019,9 @@ export function CalendarView({
             </div>
 
             {/* Days Header */}
-            {weekDays.map((day, i) => (
+            {weekDays.map((day) => (
               <div
-                key={i}
+                key={day.toISOString()}
                 className="flex-1 border-r border-border last:border-r-0 p-1.5 md:p-2 min-w-44 flex items-center bg-background"
               >
                 <div
@@ -1048,7 +1060,7 @@ export function CalendarView({
               };
               return (
                 <DayColumn
-                  key={i}
+                  key={day.toISOString()}
                   date={day}
                   meetings={getMeetingsForDate(day)}
                   scrollRef={setDayRef}

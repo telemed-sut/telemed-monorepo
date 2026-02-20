@@ -204,8 +204,8 @@ function DeviceErrorTooltip({
     <div className="bg-popover border border-border rounded-lg p-3 shadow-lg">
       <p className="text-sm font-medium text-foreground mb-2">{label}</p>
       <div className="space-y-1.5">
-        {payload.map((entry, i) => (
-          <div key={i} className="flex items-center gap-2">
+        {payload.map((entry) => (
+          <div key={`${entry.name ?? "metric"}-${entry.dataKey ?? "value"}-${entry.color ?? "default"}`} className="flex items-center gap-2">
             <div className="size-2.5 rounded-full" style={{ background: entry.color }} />
             <span className="text-sm text-muted-foreground">
               {entry.name === "Errors" ? tr(language, "Errors", "ข้อผิดพลาด") : entry.name}:
@@ -1404,7 +1404,11 @@ export default function DeviceMonitorPage() {
                   variant="ghost"
                   size="icon"
                   className="size-8 rounded-full"
-                  onClick={() => setDeviceHealthPageIndex(deviceHealthPageCount - 1)}
+                  onClick={() =>
+                    setDeviceHealthPageIndex(() =>
+                      Math.max(0, deviceHealthPageCount - 1)
+                    )
+                  }
                   disabled={deviceHealthPageIndex >= deviceHealthPageCount - 1}
                 >
                   <ChevronsRight className="size-3.5" />

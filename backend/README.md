@@ -86,6 +86,46 @@ Pagination response: {items, page, limit, total}. Validation -> 422; missing -> 
 - API tests: Import `Patient_Management_API.postman_collection.json` into Postman
 - Test coverage includes auth, patients CRUD, role-based access, and error handling
 
+### Real device style simulation (HTTP ingest)
+Use this when you want to simulate an actual machine sending signed payloads to `/device/v1/pressure`.
+
+From `backend/`:
+
+```bash
+source venv/bin/activate
+python -m scripts.simulate_device_ingest \
+  --base-url http://localhost:8000 \
+  --endpoint /device/v1/pressure \
+  --patient-id 721e584f-f3f9-4beb-81b0-bfc688e487ce \
+  --device-id test_device_NEW_006 \
+  --secret-key "<device_secret_from_DEVICE_API_SECRETS>" \
+  --interval 1 \
+  --count 30
+```
+
+Notes:
+- Default mode is strict production signing (`timestamp + device_id + body_hash + nonce`).
+- `--count 0` means run forever.
+- Use `--legacy-signature` only for legacy mode environments.
+
+Alternate success/error testing (recommended for monitor and runbook verification):
+
+```bash
+python -m scripts.simulate_device_ingest \
+  --base-url http://localhost:8000 \
+  --endpoint /device/v1/pressure \
+  --patient-id 721e584f-f3f9-4beb-81b0-bfc688e487ce \
+  --device-id test_device_NEW_006 \
+  --secret-key "<device_secret_from_DEVICE_API_SECRETS>" \
+  --alternate-error \
+  --error-scenarios invalid_body_hash,missing_nonce,timestamp_out_of_window,validation_failed,unknown_patient \
+  --interval 1 \
+  --count 20
+```
+
+- `--alternate-error`: sends `success, error, success, error, ...`
+- `--error-rate 0.2`: random error injection (20%) instead of alternating
+
 ### Seeds
 `python -m scripts.seed` inserts demo users and ~15 realistic patients if tables are empty. In Docker Compose this runs automatically after alembic upgrade.
 
