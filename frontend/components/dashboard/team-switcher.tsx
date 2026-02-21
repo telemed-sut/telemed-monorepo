@@ -62,8 +62,8 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
                         <DropdownMenuTrigger
                             className="ring-sidebar-ring hover:bg-white/10 dark:hover:bg-white/5 active:bg-white/15 data-active:bg-white/10 data-open:hover:bg-white/10 gap-2 rounded-md p-2 text-left text-sm transition-all group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! focus-visible:ring-2 data-active:font-medium peer/menu-button flex w-full items-center overflow-hidden outline-hidden group/menu-button disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&_svg]:size-4 [&_svg]:shrink-0 h-12 group-data-[collapsible=icon]:p-0! data-[state=open]:bg-white/10"
                         >
-                            <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-white/15 dark:bg-white/10 backdrop-blur-sm border border-white/20 text-foreground">
-                                <Logo className="size-4" />
+                            <div className="flex aspect-square size-10 items-center justify-center rounded-lg bg-white/15 dark:bg-white/10 backdrop-blur-sm border border-white/20 text-foreground">
+                                <Logo className="size-9" />
                             </div>
                             <div className="grid flex-1 text-left text-sm leading-tight">
                                 <span className="truncate font-semibold">

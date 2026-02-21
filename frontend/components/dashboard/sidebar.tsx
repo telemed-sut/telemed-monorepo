@@ -209,7 +209,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
         isCollapsed ? "px-2 pt-4" : "p-3 sm:p-4 lg:p-5"
       )}>
         <div className={cn("flex items-center", isCollapsed ? "justify-center" : "gap-2")}>
-          <Logo className={cn("transition-all duration-200", isCollapsed ? "h-7 w-7" : "h-6 w-6")} />
+          <Logo className={cn("transition-all duration-200", isCollapsed ? "h-14 w-14" : "h-12 w-12")} />
           {!isCollapsed && <span className="font-semibold text-base sm:text-lg">E Med Help</span>}
         </div>
       </SidebarHeader>
