@@ -501,8 +501,8 @@ function AuditStatsCards({
             value: total,
             subtitle: t("allAuditEntries"),
             icon: ScrollText,
-            iconColor: "text-[#7ac2f0]",
-            bgColor: "bg-[#7ac2f0]/10",
+            iconColor: "text-[var(--med-primary-light)]",
+            bgColor: "bg-[var(--med-primary-light)]/10",
         },
         {
             title: t("breakGlass"),

@@ -67,7 +67,6 @@ import {
   Cell,
   Sector,
 } from "recharts";
-import { useTheme } from "next-themes";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
 
@@ -276,10 +275,8 @@ function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: 
     }),
     [language]
   );
-  const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
-  const axisColor = isDark ? "#71717a" : "#a1a1aa";
-  const gridColor = isDark ? "#27272a" : "#f4f4f5";
+  const axisColor = "var(--muted-foreground)";
+  const gridColor = "var(--border)";
 
   const [chartType, setChartType] = useState<ChartType>("bar");
   const [period, setPeriod] = useState<TimePeriod>("6months");
@@ -361,7 +358,7 @@ function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: 
         </div>
         <div className="hidden sm:flex items-center gap-3 sm:gap-5">
           <div className="flex items-center gap-1.5">
-            <div className="size-2.5 sm:size-3 rounded-full bg-[#7ac2f0]" />
+            <div className="size-2.5 sm:size-3 rounded-full bg-[var(--med-primary-light)]" />
             <span className="text-[10px] sm:text-xs text-muted-foreground">
               {tr(language, "This Year", "ปีนี้")}
             </span>
@@ -515,12 +512,12 @@ function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: 
                   >
                     <stop
                       offset="0%"
-                      stopColor="#7ac2f0"
+                      stopColor="var(--med-primary-light)"
                       stopOpacity={1}
                     />
                     <stop
                       offset="100%"
-                      stopColor="#7ac2f0"
+                      stopColor="var(--med-primary-light)"
                       stopOpacity={0.6}
                     />
                   </linearGradient>
@@ -549,7 +546,10 @@ function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: 
                 <Tooltip
                   content={<CustomTooltip language={language} />}
                   cursor={{
-                    fill: isDark ? "#27272a" : "#f4f4f5",
+                    fill: "var(--med-primary-light)",
+                    fillOpacity: 0.18,
+                    stroke: "var(--med-primary)",
+                    strokeOpacity: 0.2,
                     radius: 4,
                   }}
                 />
@@ -587,17 +587,18 @@ function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: 
                 <Tooltip
                   content={<CustomTooltip language={language} />}
                   cursor={{
-                    stroke: isDark ? "#52525b" : "#d4d4d8",
+                    stroke: "var(--med-primary)",
+                    strokeOpacity: 0.28,
                   }}
                 />
                 <Line
                   type="monotone"
                   dataKey="users"
                   name={tr(language, "Users", "ผู้ใช้")}
-                  stroke="#7ac2f0"
+                  stroke="var(--med-primary-light)"
                   strokeWidth={2}
-                  dot={{ fill: "#7ac2f0", strokeWidth: 0, r: 3 }}
-                  activeDot={{ r: 5, fill: "#7ac2f0" }}
+                  dot={{ fill: "var(--med-primary-light)", strokeWidth: 0, r: 3 }}
+                  activeDot={{ r: 5, fill: "var(--med-primary-light)" }}
                 />
               </LineChart>
             ) : (
@@ -612,12 +613,12 @@ function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: 
                   >
                     <stop
                       offset="0%"
-                      stopColor="#7ac2f0"
+                      stopColor="var(--med-primary-light)"
                       stopOpacity={0.3}
                     />
                     <stop
                       offset="100%"
-                      stopColor="#7ac2f0"
+                      stopColor="var(--med-primary-light)"
                       stopOpacity={0.05}
                     />
                   </linearGradient>
@@ -646,14 +647,15 @@ function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: 
                 <Tooltip
                   content={<CustomTooltip language={language} />}
                   cursor={{
-                    stroke: isDark ? "#52525b" : "#d4d4d8",
+                    stroke: "var(--med-primary)",
+                    strokeOpacity: 0.28,
                   }}
                 />
                 <Area
                   type="monotone"
                   dataKey="users"
                   name={tr(language, "Users", "ผู้ใช้")}
-                  stroke="#7ac2f0"
+                  stroke="var(--med-primary-light)"
                   strokeWidth={2}
                   fill="url(#userAreaGrad)"
                 />
@@ -694,8 +696,8 @@ function UsersByRoleChart({ users, language }: { users: User[]; language: AppLan
       counts[u.role] = (counts[u.role] || 0) + 1;
     });
     const colors: Record<string, string> = {
-      admin: "#7ac2f0",
-      doctor: "#5aade0",
+      admin: "var(--med-primary-light)",
+      doctor: "var(--med-primary)",
       staff: "#3d98d0",
       nurse: "#2d88c0",
       pharmacist: "#a855f7",
@@ -708,7 +710,7 @@ function UsersByRoleChart({ users, language }: { users: User[]; language: AppLan
         name:
           getRoleLabel(role),
         value: count,
-        color: colors[role] || "#7ac2f0",
+        color: colors[role] || "var(--med-primary-light)",
       }));
   }, [users, getRoleLabel]);
 

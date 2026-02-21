@@ -130,8 +130,8 @@ function SecurityStatsCards({
             value: stats?.total_attempts_24h ?? 0,
             subtitle: tr(language, "All login attempts", "ความพยายามล็อกอินทั้งหมด"),
             icon: Activity,
-            iconColor: "text-[#7ac2f0]",
-            bgColor: "bg-[#7ac2f0]/10",
+            iconColor: "text-[var(--med-primary-light)]",
+            bgColor: "bg-[var(--med-primary-light)]/10",
         },
     ];
 
@@ -562,7 +562,7 @@ export function SecurityContent() {
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div>
                             <CardTitle className="text-xl font-semibold flex items-center gap-2">
-                                <Activity className="w-5 h-5 text-[#7ac2f0]" />
+                                <Activity className="w-5 h-5 text-[var(--med-primary-light)]" />
                                 {tr(language, "Login Attempts", "ความพยายามเข้าสู่ระบบ")}
                             </CardTitle>
                             <CardDescription>

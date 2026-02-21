@@ -66,7 +66,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useTheme } from "next-themes";
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
 
@@ -221,10 +220,8 @@ function DeviceErrorTooltip({
 export default function DeviceMonitorPage() {
   const token = useAuthStore((state) => state.token);
   const language = useLanguageStore((state) => state.language);
-  const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === "dark";
-  const axisColor = isDark ? "#71717a" : "#a1a1aa";
-  const gridColor = isDark ? "#27272a" : "#f4f4f5";
+  const axisColor = "var(--muted-foreground)";
+  const gridColor = "var(--border)";
 
   const [stats, setStats] = useState<DeviceStats | null>(null);
   const [errors, setErrors] = useState<DeviceErrorLog[]>([]);
@@ -363,13 +360,18 @@ export default function DeviceMonitorPage() {
     if (!stats) return [];
     return [...stats.errors_by_device]
       .map((item) => ({ ...item, count: Number(item.count) || 0 }))
+      .filter((item) => item.device_id.trim().length > 0)
       .sort((a, b) => b.count - a.count);
   }, [stats]);
-  const deviceChartData = allDeviceErrorData.slice(0, 8);
+  const deviceErrorDataWithCount = useMemo(
+    () => allDeviceErrorData.filter((item) => item.count > 0),
+    [allDeviceErrorData]
+  );
+  const deviceChartData = deviceErrorDataWithCount.slice(0, 8);
 
   const totalDeviceErrors = useMemo(
-    () => allDeviceErrorData.reduce((acc, item) => acc + item.count, 0),
-    [allDeviceErrorData]
+    () => deviceErrorDataWithCount.reduce((acc, item) => acc + item.count, 0),
+    [deviceErrorDataWithCount]
   );
   const isTrendChart = chartType !== "bar";
 
@@ -491,7 +493,7 @@ export default function DeviceMonitorPage() {
 
   const topFailingDeviceDetails = useMemo(() => {
     const nowMs = Date.now();
-    return allDeviceErrorData.slice(0, 3).map((device) => {
+    return deviceErrorDataWithCount.slice(0, 3).map((device) => {
       const share = totalDeviceErrors > 0 ? (device.count / totalDeviceErrors) * 100 : 0;
       const lastSeen = latestErrorByDevice.get(device.device_id) || null;
       const dominantType = dominantErrorTypeByDevice.get(device.device_id);
@@ -505,7 +507,7 @@ export default function DeviceMonitorPage() {
         isOnline: lastSeen ? nowMs - lastSeen <= 15 * 60 * 1000 : false,
       };
     });
-  }, [allDeviceErrorData, dominantErrorTypeByDevice, latestErrorByDevice, totalDeviceErrors]);
+  }, [deviceErrorDataWithCount, dominantErrorTypeByDevice, latestErrorByDevice, totalDeviceErrors]);
 
   const spikeAlert = useMemo(() => {
     const nowMs = Date.now();
@@ -557,7 +559,7 @@ export default function DeviceMonitorPage() {
   }, [errors, selectedDeviceId, language]);
 
   const deviceHealthRows = useMemo(() => {
-    return allDeviceErrorData.map((device) => {
+    return deviceErrorDataWithCount.map((device) => {
       const share = totalDeviceErrors > 0 ? (device.count / totalDeviceErrors) * 100 : 0;
       let riskLevel: RiskLevel = "stable";
       if (device.count >= 5 || share >= 40) {
@@ -574,7 +576,7 @@ export default function DeviceMonitorPage() {
         riskLevel,
       };
     });
-  }, [allDeviceErrorData, latestErrorByDevice, totalDeviceErrors]);
+  }, [deviceErrorDataWithCount, latestErrorByDevice, totalDeviceErrors]);
   const deviceHealthPageCount = Math.max(1, Math.ceil(deviceHealthRows.length / deviceHealthPageSize));
   const paginatedDeviceHealthRows = useMemo(() => {
     const start = deviceHealthPageIndex * deviceHealthPageSize;
@@ -590,6 +592,7 @@ export default function DeviceMonitorPage() {
   const isThresholdBreached = currentErrorRatePercent >= errorRateThreshold;
 
   const activeChartData = isTrendChart ? trendChartData : deviceChartData;
+  const hasSingleDeviceBar = chartType === "bar" && deviceChartData.length === 1;
   const yAxisMax = useMemo(() => {
     const max = activeChartData.reduce((acc, item) => Math.max(acc, item.count), 0);
     return Math.max(2, max + 1);
@@ -865,7 +868,7 @@ export default function DeviceMonitorPage() {
             </div>
             <div className="hidden sm:flex items-center gap-3 sm:gap-5">
               <div className="flex items-center gap-1.5">
-                <div className="size-2.5 sm:size-3 rounded-full bg-[#7ac2f0]" />
+                <div className="size-2.5 sm:size-3 rounded-full bg-[var(--med-primary-light)]" />
                 <span className="text-[10px] sm:text-xs text-muted-foreground">
                   {isTrendChart
                     ? `${periodLabelsByLang[periodHours]} ${tr(language, "trend", "แนวโน้ม")}`
@@ -980,117 +983,150 @@ export default function DeviceMonitorPage() {
             </div>
 
             <div className="flex-1 h-[145px] sm:h-[160px] lg:h-[175px] min-w-0">
-              <ResponsiveContainer width="100%" height="100%">
-                {chartType === "bar" ? (
-                  <BarChart data={deviceChartData}>
-                    <defs>
-                      <linearGradient id="deviceErrorBarGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#7ac2f0" stopOpacity={1} />
-                        <stop offset="100%" stopColor="#7ac2f0" stopOpacity={0.6} />
-                      </linearGradient>
-                    </defs>
-                    {showGrid && <CartesianGrid strokeDasharray="0" stroke={gridColor} vertical={false} />}
-                    <XAxis
-                      dataKey="device_id"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: axisColor, fontSize: 9 }}
-                      dy={8}
-                    />
-                    <YAxis
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: axisColor, fontSize: 10 }}
-                      dx={-5}
-                      width={40}
-                      allowDecimals={false}
-                      domain={[0, yAxisMax]}
-                    />
-                    <Tooltip
-                      content={<DeviceErrorTooltip language={language} />}
-                      cursor={{ fill: isDark ? "#27272a" : "#f4f4f5", radius: 4 }}
-                    />
-                    <Bar
-                      dataKey="count"
-                      name={tr(language, "Errors", "ข้อผิดพลาด")}
-                      fill="url(#deviceErrorBarGrad)"
-                      radius={[4, 4, 0, 0]}
-                      maxBarSize={18}
-                    />
-                  </BarChart>
-                ) : chartType === "line" ? (
-                  <LineChart data={trendChartData}>
-                    {showGrid && <CartesianGrid strokeDasharray="0" stroke={gridColor} vertical={false} />}
-                    <XAxis
-                      dataKey="label"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: axisColor, fontSize: 9 }}
-                      dy={8}
-                    />
-                    <YAxis
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: axisColor, fontSize: 10 }}
-                      dx={-5}
-                      width={40}
-                      allowDecimals={false}
-                      domain={[0, yAxisMax]}
-                    />
-                    <Tooltip content={<DeviceErrorTooltip language={language} />} cursor={{ stroke: isDark ? "#52525b" : "#d4d4d8" }} />
-                    <Line
-                      type="linear"
-                      dataKey="count"
-                      name={tr(language, "Errors", "ข้อผิดพลาด")}
-                      stroke="#7ac2f0"
-                      strokeWidth={3}
-                      dot={{ fill: "#7ac2f0", strokeWidth: 0, r: 4 }}
-                      activeDot={{ r: 6, fill: "#7ac2f0" }}
-                      connectNulls
-                    />
-                  </LineChart>
-                ) : (
-                  <AreaChart data={trendChartData}>
-                    <defs>
-                      <linearGradient id="deviceErrorAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#7ac2f0" stopOpacity={0.55} />
-                        <stop offset="100%" stopColor="#7ac2f0" stopOpacity={0.2} />
-                      </linearGradient>
-                    </defs>
-                    {showGrid && <CartesianGrid strokeDasharray="0" stroke={gridColor} vertical={false} />}
-                    <XAxis
-                      dataKey="label"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: axisColor, fontSize: 9 }}
-                      dy={8}
-                    />
-                    <YAxis
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: axisColor, fontSize: 10 }}
-                      dx={-5}
-                      width={40}
-                      allowDecimals={false}
-                      domain={[0, yAxisMax]}
-                    />
-                    <Tooltip content={<DeviceErrorTooltip language={language} />} cursor={{ stroke: isDark ? "#52525b" : "#d4d4d8" }} />
-                    <Area
-                      type="linear"
-                      dataKey="count"
-                      name={tr(language, "Errors", "ข้อผิดพลาด")}
-                      stroke="#7ac2f0"
-                      strokeWidth={3}
-                      fill="url(#deviceErrorAreaGrad)"
-                      dot={{ fill: "#7ac2f0", strokeWidth: 0, r: 3 }}
-                      activeDot={{ r: 5, fill: "#7ac2f0" }}
-                      connectNulls
-                    />
-                  </AreaChart>
+              {chartType === "bar" && deviceChartData.length === 0 ? (
+                <div className="h-full w-full rounded-md border border-dashed border-border/70 bg-muted/20 flex items-center justify-center px-4 text-center">
+                  <p className="text-[10px] sm:text-xs text-muted-foreground">
+                    {tr(
+                      language,
+                      "No device errors in this period. Try changing the time range.",
+                      "ช่วงเวลานี้ไม่พบข้อผิดพลาดของอุปกรณ์ ลองเปลี่ยนช่วงเวลา"
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  {chartType === "bar" ? (
+                    <BarChart data={deviceChartData}>
+                      <defs>
+                        <linearGradient id="deviceErrorBarGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="var(--med-primary-light)" stopOpacity={1} />
+                          <stop offset="100%" stopColor="var(--med-primary-light)" stopOpacity={0.6} />
+                        </linearGradient>
+                      </defs>
+                      {showGrid && <CartesianGrid strokeDasharray="0" stroke={gridColor} vertical={false} />}
+                      <XAxis
+                        dataKey="device_id"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: axisColor, fontSize: 9 }}
+                        dy={8}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: axisColor, fontSize: 10 }}
+                        dx={-5}
+                        width={40}
+                        allowDecimals={false}
+                        domain={[0, yAxisMax]}
+                      />
+                      <Tooltip
+                        content={<DeviceErrorTooltip language={language} />}
+                        cursor={{
+                          fill: "var(--med-primary-light)",
+                          fillOpacity: 0.18,
+                          stroke: "var(--med-primary)",
+                          strokeOpacity: 0.2,
+                          radius: 4,
+                        }}
+                      />
+                      <Bar
+                        dataKey="count"
+                        name={tr(language, "Errors", "ข้อผิดพลาด")}
+                        fill="url(#deviceErrorBarGrad)"
+                        radius={[4, 4, 0, 0]}
+                        maxBarSize={18}
+                      />
+                    </BarChart>
+                  ) : chartType === "line" ? (
+                    <LineChart data={trendChartData}>
+                      {showGrid && <CartesianGrid strokeDasharray="0" stroke={gridColor} vertical={false} />}
+                      <XAxis
+                        dataKey="label"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: axisColor, fontSize: 9 }}
+                        dy={8}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: axisColor, fontSize: 10 }}
+                        dx={-5}
+                        width={40}
+                        allowDecimals={false}
+                        domain={[0, yAxisMax]}
+                      />
+                      <Tooltip
+                        content={<DeviceErrorTooltip language={language} />}
+                        cursor={{ stroke: "var(--med-primary)", strokeOpacity: 0.28 }}
+                      />
+                      <Line
+                        type="linear"
+                        dataKey="count"
+                        name={tr(language, "Errors", "ข้อผิดพลาด")}
+                        stroke="var(--med-primary-light)"
+                        strokeWidth={3}
+                        dot={{ fill: "var(--med-primary-light)", strokeWidth: 0, r: 4 }}
+                        activeDot={{ r: 6, fill: "var(--med-primary-light)" }}
+                        connectNulls
+                      />
+                    </LineChart>
+                  ) : (
+                    <AreaChart data={trendChartData}>
+                      <defs>
+                        <linearGradient id="deviceErrorAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="var(--med-primary-light)" stopOpacity={0.55} />
+                          <stop offset="100%" stopColor="var(--med-primary-light)" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      {showGrid && <CartesianGrid strokeDasharray="0" stroke={gridColor} vertical={false} />}
+                      <XAxis
+                        dataKey="label"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: axisColor, fontSize: 9 }}
+                        dy={8}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: axisColor, fontSize: 10 }}
+                        dx={-5}
+                        width={40}
+                        allowDecimals={false}
+                        domain={[0, yAxisMax]}
+                      />
+                      <Tooltip
+                        content={<DeviceErrorTooltip language={language} />}
+                        cursor={{ stroke: "var(--med-primary)", strokeOpacity: 0.28 }}
+                      />
+                      <Area
+                        type="linear"
+                        dataKey="count"
+                        name={tr(language, "Errors", "ข้อผิดพลาด")}
+                        stroke="var(--med-primary-light)"
+                        strokeWidth={3}
+                        fill="url(#deviceErrorAreaGrad)"
+                        dot={{ fill: "var(--med-primary-light)", strokeWidth: 0, r: 3 }}
+                        activeDot={{ r: 5, fill: "var(--med-primary-light)" }}
+                        connectNulls
+                      />
+                    </AreaChart>
+                  )}
+                </ResponsiveContainer>
+              )}
+            </div>
+            </div>
+            {hasSingleDeviceBar && (
+              <p className="text-[10px] sm:text-xs text-muted-foreground">
+                {tr(
+                  language,
+                  "Only one device has errors in this period, so hover appears on a single zone.",
+                  "ช่วงเวลานี้มีอุปกรณ์ที่ผิดพลาดเพียง 1 ตัว จึงแสดงโฮเวอร์ได้เพียงโซนเดียว"
                 )}
-              </ResponsiveContainer>
-            </div>
-            </div>
+              </p>
+            )}
 
             <div className="rounded-lg border border-border/60 bg-muted/20 p-3 sm:p-3.5 space-y-3">
               <div className="flex items-start justify-between gap-2">
@@ -1115,7 +1151,7 @@ export default function DeviceMonitorPage() {
                       }
                       className={`w-full text-left rounded-md border p-2.5 sm:p-3 transition-colors ${
                         selectedDeviceId === device.deviceId
-                          ? "border-[#7ac2f0] bg-[#7ac2f0]/10"
+                          ? "border-[var(--med-primary-light)] bg-[var(--med-primary-light)]/10"
                           : "border-border/60 bg-background/90 hover:bg-muted/40"
                       }`}
                     >
@@ -1141,7 +1177,7 @@ export default function DeviceMonitorPage() {
 
                       <div className="mt-2 h-1.5 rounded-full bg-muted">
                         <div
-                          className="h-full rounded-full bg-[#7ac2f0] transition-all"
+                          className="h-full rounded-full bg-[var(--med-primary-light)] transition-all"
                           style={{ width: `${Math.min(100, Math.max(device.share, 5))}%` }}
                         />
                       </div>
@@ -1218,7 +1254,15 @@ export default function DeviceMonitorPage() {
                         tickFormatter={(value: string) => localizeErrorType(String(value), language)}
                         width={98}
                       />
-                      <Tooltip content={<DeviceErrorTooltip language={language} />} cursor={{ fill: isDark ? "#27272a" : "#f4f4f5" }} />
+                      <Tooltip
+                        content={<DeviceErrorTooltip language={language} />}
+                        cursor={{
+                          fill: "var(--med-primary-light)",
+                          fillOpacity: 0.18,
+                          stroke: "var(--med-primary)",
+                          strokeOpacity: 0.2,
+                        }}
+                      />
                       <Bar dataKey="count" name={tr(language, "Errors", "ข้อผิดพลาด")} radius={[0, 4, 4, 0]}>
                         {errorTypeData.map((entry) => (
                           <Cell key={entry.type} fill={entry.color} />

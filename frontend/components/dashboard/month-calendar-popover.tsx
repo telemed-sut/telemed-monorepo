@@ -149,6 +149,19 @@ interface MonthCalendarPopoverProps {
   onNewEvent?: (slot: CalendarSlotSelection) => void;
 }
 
+interface ComposerDraft {
+  dateISO: string;
+  startHour: number;
+  startMinute: number;
+  endHour: number;
+  endMinute: number;
+  description: string;
+  patientId: string;
+  doctorId: string;
+  room: string;
+  note: string;
+}
+
 const CLOSED_CONTEXT_MENU: DayContextMenuState = {
   open: false,
   date: null,
@@ -221,6 +234,68 @@ function writeInviteesDraft(meetingId: string, value: string): void {
     window.localStorage.removeItem(getInviteesDraftKey(meetingId));
   } catch {
     // no-op: local storage may be blocked
+  }
+}
+
+function getComposerDraftKey(userId: string | null): string {
+  return `month-calendar-popover-composer:${userId ?? "anonymous"}`;
+}
+
+function readComposerDraft(userId: string | null): ComposerDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(getComposerDraftKey(userId));
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const draft = parsed as Partial<ComposerDraft>;
+    if (!draft.dateISO || typeof draft.dateISO !== "string") return null;
+    const parsedDate = new Date(draft.dateISO);
+    if (Number.isNaN(parsedDate.getTime())) return null;
+
+    const toInt = (value: unknown, fallback: number, min: number, max: number) => {
+      if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+      return Math.min(max, Math.max(min, Math.trunc(value)));
+    };
+
+    const startHour = toInt(draft.startHour, 9, 0, 23);
+    const startMinute = toInt(draft.startMinute, 0, 0, 59);
+    const fallbackEndHour = Math.min(startHour + 1, 23);
+    const endHour = toInt(draft.endHour, fallbackEndHour, 0, 23);
+    const endMinute = toInt(draft.endMinute, startMinute, 0, 59);
+
+    return {
+      dateISO: draft.dateISO,
+      startHour,
+      startMinute,
+      endHour,
+      endMinute,
+      description: typeof draft.description === "string" ? draft.description : "",
+      patientId: typeof draft.patientId === "string" ? draft.patientId : "",
+      doctorId: typeof draft.doctorId === "string" ? draft.doctorId : "",
+      room: typeof draft.room === "string" ? draft.room : "",
+      note: typeof draft.note === "string" ? draft.note : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeComposerDraft(userId: string | null, draft: ComposerDraft): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(getComposerDraftKey(userId), JSON.stringify(draft));
+  } catch {
+    // no-op
+  }
+}
+
+function clearComposerDraft(userId: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(getComposerDraftKey(userId));
+  } catch {
+    // no-op
   }
 }
 
@@ -781,6 +856,23 @@ export function MonthCalendarPopover({
     return doctors[0]?.id ?? "";
   }, [isDoctorUser, currentUserId, doctors]);
 
+  useEffect(() => {
+    if (!composer || composer.submitting) return;
+
+    writeComposerDraft(currentUserId, {
+      dateISO: composer.date.toISOString(),
+      startHour: composer.startHour,
+      startMinute: composer.startMinute,
+      endHour: composer.endHour,
+      endMinute: composer.endMinute,
+      description: composer.description,
+      patientId: composer.patientId,
+      doctorId: isDoctorUser ? currentUserId || composer.doctorId : composer.doctorId,
+      room: composer.room,
+      note: composer.note,
+    });
+  }, [composer, currentUserId, isDoctorUser]);
+
   const monthGridDays = useMemo(() => buildMonthGridDays(activeMonth), [activeMonth]);
 
   const effectiveMeetingDateTimes = useMemo(() => {
@@ -941,6 +1033,7 @@ export function MonthCalendarPopover({
 
     const onPointerDown = (event: PointerEvent) => {
       if (!popupContainerRef.current?.contains(event.target as Node)) {
+        setComposer(null);
         setContextMenu(CLOSED_CONTEXT_MENU);
         setMeetingContextMenu(CLOSED_MEETING_CONTEXT_MENU);
         setMeetingPopover(null);
@@ -1289,6 +1382,26 @@ export function MonthCalendarPopover({
       COMPOSER_WIDTH,
       COMPOSER_HEIGHT
     );
+
+    const savedDraft = readComposerDraft(currentUserId);
+    if (savedDraft) {
+      setComposer({
+        anchorX: positioned.x,
+        anchorY: positioned.y,
+        date: new Date(savedDraft.dateISO),
+        startHour: savedDraft.startHour,
+        startMinute: savedDraft.startMinute,
+        endHour: savedDraft.endHour,
+        endMinute: savedDraft.endMinute,
+        description: savedDraft.description,
+        patientId: savedDraft.patientId,
+        doctorId: savedDraft.doctorId || defaultDoctorId,
+        room: savedDraft.room,
+        note: savedDraft.note,
+        submitting: false,
+      });
+      return;
+    }
 
     setComposer({
       anchorX: positioned.x,
@@ -1866,6 +1979,7 @@ export function MonthCalendarPopover({
       const createdMeeting = await createMeeting(payload, token);
       toast.success(tr(language, "Appointment scheduled", "สร้างนัดหมายสำเร็จ"));
 
+      clearComposerDraft(currentUserId);
       setComposer(null);
       setPreviewMeeting(createdMeeting);
       setMeetingPopover(null);
@@ -1881,6 +1995,24 @@ export function MonthCalendarPopover({
       setComposer((prev) => (prev ? { ...prev, submitting: false } : prev));
     }
   };
+
+  const handleClearComposerForm = useCallback(() => {
+    if (!composer || composer.submitting) return;
+
+    clearComposerDraft(currentUserId);
+    setComposer((prev) =>
+      prev
+        ? {
+            ...prev,
+            description: "",
+            patientId: "",
+            doctorId: defaultDoctorId,
+            room: "",
+            note: "",
+          }
+        : prev
+    );
+  }, [composer, currentUserId, defaultDoctorId]);
 
   const handleUpdateMeetingFromPopover = async (
     meetingId: string,
@@ -2721,6 +2853,7 @@ export function MonthCalendarPopover({
           ref={popupContainerRef}
           className="relative flex h-full flex-col bg-[radial-gradient(circle_at_30%_-20%,rgba(255,255,255,0.08),transparent_35%),linear-gradient(180deg,rgba(38,38,42,0.9)_0%,rgba(24,24,27,0.96)_100%)]"
           onPointerDown={() => {
+            setComposer(null);
             setContextMenu(CLOSED_CONTEXT_MENU);
             setMeetingContextMenu(CLOSED_MEETING_CONTEXT_MENU);
             setMeetingPopover(null);
@@ -3180,7 +3313,7 @@ export function MonthCalendarPopover({
                       )
                     }
                     rows={3}
-                    className="w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 outline-none resize-none"
+                    className="w-full resize-none overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950/80 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 outline-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
                     placeholder={tr(language, "Additional details", "รายละเอียดเพิ่มเติม")}
                   />
                 </div>
@@ -3191,7 +3324,19 @@ export function MonthCalendarPopover({
                   type="button"
                   variant="outline"
                   className="h-8 border-zinc-600 bg-zinc-900 px-3 text-xs text-zinc-200 hover:bg-zinc-800"
-                  onClick={() => setComposer(null)}
+                  onClick={handleClearComposerForm}
+                  disabled={composer.submitting}
+                >
+                  {tr(language, "Clear form", "ล้างฟอร์ม")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 border-zinc-600 bg-zinc-900 px-3 text-xs text-zinc-200 hover:bg-zinc-800"
+                  onClick={() => {
+                    clearComposerDraft(currentUserId);
+                    setComposer(null);
+                  }}
                 >
                   {tr(language, "Cancel", "ยกเลิก")}
                 </Button>

@@ -2,7 +2,6 @@
 
 import { usePathname } from "next/navigation";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { Settings, RefreshCw, Languages, Check } from "lucide-react";
 import {
   DropdownMenu,
@@ -255,8 +254,6 @@ export function DashboardHeader() {
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <ThemeToggle />
       </div>
     </header>
   );
