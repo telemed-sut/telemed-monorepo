@@ -21,6 +21,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
+import { AnimatedCalendar } from "@/components/ui/calender";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -1128,7 +1129,6 @@ function CreateEventDialog({
   const [room, setRoom] = useState("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [doctorQuery, setDoctorQuery] = useState("");
   const [patientQuery, setPatientQuery] = useState("");
   const [doctorSearchResults, setDoctorSearchResults] = useState<User[]>([]);
@@ -1493,39 +1493,39 @@ function CreateEventDialog({
         </DialogHeader>
 
         <div className="px-6 pb-2 space-y-5">
-          {/* ── Date Picker ── */}
+          {/* ── Date & Time Selection ── */}
           <div className="space-y-2">
             <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              {tr(language, "Date", "วันที่")}
+              {tr(language, "Date & Time Selection", "เลือกวันและเวลา")}
             </Label>
-            <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-              <PopoverTrigger className="inline-flex items-center w-full gap-3 rounded-lg border border-input bg-background px-3.5 py-2.5 text-sm hover:bg-accent/50 transition-colors">
-                <HugeiconsIcon
-                  icon={Calendar01Icon}
-                  className="size-4 text-[#7ac2f0]"
-                />
-                <span className="font-medium">
-                  {formatDateLabel(selectedDate, language, {
-                    weekday: "long",
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  })}
-                </span>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={selectedDate}
-                  onSelect={(date) => {
-                    if (date) {
-                      setSelectedDate(date);
-                      setDatePickerOpen(false);
-                    }
-                  }}
-                />
-              </PopoverContent>
-            </Popover>
+            <AnimatedCalendar
+              mode="single"
+              value={selectedDate}
+              onChange={(value) => {
+                if (value instanceof Date) {
+                  setSelectedDate(value);
+                }
+              }}
+              localeStrings={{
+                today: tr(language, "Today", "วันนี้"),
+                clear: tr(language, "Clear", "ล้าง"),
+                selectTime: tr(language, "Select time", "เลือกเวลา"),
+                backToCalendar: tr(language, "Back to calendar", "กลับไปปฏิทิน"),
+                selected: tr(language, "selected", "ที่เลือก"),
+              }}
+              showWeekNumbers
+              showTodayButton
+              showClearButton={false}
+              closeOnSelect
+              className="w-full"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              {tr(
+                language,
+                "Select a date, then set start and end time below.",
+                "เลือกวันที่ก่อน แล้วตั้งเวลาเริ่มและเวลาสิ้นสุดด้านล่าง"
+              )}
+            </p>
           </div>
 
           {/* ── Time Pickers ── */}
