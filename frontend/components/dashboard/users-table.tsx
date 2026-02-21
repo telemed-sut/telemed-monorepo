@@ -225,6 +225,52 @@ const getInviteStatusLabel = (status: string, language: AppLanguage): string => 
     return englishLabel;
 };
 
+const getInviteStatusFilterLabel = (
+    status: "active" | "expired" | "closed" | "all",
+    language: AppLanguage
+): string => {
+    if (status === "all") return tr(language, "All", "ทั้งหมด");
+    return getInviteStatusLabel(status, language);
+};
+
+const INVITE_ERROR_MESSAGE_RULES: Array<{
+    pattern: RegExp;
+    en: string;
+    th: string;
+}> = [
+    {
+        pattern: /invite onboarding is restricted to clinical specialist roles in this phase|clinical specialist roles/i,
+        en: "Invites are currently limited to clinical specialist roles.",
+        th: "ขณะนี้ระบบอนุญาตส่งคำเชิญเฉพาะบทบาทสายคลินิกเท่านั้น",
+    },
+    {
+        pattern: /invite.*expired|expired invite|link.*expired/i,
+        en: "This invite has expired. Please create a new invite link.",
+        th: "คำเชิญนี้หมดอายุแล้ว กรุณาสร้างลิงก์คำเชิญใหม่",
+    },
+    {
+        pattern: /invite.*closed|invite.*revoked|already revoked/i,
+        en: "This invite is no longer active.",
+        th: "คำเชิญนี้ไม่อยู่ในสถานะใช้งานแล้ว",
+    },
+];
+
+const getInviteErrorMessage = (
+    error: unknown,
+    language: AppLanguage,
+    fallbackEn: string,
+    fallbackTh: string
+): string => {
+    const fallback = language === "th" ? fallbackTh : fallbackEn;
+    const message = getErrorMessage(error, fallback);
+    for (const rule of INVITE_ERROR_MESSAGE_RULES) {
+        if (rule.pattern.test(message)) {
+            return language === "th" ? rule.th : rule.en;
+        }
+    }
+    return message;
+};
+
 const formatInviteTimestamp = (value?: string | null, language: AppLanguage = "en"): string => {
     if (!value) return "-";
     const date = new Date(value);
@@ -363,12 +409,17 @@ export function UsersTable() {
             setInviteItems(response.items ?? []);
         } catch (error) {
             toast.error(tr(language, "Load failed", "โหลดไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถโหลดรายการคำเชิญได้"),
+                description: getInviteErrorMessage(
+                    error,
+                    language,
+                    "Unable to load invite records.",
+                    "ไม่สามารถโหลดรายการคำเชิญได้"
+                ),
             });
         } finally {
             setIsInviteListLoading(false);
         }
-    }, [token, isInviteSheetOpen, inviteStatusFilter]);
+    }, [token, isInviteSheetOpen, inviteStatusFilter, language]);
 
     useEffect(() => {
         loadUsers();
@@ -648,7 +699,12 @@ export function UsersTable() {
             await loadInviteItems();
         } catch (error) {
             toast.error(tr(language, "Invite failed", "คำเชิญไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถสร้างลิงก์คำเชิญได้"),
+                description: getInviteErrorMessage(
+                    error,
+                    language,
+                    "Unable to create invite link.",
+                    "ไม่สามารถสร้างลิงก์คำเชิญได้"
+                ),
             });
         } finally {
             setIsInviteSubmitting(false);
@@ -674,7 +730,12 @@ export function UsersTable() {
             await loadInviteItems();
         } catch (error) {
             toast.error(tr(language, "Resend failed", "ส่งซ้ำไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถส่งคำเชิญซ้ำได้"),
+                description: getInviteErrorMessage(
+                    error,
+                    language,
+                    "Unable to resend this invite.",
+                    "ไม่สามารถส่งคำเชิญซ้ำได้"
+                ),
             });
         } finally {
             setIsInviteSubmitting(false);
@@ -698,7 +759,12 @@ export function UsersTable() {
                             await loadInviteItems();
                         } catch (error) {
                             toast.error(tr(language, "Revoke failed", "เพิกถอนไม่สำเร็จ"), {
-                                description: getErrorMessage(error, "ไม่สามารถยกเลิกคำเชิญได้"),
+                                description: getInviteErrorMessage(
+                                    error,
+                                    language,
+                                    "Unable to revoke this invite.",
+                                    "ไม่สามารถยกเลิกคำเชิญได้"
+                                ),
                             });
                         } finally {
                             setIsInviteSubmitting(false);
@@ -2047,7 +2113,9 @@ export function UsersTable() {
                                         onValueChange={(value) => setInviteStatusFilter((value as "active" | "expired" | "closed" | "all") ?? "active")}
                                     >
                                         <SelectTrigger className="h-8 w-[130px]">
-                                            <SelectValue />
+                                            <span className="truncate">
+                                                {getInviteStatusFilterLabel(inviteStatusFilter, language)}
+                                            </span>
                                         </SelectTrigger>
                                         <SelectContent>
                                             <SelectItem value="active">{tr(language, "Active", "ใช้งาน")}</SelectItem>
@@ -2089,7 +2157,16 @@ export function UsersTable() {
                                                         type="button"
                                                         variant="outline"
                                                         size="sm"
-                                                        disabled={isInviteSubmitting}
+                                                        disabled={isInviteSubmitting || !isClinicalRole(invite.role)}
+                                                        title={
+                                                            !isClinicalRole(invite.role)
+                                                                ? tr(
+                                                                    language,
+                                                                    "Resend is currently available only for clinical specialist roles.",
+                                                                    "ขณะนี้การส่งซ้ำใช้ได้เฉพาะบทบาทสายคลินิก"
+                                                                )
+                                                                : undefined
+                                                        }
                                                         onClick={() => void handleResendInvite(invite.id)}
                                                     >
                                                         <RotateCcw className="mr-1.5 size-3.5" />

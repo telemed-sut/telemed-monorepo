@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Sidebar,
   SidebarContent,
@@ -18,15 +19,6 @@ import {
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-} from "@/components/ui/dropdown-menu";
-import {
   Home,
   Users,
   CalendarDays,
@@ -34,10 +26,7 @@ import {
   ScrollText,
   Shield,
   HelpCircle,
-  Settings,
   ChevronsUpDown,
-  LogOut,
-  UserCircle,
   ChevronRight,
   Activity,
 } from "lucide-react";
@@ -48,6 +37,12 @@ import { fetchCurrentUser, logout, UserMe, ROLE_LABEL_MAP } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
 import { type AppLanguage } from "@/store/language-config";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  Logout01Icon,
+  Settings01Icon,
+  UserIcon,
+} from "@hugeicons/core-free-icons";
 
 interface NavItem {
   id: string;
@@ -161,6 +156,195 @@ function getUserInitials(user: UserMe): string {
   return user.email.slice(0, 2).toUpperCase();
 }
 
+type ProfileMenuItem = "profile" | "settings" | "logout";
+
+function SidebarUserMenu({
+  isCollapsed,
+  currentUser,
+  roleLabel,
+  labels,
+  activeItem,
+  onProfile,
+  onSettings,
+  onLogout,
+}: {
+  isCollapsed: boolean;
+  currentUser: UserMe | null;
+  roleLabel: string;
+  labels: {
+    loading: string;
+    profile: string;
+    settings: string;
+    logOut: string;
+  };
+  activeItem: ProfileMenuItem | null;
+  onProfile: () => void;
+  onSettings: () => void;
+  onLogout: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [hoveredItem, setHoveredItem] = useState<ProfileMenuItem | null>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener("mousedown", handlePointerDown);
+      document.addEventListener("keydown", handleEscape);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isOpen]);
+
+  const menuItems: (
+    | {
+        id: ProfileMenuItem;
+        label: string;
+        icon: typeof UserIcon;
+        onSelect: () => void;
+        destructive?: boolean;
+      }
+    | {
+        id: "divider";
+      }
+  )[] = [
+    { id: "profile", label: labels.profile, icon: UserIcon, onSelect: onProfile },
+    { id: "settings", label: labels.settings, icon: Settings01Icon, onSelect: onSettings },
+    { id: "divider" },
+    { id: "logout", label: labels.logOut, icon: Logout01Icon, onSelect: onLogout, destructive: true },
+  ];
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <button
+        id="sidebar-user-menu-button"
+        type="button"
+        className={cn(
+          "w-full cursor-pointer rounded-lg p-2 text-left transition-colors hover:bg-accent sm:p-3",
+          isCollapsed ? "flex justify-center" : "flex items-center gap-2 sm:gap-3",
+          isOpen && "bg-accent"
+        )}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((prev) => !prev)}
+      >
+        <Avatar className="size-7 sm:size-8">
+          <AvatarImage
+            src={
+              currentUser
+                ? `https://api.dicebear.com/9.x/glass/svg?seed=${currentUser.email}`
+                : undefined
+            }
+          />
+          <AvatarFallback className="text-xs">
+            {currentUser ? getUserInitials(currentUser) : "??"}
+          </AvatarFallback>
+        </Avatar>
+        {!isCollapsed && (
+          <>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-semibold sm:text-sm">
+                {currentUser ? getUserDisplayName(currentUser) : labels.loading}
+              </p>
+              <p className="truncate text-[10px] text-muted-foreground sm:text-xs">
+                {currentUser?.email || ""}
+              </p>
+            </div>
+            <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
+          </>
+        )}
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            key="profile-menu"
+            initial={{ opacity: 0, y: 8, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.96 }}
+            transition={{ duration: 0.16, ease: "easeOut" }}
+            className={cn(
+              "absolute z-50 w-[210px] overflow-hidden rounded-xl border border-border bg-popover shadow-xl",
+              isCollapsed ? "bottom-0 left-full ml-2" : "bottom-full left-0 mb-2"
+            )}
+          >
+            <div className="px-3 py-2 text-xs text-muted-foreground">{roleLabel}</div>
+            <ul className="space-y-0.5 px-2 pb-2">
+              {menuItems.map((item) => {
+                if (item.id === "divider") {
+                  return <li key="divider" className="my-1 border-t border-border/90" />;
+                }
+
+                const showIndicator =
+                  hoveredItem !== null
+                    ? hoveredItem === item.id
+                    : activeItem === item.id;
+
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      className={cn(
+                        "relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
+                        item.destructive
+                          ? "text-red-600 hover:text-red-700"
+                          : "text-foreground/90 hover:text-foreground"
+                      )}
+                      onMouseEnter={() => setHoveredItem(item.id)}
+                      onMouseLeave={() => setHoveredItem(null)}
+                      onClick={() => {
+                        setIsOpen(false);
+                        item.onSelect();
+                      }}
+                    >
+                      {showIndicator && (
+                        <motion.span
+                          layoutId="sidebar-user-menu-indicator"
+                          className={cn(
+                            "absolute inset-0 rounded-lg",
+                            item.destructive ? "bg-red-50" : "bg-muted"
+                          )}
+                          transition={{
+                            type: "spring",
+                            stiffness: 500,
+                            damping: 32,
+                            mass: 0.75,
+                          }}
+                        />
+                      )}
+                      <HugeiconsIcon
+                        icon={item.icon}
+                        className="relative z-10 size-[17px]"
+                      />
+                      <span className="relative z-10 font-medium">{item.label}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const { state } = useSidebar();
   const pathname = usePathname();
@@ -200,6 +384,11 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
     });
   };
   const isCollapsed = state === "collapsed";
+  const activeProfileMenuItem: ProfileMenuItem | null = pathname.startsWith("/settings")
+    ? "settings"
+    : pathname.startsWith("/profile")
+      ? "profile"
+      : null;
 
   return (
     <Sidebar collapsible="icon" className="lg:border-r-0!" {...props}>
@@ -282,58 +471,16 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
           </SidebarMenuItem>
         </SidebarMenu>
 
-        {/* User profile dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            id="sidebar-user-menu-button"
-            className={cn(
-              "w-full cursor-pointer rounded-lg p-2 transition-colors hover:bg-accent sm:p-3",
-              isCollapsed ? "flex justify-center" : "flex items-center gap-2 sm:gap-3"
-            )}
-          >
-            <Avatar className="size-7 sm:size-8">
-              <AvatarImage
-                src={currentUser ? `https://api.dicebear.com/9.x/glass/svg?seed=${currentUser.email}` : undefined}
-              />
-              <AvatarFallback className="text-xs">
-                {currentUser ? getUserInitials(currentUser) : "??"}
-              </AvatarFallback>
-            </Avatar>
-            {!isCollapsed && (
-              <>
-                <div className="min-w-0 flex-1 text-left">
-                  <p className="truncate text-xs font-semibold sm:text-sm">
-                    {currentUser ? getUserDisplayName(currentUser) : t.loading}
-                  </p>
-                  <p className="truncate text-[10px] text-muted-foreground sm:text-xs">
-                    {currentUser?.email || ""}
-                  </p>
-                </div>
-                <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
-              </>
-            )}
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align={isCollapsed ? "center" : "end"} className="w-[200px]">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel className="text-xs text-muted-foreground">
-                {currentUser ? getRoleLabel(currentUser.role, language) : t.account}
-              </DropdownMenuLabel>
-            </DropdownMenuGroup>
-            <DropdownMenuItem onClick={() => router.push("/profile")}>
-              <UserCircle className="size-4 mr-2" />
-              {t.profile}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => router.push("/settings")}>
-              <Settings className="size-4 mr-2" />
-              {t.settings}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive" onClick={handleLogout}>
-              <LogOut className="size-4 mr-2" />
-              {t.logOut}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <SidebarUserMenu
+          isCollapsed={isCollapsed}
+          currentUser={currentUser}
+          roleLabel={currentUser ? getRoleLabel(currentUser.role, language) : t.account}
+          labels={t}
+          activeItem={activeProfileMenuItem}
+          onProfile={() => router.push("/profile")}
+          onSettings={() => router.push("/settings")}
+          onLogout={handleLogout}
+        />
       </SidebarFooter>
     </Sidebar>
   );
