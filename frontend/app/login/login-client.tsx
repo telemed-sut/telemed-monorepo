@@ -15,7 +15,7 @@ import Image from "next/image";
 import QRCode from "qrcode";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ApiError, getErrorMessage, login as loginRequest } from "@/lib/api";
+import { ApiError, login as loginRequest } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { Logo } from "@/components/ui/logo";
 import { APP_LANGUAGE_OPTIONS, type AppLanguage } from "@/store/language-config";
@@ -43,6 +43,25 @@ function extractSetupKey(uri: string | null): string | null {
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
+
+function getLoginErrorMessage(language: AppLanguage, error: ApiError): string {
+  const detail = error.detail;
+  const detailCode =
+    detail && typeof detail === "object" && typeof (detail as { code?: unknown }).code === "string"
+      ? ((detail as { code: string }).code ?? "").toLowerCase()
+      : "";
+
+  if (
+    error.status === 400 ||
+    error.status === 401 ||
+    detailCode === "invalid_credentials" ||
+    detailCode === "incorrect_email_or_password"
+  ) {
+    return tr(language, "Email or password is incorrect.", "อีเมลหรือรหัสผ่านไม่ถูกต้อง");
+  }
+
+  return tr(language, "Unable to sign in. Please try again.", "ไม่สามารถเข้าสู่ระบบได้ โปรดลองอีกครั้ง");
+}
 
 export default function LoginClientPage() {
   const router = useRouter();
@@ -120,11 +139,7 @@ export default function LoginClientPage() {
         setTrustedDays(typeof detail.trusted_device_days === "number" ? detail.trusted_device_days : null);
         setError(detail.message ?? tr(language, "Login requires a 2FA code.", "การเข้าสู่ระบบต้องใช้รหัส 2FA"));
       } else {
-        const message = getErrorMessage(
-          err,
-          tr(language, "Unable to sign in", "เข้าสู่ระบบไม่สำเร็จ")
-        );
-        setError(message);
+        setError(getLoginErrorMessage(language, apiError));
       }
     } finally {
       setLoading(false);
@@ -159,17 +174,14 @@ export default function LoginClientPage() {
             </div>
           </div>
           <div className="flex justify-center mb-4">
-            <Logo className="size-10" />
+            <Logo className="size-20" />
           </div>
           <div>
             <h2 className="text-2xl font-semibold">
               {tr(language, "Welcome Back", "ยินดีต้อนรับกลับ")}
             </h2>
             <p className="text-muted-foreground text-sm">
-              {tr(language, "Sign in to continue to your secure workspace.", "เข้าสู่ระบบเพื่อใช้งานพื้นที่ทำงานที่ปลอดภัย")}
-            </p>
-            <p className="text-xs text-muted-foreground mt-2">
-              {tr(language, "Authorized users only.", "สำหรับผู้ใช้งานที่ได้รับอนุญาตเท่านั้น")}
+              {tr(language, "Sign in to continue securely.", "ลงชื่อเข้าใช้เพื่อดำเนินการต่ออย่างปลอดภัย")}
             </p>
           </div>
         </CardHeader>
@@ -193,7 +205,7 @@ export default function LoginClientPage() {
                   href="/forgot-password"
                   className="text-sm text-primary hover:underline"
                 >
-                  {tr(language, "Need help signing in?", "มีปัญหาในการเข้าสู่ระบบ?")}
+                  {tr(language, "Need help signing in?", "ต้องการความช่วยเหลือในการเข้าสู่ระบบ?")}
                 </Link>
               </div>
               <div className="relative">
