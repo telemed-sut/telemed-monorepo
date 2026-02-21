@@ -153,6 +153,86 @@ interface PatientPickerItem extends PickerCommandItem {
   avatar?: string;
 }
 
+interface CreateEventDraft {
+  selectedDateISO: string;
+  startHour: number;
+  startMinute: number;
+  endHour: number;
+  endMinute: number;
+  patientId: string;
+  doctorId: string;
+  description: string;
+  room: string;
+  note: string;
+}
+
+function getCreateEventDraftKey(userId: string | null): string {
+  return `meetings-create-event-draft:${userId ?? "anonymous"}`;
+}
+
+function clampInt(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(value)));
+}
+
+function readCreateEventDraft(userId: string | null): CreateEventDraft | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(getCreateEventDraftKey(userId));
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const draft = parsed as Partial<CreateEventDraft>;
+    if (!draft.selectedDateISO || typeof draft.selectedDateISO !== "string") {
+      return null;
+    }
+
+    const parsedDate = new Date(draft.selectedDateISO);
+    if (Number.isNaN(parsedDate.getTime())) return null;
+
+    const startHour = clampInt(draft.startHour, 9, 0, 23);
+    const startMinute = clampInt(draft.startMinute, 0, 0, 59);
+    const fallbackEndHour = Math.min(startHour + 1, 23);
+    const endHour = clampInt(draft.endHour, fallbackEndHour, 0, 23);
+    const endMinute = clampInt(draft.endMinute, startMinute, 0, 59);
+
+    return {
+      selectedDateISO: draft.selectedDateISO,
+      startHour,
+      startMinute,
+      endHour,
+      endMinute,
+      patientId: typeof draft.patientId === "string" ? draft.patientId : "",
+      doctorId: typeof draft.doctorId === "string" ? draft.doctorId : "",
+      description: typeof draft.description === "string" ? draft.description : "",
+      room: typeof draft.room === "string" ? draft.room : "",
+      note: typeof draft.note === "string" ? draft.note : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeCreateEventDraft(userId: string | null, draft: CreateEventDraft): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(getCreateEventDraftKey(userId), JSON.stringify(draft));
+  } catch {
+    // no-op
+  }
+}
+
+function clearCreateEventDraft(userId: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(getCreateEventDraftKey(userId));
+  } catch {
+    // no-op
+  }
+}
+
 function PatientDirectoryDialog({
   open,
   onOpenChange,
@@ -1137,6 +1217,7 @@ function CreateEventDialog({
   const [patientSearchLoading, setPatientSearchLoading] = useState(false);
   const [doctorPickerOpen, setDoctorPickerOpen] = useState(false);
   const [patientPickerOpen, setPatientPickerOpen] = useState(false);
+  const [isDraftHydrated, setIsDraftHydrated] = useState(false);
   const meetingLinkMode = getMeetingLinkMode();
   const isDoctorUser = userRole === "doctor";
 
@@ -1255,6 +1336,7 @@ function CreateEventDialog({
   // Reset form when dialog opens
   useEffect(() => {
     if (open) {
+      setIsDraftHydrated(false);
       setDoctorPickerOpen(false);
       setPatientPickerOpen(false);
       setDoctorQuery("");
@@ -1278,23 +1360,39 @@ function CreateEventDialog({
         setDescription(editMeeting.description || "");
         setRoom(editMeeting.room || "");
         setNote(editMeeting.note || "");
+        setIsDraftHydrated(true);
       } else {
-        const presetDate = initialSlot?.date
-          ? new Date(initialSlot.date)
-          : new Date();
-        const presetStartHour = initialSlot?.startHour ?? 9;
-        const presetStartMinute = initialSlot?.startMinute ?? 0;
+        const savedDraft = readCreateEventDraft(currentUserId);
+        if (savedDraft) {
+          setSelectedDate(new Date(savedDraft.selectedDateISO));
+          setStartHour(savedDraft.startHour);
+          setStartMinute(savedDraft.startMinute);
+          setEndHour(savedDraft.endHour);
+          setEndMinute(savedDraft.endMinute);
+          setPatientId(savedDraft.patientId);
+          setDoctorId(savedDraft.doctorId || currentUserId || (doctors.length > 0 ? doctors[0].id : ""));
+          setDescription(savedDraft.description);
+          setRoom(savedDraft.room);
+          setNote(savedDraft.note);
+        } else {
+          const presetDate = initialSlot?.date
+            ? new Date(initialSlot.date)
+            : new Date();
+          const presetStartHour = initialSlot?.startHour ?? 9;
+          const presetStartMinute = initialSlot?.startMinute ?? 0;
 
-        setSelectedDate(presetDate);
-        setStartHour(presetStartHour);
-        setStartMinute(presetStartMinute);
-        setEndHour(10);
-        setEndMinute(0);
-        setPatientId("");
-        setDoctorId(currentUserId || (doctors.length > 0 ? doctors[0].id : ""));
-        setDescription("");
-        setRoom("");
-        setNote("");
+          setSelectedDate(presetDate);
+          setStartHour(presetStartHour);
+          setStartMinute(presetStartMinute);
+          setEndHour(10);
+          setEndMinute(0);
+          setPatientId("");
+          setDoctorId(currentUserId || (doctors.length > 0 ? doctors[0].id : ""));
+          setDescription("");
+          setRoom("");
+          setNote("");
+        }
+        setIsDraftHydrated(true);
       }
     }
   }, [open, currentUserId, doctors, initialSlot, editMeeting]);
@@ -1315,6 +1413,39 @@ function CreateEventDialog({
     setDoctorPickerOpen(false);
     setPatientPickerOpen(false);
   }, [open]);
+
+  useEffect(() => {
+    if (!open || editMeeting || !isDraftHydrated) return;
+
+    writeCreateEventDraft(currentUserId, {
+      selectedDateISO: selectedDate.toISOString(),
+      startHour,
+      startMinute,
+      endHour,
+      endMinute,
+      patientId,
+      doctorId: isDoctorUser ? currentUserId || doctorId : doctorId,
+      description,
+      room,
+      note,
+    });
+  }, [
+    open,
+    editMeeting,
+    isDraftHydrated,
+    currentUserId,
+    selectedDate,
+    startHour,
+    startMinute,
+    endHour,
+    endMinute,
+    patientId,
+    doctorId,
+    description,
+    room,
+    note,
+    isDoctorUser,
+  ]);
 
   useEffect(() => {
     if (!open || !doctorPickerOpen || isDoctorUser) return;
@@ -1433,6 +1564,32 @@ function CreateEventDialog({
     setPatientPickerOpen(false);
   }, []);
 
+  const handleCancelCreateEvent = useCallback(() => {
+    if (!editMeeting) {
+      clearCreateEventDraft(currentUserId);
+    }
+    onOpenChange(false);
+  }, [editMeeting, currentUserId, onOpenChange]);
+
+  const handleClearCreateEventForm = useCallback(() => {
+    if (editMeeting || submitting) return;
+
+    clearCreateEventDraft(currentUserId);
+    setPatientId("");
+    setDoctorId(currentUserId || (doctors.length > 0 ? doctors[0].id : ""));
+    setDescription("");
+    setRoom("");
+    setNote("");
+    setDoctorQuery("");
+    setPatientQuery("");
+    setDoctorPickerOpen(false);
+    setPatientPickerOpen(false);
+    setDoctorSearchResults([]);
+    setPatientSearchResults([]);
+    setDoctorSearchLoading(false);
+    setPatientSearchLoading(false);
+  }, [editMeeting, submitting, currentUserId, doctors]);
+
   const handleSubmit = async () => {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
@@ -1462,6 +1619,7 @@ function CreateEventDialog({
           user_id: patientId,
         };
         const createdMeeting = await createMeeting(payload, token);
+        clearCreateEventDraft(currentUserId);
         toast.success(tr(language, "Appointment scheduled successfully", "นัดหมายสำเร็จ"));
         onOpenChange(false);
         await onCreated(createdMeeting);
@@ -1537,7 +1695,7 @@ function CreateEventDialog({
               <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3.5 py-2 text-sm">
                 <HugeiconsIcon
                   icon={Clock01Icon}
-                  className="size-4 text-[#7ac2f0] shrink-0"
+                  className="size-4 text-[var(--med-primary-light)] shrink-0"
                 />
                 <select
                   value={startHour}
@@ -1616,7 +1774,7 @@ function CreateEventDialog({
                 <span className="flex min-w-0 items-center gap-2">
                   <HugeiconsIcon
                     icon={Stethoscope02Icon}
-                    className="size-4 shrink-0 text-[#7ac2f0]"
+                    className="size-4 shrink-0 text-[var(--med-primary-light)]"
                   />
                   <span className={cn("truncate", !selectedDoctor && "text-muted-foreground")}>
                     {selectedDoctor
@@ -1680,11 +1838,12 @@ function CreateEventDialog({
               <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 {tr(language, "Description", "รายละเอียด")}
               </Label>
-              <Input
+              <Textarea
                 placeholder={tr(language, "Follow-up consultation", "ติดตามอาการ")}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="h-10"
+                rows={2}
+                className="field-sizing-fixed h-16 max-h-24 resize-none overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
               />
             </div>
             <div className="space-y-2">
@@ -1694,7 +1853,7 @@ function CreateEventDialog({
                 </Label>
                 <span
                   className={cn(
-                    "rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                    "inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-2.5 text-[10px] font-medium uppercase tracking-[0.06em]",
                     meetingLinkMode === "off"
                       ? "bg-muted text-muted-foreground"
                       : "bg-sky-100 text-sky-700"
@@ -1732,26 +1891,40 @@ function CreateEventDialog({
               placeholder={tr(language, "Additional notes or instructions...", "หมายเหตุหรือคำสั่งเพิ่มเติม...")}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              className="resize-none"
+              rows={6}
+              className="field-sizing-fixed h-36 max-h-44 resize-none overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
             />
           </div>
         </div>
 
         {/* ── Footer ── */}
         <div className="flex items-center justify-between px-6 py-4 mt-2 border-t bg-muted/30">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-muted-foreground hover:text-foreground gap-1.5"
-            onClick={() => onOpenChange(false)}
-          >
-            {tr(language, "Cancel", "ยกเลิก")}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-foreground gap-1.5"
+              onClick={handleCancelCreateEvent}
+            >
+              {tr(language, "Cancel", "ยกเลิก")}
+            </Button>
+            {!editMeeting && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={handleClearCreateEventForm}
+                disabled={submitting}
+              >
+                {tr(language, "Clear form", "ล้างฟอร์ม")}
+              </Button>
+            )}
+          </div>
           <Button
             onClick={handleSubmit}
             disabled={!canSubmit || submitting}
-            className="bg-[#7ac2f0] text-white hover:bg-[#5aade0] gap-2 px-5"
+            className="bg-[var(--med-primary-light)] text-white hover:bg-[var(--med-primary)] gap-2 px-5"
           >
             {submitting ? (
               <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />

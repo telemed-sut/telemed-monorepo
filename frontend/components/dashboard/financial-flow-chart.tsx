@@ -192,7 +192,7 @@ function CustomTooltip({
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="size-2 rounded-full bg-[#7ac2f0]" />
+            <div className="size-2 rounded-full bg-[var(--med-primary-light)]" />
             <span className="text-sm font-semibold text-foreground">
               {Number(patients)} {t.newPatientsTooltip}
             </span>
@@ -200,7 +200,7 @@ function CustomTooltip({
         </div>
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <div className="size-2 rounded-full bg-[#5aade0]" />
+            <div className="size-2 rounded-full bg-[var(--med-primary)]" />
             <span className="text-sm font-semibold text-foreground">
               {Number(consultations)} {t.consultationsTooltip}
             </span>
@@ -229,7 +229,7 @@ export function FinancialFlowChart() {
   const isDark = theme === "dark";
   const axisColor = isDark ? "#71717a" : "#a1a1aa";
   const gridColor = isDark ? "#27272a" : "#e5e7eb";
-  const consultationsColor = "#5aade0";
+  const consultationsColor = "var(--med-primary)";
 
   useEffect(() => {
     if (!token) return;
@@ -272,7 +272,7 @@ export function FinancialFlowChart() {
         <div className="flex items-center gap-2">
           <HugeiconsIcon
             icon={Stethoscope02Icon}
-            className="size-5 text-[#7ac2f0]"
+            className="size-5 text-[var(--med-primary-light)]"
           />
           <span className="font-medium text-muted-foreground">
             {t.trendTitle}
@@ -282,13 +282,13 @@ export function FinancialFlowChart() {
         <div className="flex flex-wrap items-center gap-4 sm:gap-6">
           <div className="hidden sm:flex items-center gap-4">
             <div className="flex items-center gap-1.5">
-              <div className="size-3 rounded-full bg-[#7ac2f0]" />
+              <div className="size-3 rounded-full bg-[var(--med-primary-light)]" />
                 <span className="text-xs font-medium text-muted-foreground">
                 {t.newPatients}
               </span>
             </div>
             <div className="flex items-center gap-1.5">
-              <div className="size-3 rounded-full bg-[#5aade0]" />
+              <div className="size-3 rounded-full bg-[var(--med-primary)]" />
                 <span className="text-xs font-medium text-muted-foreground">
                 {t.consultations}
               </span>
@@ -381,7 +381,7 @@ export function FinancialFlowChart() {
                   checked={showPatients}
                   onCheckedChange={setShowPatients}
                 >
-                  <div className="size-3 rounded-full bg-[#7ac2f0] mr-2" />
+                  <div className="size-3 rounded-full bg-[var(--med-primary-light)] mr-2" />
                   {t.showNewPatients}
                 </DropdownMenuCheckboxItem>
 
@@ -389,7 +389,7 @@ export function FinancialFlowChart() {
                   checked={showConsultations}
                   onCheckedChange={setShowConsultations}
                 >
-                  <div className="size-3 rounded-full bg-[#5aade0] mr-2" />
+                  <div className="size-3 rounded-full bg-[var(--med-primary)] mr-2" />
                   {t.showConsultations}
                 </DropdownMenuCheckboxItem>
               </DropdownMenuGroup>
@@ -411,8 +411,8 @@ export function FinancialFlowChart() {
             <BarChart data={chartData} barGap={4}>
               <defs>
                 <linearGradient id="patientsGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#7ac2f0" stopOpacity={1} />
-                  <stop offset="100%" stopColor="#7ac2f0" stopOpacity={0.6} />
+                  <stop offset="0%" stopColor="var(--med-primary-light)" stopOpacity={1} />
+                  <stop offset="100%" stopColor="var(--med-primary-light)" stopOpacity={0.6} />
                 </linearGradient>
                 <linearGradient id="consultationsGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={consultationsColor} stopOpacity={1} />
@@ -444,10 +444,10 @@ export function FinancialFlowChart() {
                 <Line
                   type={smoothCurve ? "monotone" : "linear"}
                   dataKey="new_patients"
-                  stroke="#7ac2f0"
+                  stroke="var(--med-primary-light)"
                   strokeWidth={2}
                   dot={false}
-                  activeDot={{ r: 6, fill: "#7ac2f0", stroke: "white", strokeWidth: 2 }}
+                  activeDot={{ r: 6, fill: "var(--med-primary-light)", stroke: "white", strokeWidth: 2 }}
                 />
               )}
               {showConsultations && (
@@ -465,8 +465,8 @@ export function FinancialFlowChart() {
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="patientsAreaGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#7ac2f0" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#7ac2f0" stopOpacity={0.05} />
+                  <stop offset="0%" stopColor="var(--med-primary-light)" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="var(--med-primary-light)" stopOpacity={0.05} />
                 </linearGradient>
                 <linearGradient id="consultationsAreaGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={consultationsColor} stopOpacity={0.3} />
@@ -483,7 +483,7 @@ export function FinancialFlowChart() {
                 <Area
                   type={smoothCurve ? "monotone" : "linear"}
                   dataKey="new_patients"
-                  stroke="#7ac2f0"
+                  stroke="var(--med-primary-light)"
                   strokeWidth={2}
                   fill="url(#patientsAreaGradient)"
                 />

@@ -8,6 +8,7 @@ import { LanguageInitializer } from "@/components/language-initializer";
 import { ProgressBar } from "@/components/progress-bar";
 import { TranslationSafeguard } from "@/components/translation-safeguard";
 import { I18nProvider } from "@/components/i18n-provider";
+import { UIToneInitializer } from "@/components/ui-tone-initializer";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -39,11 +40,13 @@ export default function RootLayout({
       >
         <ThemeProvider
           attribute="class"
+          forcedTheme="light"
           defaultTheme="light"
-          enableSystem
+          enableSystem={false}
           disableTransitionOnChange
         >
           <I18nProvider>
+            <UIToneInitializer />
             <ProgressBar />
             <TranslationSafeguard />
             <AuthInitializer />

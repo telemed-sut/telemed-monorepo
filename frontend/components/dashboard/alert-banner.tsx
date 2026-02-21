@@ -83,7 +83,7 @@ export function AlertBanner() {
           <HugeiconsIcon icon={FileExportIcon} className="size-4" />
           {t.export}
         </Button>
-        <Button size="sm" className="gap-2 bg-[#7ac2f0] text-white hover:bg-[#5aade0]">
+        <Button size="sm" className="gap-2 bg-[var(--med-primary-light)] text-white hover:bg-[var(--med-primary)]">
           <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
           {t.newAppointment}
         </Button>

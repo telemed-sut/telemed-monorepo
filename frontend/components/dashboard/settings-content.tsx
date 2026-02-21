@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
 import QRCode from "qrcode";
 
 import { Button } from "@/components/ui/button";
@@ -39,9 +38,23 @@ import { toast } from "@/components/ui/toast";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
+import {
+  applyUITone,
+  getStoredUITone,
+  type UITone,
+} from "@/lib/ui-tone";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
+
+const UI_TONE_OPTIONS: UITone[] = [
+  "ffffff",
+  "ece7d1",
+  "f7f8f0",
+  "fff4ea",
+  "fffdf1",
+  "faf3e1",
+];
 
 const ROLE_LABEL_MAP_TH: Record<string, string> = {
   admin: "ผู้ดูแลระบบ",
@@ -86,7 +99,6 @@ function formatDateTime(
 
 export function SettingsContent() {
   const router = useRouter();
-  const { theme, setTheme } = useTheme();
   const language = useLanguageStore((state) => state.language);
   const token = useAuthStore((state) => state.token);
   const role = useAuthStore((state) => state.role);
@@ -95,6 +107,7 @@ export function SettingsContent() {
   const getTokenTTL = useAuthStore((state) => state.getTokenTTL);
 
   const [tokenTTL, setTokenTTL] = useState(() => getTokenTTL());
+  const [uiTone, setUiTone] = useState<UITone>("ffffff");
   const [twoFA, setTwoFA] = useState<Admin2FAStatus | null>(null);
   const [twoFALoading, setTwoFALoading] = useState(false);
   const [twoFABusy, setTwoFABusy] = useState(false);
@@ -129,6 +142,10 @@ export function SettingsContent() {
       window.clearInterval(interval);
     };
   }, [getTokenTTL]);
+
+  useEffect(() => {
+    setUiTone(getStoredUITone());
+  }, []);
 
   const load2FAStatus = async () => {
     if (!token) return;
@@ -454,18 +471,36 @@ export function SettingsContent() {
       <Card>
         <CardHeader>
           <CardTitle>{tr(language, "Appearance", "การแสดงผล")}</CardTitle>
-          <CardDescription>{tr(language, "Select your preferred dashboard theme.", "เลือกธีมแดชบอร์ดที่ต้องการ")}</CardDescription>
+          <CardDescription>
+            {tr(
+              language,
+              "Pick a background tone. White is the default main color.",
+              "เลือกโทนพื้นหลังตามต้องการ โดยสีหลักเริ่มต้นเป็นสีขาว"
+            )}
+          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
-          <Button variant={theme === "light" ? "default" : "outline"} onClick={() => setTheme("light")}>
-            {tr(language, "Light", "สว่าง")}
-          </Button>
-          <Button variant={theme === "dark" ? "default" : "outline"} onClick={() => setTheme("dark")}>
-            {tr(language, "Dark", "มืด")}
-          </Button>
-          <Button variant={theme === "system" ? "default" : "outline"} onClick={() => setTheme("system")}>
-            {tr(language, "System", "ตามระบบ")}
-          </Button>
+          {UI_TONE_OPTIONS.map((tone) => (
+            <Button
+              key={tone}
+              variant="outline"
+              onClick={() => {
+                applyUITone(tone);
+                setUiTone(tone);
+              }}
+              className={`gap-2 bg-card text-foreground hover:bg-accent hover:text-accent-foreground ${
+                uiTone === tone
+                  ? "border-primary ring-2 ring-ring/30"
+                  : "border-border"
+              }`}
+            >
+              <span
+                className="inline-flex size-3 rounded-full border border-slate-300"
+                style={{ backgroundColor: `#${tone}` }}
+              />
+              {`#${tone.toUpperCase()}`}
+            </Button>
+          ))}
         </CardContent>
       </Card>
 
