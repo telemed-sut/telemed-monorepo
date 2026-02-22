@@ -336,7 +336,7 @@ def delete_patient(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
     
     patient_name = f"{patient.first_name} {patient.last_name}"
-    patient_service.delete_patient(db, patient)
+    patient_service.delete_patient(db, patient, deleted_by=current_user.id)
     notify_staff(db, current_user, background_tasks, "deleted", patient_name)
     return None
 
@@ -369,7 +369,7 @@ def bulk_delete_patients(
             errors.append(f"Patient {patient_id} not found")
             continue
         patient_name = f"{patient.first_name} {patient.last_name}"
-        patient_service.delete_patient(db, patient)
+        patient_service.delete_patient(db, patient, deleted_by=current_user.id)
         notify_staff(db, current_user, background_tasks, "deleted", patient_name)
         deleted += 1
 

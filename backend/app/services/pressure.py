@@ -11,7 +11,11 @@ from app.schemas.pressure import PressureCreate
 class PressureService:
     def create_pressure(self, db: Session, pressure_in: PressureCreate) -> PressureRecord:
         # Check if patient exists
-        patient = db.query(Patient).filter(Patient.id == pressure_in.patient_id).first()
+        patient = db.query(Patient).filter(
+            Patient.id == pressure_in.patient_id,
+            Patient.deleted_at.is_(None),
+            Patient.is_active == True,  # noqa: E712
+        ).first()
         if not patient:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

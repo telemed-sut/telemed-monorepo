@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     ip_ban_duration_minutes: int = 30
     ip_attempt_window_minutes: int = 15
     security_whitelisted_ips: str = "127.0.0.1,::1"
+    trusted_proxy_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
     security_403_spike_threshold_1h: int = 25
     
     # Device API Security
@@ -71,6 +72,7 @@ class Settings(BaseSettings):
         "rate_limit_whitelist",
         "super_admin_emails",
         "admin_unlock_whitelisted_ips",
+        "trusted_proxy_ips",
         mode="before",
     )
     @classmethod

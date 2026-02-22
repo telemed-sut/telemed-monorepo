@@ -122,8 +122,8 @@ export function SettingsContent() {
   const [targetEmail, setTargetEmail] = useState("");
   const [resolvedUser, setResolvedUser] = useState<AdminSecurityUserLookup | null>(null);
   const [emergencyReason, setEmergencyReason] = useState("");
-  const [temporaryPasswordInput, setTemporaryPasswordInput] = useState("");
-  const [generatedTempPassword, setGeneratedTempPassword] = useState("");
+  const [generatedResetToken, setGeneratedResetToken] = useState("");
+  const [generatedResetTokenTTL, setGeneratedResetTokenTTL] = useState<number | null>(null);
 
   const isAdmin = role === "admin";
 
@@ -443,11 +443,11 @@ export function SettingsContent() {
       const response = await superAdminResetUserPassword(
         resolvedUser.user_id,
         emergencyReason.trim(),
-        token,
-        temporaryPasswordInput.trim() || undefined
+        token
       );
-      setGeneratedTempPassword(response.temporary_password);
-      toast.success(tr(language, "Password reset successfully", "รีเซ็ตรหัสผ่านเรียบร้อย"));
+      setGeneratedResetToken(response.reset_token);
+      setGeneratedResetTokenTTL(response.reset_token_expires_in);
+      toast.success(tr(language, "Password reset token generated", "สร้างโทเคนรีเซ็ตรหัสผ่านแล้ว"));
       await resolveEmergencyTarget();
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
@@ -456,11 +456,11 @@ export function SettingsContent() {
     }
   };
 
-  const handleCopyGeneratedPassword = async () => {
-    if (!generatedTempPassword) return;
+  const handleCopyGeneratedResetToken = async () => {
+    if (!generatedResetToken) return;
     try {
-      await navigator.clipboard.writeText(generatedTempPassword);
-      toast.success(tr(language, "Temporary password copied", "คัดลอกรหัสชั่วคราวแล้ว"));
+      await navigator.clipboard.writeText(generatedResetToken);
+      toast.success(tr(language, "Reset token copied", "คัดลอกโทเคนรีเซ็ตรหัสผ่านแล้ว"));
     } catch {
       toast.error(tr(language, "Copy failed", "คัดลอกไม่สำเร็จ"));
     }
@@ -738,7 +738,8 @@ export function SettingsContent() {
                   onChange={(event) => {
                     setTargetEmail(event.target.value);
                     setResolvedUser(null);
-                    setGeneratedTempPassword("");
+                    setGeneratedResetToken("");
+                    setGeneratedResetTokenTTL(null);
                   }}
                 />
                 <Button type="button" variant="outline" onClick={resolveEmergencyTarget} disabled={emergencyBusy}>
@@ -783,13 +784,6 @@ export function SettingsContent() {
             </div>
 
             <div className="space-y-2 border-t border-border pt-4">
-              <Label htmlFor="temporary_password">{tr(language, "Temporary password (optional)", "รหัสผ่านชั่วคราว (ไม่บังคับ)")}</Label>
-              <Input
-                id="temporary_password"
-                placeholder={tr(language, "Leave blank to auto-generate", "ปล่อยว่างเพื่อให้ระบบ generate")}
-                value={temporaryPasswordInput}
-                onChange={(event) => setTemporaryPasswordInput(event.target.value)}
-              />
               <Button
                 type="button"
                 variant="destructive"
@@ -798,14 +792,17 @@ export function SettingsContent() {
               >
                 {tr(language, "Reset password", "รีเซ็ตรหัสผ่าน")}
               </Button>
-              {generatedTempPassword && (
+              {generatedResetToken && (
                 <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
                   <p className="text-xs text-muted-foreground">
-                    {tr(language, "Temporary password (shown once):", "รหัสผ่านชั่วคราว (แสดงครั้งเดียว):")}
+                    {tr(language, "One-time reset token (shown once):", "โทเคนรีเซ็ตรหัสผ่านแบบครั้งเดียว (แสดงครั้งเดียว):")}
                   </p>
-                  <Input value={generatedTempPassword} readOnly />
-                  <Button type="button" variant="outline" onClick={handleCopyGeneratedPassword}>
-                    {tr(language, "Copy temporary password", "คัดลอกรหัสผ่านชั่วคราว")}
+                  <Input value={generatedResetToken} readOnly />
+                  <p className="text-xs text-muted-foreground">
+                    {tr(language, "Expires in", "หมดอายุใน")} {generatedResetTokenTTL ?? "-"} {tr(language, "seconds", "วินาที")}
+                  </p>
+                  <Button type="button" variant="outline" onClick={handleCopyGeneratedResetToken}>
+                    {tr(language, "Copy reset token", "คัดลอกโทเคนรีเซ็ต")}
                   </Button>
                 </div>
               )}

@@ -672,7 +672,8 @@ export interface AdminPasswordResetResponse {
   message: string;
   user_id: string;
   email: string;
-  temporary_password: string;
+  reset_token: string;
+  reset_token_expires_in: number;
 }
 
 export async function resolveSecurityUserByEmail(email: string, token: string) {
@@ -695,8 +696,7 @@ export async function adminEmergencyUnlock(payload: AdminEmergencyUnlockPayload,
 export async function superAdminResetUserPassword(
   userId: string,
   reason: string,
-  token: string,
-  temporaryPassword?: string
+  token: string
 ) {
   return apiFetch<AdminPasswordResetResponse>(
     `/security/users/${userId}/password/reset`,
@@ -704,7 +704,6 @@ export async function superAdminResetUserPassword(
       method: "POST",
       body: JSON.stringify({
         reason,
-        temporary_password: temporaryPassword || undefined,
       }),
     },
     token

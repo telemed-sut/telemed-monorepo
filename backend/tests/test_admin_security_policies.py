@@ -66,7 +66,7 @@ def test_admin_login_with_valid_2fa_code_succeeds(client: TestClient, db: Sessio
     assert "access_token" in response.json()
 
 
-def test_emergency_unlock_admin_requires_super_admin_or_whitelisted_ip(
+def test_emergency_unlock_admin_requires_super_admin(
     client: TestClient,
     db: Session,
 ):
@@ -246,12 +246,22 @@ def test_super_admin_can_reset_user_password(client: TestClient, db: Session):
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["email"] == target.email
-    assert payload["temporary_password"]
+    assert payload["reset_token"]
+    assert payload["reset_token_expires_in"] > 0
+
+    reset = client.post(
+        "/auth/reset-password",
+        json={
+            "token": payload["reset_token"],
+            "new_password": "NewStrongPass456",
+        },
+    )
+    assert reset.status_code == 200, reset.text
 
     relogin = _login(
         client,
         target.email,
-        password=payload["temporary_password"],
+        password="NewStrongPass456",
     )
     assert relogin.status_code == 200, relogin.text
 

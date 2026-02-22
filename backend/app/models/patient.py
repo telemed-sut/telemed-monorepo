@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from sqlalchemy import Column, Date, DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -23,6 +23,9 @@ class Patient(Base):
     phone = Column(String(50), nullable=True, index=True)
     email = Column(String(255), nullable=True, index=True)
     address = Column(String(255), nullable=True)
+    is_active = Column(Boolean, nullable=False, server_default="true", default=True)
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    deleted_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

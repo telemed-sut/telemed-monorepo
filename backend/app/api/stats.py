@@ -48,7 +48,11 @@ def get_overview_stats(
             extract("month", Patient.created_at).label("m"),
             func.count(func.distinct(Patient.id)).label("cnt"),
         )
-        .where(extract("year", Patient.created_at) == year)
+        .where(
+            extract("year", Patient.created_at) == year,
+            Patient.deleted_at.is_(None),
+            Patient.is_active == True,  # noqa: E712
+        )
     )
     if is_doctor:
         patients_stmt = patients_stmt.join(
@@ -94,7 +98,11 @@ def get_overview_stats(
             select(func.count(func.distinct(Patient.id)))
             .select_from(Patient)
             .join(DoctorPatientAssignment, DoctorPatientAssignment.patient_id == Patient.id)
-            .where(DoctorPatientAssignment.doctor_id == current_user.id)
+            .where(
+                DoctorPatientAssignment.doctor_id == current_user.id,
+                Patient.deleted_at.is_(None),
+                Patient.is_active == True,  # noqa: E712
+            )
         )
         total_patients = db.scalar(total_patients_stmt) or 0
         total_meetings = db.scalar(
@@ -103,7 +111,12 @@ def get_overview_stats(
             .where(meeting_service.build_doctor_visibility_clause(current_user.id))
         ) or 0
     else:
-        total_patients = db.scalar(select(func.count()).select_from(Patient)) or 0
+        total_patients = db.scalar(
+            select(func.count()).select_from(Patient).where(
+                Patient.deleted_at.is_(None),
+                Patient.is_active == True,  # noqa: E712
+            )
+        ) or 0
         total_meetings = db.scalar(select(func.count()).select_from(Meeting)) or 0
 
     return {

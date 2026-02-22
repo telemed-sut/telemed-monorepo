@@ -130,6 +130,37 @@ def test_patient_api_endpoints(client: TestClient, db: Session):
     assert response.status_code == 204
 
 
+def test_patient_delete_is_soft_delete(client: TestClient, db: Session):
+    admin = create_test_user(db, UserRole.admin)
+    admin_headers = get_auth_headers(admin)
+
+    create_response = client.post(
+        "/patients",
+        json={
+            "first_name": "Soft",
+            "last_name": "Deleted",
+            "date_of_birth": "1990-01-01",
+        },
+        headers=admin_headers,
+    )
+    assert create_response.status_code == 201
+    patient_id = create_response.json()["id"]
+
+    delete_response = client.delete(f"/patients/{patient_id}", headers=admin_headers)
+    assert delete_response.status_code == 204
+
+    patient_row = db.scalar(select(Patient).where(Patient.id == UUID(patient_id)))
+    assert patient_row is not None
+    assert patient_row.is_active is False
+    assert patient_row.deleted_at is not None
+    assert patient_row.deleted_by == admin.id
+
+    list_response = client.get("/patients", headers=admin_headers)
+    assert list_response.status_code == 200
+    listed_ids = {item["id"] for item in list_response.json()["items"]}
+    assert patient_id not in listed_ids
+
+
 def test_patient_api_unauthorized(client: TestClient):
     response = client.get("/patients")
     assert response.status_code == 401

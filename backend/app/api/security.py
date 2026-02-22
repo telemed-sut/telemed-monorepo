@@ -1,5 +1,4 @@
 import logging
-import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from uuid import UUID
@@ -159,14 +158,14 @@ class AdminSecurityUserLookupResponse(BaseModel):
 
 class AdminUserPasswordResetRequest(BaseModel):
     reason: str
-    temporary_password: str | None = None
 
 
 class AdminUserPasswordResetResponse(BaseModel):
     message: str
     user_id: str
     email: str
-    temporary_password: str
+    reset_token: str
+    reset_token_expires_in: int
 
 
 # ── Endpoints ──
@@ -178,26 +177,23 @@ def emergency_unlock_admin(
     request: Request,
     payload: AdminEmergencyUnlockRequest,
     db: Session = Depends(get_db),
-    optional_user: Optional[User] = Depends(auth_service.get_optional_current_user),
+    current_user: User = Depends(get_admin_user),
 ):
     ip = _client_ip(request)
-    authorized_by_super_admin = auth_service.is_super_admin(optional_user)
-    authorized_by_ip = security_service.is_admin_unlock_ip_whitelisted(ip)
-
-    if not authorized_by_super_admin and not authorized_by_ip:
+    if not auth_service.is_super_admin(current_user):
         _write_unlock_audit(
             db,
-            actor=optional_user,
+            actor=current_user,
             ip_address=ip,
             success=False,
             target_user=None,
             reason=payload.reason,
-            authorized_by="none",
-            message="Unauthorized emergency admin unlock attempt",
+            authorized_by="admin_not_super_admin",
+            message="Unauthorized emergency admin unlock attempt (super admin required)",
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Emergency unlock is restricted to super admin or whitelisted IP.",
+            detail="Super admin only.",
         )
 
     if payload.user_id:
@@ -216,12 +212,12 @@ def emergency_unlock_admin(
     if not target:
         _write_unlock_audit(
             db,
-            actor=optional_user,
+            actor=current_user,
             ip_address=ip,
             success=False,
             target_user=None,
             reason=payload.reason,
-            authorized_by="super_admin" if authorized_by_super_admin else "whitelisted_ip",
+            authorized_by="super_admin",
             message="Target user not found for emergency unlock",
         )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -229,12 +225,12 @@ def emergency_unlock_admin(
     if target.role != UserRole.admin:
         _write_unlock_audit(
             db,
-            actor=optional_user,
+            actor=current_user,
             ip_address=ip,
             success=False,
             target_user=target,
             reason=payload.reason,
-            authorized_by="super_admin" if authorized_by_super_admin else "whitelisted_ip",
+            authorized_by="super_admin",
             message="Emergency unlock denied: target is not an admin account",
         )
         raise HTTPException(
@@ -256,20 +252,20 @@ def emergency_unlock_admin(
 
     _write_unlock_audit(
         db,
-        actor=optional_user,
+        actor=current_user,
         ip_address=ip,
         success=True,
         target_user=target,
         reason=payload.reason,
-        authorized_by="super_admin" if authorized_by_super_admin else "whitelisted_ip",
+        authorized_by="super_admin",
         message="Admin account emergency unlock completed",
     )
 
     logger.info(
         "Emergency unlock: user=%s was_locked=%s authorized_by=%s actor=%s",
         target.email, was_locked,
-        "super_admin" if authorized_by_super_admin else "whitelisted_ip",
-        optional_user.email if optional_user else "anonymous",
+        "super_admin",
+        current_user.email,
     )
     return AdminEmergencyUnlockResponse(
         message=f"Admin account {target.email} has been unlocked.",
@@ -443,19 +439,12 @@ def reset_user_password_by_super_admin(
         db.commit()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    temporary_password = (payload.temporary_password or "").strip()
-    if temporary_password and len(temporary_password) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Temporary password must be at least 8 characters.",
-        )
-    if not temporary_password:
-        temporary_password = secrets.token_urlsafe(12)
-
-    target.password_hash = get_password_hash(temporary_password)
+    # Immediately invalidate old credentials, then issue a short-lived one-time reset token.
+    target.password_hash = get_password_hash(generate_totp_secret(16))
     target.failed_login_attempts = 0
     target.account_locked_until = None
     target.last_failed_login_at = None
+    reset_token = auth_service.create_password_reset_token(target)
     db.add(target)
     db.add(
         AuditLog(
@@ -466,6 +455,7 @@ def reset_user_password_by_super_admin(
             details={
                 "reason": reason,
                 "target_email": target.email,
+                "reset_token_expires_in": settings.password_reset_expires_in,
             },
             ip_address=ip,
             is_break_glass=False,
@@ -478,7 +468,8 @@ def reset_user_password_by_super_admin(
         message=f"Password has been reset for {target.email}.",
         user_id=str(target.id),
         email=target.email,
-        temporary_password=temporary_password,
+        reset_token=reset_token,
+        reset_token_expires_in=settings.password_reset_expires_in,
     )
 
 

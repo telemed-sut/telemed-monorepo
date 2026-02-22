@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from typing import List, Literal, Optional, Tuple
 from uuid import UUID
 
@@ -50,7 +51,13 @@ def list_patient_assignments(db: Session, patient_id: UUID) -> list[DoctorPatien
 
 
 def _validate_patient_and_doctor(db: Session, patient_id: UUID, doctor_id: UUID) -> User:
-    patient_exists = db.scalar(select(Patient.id).where(Patient.id == patient_id))
+    patient_exists = db.scalar(
+        select(Patient.id).where(
+            Patient.id == patient_id,
+            Patient.deleted_at.is_(None),
+            Patient.is_active == True,  # noqa: E712
+        )
+    )
     if not patient_exists:
         raise ValueError("Patient not found.")
 
@@ -85,6 +92,17 @@ def _has_active_assignment(db: Session, doctor_id: UUID, patient_id: UUID) -> bo
         )
     )
     return exists is not None
+
+
+def _patient_exists(db: Session, patient_id: UUID) -> bool:
+    patient = db.scalar(
+        select(Patient.id).where(
+            Patient.id == patient_id,
+            Patient.deleted_at.is_(None),
+            Patient.is_active == True,  # noqa: E712
+        )
+    )
+    return patient is not None
 
 
 def _log_patient_access_denied(
@@ -131,6 +149,12 @@ def verify_doctor_patient_access(
     - Doctor: only assigned patients
     - Others: forbidden
     """
+    if not _patient_exists(db, patient_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Patient not found",
+        )
+
     if current_user.role == UserRole.admin:
         return
 
@@ -327,7 +351,11 @@ def delete_patient_assignment(
 def get_patient(db: Session, patient_id: str) -> Optional[Patient]:
     try:
         uuid_id = UUID(patient_id)
-        stmt = select(Patient).where(Patient.id == uuid_id)
+        stmt = select(Patient).where(
+            Patient.id == uuid_id,
+            Patient.deleted_at.is_(None),
+            Patient.is_active == True,  # noqa: E712
+        )
         return db.scalar(stmt)
     except ValueError:
         return None
@@ -343,8 +371,11 @@ def update_patient(db: Session, patient: Patient, payload: PatientUpdate) -> Pat
     return patient
 
 
-def delete_patient(db: Session, patient: Patient) -> None:
-    db.delete(patient)
+def delete_patient(db: Session, patient: Patient, *, deleted_by: UUID) -> None:
+    patient.is_active = False
+    patient.deleted_at = datetime.now(timezone.utc)
+    patient.deleted_by = deleted_by
+    db.add(patient)
     db.commit()
 
 
@@ -357,7 +388,10 @@ def list_patients(
     order: str,
     doctor_id: Optional[UUID] = None,
 ) -> Tuple[List[Patient], int]:
-    stmt = select(Patient)
+    stmt = select(Patient).where(
+        Patient.deleted_at.is_(None),
+        Patient.is_active == True,  # noqa: E712
+    )
 
     if doctor_id:
         stmt = stmt.join(
