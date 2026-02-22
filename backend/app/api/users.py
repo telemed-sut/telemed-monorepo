@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 from uuid import UUID
@@ -29,10 +30,11 @@ from app.services.auth import get_admin_user, get_current_user
 
 router = APIRouter(prefix="/users", tags=["users"])
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
-def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+# Use shared utility for consistent IP extraction across all routes.
+from app.core.request_utils import get_client_ip as _client_ip  # noqa: E402
 
 
 def _user_snapshot(user: User) -> dict:
@@ -97,9 +99,17 @@ def _restore_email_from_audit(db: Session, user_id: UUID) -> str | None:
     if not latest_delete_audit or not latest_delete_audit.details:
         return None
 
-    try:
-        details = json.loads(latest_delete_audit.details)
-    except (TypeError, json.JSONDecodeError):
+    # JSONB column auto-deserializes to dict in SQLAlchemy, but legacy
+    # rows may hold a raw JSON string.  Handle both formats safely.
+    raw = latest_delete_audit.details
+    if isinstance(raw, dict):
+        details = raw
+    elif isinstance(raw, str):
+        try:
+            details = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            return None
+    else:
         return None
 
     if not isinstance(details, dict):
@@ -315,10 +325,11 @@ def create_user(
         action="user_create",
         resource_type="user",
         resource_id=user.id,
-        details=json.dumps({"after": _user_snapshot(user)}),
+        details={"after": _user_snapshot(user)},
         ip_address=_client_ip(request),
     )
 
+    logger.info("User created: id=%s email=%s role=%s by=%s", user.id, user.email, user.role.value, current_user.email)
     return user
 
 
@@ -380,7 +391,7 @@ def create_user_invite(
         action="user_invite",
         resource_type="user_invite",
         resource_id=invite.id,
-        details=json.dumps({"email": payload.email, "role": payload.role.value}),
+        details={"email": payload.email, "role": payload.role.value},
         ip_address=_client_ip(request),
     )
 
@@ -500,10 +511,11 @@ def update_user(
         action="user_update",
         resource_type="user",
         resource_id=user.id,
-        details=json.dumps({"before": before, "after": after}),
+        details={"before": before, "after": after},
         ip_address=_client_ip(request),
     )
 
+    logger.info("User updated: id=%s by=%s", user.id, current_user.email)
     return user
 
 
@@ -536,7 +548,7 @@ def verify_user(
         action="user_verify",
         resource_type="user",
         resource_id=user.id,
-        details=json.dumps({"before": before_status, "after": "verified"}),
+        details={"before": before_status, "after": "verified"},
         ip_address=_client_ip(request),
     )
 
@@ -570,7 +582,7 @@ def delete_user(
             action="user_delete_denied",
             resource_type="user",
             resource_id=user.id,
-            details=json.dumps({"reason": "cannot_delete_self"}),
+            details={"reason": "cannot_delete_self"},
             ip_address=_client_ip(request),
         )
         raise HTTPException(status_code=400, detail="Cannot delete yourself.")
@@ -587,12 +599,10 @@ def delete_user(
             action="user_delete_denied",
             resource_type="user",
             resource_id=user.id,
-            details=json.dumps(
-                {
-                    "reason": "minimum_admin_requirement",
-                    "min_active_admin_accounts": settings.min_active_admin_accounts,
-                }
-            ),
+            details={
+                "reason": "minimum_admin_requirement",
+                "min_active_admin_accounts": settings.min_active_admin_accounts,
+            },
             ip_address=_client_ip(request),
         )
         raise HTTPException(
@@ -616,10 +626,11 @@ def delete_user(
         action="user_delete",
         resource_type="user",
         resource_id=user.id,
-        details=json.dumps({"before": before}),
+        details={"before": before},
         ip_address=_client_ip(request),
     )
 
+    logger.info("User soft-deleted: id=%s by=%s", user_id, current_user.email)
     return None
 
 
@@ -658,13 +669,11 @@ def restore_user(
         action="user_restore",
         resource_type="user",
         resource_id=user.id,
-        details=json.dumps(
-            {
-                "before": before,
-                "after": _user_snapshot(user),
-                "email_source": email_source,
-            }
-        ),
+        details={
+            "before": before,
+            "after": _user_snapshot(user),
+            "email_source": email_source,
+        },
         ip_address=_client_ip(request),
     )
 
@@ -827,14 +836,12 @@ def resend_user_invite(
         action="user_invite_resend",
         resource_type="user_invite",
         resource_id=new_invite.id,
-        details=json.dumps(
-            {
-                "previous_invite_id": str(invite.id),
-                "new_invite_id": str(new_invite.id),
-                "email": invite.email,
-                "role": invite.role.value,
-            }
-        ),
+        details={
+            "previous_invite_id": str(invite.id),
+            "new_invite_id": str(new_invite.id),
+            "email": invite.email,
+            "role": invite.role.value,
+        },
         ip_address=_client_ip(request),
     )
     return UserInviteCreateResponse(invite_url=invite_url, expires_at=new_invite.expires_at)
@@ -869,12 +876,10 @@ def revoke_user_invite(
         action="user_invite_revoke",
         resource_type="user_invite",
         resource_id=invite.id,
-        details=json.dumps(
-            {
-                "email": invite.email,
-                "role": invite.role.value,
-            }
-        ),
+        details={
+            "email": invite.email,
+            "role": invite.role.value,
+        },
         ip_address=_client_ip(request),
     )
     return InviteActionResponse(message="Invite revoked.")
@@ -895,12 +900,10 @@ def bulk_delete_users(
             user_id=current_user.id,
             action="user_bulk_delete_denied",
             resource_type="user",
-            details=json.dumps(
-                {
-                    "reason": "confirm_text_required",
-                    "requested_count": len(payload.ids),
-                }
-            ),
+            details={
+                "reason": "confirm_text_required",
+                "requested_count": len(payload.ids),
+            },
             ip_address=_client_ip(request),
         )
         raise HTTPException(
@@ -923,7 +926,7 @@ def bulk_delete_users(
                 user_id=current_user.id,
                 action="user_delete_denied",
                 resource_type="user",
-                details=json.dumps({"bulk": True, "target_id": uid_str, "reason": "invalid_id"}),
+                details={"bulk": True, "target_id": uid_str, "reason": "invalid_id"},
                 ip_address=_client_ip(request),
             )
             continue
@@ -939,7 +942,7 @@ def bulk_delete_users(
                 user_id=current_user.id,
                 action="user_delete_denied",
                 resource_type="user",
-                details=json.dumps({"bulk": True, "target_id": uid_str, "reason": "not_found"}),
+                details={"bulk": True, "target_id": uid_str, "reason": "not_found"},
                 ip_address=_client_ip(request),
             )
             continue
@@ -953,7 +956,7 @@ def bulk_delete_users(
                 action="user_delete_denied",
                 resource_type="user",
                 resource_id=user.id,
-                details=json.dumps({"bulk": True, "reason": "cannot_delete_self"}),
+                details={"bulk": True, "reason": "cannot_delete_self"},
                 ip_address=_client_ip(request),
             )
             continue
@@ -968,13 +971,11 @@ def bulk_delete_users(
                     action="user_delete_denied",
                     resource_type="user",
                     resource_id=user.id,
-                    details=json.dumps(
-                        {
-                            "bulk": True,
-                            "reason": "minimum_admin_requirement",
-                            "min_active_admin_accounts": settings.min_active_admin_accounts,
-                        }
-                    ),
+                    details={
+                        "bulk": True,
+                        "reason": "minimum_admin_requirement",
+                        "min_active_admin_accounts": settings.min_active_admin_accounts,
+                    },
                     ip_address=_client_ip(request),
                 )
                 continue
@@ -995,7 +996,7 @@ def bulk_delete_users(
             action="user_delete",
             resource_type="user",
             resource_id=user.id,
-            details=json.dumps({"before": before, "bulk": True}),
+            details={"before": before, "bulk": True},
             ip_address=_client_ip(request),
         )
         deleted += 1
@@ -1005,13 +1006,11 @@ def bulk_delete_users(
         user_id=current_user.id,
         action="user_bulk_delete_summary",
         resource_type="user",
-        details=json.dumps(
-            {
-                "requested_ids": requested_ids,
-                "deleted": deleted,
-                "skipped": skipped,
-            }
-        ),
+        details={
+            "requested_ids": requested_ids,
+            "deleted": deleted,
+            "skipped": skipped,
+        },
         ip_address=_client_ip(request),
     )
 
@@ -1042,7 +1041,7 @@ def bulk_restore_users(
                 user_id=current_user.id,
                 action="user_restore_denied",
                 resource_type="user",
-                details=json.dumps({"bulk": True, "target_id": uid_str, "reason": "invalid_id"}),
+                details={"bulk": True, "target_id": uid_str, "reason": "invalid_id"},
                 ip_address=_client_ip(request),
             )
             continue
@@ -1056,7 +1055,7 @@ def bulk_restore_users(
                 user_id=current_user.id,
                 action="user_restore_denied",
                 resource_type="user",
-                details=json.dumps({"bulk": True, "target_id": uid_str, "reason": "not_found"}),
+                details={"bulk": True, "target_id": uid_str, "reason": "not_found"},
                 ip_address=_client_ip(request),
             )
             continue
@@ -1070,7 +1069,7 @@ def bulk_restore_users(
                 action="user_restore_denied",
                 resource_type="user",
                 resource_id=user.id,
-                details=json.dumps({"bulk": True, "reason": "not_deleted"}),
+                details={"bulk": True, "reason": "not_deleted"},
                 ip_address=_client_ip(request),
             )
             continue
@@ -1090,14 +1089,12 @@ def bulk_restore_users(
             action="user_restore",
             resource_type="user",
             resource_id=user.id,
-            details=json.dumps(
-                {
-                    "before": before,
-                    "after": _user_snapshot(user),
-                    "bulk": True,
-                    "email_source": email_source,
-                }
-            ),
+            details={
+                "before": before,
+                "after": _user_snapshot(user),
+                "bulk": True,
+                "email_source": email_source,
+            },
             ip_address=_client_ip(request),
         )
         restored += 1
@@ -1107,13 +1104,11 @@ def bulk_restore_users(
         user_id=current_user.id,
         action="user_bulk_restore_summary",
         resource_type="user",
-        details=json.dumps(
-            {
-                "requested_ids": requested_ids,
-                "restored": restored,
-                "skipped": skipped,
-            }
-        ),
+        details={
+            "requested_ids": requested_ids,
+            "restored": restored,
+            "skipped": skipped,
+        },
         ip_address=_client_ip(request),
     )
 
@@ -1135,12 +1130,10 @@ def purge_deleted_users(
             user_id=current_user.id,
             action="user_purge_deleted_denied",
             resource_type="user",
-            details=json.dumps(
-                {
-                    "reason": "confirm_text_required",
-                    "older_than_days": payload.older_than_days,
-                }
-            ),
+            details={
+                "reason": "confirm_text_required",
+                "older_than_days": payload.older_than_days,
+            },
             ip_address=_client_ip(request),
         )
         raise HTTPException(
@@ -1172,14 +1165,12 @@ def purge_deleted_users(
         user_id=current_user.id,
         action="user_purge_deleted_summary",
         resource_type="user",
-        details=json.dumps(
-            {
-                "older_than_days": payload.older_than_days,
-                "purged": purged,
-                "cutoff": cutoff.isoformat(),
-                "reason": reason,
-            }
-        ),
+        details={
+            "older_than_days": payload.older_than_days,
+            "purged": purged,
+            "cutoff": cutoff.isoformat(),
+            "reason": reason,
+        },
         ip_address=_client_ip(request),
     )
 

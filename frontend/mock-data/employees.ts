@@ -11,7 +11,6 @@ export interface Employee {
 }
 
 const departments: Employee["department"][] = ["IT", "HR", "Finance", "Marketing", "Sales"];
-const statuses: Employee["status"][] = ["Active", "On Leave", "Probation", "Inactive"];
 
 const jobTitles: Record<Employee["department"], string[]> = {
   IT: ["Software Engineer", "UX Designer", "DevOps Engineer", "Data Analyst", "Frontend Developer"],

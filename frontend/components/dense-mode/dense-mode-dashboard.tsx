@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect } from "react";
 import { useAuthStore } from "@/store/auth-store";
 import { useDenseModeStore } from "@/store/dense-mode-store";
 import { fetchPatientSummary, fetchPatientTimeline } from "@/lib/api";
@@ -30,34 +30,51 @@ export function DenseModeDashboard({ patientId }: Props) {
     const appendTimelineEvents = useDenseModeStore((s) => s.appendTimelineEvents);
     const reset = useDenseModeStore((s) => s.reset);
 
-    const loadPatientData = useCallback(async () => {
-        if (!token) return;
-        setLoading(true);
-
-        try {
-            const [summaryData, timelineData] = await Promise.all([
-                fetchPatientSummary(patientId, token),
-                fetchPatientTimeline(patientId, token),
-            ]);
-            setSummary(summaryData);
-            appendTimelineEvents(timelineData.items, timelineData.next_cursor, timelineData.has_more);
-            setLoading(false);
-        } catch (err: any) {
-            if (err?.status === 403) {
-                setAccessDenied(true);
-            } else {
-                setError(err.message || "Failed to load patient data");
-            }
-        }
-    }, [patientId, token]);
-
     useEffect(() => {
-        loadPatientData();
+        if (!token) return;
+
+        const loadPatientData = async () => {
+            setLoading(true);
+            try {
+                const [summaryData, timelineData] = await Promise.all([
+                    fetchPatientSummary(patientId, token),
+                    fetchPatientTimeline(patientId, token),
+                ]);
+                setSummary(summaryData);
+                appendTimelineEvents(timelineData.items, timelineData.next_cursor, timelineData.has_more);
+            } catch (err: unknown) {
+                const status = typeof err === "object" && err !== null && "status" in err
+                    ? (err as { status?: number }).status
+                    : undefined;
+                const message = typeof err === "object" && err !== null && "message" in err
+                    ? String((err as { message?: unknown }).message ?? "Failed to load patient data")
+                    : "Failed to load patient data";
+
+                if (status === 403) {
+                    setAccessDenied(true);
+                } else {
+                    setError(message);
+                }
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        void loadPatientData();
 
         return () => {
             reset();
         };
-    }, [patientId, token]);
+    }, [
+        patientId,
+        token,
+        appendTimelineEvents,
+        reset,
+        setAccessDenied,
+        setError,
+        setLoading,
+        setSummary,
+    ]);
 
     if (loading && !summary) {
         return (

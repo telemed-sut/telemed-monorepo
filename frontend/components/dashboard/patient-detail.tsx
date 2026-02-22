@@ -10,7 +10,6 @@ import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
     UserIcon,
-    Calendar03Icon,
     AiPhone01Icon,
     Mail01Icon,
     Location01Icon,
@@ -89,7 +88,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
 
         loadPatient();
         return () => { cancelled = true; };
-    }, [token, patientId, language]);
+    }, [token, patientId, language, clearToken, router]);
 
     useEffect(() => {
         if (!token) return;
@@ -120,7 +119,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
 
         loadMeetings();
         return () => { cancelled = true; };
-    }, [token, patientId]);
+    }, [token, patientId, clearToken, router]);
 
     const getAge = (dateOfBirth: string) => {
         const dob = new Date(dateOfBirth);

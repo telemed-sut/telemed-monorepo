@@ -45,7 +45,7 @@ export function ClinicalTimeline({ patientId }: Props) {
     useEffect(() => {
         resetTimeline();
         loadingRef.current = false;
-    }, [patientId]);
+    }, [patientId, resetTimeline]);
 
     useEffect(() => {
         if (events.length === 0 && hasMore && token) {

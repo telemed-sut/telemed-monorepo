@@ -1,6 +1,5 @@
 import csv
 import io
-import json
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
@@ -52,16 +51,21 @@ def _write_audit_log(
     user: User | None,
     details: dict | None = None,
     created_at: datetime | None = None,
+    status: str | None = None,
 ) -> AuditLog:
-    log = AuditLog(
+    log_kwargs = dict(
         user_id=user.id if user else None,
         action=action,
         resource_type="user",
-        details=json.dumps(details or {}),
+        details=details or {},
         ip_address="127.0.0.1",
         is_break_glass=False,
         created_at=created_at or datetime.now(timezone.utc),
     )
+    if status is not None:
+        log_kwargs["status"] = status
+
+    log = AuditLog(**log_kwargs)
     db.add(log)
     db.commit()
     db.refresh(log)
@@ -89,6 +93,7 @@ def test_audit_logs_filter_by_user_result_and_date(client: TestClient, db: Sessi
         user=doctor,
         details={"success": False, "reason": "today failure"},
         created_at=now,
+        status="failure",
     )
     _write_audit_log(
         db,
@@ -96,6 +101,7 @@ def test_audit_logs_filter_by_user_result_and_date(client: TestClient, db: Sessi
         user=doctor,
         details={"success": True, "reason": "today success"},
         created_at=now,
+        status="success",
     )
     _write_audit_log(
         db,
@@ -103,6 +109,7 @@ def test_audit_logs_filter_by_user_result_and_date(client: TestClient, db: Sessi
         user=doctor,
         details={"success": False, "reason": "yesterday failure"},
         created_at=yesterday,
+        status="failure",
     )
     _write_audit_log(
         db,
@@ -110,6 +117,7 @@ def test_audit_logs_filter_by_user_result_and_date(client: TestClient, db: Sessi
         user=other,
         details={"success": False, "reason": "other user"},
         created_at=now,
+        status="failure",
     )
 
     response = client.get(
@@ -118,7 +126,7 @@ def test_audit_logs_filter_by_user_result_and_date(client: TestClient, db: Sessi
     )
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["total"] == 1
+    # total is no longer returned due to cursor pagination
     assert len(payload["items"]) == 1
     assert payload["items"][0]["user_email"] == doctor.email
     assert payload["items"][0]["result"] == "failure"
@@ -134,12 +142,14 @@ def test_audit_export_honors_user_and_result_filters(client: TestClient, db: Ses
         action="user_verify",
         user=doctor,
         details={"success": True, "message": "verified"},
+        status="success",
     )
     _write_audit_log(
         db,
         action="user_update",
         user=doctor,
         details={"success": False, "message": "denied"},
+        status="failure",
     )
 
     response = client.get(
@@ -155,3 +165,72 @@ def test_audit_export_honors_user_and_result_filters(client: TestClient, db: Ses
     assert len(rows) == 1
     assert rows[0]["User Email"] == doctor.email
     assert rows[0]["Result"] == "success"
+
+
+def test_audit_logs_infers_failure_status_when_omitted(client: TestClient, db: Session):
+    admin = _make_user(db, email="admin-audit-infer@example.com", role=UserRole.admin)
+    doctor = _make_user(db, email="doctor-audit-infer@example.com", role=UserRole.doctor)
+    token = _login(client, admin.email)
+
+    # Intentionally omit status to verify model-level inference for "failed" actions.
+    _write_audit_log(
+        db,
+        action="login_failed",
+        user=doctor,
+        details={"reason": "bad password"},
+        status=None,
+    )
+
+    response = client.get(
+        f"/audit/logs?user={doctor.email}&result=failure",
+        headers=_auth(token),
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["action"] == "login_failed"
+    assert payload["items"][0]["result"] == "failure"
+
+
+def test_audit_logs_query_returns_dict_details_for_jsonb_rows(client: TestClient, db: Session):
+    admin = _make_user(db, email="admin-audit-dict-query@example.com", role=UserRole.admin)
+    target = _make_user(db, email="doctor-audit-dict-query@example.com", role=UserRole.doctor)
+    token = _login(client, admin.email)
+
+    _write_audit_log(
+        db,
+        action="user_update",
+        user=target,
+        details={"success": False, "reason": "query dict payload"},
+        status="failure",
+    )
+
+    response = client.get(f"/audit/logs?user={target.email}", headers=_auth(token))
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert len(payload["items"]) == 1
+    assert isinstance(payload["items"][0]["details"], dict)
+    assert payload["items"][0]["details"]["reason"] == "query dict payload"
+
+
+def test_audit_export_serializes_dict_details_for_csv_reports(client: TestClient, db: Session):
+    admin = _make_user(db, email="admin-audit-dict-export@example.com", role=UserRole.admin)
+    target = _make_user(db, email="doctor-audit-dict-export@example.com", role=UserRole.doctor)
+    token = _login(client, admin.email)
+
+    _write_audit_log(
+        db,
+        action="user_update",
+        user=target,
+        details={"success": False, "reason": "export dict payload"},
+        status="failure",
+    )
+
+    response = client.get(f"/audit/export?user={target.email}", headers=_auth(token))
+    assert response.status_code == 200, response.text
+
+    csv_text = response.content.decode("utf-8")
+    rows = list(csv.DictReader(io.StringIO(csv_text)))
+    assert len(rows) == 1
+    assert rows[0]["Details"].startswith("{")
+    assert '"reason": "export dict payload"' in rows[0]["Details"]

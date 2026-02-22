@@ -1,14 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -17,22 +17,14 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import {
@@ -41,12 +33,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
+import { AnimatedCalendar } from "@/components/ui/calender";
 import { format } from "date-fns";
 import {
   Select,
@@ -82,6 +69,7 @@ import {
   Stethoscope02Icon,
 } from "@hugeicons/core-free-icons";
 import { fetchPatients, createPatient, updatePatient, deletePatient, type Patient } from "@/lib/api";
+import { buildProfileSeed, getProfileOrbStyle } from "@/components/ui/profile-avatar-orb";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
 import { PatientAssignmentsDialog } from "./patient-assignments-dialog";
@@ -134,12 +122,10 @@ export function PatientsTable() {
   const [editing, setEditing] = useState<Patient | null>(null);
   const [formData, setFormData] = useState<PatientFormState>(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [justLoaded, setJustLoaded] = useState(false);
   const [assignmentPatient, setAssignmentPatient] = useState<Patient | null>(null);
 
   const isInitialLoading = loading && patients.length === 0;
   const isRefetching = loading && patients.length > 0;
-  const loadingRef = useRef(false);
 
   const startEntry = total === 0 ? 0 : (page - 1) * limit + 1;
   const endEntry = total === 0 ? 0 : Math.min(page * limit, total);
@@ -174,17 +160,10 @@ export function PatientsTable() {
   // Cache for pages to enable instant navigation
   const cacheRef = useRef<Map<string, { items: Patient[]; total: number }>>(new Map());
 
-  const getCacheKey = (p: number) => `${p}-${limit}-${debouncedSearch}-${sort}-${order}`;
-
-  // Track when a fetch finishes to animate new rows without hiding existing ones
-  useEffect(() => {
-    if (loadingRef.current && !loading) {
-      setJustLoaded(true);
-      const id = setTimeout(() => setJustLoaded(false), 220);
-      return () => clearTimeout(id);
-    }
-    loadingRef.current = loading;
-  }, [loading]);
+  const getCacheKey = useCallback(
+    (p: number) => `${p}-${limit}-${debouncedSearch}-${sort}-${order}`,
+    [limit, debouncedSearch, sort, order]
+  );
 
   useEffect(() => {
     if (!token) return;
@@ -255,7 +234,7 @@ export function PatientsTable() {
     return () => {
       cancelled = true;
     };
-  }, [token, page, limit, debouncedSearch, sort, order]);
+  }, [token, page, limit, debouncedSearch, sort, order, clearToken, getCacheKey, language, router]);
 
   const resetForm = (patient?: Patient) => {
     if (patient) {
@@ -428,12 +407,6 @@ export function PatientsTable() {
     });
   };
 
-  const getPatientInitials = (patient: Patient) => {
-    const firstInitial = patient.first_name?.charAt(0)?.toUpperCase() || '';
-    const lastInitial = patient.last_name?.charAt(0)?.toUpperCase() || '';
-    return `${firstInitial}${lastInitial}` || 'PA';
-  };
-
   const getAgeFromDOB = (dateOfBirth: string) => {
     const dob = new Date(dateOfBirth);
     const today = new Date();
@@ -580,7 +553,11 @@ export function PatientsTable() {
                   className="pl-9 w-full sm:w-[280px] h-10 bg-background/50 border-input/60 hover:border-input focus-visible:ring-primary/20 transition-all shadow-sm"
                 />
               </div>
-              <Button variant="glass-primary" className="gap-2" onClick={() => resetForm()}>
+              <Button
+                variant="default"
+                className="gap-2 bg-black text-white hover:bg-black/90 dark:bg-black dark:text-white dark:hover:bg-black/90"
+                onClick={() => resetForm()}
+              >
                 <HugeiconsIcon icon={Add01Icon} className="size-4" />
                 {tr(language, "Add Patient", "เพิ่มผู้ป่วย")}
               </Button>
@@ -723,6 +700,12 @@ export function PatientsTable() {
                       const age = getAgeFromDOB(patient.date_of_birth);
                       const hasContact = !!(patient.phone || patient.email);
                       const rowNumber = (page - 1) * limit + index + 1;
+                      const profileSeed = buildProfileSeed(
+                        patient.id,
+                        patient.first_name,
+                        patient.last_name,
+                        patient.email
+                      );
 
                       return (
                         <m.tr
@@ -739,8 +722,13 @@ export function PatientsTable() {
                           <TableCell className="p-4 align-middle">
                             <div className="flex items-center gap-3">
                               <Avatar className="size-10 ring-2 ring-background transition-shadow group-hover:ring-primary/20">
-                                <AvatarFallback className="bg-primary/5 text-primary font-semibold group-hover:bg-primary/10 transition-colors">
-                                  {getPatientInitials(patient)}
+                                <AvatarFallback
+                                  className="transition-transform duration-200 group-hover:scale-[1.03]"
+                                  style={getProfileOrbStyle(profileSeed)}
+                                >
+                                  <span className="sr-only">
+                                    {patient.first_name} {patient.last_name}
+                                  </span>
                                 </AvatarFallback>
                               </Avatar>
                               <div>
@@ -1096,46 +1084,34 @@ export function PatientsTable() {
                     </svg>
                     {tr(language, "Date of birth", "วันเกิด")} <span className="text-red-500">*</span>
                   </Label>
-                  <div className="relative">
-                    <Input
-                      value={formData.date_of_birth ? format(new Date(formData.date_of_birth), "PPP") : ""}
-                      readOnly
-                      placeholder={tr(language, "Pick a date", "เลือกวันที่")}
-                      className={cn(
-                        "h-11 pr-12 cursor-pointer",
-                        formErrors.date_of_birth && "border-red-500 focus-visible:ring-red-500"
-                      )}
-                      onClick={() => document.getElementById("calendar-trigger")?.click()}
-                    />
-                    <Popover>
-                      <PopoverTrigger
-                        id="calendar-trigger"
-                        className={cn(
-                          buttonVariants({ variant: "ghost", size: "icon" }),
-                          "absolute right-1 top-1 h-9 w-9 text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        <HugeiconsIcon icon={Calendar03Icon} className="size-4" />
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="end">
-                        <Calendar
-                          mode="single"
-                          selected={formData.date_of_birth ? new Date(formData.date_of_birth) : undefined}
-                          onSelect={(date) => {
-                            setFormData({ ...formData, date_of_birth: date ? format(date, "yyyy-MM-dd") : "" });
-                            if (date) setFormErrors({ ...formErrors, date_of_birth: "" });
-                          }}
-                          disabled={(date) =>
-                            date > new Date() || date < new Date("1900-01-01")
-                          }
-                          captionLayout="dropdown"
-                          fromYear={1900}
-                          toYear={new Date().getFullYear()}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+                  <AnimatedCalendar
+                    mode="single"
+                    value={formData.date_of_birth ? new Date(`${formData.date_of_birth}T00:00:00`) : undefined}
+                    onChange={(value) => {
+                      if (value instanceof Date) {
+                        setFormData({ ...formData, date_of_birth: format(value, "yyyy-MM-dd") });
+                        setFormErrors({ ...formErrors, date_of_birth: "" });
+                        return;
+                      }
+                      setFormData({ ...formData, date_of_birth: "" });
+                    }}
+                    minDate={new Date("1900-01-01")}
+                    maxDate={new Date()}
+                    localeStrings={{
+                      today: tr(language, "Today", "วันนี้"),
+                      clear: tr(language, "Clear", "ล้าง"),
+                      selectTime: tr(language, "Select time", "เลือกเวลา"),
+                      backToCalendar: tr(language, "Back to calendar", "กลับไปปฏิทิน"),
+                      selected: tr(language, "selected", "ที่เลือก"),
+                    }}
+                    placeholder={tr(language, "Pick a date", "เลือกวันที่")}
+                    showWeekNumbers
+                    showTodayButton
+                    showClearButton={false}
+                    closeOnSelect
+                    error={!!formErrors.date_of_birth}
+                    className="!w-full h-11"
+                  />
                   {formErrors.date_of_birth ? (
                     <p className="text-xs text-red-500">{formErrors.date_of_birth}</p>
                   ) : (

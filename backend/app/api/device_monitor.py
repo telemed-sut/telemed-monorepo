@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Any
+import logging
 from datetime import datetime, timedelta, timezone
 
 from app.services.auth import get_db, get_admin_user
@@ -10,6 +11,8 @@ from app.models.pressure_record import PressureRecord
 from app.core.limiter import limiter
 
 router = APIRouter()
+MAX_LOOKBACK_HOURS = 24 * 90
+logger = logging.getLogger(__name__)
 
 AUTH_ERROR_HINTS = {
     "missing_required_headers": "Send X-Device-Id, X-Timestamp, and X-Signature headers.",
@@ -100,6 +103,30 @@ def _serialize_device_error(error: DeviceErrorLog) -> dict[str, Any]:
         "suggestion": _hint_for_error_code(error_code),
     }
 
+
+def _to_utc(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _resolve_window(
+    hours: int | None,
+    date_from: datetime | None,
+    date_to: datetime | None,
+) -> tuple[datetime, datetime]:
+    now_utc = datetime.now(timezone.utc)
+    end_at = _to_utc(date_to) if date_to is not None else now_utc
+
+    if date_from is not None:
+        start_at = _to_utc(date_from)
+    else:
+        lookback_hours = hours if hours is not None else 24
+        start_at = end_at - timedelta(hours=lookback_hours)
+
+    if start_at > end_at:
+        start_at, end_at = end_at, start_at
+
+    return start_at, end_at
+
 @router.get("/device/v1/health")
 @limiter.limit("60/minute")
 def device_health_check(request: Request):
@@ -114,30 +141,35 @@ def get_device_stats(
     request: Request,
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_admin_user),
-    hours: int = Query(default=24, ge=1, le=168),
+    hours: int = Query(default=24, ge=1, le=MAX_LOOKBACK_HOURS),
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
     top_devices: int = Query(default=20, ge=1, le=100),
 ):
     """
     Get statistics for device usage in the last N hours.
     Requires Admin privileges.
     """
-    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    start_at, end_at = _resolve_window(hours, date_from, date_to)
 
     # Count successful records
     success_count = db.query(func.count(PressureRecord.id)).filter(
-        PressureRecord.created_at >= since
+        PressureRecord.created_at >= start_at,
+        PressureRecord.created_at <= end_at,
     ).scalar()
 
     # Count errors
     error_count = db.query(func.count(DeviceErrorLog.id)).filter(
-        DeviceErrorLog.occurred_at >= since
+        DeviceErrorLog.occurred_at >= start_at,
+        DeviceErrorLog.occurred_at <= end_at,
     ).scalar()
 
     # Group errors by device_id
     errors_by_device = db.query(
         DeviceErrorLog.device_id, func.count(DeviceErrorLog.id)
     ).filter(
-        DeviceErrorLog.occurred_at >= since
+        DeviceErrorLog.occurred_at >= start_at,
+        DeviceErrorLog.occurred_at <= end_at,
     ).group_by(
         DeviceErrorLog.device_id
     ).order_by(
@@ -145,7 +177,7 @@ def get_device_stats(
     ).limit(top_devices).all()
 
     return {
-        "period_hours": hours,
+        "period_hours": max(1, int((end_at - start_at).total_seconds() // 3600)),
         "success_count": success_count,
         "error_count": error_count,
         "error_rate": (error_count / (success_count + error_count)) if (success_count + error_count) > 0 else 0,
@@ -159,8 +191,9 @@ def get_device_errors(
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_admin_user),
     limit: int = Query(default=50, ge=1, le=500),
-    hours: int | None = Query(default=None, ge=1, le=168),
+    hours: int | None = Query(default=None, ge=1, le=MAX_LOOKBACK_HOURS),
     since: datetime | None = None,
+    until: datetime | None = None,
     since_id: int | None = Query(default=None, ge=1),
     device_id: str | None = Query(default=None, min_length=1, max_length=128),
 ):
@@ -173,13 +206,16 @@ def get_device_errors(
     if device_id:
         query = query.filter(DeviceErrorLog.device_id == device_id.strip())
 
-    now_utc = datetime.now(timezone.utc)
     if hours is not None:
-        query = query.filter(DeviceErrorLog.occurred_at >= now_utc - timedelta(hours=hours))
+        query = query.filter(DeviceErrorLog.occurred_at >= datetime.now(timezone.utc) - timedelta(hours=hours))
 
     if since is not None:
-        since_utc = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
+        since_utc = _to_utc(since)
         query = query.filter(DeviceErrorLog.occurred_at > since_utc)
+
+    if until is not None:
+        until_utc = _to_utc(until)
+        query = query.filter(DeviceErrorLog.occurred_at <= until_utc)
 
     if since_id is not None:
         query = query.filter(DeviceErrorLog.id > since_id)

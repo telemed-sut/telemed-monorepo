@@ -1381,6 +1381,8 @@ export interface DeviceErrorLog {
 
 export interface FetchDeviceStatsOptions {
   topDevices?: number;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 export async function fetchDeviceStats(
@@ -1393,6 +1395,12 @@ export async function fetchDeviceStats(
   if (typeof options.topDevices === "number") {
     params.set("top_devices", String(options.topDevices));
   }
+  if (options.dateFrom) {
+    params.set("date_from", options.dateFrom);
+  }
+  if (options.dateTo) {
+    params.set("date_to", options.dateTo);
+  }
 
   return apiFetch<DeviceStats>(`/device/v1/stats?${params.toString()}`, { method: "GET" }, token);
 }
@@ -1401,6 +1409,7 @@ export interface FetchDeviceErrorsOptions {
   limit?: number;
   hours?: number;
   since?: string;
+  until?: string;
   sinceId?: number;
   deviceId?: string;
 }
@@ -1414,6 +1423,9 @@ export async function fetchDeviceErrors(token: string, options: FetchDeviceError
   }
   if (options.since) {
     params.set("since", options.since);
+  }
+  if (options.until) {
+    params.set("until", options.until);
   }
   if (typeof options.sinceId === "number") {
     params.set("since_id", String(options.sinceId));
@@ -1436,7 +1448,7 @@ export interface AuditLogItem {
   result: "success" | "failure";
   resource_type: string | null;
   resource_id: string | null;
-  details: string | null;
+  details: Record<string, unknown> | string | null;
   ip_address: string | null;
   is_break_glass: boolean;
   break_glass_reason: string | null;
@@ -1447,15 +1459,14 @@ export interface AuditLogItem {
 
 export interface AuditLogListResponse {
   items: AuditLogItem[];
-  page: number;
   limit: number;
-  total: number;
+  next_cursor?: string | null;
 }
 
 export async function fetchAuditLogs(
   token: string,
   params: {
-    page?: number;
+    cursor?: string | null;
     limit?: number;
     user_id?: string;
     user?: string;
@@ -1469,7 +1480,8 @@ export async function fetchAuditLogs(
   }
 ) {
   const query = new URLSearchParams();
-  appendPagination(query, params, 200);
+  if (params.limit) query.append("limit", params.limit.toString());
+  if (params.cursor) query.append("cursor", params.cursor);
   if (params.user_id) query.append("user_id", params.user_id);
   if (params.user) query.append("user", params.user);
   if (params.action) query.append("action", params.action);

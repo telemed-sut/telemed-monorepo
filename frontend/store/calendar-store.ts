@@ -132,6 +132,7 @@ export function getCurrentTimePosition(tz: DisplayTimezone = "local"): number {
 }
 
 export function getMeetingDuration(meeting: Meeting): number {
+  void meeting;
   // Default 60 min for meetings (since the backend doesn't store end_time)
   return 60;
 }
@@ -157,4 +158,3 @@ export function getLocalTimezoneAbbr(): string {
     return "Local";
   }
 }
-

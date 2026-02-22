@@ -43,18 +43,12 @@ import {
     ChevronsLeft,
     ChevronsRight,
     Loader2,
-    AlertTriangle,
     UserCog,
-    Shield,
-    ShieldAlert,
     Mail,
-    MoreVertical,
     Plus,
     Trash2,
     Pencil,
     Copy,
-    ExternalLink,
-    CheckCircle2,
     XCircle,
     X,
     BadgeCheck,
@@ -70,7 +64,8 @@ import {
 
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { cn } from "@/lib/utils";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buildProfileSeed, getProfileOrbStyle } from "@/components/ui/profile-avatar-orb";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
     Select,
@@ -118,13 +113,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
 
 import { DataTableViewOptions } from "./data-table-view-options";
 import { useLanguageStore } from "@/store/language-store";
@@ -176,25 +164,72 @@ const isClinicalRole = (role: string) => {
     return CLINICAL_ROLE_OPTIONS.some((option) => option.value === role);
 };
 
-const isLicenseExpired = (expiryDate?: string) => {
-    if (!expiryDate) return false;
-    return new Date(expiryDate) < new Date();
-};
-
-const isLicenseExpiringSoon = (expiryDate?: string) => {
-    if (!expiryDate) return false;
-    const today = new Date();
-    const expiry = new Date(expiryDate);
-    const diffTime = expiry.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays > 0 && diffDays <= 30;
-};
-
 const TEAM_MEMBER_COLORS = [
     "bg-emerald-200 text-emerald-800",
     "bg-amber-200 text-amber-800",
     "bg-violet-200 text-violet-800",
 ] as const;
+
+const getDisplayName = (
+    firstName: string | null | undefined,
+    lastName: string | null | undefined,
+    email: string | null | undefined,
+    fallback: string,
+) => `${firstName ?? ""} ${lastName ?? ""}`.trim() || email || fallback;
+
+const showTeamUpdateToast = ({
+    title,
+    message,
+    members,
+}: {
+    title: string;
+    message: string;
+    members: string[];
+}) => {
+    const memberChips = members
+        .filter((member) => member.trim().length > 0)
+        .slice(0, 3)
+        .map((member, index) => ({
+            name: member,
+            initials: member.trim().charAt(0).toUpperCase() || "?",
+            color: TEAM_MEMBER_COLORS[index % TEAM_MEMBER_COLORS.length],
+        }));
+
+    toast.info(title, {
+        fill: "#f3f4f6",
+        duration: 12000,
+        icon: (
+            <span className="inline-flex size-5 items-center justify-center rounded-full bg-sky-100 text-sky-500">
+                <Users className="size-3.5" />
+            </span>
+        ),
+        styles: {
+            title: "!text-sky-500 !font-semibold !tracking-tight",
+            badge: "!bg-sky-100/80 !text-sky-500",
+            description: "!text-neutral-700",
+        },
+        description: (
+            <div className="flex items-center gap-3 pr-5">
+                <div className="flex -space-x-2">
+                    {memberChips.map((member) => (
+                        <span
+                            key={member.name}
+                            className={cn(
+                                "inline-flex size-7 items-center justify-center rounded-full border-2 border-zinc-100 text-[11px] font-semibold shadow-sm",
+                                member.color
+                            )}
+                            aria-label={member.name}
+                            title={member.name}
+                        >
+                            {member.initials}
+                        </span>
+                    ))}
+                </div>
+                <p className="text-sm leading-snug text-neutral-600">{message}</p>
+            </div>
+        ),
+    });
+};
 
 const INVITE_STATUS_LABEL_MAP: Record<string, string> = {
     active: "Active",
@@ -287,7 +322,7 @@ const formatInviteTimestamp = (value?: string | null, language: AppLanguage = "e
 // --- Component ---
 
 export function UsersTable() {
-    const { role: currentUserRole, token, userId: currentUserId } = useAuthStore();
+    const { role: currentUserRole, token } = useAuthStore();
     const language = useLanguageStore((state) => state.language);
 
     // State for data
@@ -359,7 +394,7 @@ export function UsersTable() {
     });
 
     // Load Data
-    const loadUsers = async () => {
+    const loadUsers = useCallback(async () => {
         if (!token) return;
         setLoading(true);
         try {
@@ -385,14 +420,24 @@ export function UsersTable() {
             // Ensure type compatibility by handling nulls if necessary, though User from API should match User in state
             setUsers(res.items || []);
             setTotal(res.total || 0);
-        } catch (error) {
+        } catch {
             toast.error(tr(language, "Error", "ข้อผิดพลาด"), {
                 description: tr(language, "Failed to load users.", "โหลดข้อมูลผู้ใช้ไม่สำเร็จ"),
             });
         } finally {
             setLoading(false);
         }
-    };
+    }, [
+        token,
+        sorting,
+        pagination.pageIndex,
+        pagination.pageSize,
+        debouncedSearch,
+        roleFilter,
+        statusFilterLocal,
+        accountView,
+        language,
+    ]);
 
     const loadInviteItems = useCallback(async () => {
         if (!token || !isInviteSheetOpen) return;
@@ -422,8 +467,8 @@ export function UsersTable() {
     }, [token, isInviteSheetOpen, inviteStatusFilter, language]);
 
     useEffect(() => {
-        loadUsers();
-    }, [pagination.pageIndex, pagination.pageSize, sorting, debouncedSearch, roleFilter, statusFilterLocal, accountView]);
+        void loadUsers();
+    }, [loadUsers]);
 
     useEffect(() => {
         if (!isInviteSheetOpen) return;
@@ -445,49 +490,13 @@ export function UsersTable() {
 
     // --- Handlers from Original ---
 
-    const handleOpenEdit = (user: User) => {
+    const handleOpenEdit = useCallback((user: User) => {
         setEditingUser(user);
         setFormData({ ...user, password: "" }); // Clear password for security
         setSheetOpen(true);
-    };
+    }, []);
 
-    const handleCreateUser = () => {
-        setEditingUser(null);
-        setFormData({
-            email: "",
-            first_name: "",
-            last_name: "",
-            role: "doctor",
-            is_active: true,
-            specialty: "",
-            department: "",
-            license_no: "",
-            license_expiry: "",
-            verification_status: "unverified",
-            password: "",
-        });
-        setSheetOpen(true);
-    };
-
-    const handleDelete = (user: User) => {
-        const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
-        toast.destructiveAction(tr(language, "Delete user?", "ลบผู้ใช้ใช่ไหม?"), {
-            description: tr(
-                language,
-                `Are you sure you want to delete ${fullName}?`,
-                `ยืนยันการลบผู้ใช้ ${fullName} ใช่หรือไม่?`
-            ),
-            button: {
-                title: tr(language, "Delete User", "ลบผู้ใช้"),
-                onClick: () => {
-                    void confirmDelete(user);
-                },
-            },
-            duration: 9000,
-        });
-    };
-
-    const confirmDelete = async (user: User) => {
+    const confirmDelete = useCallback(async (user: User) => {
         if (!token) {
             toast.error(tr(language, "Delete failed", "ลบไม่สำเร็จ"), {
                 description: tr(language, "Not authenticated. Please sign in again.", "ยังไม่ได้ยืนยันตัวตน กรุณาเข้าสู่ระบบอีกครั้ง"),
@@ -506,9 +515,27 @@ export function UsersTable() {
                 description: getErrorMessage(error, "ไม่สามารถลบผู้ใช้ได้"),
             });
         }
-    };
+    }, [token, language, loadUsers]);
 
-    const confirmRestore = async (user: User) => {
+    const handleDelete = useCallback((user: User) => {
+        const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
+        toast.destructiveAction(tr(language, "Delete user?", "ลบผู้ใช้ใช่ไหม?"), {
+            description: tr(
+                language,
+                `Are you sure you want to delete ${fullName}?`,
+                `ยืนยันการลบผู้ใช้ ${fullName} ใช่หรือไม่?`
+            ),
+            button: {
+                title: tr(language, "Delete User", "ลบผู้ใช้"),
+                onClick: () => {
+                    void confirmDelete(user);
+                },
+            },
+            duration: 9000,
+        });
+    }, [language, confirmDelete]);
+
+    const confirmRestore = useCallback(async (user: User) => {
         if (!token) {
             toast.error(tr(language, "Restore failed", "กู้คืนไม่สำเร็จ"), {
                 description: tr(language, "Not authenticated. Please sign in again.", "ยังไม่ได้ยืนยันตัวตน กรุณาเข้าสู่ระบบอีกครั้ง"),
@@ -531,9 +558,9 @@ export function UsersTable() {
                 description: getErrorMessage(error, "ไม่สามารถกู้คืนผู้ใช้ได้"),
             });
         }
-    };
+    }, [token, language, loadUsers]);
 
-    const requestRestore = (user: User) => {
+    const requestRestore = useCallback((user: User) => {
         const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
         toast.action(tr(language, "Restore user?", "กู้คืนผู้ใช้ใช่ไหม?"), {
             description: tr(
@@ -549,9 +576,9 @@ export function UsersTable() {
             },
             duration: 9000,
         });
-    };
+    }, [language, confirmRestore]);
 
-    const handleVerifyUser = async (user: User) => {
+    const handleVerifyUser = useCallback(async (user: User) => {
         if (!token) {
             toast.error(tr(language, "Verification failed", "ยืนยันไม่สำเร็จ"), {
                 description: tr(language, "Not authenticated. Please sign in again.", "ยังไม่ได้ยืนยันตัวตน กรุณาเข้าสู่ระบบอีกครั้ง"),
@@ -561,7 +588,12 @@ export function UsersTable() {
 
         try {
             await verifyUser(user.id, token);
-            const displayName = getDisplayName(user.first_name, user.last_name, user.email);
+            const displayName = getDisplayName(
+                user.first_name,
+                user.last_name,
+                user.email,
+                tr(language, "New member", "สมาชิกใหม่")
+            );
             showTeamUpdateToast({
                 title: tr(language, "Verification Complete", "ยืนยันเสร็จสมบูรณ์"),
                 members: [displayName],
@@ -577,7 +609,7 @@ export function UsersTable() {
                 description: getErrorMessage(err, "ไม่สามารถยืนยันผู้ใช้ได้"),
             });
         }
-    };
+    }, [token, language, loadUsers]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -634,7 +666,8 @@ export function UsersTable() {
             const displayName = getDisplayName(
                 basePayload.first_name,
                 basePayload.last_name,
-                basePayload.email
+                basePayload.email,
+                tr(language, "New member", "สมาชิกใหม่")
             );
             if (editingUser) {
                 toast.success(tr(language, "User updated", "อัปเดตผู้ใช้แล้ว"), {
@@ -776,67 +809,6 @@ export function UsersTable() {
         });
     };
 
-    const getDisplayName = (
-        firstName?: string | null,
-        lastName?: string | null,
-        email?: string | null
-    ) =>
-        `${firstName ?? ""} ${lastName ?? ""}`.trim() || email || tr(language, "New member", "สมาชิกใหม่");
-
-    const showTeamUpdateToast = ({
-        title,
-        message,
-        members,
-    }: {
-        title: string;
-        message: string;
-        members: string[];
-    }) => {
-        const memberChips = members
-            .filter((member) => member.trim().length > 0)
-            .slice(0, 3)
-            .map((member, index) => ({
-                name: member,
-                initials: member.trim().charAt(0).toUpperCase() || "?",
-                color: TEAM_MEMBER_COLORS[index % TEAM_MEMBER_COLORS.length],
-            }));
-
-        toast.info(title, {
-            fill: "#f3f4f6",
-            duration: 12000,
-            icon: (
-                <span className="inline-flex size-5 items-center justify-center rounded-full bg-sky-100 text-sky-500">
-                    <Users className="size-3.5" />
-                </span>
-            ),
-            styles: {
-                title: "!text-sky-500 !font-semibold !tracking-tight",
-                badge: "!bg-sky-100/80 !text-sky-500",
-                description: "!text-neutral-700",
-            },
-            description: (
-                <div className="flex items-center gap-3 pr-5">
-                    <div className="flex -space-x-2">
-                        {memberChips.map((member) => (
-                            <span
-                                key={member.name}
-                                className={cn(
-                                    "inline-flex size-7 items-center justify-center rounded-full border-2 border-zinc-100 text-[11px] font-semibold shadow-sm",
-                                    member.color
-                                )}
-                                aria-label={member.name}
-                                title={member.name}
-                            >
-                                {member.initials}
-                            </span>
-                        ))}
-                    </div>
-                    <p className="text-sm leading-snug text-neutral-600">{message}</p>
-                </div>
-            ),
-        });
-    };
-
     // Bulk Delete
     const handleBulkDelete = async (ids: string[], confirmText?: string) => {
         if (!token) {
@@ -892,7 +864,7 @@ export function UsersTable() {
 
         const ids = selectedUsers.map((user) => user.id);
         const names = selectedUsers
-            .map((user) => getDisplayName(user.first_name, user.last_name, user.email))
+            .map((user) => getDisplayName(user.first_name, user.last_name, user.email, tr(language, "New member", "สมาชิกใหม่")))
             .slice(0, 2);
         const remaining = selectedUsers.length - names.length;
         const namesPreview =
@@ -976,7 +948,7 @@ export function UsersTable() {
         if (selectedUsers.length === 0 || isBulkRestoring || isBulkDeleting) return;
         const ids = selectedUsers.map((user) => user.id);
         const names = selectedUsers
-            .map((user) => getDisplayName(user.first_name, user.last_name, user.email))
+            .map((user) => getDisplayName(user.first_name, user.last_name, user.email, tr(language, "New member", "สมาชิกใหม่")))
             .slice(0, 2);
         const remaining = selectedUsers.length - names.length;
         const namesPreview =
@@ -1152,13 +1124,23 @@ export function UsersTable() {
             ),
             cell: ({ row }) => {
                 const user = row.original;
-                const fallback = user.first_name ? user.first_name[0] : user.email[0].toUpperCase();
+                const profileSeed = buildProfileSeed(
+                    user.id,
+                    user.first_name,
+                    user.last_name,
+                    user.email
+                );
                 return (
                     <div className="flex items-center gap-2">
                         <Avatar className="h-8 w-8">
                             <AvatarImage src={user.avatar_url || undefined} />
-                            <AvatarFallback className="bg-primary/10 text-primary font-bold text-xs">
-                                {fallback}
+                            <AvatarFallback
+                                className="transition-transform duration-200 hover:scale-[1.03]"
+                                style={getProfileOrbStyle(profileSeed)}
+                            >
+                                <span className="sr-only">
+                                    {getDisplayName(user.first_name, user.last_name, user.email, tr(language, "New member", "สมาชิกใหม่"))}
+                                </span>
                             </AvatarFallback>
                         </Avatar>
                         <div className="flex flex-col">

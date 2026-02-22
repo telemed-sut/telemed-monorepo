@@ -1,6 +1,6 @@
 """Tests for user management API – RBAC, CRUD, soft-delete, validation, audit."""
 
-import json
+
 from datetime import datetime, timedelta, timezone
 from uuid import UUID as PyUUID
 
@@ -18,6 +18,14 @@ from app.models.user import User
 # ──────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────
+
+
+def _parse_details(raw):
+    """Parse audit log details — handles both dict (JSONB) and str (legacy)."""
+    if isinstance(raw, dict):
+        return raw
+    import json
+    return json.loads(raw)
 
 def _make_user(db: Session, *, email: str, role: UserRole = UserRole.staff, password: str = "TestPass123") -> User:
     user = User(
@@ -314,6 +322,32 @@ class TestSoftDelete:
         assert restore_resp.status_code == 200, restore_resp.text
         restored = restore_resp.json()
         assert restored["email"] == "restore-target@example.com"
+        assert restored["deleted_at"] is None
+        assert restored["is_active"] is True
+
+    def test_restore_soft_deleted_user_from_legacy_string_audit_details(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-restore-legacy@example.com", role=UserRole.admin)
+        target = _make_user(db, email="restore-legacy@example.com", role=UserRole.staff)
+        token = _login(client, "admin-restore-legacy@example.com")
+
+        delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        latest_delete_log = db.query(AuditLog).filter(
+            AuditLog.action == "user_delete",
+            AuditLog.resource_id == PyUUID(str(target.id)),
+        ).order_by(AuditLog.created_at.desc()).first()
+        assert latest_delete_log is not None
+
+        import json
+        latest_delete_log.details = json.dumps({"before": {"email": "restore-legacy@example.com"}})
+        db.add(latest_delete_log)
+        db.commit()
+
+        restore_resp = client.post(f"/users/{target.id}/restore", headers=_auth(token))
+        assert restore_resp.status_code == 200, restore_resp.text
+        restored = restore_resp.json()
+        assert restored["email"] == "restore-legacy@example.com"
         assert restored["deleted_at"] is None
         assert restored["is_active"] is True
 
@@ -629,7 +663,7 @@ class TestAuditLog:
         ).all()
         assert len(logs) == 1
         assert logs[0].user_id == admin.id
-        detail = json.loads(logs[0].details)
+        detail = _parse_details(logs[0].details)
         assert "after" in detail
 
     def test_update_user_logs_audit(self, client: TestClient, db: Session):
@@ -643,7 +677,7 @@ class TestAuditLog:
             AuditLog.resource_id == PyUUID(str(target.id)),
         ).all()
         assert len(logs) == 1
-        detail = json.loads(logs[0].details)
+        detail = _parse_details(logs[0].details)
         assert "before" in detail
         assert "after" in detail
 
@@ -670,7 +704,7 @@ class TestAuditLog:
             AuditLog.resource_id == PyUUID(str(doc.id)),
         ).all()
         assert len(logs) == 1
-        detail = json.loads(logs[0].details)
+        detail = _parse_details(logs[0].details)
         assert detail["after"] == "verified"
 
     def test_delete_denied_logs_audit(self, client: TestClient, db: Session):
@@ -685,7 +719,7 @@ class TestAuditLog:
             AuditLog.resource_id == PyUUID(str(admin.id)),
         ).all()
         assert len(logs) >= 1
-        detail = json.loads(logs[-1].details)
+        detail = _parse_details(logs[-1].details)
         assert detail["reason"] == "cannot_delete_self"
 
     def test_bulk_delete_logs_summary_audit(self, client: TestClient, db: Session):
@@ -709,7 +743,7 @@ class TestAuditLog:
             AuditLog.user_id == admin.id,
         ).all()
         assert len(logs) >= 1
-        summary = json.loads(logs[-1].details)
+        summary = _parse_details(logs[-1].details)
         assert summary["deleted"] == 1
         assert invalid_id in summary["requested_ids"]
         assert any("invalid ID" in item for item in summary["skipped"])
@@ -730,7 +764,7 @@ class TestAuditLog:
             AuditLog.resource_id == PyUUID(str(target.id)),
         ).all()
         assert len(logs) >= 1
-        detail = json.loads(logs[-1].details)
+        detail = _parse_details(logs[-1].details)
         assert detail["after"]["deleted_at"] is None
 
     def test_bulk_restore_logs_summary_audit(self, client: TestClient, db: Session):
@@ -757,7 +791,7 @@ class TestAuditLog:
             AuditLog.user_id == admin.id,
         ).all()
         assert len(logs) >= 1
-        detail = json.loads(logs[-1].details)
+        detail = _parse_details(logs[-1].details)
         assert detail["restored"] == 1
 
     def test_purge_deleted_logs_summary_audit(self, client: TestClient, db: Session):
@@ -788,6 +822,6 @@ class TestAuditLog:
             AuditLog.user_id == admin.id,
         ).all()
         assert len(logs) >= 1
-        detail = json.loads(logs[-1].details)
+        detail = _parse_details(logs[-1].details)
         assert detail["older_than_days"] == 90
         assert "retention window" in detail["reason"]

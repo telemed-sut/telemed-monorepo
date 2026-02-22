@@ -19,6 +19,7 @@ from app.models.invite import UserInvite
 from app.models.enums import UserRole
 from app.models.user import User
 from app.services import patient as patient_service
+from app.core.request_utils import get_client_ip
 
 settings = get_settings()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
@@ -312,7 +313,7 @@ def verify_patient_access(
         db,
         current_user=current_user,
         patient_id=patient_id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
     return current_user
 
@@ -328,7 +329,7 @@ def verify_patient_access_doctor(
         db,
         current_user=current_user,
         patient_id=patient_id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
     return current_user
 
@@ -344,6 +345,6 @@ def verify_patient_access_doctor_or_nurse(
         db,
         current_user=current_user,
         patient_id=patient_id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
     return current_user

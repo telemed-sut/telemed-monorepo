@@ -17,6 +17,7 @@
 | **DELETE /users/:id** | Changed from hard delete to **soft delete** (`deleted_at` + `is_active=false`) |
 | **POST /users/:id/verify** | New endpoint — admin sets a user's verification to "verified" |
 | **Audit logging** | All user CRUD now logged: `user_create`, `user_update`, `user_delete`, `user_verify`, `user_invite` with before/after snapshots |
+| **Audit log details format** | New audit entries now store `details` as native dict/object in JSONB (no `json.dumps()` double-encoding). Legacy string rows remain readable via `_restore_email_from_audit()` |
 | **Auth: login** | Soft-deleted and inactive users are now blocked from login |
 | **Auth: get_current_user** | Excludes soft-deleted users; returns 403 for inactive accounts; fixed UUID casting for SQLite test compatibility |
 | **Self-delete protection** | Admin cannot delete themselves |

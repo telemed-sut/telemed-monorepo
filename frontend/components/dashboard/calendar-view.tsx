@@ -157,7 +157,7 @@ function HoursColumn() {
           style={{ height: HOUR_HEIGHT }}
         >
           <span className="absolute -top-[0.6em] left-2 md:left-3 text-xs md:text-sm text-muted-foreground bg-background px-0.5 leading-none">
-            {hour > 0 ? formatHourLabel(hour, language) : ""}
+            {Number(hour) > 0 ? formatHourLabel(Number(hour), language) : ""}
           </span>
         </div>
       ))}
@@ -321,7 +321,7 @@ function EventCard({
                     key={p.id}
                     className="size-5 border-2 border-background"
                   >
-                    <AvatarFallback className="text-[8px] font-bold bg-[#7ac2f0]/15 text-[#7ac2f0]">
+                    <AvatarFallback className="text-[8px] font-bold bg-[var(--med-primary-light)]/15 text-[var(--med-primary-light)]">
                       {getInitial(p.name)}
                     </AvatarFallback>
                   </Avatar>
@@ -403,7 +403,7 @@ function DayColumn({
       ref={scrollRef}
       className={cn(
         "flex-1 last:border-r-0 relative min-w-44",
-        today && "bg-[#7ac2f0]/[0.03]"
+        today && "bg-[var(--med-primary-light)]/[0.03]"
       )}
     >
       <div
@@ -732,12 +732,12 @@ export function EventDetailSheet({
                 </div>
               </div>
 
-                {/* Propose new time */}
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" disabled={!canWrite}>
-                    <span>{tr(language, "Propose new time", "เสนอเวลาใหม่")}</span>
-                    <HugeiconsIcon
-                      icon={ArrowUpRight01Icon}
+              {/* Propose new time */}
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" disabled={!canWrite}>
+                  <span>{tr(language, "Propose new time", "เสนอเวลาใหม่")}</span>
+                  <HugeiconsIcon
+                    icon={ArrowUpRight01Icon}
                     className="size-4"
                   />
                 </Button>
@@ -816,7 +816,7 @@ export function EventDetailSheet({
                 {meeting.room && (
                   <div className="flex flex-col gap-2 pt-4 border-t border-border">
                     <div className="flex items-center gap-2 mb-2">
-                      <div className="size-6 shrink-0 rounded bg-[#7ac2f0]/10 flex items-center justify-center">
+                      <div className="size-6 shrink-0 rounded bg-[var(--med-primary-light)]/10 flex items-center justify-center">
                         <svg
                           className="size-3.5"
                           viewBox="0 0 24 24"
@@ -828,12 +828,12 @@ export function EventDetailSheet({
                             width="18"
                             height="18"
                             rx="2"
-                            fill="#7ac2f0"
+                            fill="var(--med-primary-light)"
                             opacity="0.3"
                           />
                           <path
                             d="M8 12h8M12 8v8"
-                            stroke="#7ac2f0"
+                            stroke="var(--med-primary-light)"
                             strokeWidth="2"
                             strokeLinecap="round"
                           />
@@ -1027,7 +1027,7 @@ export function CalendarView({
                 <div
                   className={cn(
                     "text-xs md:text-sm font-medium",
-                    isToday(day) ? "text-[#7ac2f0]" : "text-foreground"
+                    isToday(day) ? "text-[var(--med-primary-light)]" : "text-foreground"
                   )}
                 >
                   {day

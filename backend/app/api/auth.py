@@ -1,5 +1,4 @@
 import logging
-import json
 from datetime import datetime, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -57,7 +56,7 @@ THAI_TZ = ZoneInfo("Asia/Bangkok")
 
 def _retired_email(user_id: UUID) -> str:
     """Generate a unique placeholder email for soft-deleted users."""
-    return f"deleted+{user_id.hex}@deleted.local"
+    return f"deleted+{user_id.hex}@archive.example.com"
 
 
 def _set_auth_cookie(response: Response, access_token: str) -> None:
@@ -113,14 +112,8 @@ def _format_thai_time(dt) -> str:
     return local_dt.strftime("%d/%m/%Y %H:%M:%S น.")
 
 
-def _client_ip(request: Request) -> str:
-    ip = request.headers.get("cf-connecting-ip")
-    if ip:
-        return ip
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+# Use shared utility for consistent IP extraction across all routes.
+from app.core.request_utils import get_client_ip as _client_ip  # noqa: E402
 
 
 def _two_factor_required_for_user(user: User) -> bool:
@@ -246,6 +239,7 @@ def verify_two_factor(
             details=f"2FA verified for {current_user.email}",
             ip_address=_client_ip(request),
             is_break_glass=False,
+            status="success",
         )
     )
     db.commit()
@@ -280,9 +274,10 @@ def disable_two_factor(
             action="two_factor_disabled",
             resource_type="user",
             resource_id=current_user.id,
-            details=json.dumps({"revoked_devices": revoked_devices, "revoked_backup_codes": revoked_codes}),
+            details={"revoked_devices": revoked_devices, "revoked_backup_codes": revoked_codes},
             ip_address=_client_ip(request),
             is_break_glass=False,
+            status="success",
         )
     )
     db.commit()
@@ -313,15 +308,14 @@ def reset_two_factor(
             action="two_factor_reset",
             resource_type="user",
             resource_id=current_user.id,
-            details=json.dumps(
-                {
-                    "reason": payload.reason or "",
-                    "revoked_devices": revoked_devices,
-                    "revoked_backup_codes": revoked_codes,
-                }
-            ),
+            details={
+                "reason": payload.reason or "",
+                "revoked_devices": revoked_devices,
+                "revoked_backup_codes": revoked_codes,
+            },
             ip_address=_client_ip(request),
             is_break_glass=False,
+            status="success",
         )
     )
     db.commit()
@@ -347,9 +341,10 @@ def regenerate_backup_codes(
             action="two_factor_backup_codes_regenerated",
             resource_type="user",
             resource_id=current_user.id,
-            details=json.dumps({"count": len(codes)}),
+            details={"count": len(codes)},
             ip_address=_client_ip(request),
             is_break_glass=False,
+            status="success",
         )
     )
     db.commit()
@@ -379,6 +374,7 @@ def use_backup_code(
             details="Backup code used from authenticated session",
             ip_address=_client_ip(request),
             is_break_glass=False,
+            status="success",
         )
     )
     db.commit()
@@ -442,9 +438,10 @@ def revoke_trusted_device(
             action="trusted_device_revoked",
             resource_type="user_trusted_device",
             resource_id=device_id,
-            details=json.dumps({"device_id": str(device_id)}),
+            details={"device_id": str(device_id)},
             ip_address=_client_ip(request),
             is_break_glass=False,
+            status="success",
         )
     )
     db.commit()
@@ -468,9 +465,10 @@ def revoke_all_trusted_devices(
             action="trusted_devices_revoked_all",
             resource_type="user",
             resource_id=current_user.id,
-            details=json.dumps({"revoked": revoked}),
+            details={"revoked": revoked},
             ip_address=_client_ip(request),
             is_break_glass=False,
+            status="success",
         )
     )
     db.commit()
@@ -598,6 +596,7 @@ def login(
             details=f"Failed login attempt for {payload.email} from IP {ip}",
             ip_address=ip,
             is_break_glass=False,
+            status="failure",
         )
         db.add(audit_entry)
         db.commit()
@@ -652,6 +651,7 @@ def login(
                             details=f"2FA challenge for {authenticated_user.email} from IP {ip}",
                             ip_address=ip,
                             is_break_glass=False,
+                            status="success",
                         )
                     )
                     db.commit()
@@ -677,6 +677,7 @@ def login(
                         details=f"Failed 2FA verification for {authenticated_user.email} from IP {ip}",
                         ip_address=ip,
                         is_break_glass=False,
+                        status="failure",
                     )
                 )
                 db.commit()
@@ -696,6 +697,7 @@ def login(
                         details=f"Backup code used for login from IP {ip}",
                         ip_address=ip,
                         is_break_glass=False,
+                        status="success",
                     )
                 )
 
@@ -717,9 +719,10 @@ def login(
                         action="trusted_device_created",
                         resource_type="user_trusted_device",
                         resource_id=trusted_device.id,
-                        details=json.dumps({"trusted_device_id": str(trusted_device.id)}),
+                        details={"trusted_device_id": str(trusted_device.id)},
                         ip_address=ip,
                         is_break_glass=False,
+                        status="success",
                     )
                 )
 
@@ -870,9 +873,10 @@ def accept_invite(request: Request, payload: InviteAcceptRequest, db: Session = 
             action="invite_accept",
             resource_type="user_invite",
             resource_id=invite.id,
-            details=json.dumps({"email": invite.email, "role": invite.role.value}),
+            details={"email": invite.email, "role": invite.role.value},
             ip_address=_client_ip(request),
             is_break_glass=False,
+            status="success",
         )
     )
     db.commit()

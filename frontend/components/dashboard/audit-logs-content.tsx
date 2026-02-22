@@ -478,12 +478,9 @@ function tryFormatJson(text: string | null): string {
 // ── Stats Cards ──
 
 function AuditStatsCards({
-    total,
     logs,
     t,
 }: {
-
-    total: number;
     logs: AuditLogItem[];
     t: (key: TranslationKey) => string;
 }) {
@@ -498,11 +495,11 @@ function AuditStatsCards({
     const stats = [
         {
             title: t("totalLogs"),
-            value: total,
-            subtitle: t("allAuditEntries"),
+            value: logs.length,
+            subtitle: t("inCurrentView"),
             icon: ScrollText,
-            iconColor: "text-[#7ac2f0]",
-            bgColor: "bg-[#7ac2f0]/10",
+            iconColor: "text-[var(--med-primary-light)]",
+            bgColor: "bg-[var(--med-primary-light)]/10",
         },
         {
             title: t("breakGlass"),
@@ -567,9 +564,9 @@ export function AuditLogsContent() {
 
     // Data
     const [logs, setLogs] = useState<AuditLogItem[]>([]);
-    const [total, setTotal] = useState(0);
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
-    const [page, setPage] = useState(1);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [limit, setLimit] = useState(50);
 
     // Filters
@@ -619,14 +616,17 @@ export function AuditLogsContent() {
         }
     }, [hydrated, token, router]);
 
-    const loadLogs = useCallback(async (silent = false) => {
+    const loadLogs = useCallback(async (silent = false, isLoadMore = false) => {
         if (!token) return;
 
         try {
-            if (!silent) setLoading(true);
+            if (!silent) {
+                if (isLoadMore) setLoadingMore(true);
+                else setLoading(true);
+            }
 
             const params: {
-                page: number;
+                cursor?: string | null;
                 limit: number;
                 search?: string;
                 user?: string;
@@ -636,7 +636,12 @@ export function AuditLogsContent() {
                 result?: "success" | "failure";
                 date_from?: string;
                 date_to?: string;
-            } = { page, limit };
+            } = { limit };
+
+            if (isLoadMore && nextCursor) {
+                params.cursor = nextCursor;
+            }
+
             if (search) params.search = search;
             if (userFilter) params.user = userFilter;
             if (actionFilter !== "all") params.action = actionFilter;
@@ -647,8 +652,13 @@ export function AuditLogsContent() {
             if (dateTo) params.date_to = dateTo;
 
             const response = await fetchAuditLogs(token, params);
-            setLogs(response.items);
-            setTotal(response.total);
+
+            if (isLoadMore) {
+                setLogs(prev => [...prev, ...response.items]);
+            } else {
+                setLogs(response.items);
+            }
+            setNextCursor(response.next_cursor || null);
         } catch (err: unknown) {
             const apiError = err as ApiError;
             if (apiError.status === 401) {
@@ -662,25 +672,30 @@ export function AuditLogsContent() {
                 });
             }
         } finally {
-            if (!silent) setLoading(false);
+            if (!silent) {
+                setLoading(false);
+                setLoadingMore(false);
+            }
         }
-    }, [token, page, limit, search, userFilter, actionFilter, resourceTypeFilter, breakGlassFilter, resultFilter, dateFrom, dateTo, clearToken, router, t]);
+    }, [token, limit, nextCursor, search, userFilter, actionFilter, resourceTypeFilter, breakGlassFilter, resultFilter, dateFrom, dateTo, clearToken, router, t]);
 
     // Debounce search & filter changes
     useEffect(() => {
         const timer = setTimeout(() => {
-            setPage(1);
-            loadLogs();
+            // Drop current cursor when filters change
+            setNextCursor(null);
+            loadLogs(false, false);
         }, 500);
         return () => clearTimeout(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [search, userFilter, actionFilter, resourceTypeFilter, breakGlassFilter, resultFilter, dateFrom, dateTo]);
 
-    // Pagination change
+    // Limit change
     useEffect(() => {
-        loadLogs();
+        setNextCursor(null);
+        loadLogs(false, false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [page, limit]);
+    }, [limit]);
 
     // Polling every 10s
     useEffect(() => {
@@ -748,191 +763,189 @@ export function AuditLogsContent() {
         return null;
     }
 
-    const totalPages = Math.ceil(total / limit);
-
     return (
         <LazyMotion features={domAnimation}>
-        <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 bg-background w-full">
-            <AuditStatsCards total={total} logs={logs} t={t} />
+            <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 bg-background w-full">
+                <AuditStatsCards logs={logs} t={t} />
 
-            <Card className="border-white/10 bg-white/5 backdrop-blur-xl shadow-2xl">
-                <CardHeader>
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                        <div>
-                            <CardTitle className="text-xl font-semibold flex items-center gap-2">
-                                <ScrollText className="w-5 h-5 text-primary" />
-                                {t("auditLogs")}
-                            </CardTitle>
-                            <CardDescription className="flex items-center gap-2">
-                                {t("systemActivityAndSecurityEvents")} {total}
-                                {isPolling && (
-                                    <span className="inline-flex items-center gap-1 text-xs text-emerald-500">
-                                        <span className="relative flex h-2 w-2">
-                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                <Card className="border-white/10 bg-white/5 backdrop-blur-xl shadow-2xl">
+                    <CardHeader>
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                            <div>
+                                <CardTitle className="text-xl font-semibold flex items-center gap-2">
+                                    <ScrollText className="w-5 h-5 text-primary" />
+                                    {t("auditLogs")}
+                                </CardTitle>
+                                <CardDescription className="flex items-center gap-2">
+                                    {t("systemActivityAndSecurityEvents")}
+                                    {isPolling && (
+                                        <span className="inline-flex items-center gap-1 text-xs text-emerald-500">
+                                            <span className="relative flex h-2 w-2">
+                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                                            </span>
+                                            {t("autoRefreshing")}
                                         </span>
-                                        {t("autoRefreshing")}
-                                    </span>
-                                )}
-                            </CardDescription>
+                                    )}
+                                </CardDescription>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                                <div className="relative">
+                                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Input
+                                        placeholder={t("searchLogs")}
+                                        className="pl-9 w-full sm:w-[200px] bg-background/50 border-white/10"
+                                        value={search}
+                                        onChange={(e) => setSearch(e.target.value)}
+                                    />
+                                </div>
+
+                                <Input
+                                    placeholder={t("userEmailOrName")}
+                                    className="w-full sm:w-[180px] bg-background/50 border-white/10"
+                                    value={userFilter}
+                                    onChange={(e) => setUserFilter(e.target.value)}
+                                />
+
+                                <Select value={actionFilter} onValueChange={(v) => setActionFilter(v ?? "")}>
+                                    <SelectTrigger className="w-[180px] bg-background/50 border-white/10">
+                                        <SelectValue>
+                                            {actionFilter === "all" ? t("allActions") : actionLabel(actionFilter)}
+                                        </SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {ACTION_OPTIONS.map((action) => (
+                                            <SelectItem key={action} value={action}>
+                                                {action === "all" ? t("allActions") : actionLabel(action)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+
+                                <Select value={resourceTypeFilter} onValueChange={(v) => setResourceTypeFilter(v ?? "")}>
+                                    <SelectTrigger className="w-[160px] bg-background/50 border-white/10">
+                                        <SelectValue>
+                                            {resourceTypeFilter === "all" ? t("allResources") : resourceLabel(resourceTypeFilter)}
+                                        </SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {RESOURCE_TYPE_OPTIONS.map((resourceType) => (
+                                            <SelectItem key={resourceType} value={resourceType}>
+                                                {resourceType === "all" ? t("allResources") : resourceLabel(resourceType)}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+
+                                <Select value={breakGlassFilter} onValueChange={(v) => setBreakGlassFilter(v ?? "")}>
+                                    <SelectTrigger className="w-[160px] bg-background/50 border-white/10">
+                                        <SelectValue>
+                                            {breakGlassFilter === "true" ? t("breakGlassOnly") : t("allEvents")}
+                                        </SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {BREAK_GLASS_OPTIONS.map((breakGlassOption) => (
+                                            <SelectItem key={breakGlassOption} value={breakGlassOption}>
+                                                {breakGlassOption === "true" ? t("breakGlassOnly") : t("allEvents")}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+
+                                <Select value={resultFilter} onValueChange={(v) => setResultFilter(v ?? "")}>
+                                    <SelectTrigger className="w-[150px] bg-background/50 border-white/10">
+                                        <SelectValue>
+                                            {resultFilter === "all" ? t("allResults") : resultLabel(resultFilter as "success" | "failure")}
+                                        </SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {RESULT_OPTIONS.map((resultOption) => (
+                                            <SelectItem key={resultOption} value={resultOption}>
+                                                {resultOption === "all" ? t("allResults") : resultLabel(resultOption as "success" | "failure")}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2">
-                            <div className="relative">
-                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                        {/* Date Range Filters */}
+                        <div className="flex flex-wrap items-center gap-2 pt-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">{t("from")}:</span>
                                 <Input
-                                    placeholder={t("searchLogs")}
-                                    className="pl-9 w-full sm:w-[200px] bg-background/50 border-white/10"
-                                    value={search}
-                                    onChange={(e) => setSearch(e.target.value)}
+                                    type="date"
+                                    className="w-[160px] bg-background/50 border-white/10"
+                                    value={dateFrom}
+                                    onChange={(e) => setDateFrom(e.target.value)}
+                                />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">{t("to")}:</span>
+                                <Input
+                                    type="date"
+                                    className="w-[160px] bg-background/50 border-white/10"
+                                    value={dateTo}
+                                    onChange={(e) => setDateTo(e.target.value)}
                                 />
                             </div>
 
-                            <Input
-                                placeholder={t("userEmailOrName")}
-                                className="w-full sm:w-[180px] bg-background/50 border-white/10"
-                                value={userFilter}
-                                onChange={(e) => setUserFilter(e.target.value)}
-                            />
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                className="bg-background/50 border-white/10"
+                                onClick={() => loadLogs()}
+                                disabled={loading}
+                            >
+                                <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+                            </Button>
 
-                            <Select value={actionFilter} onValueChange={(v) => setActionFilter(v ?? "")}>
-                                <SelectTrigger className="w-[180px] bg-background/50 border-white/10">
-                                    <SelectValue>
-                                        {actionFilter === "all" ? t("allActions") : actionLabel(actionFilter)}
-                                    </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {ACTION_OPTIONS.map((action) => (
-                                        <SelectItem key={action} value={action}>
-                                            {action === "all" ? t("allActions") : actionLabel(action)}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-xs"
+                                onClick={() => setIsPolling((p) => !p)}
+                            >
+                                {isPolling ? t("pause") : t("resume")} {t("autoRefresh")}
+                            </Button>
 
-                            <Select value={resourceTypeFilter} onValueChange={(v) => setResourceTypeFilter(v ?? "")}>
-                                <SelectTrigger className="w-[160px] bg-background/50 border-white/10">
-                                    <SelectValue>
-                                        {resourceTypeFilter === "all" ? t("allResources") : resourceLabel(resourceTypeFilter)}
-                                    </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {RESOURCE_TYPE_OPTIONS.map((resourceType) => (
-                                        <SelectItem key={resourceType} value={resourceType}>
-                                            {resourceType === "all" ? t("allResources") : resourceLabel(resourceType)}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-
-                            <Select value={breakGlassFilter} onValueChange={(v) => setBreakGlassFilter(v ?? "")}>
-                                <SelectTrigger className="w-[160px] bg-background/50 border-white/10">
-                                    <SelectValue>
-                                        {breakGlassFilter === "true" ? t("breakGlassOnly") : t("allEvents")}
-                                    </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {BREAK_GLASS_OPTIONS.map((breakGlassOption) => (
-                                        <SelectItem key={breakGlassOption} value={breakGlassOption}>
-                                            {breakGlassOption === "true" ? t("breakGlassOnly") : t("allEvents")}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-
-                            <Select value={resultFilter} onValueChange={(v) => setResultFilter(v ?? "")}>
-                                <SelectTrigger className="w-[150px] bg-background/50 border-white/10">
-                                    <SelectValue>
-                                        {resultFilter === "all" ? t("allResults") : resultLabel(resultFilter as "success" | "failure")}
-                                    </SelectValue>
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {RESULT_OPTIONS.map((resultOption) => (
-                                        <SelectItem key={resultOption} value={resultOption}>
-                                            {resultOption === "all" ? t("allResults") : resultLabel(resultOption as "success" | "failure")}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                            <Button
+                                variant="default"
+                                size="sm"
+                                className="text-xs gap-2 ml-auto lg:ml-0"
+                                onClick={handleExport}
+                                disabled={isExporting || logs.length === 0}
+                            >
+                                {isExporting ? (
+                                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                    <Download className="h-3.5 w-3.5" />
+                                )}
+                                {t("exportCsv")}
+                            </Button>
                         </div>
-                    </div>
+                    </CardHeader>
 
-                    {/* Date Range Filters */}
-                    <div className="flex flex-wrap items-center gap-2 pt-2">
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">{t("from")}:</span>
-                            <Input
-                                type="date"
-                                className="w-[160px] bg-background/50 border-white/10"
-                                value={dateFrom}
-                                onChange={(e) => setDateFrom(e.target.value)}
-                            />
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs text-muted-foreground">{t("to")}:</span>
-                            <Input
-                                type="date"
-                                className="w-[160px] bg-background/50 border-white/10"
-                                value={dateTo}
-                                onChange={(e) => setDateTo(e.target.value)}
-                            />
-                        </div>
-
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            className="bg-background/50 border-white/10"
-                            onClick={() => loadLogs()}
-                            disabled={loading}
-                        >
-                            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-                        </Button>
-
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-xs"
-                            onClick={() => setIsPolling((p) => !p)}
-                        >
-                            {isPolling ? t("pause") : t("resume")} {t("autoRefresh")}
-                        </Button>
-
-                        <Button
-                            variant="default"
-                            size="sm"
-                            className="text-xs gap-2 ml-auto lg:ml-0"
-                            onClick={handleExport}
-                            disabled={isExporting || total === 0}
-                        >
-                            {isExporting ? (
-                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                                <Download className="h-3.5 w-3.5" />
-                            )}
-                            {t("exportCsv")}
-                        </Button>
-                    </div>
-                </CardHeader>
-
-                <CardContent>
-                    <div className="rounded-md border border-white/10 overflow-hidden">
-                        <div className="max-h-[500px] overflow-auto lg:max-h-[620px]">
-                            <Table>
-                                <TableHeader className="sticky top-0 z-20 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-                                    <TableRow className="hover:bg-transparent border-white/10">
-                                        <TableHead className="w-[120px]">{t("time")}</TableHead>
-                                        <TableHead>{t("user")}</TableHead>
-                                        <TableHead>{t("action")}</TableHead>
-                                        <TableHead>{t("result")}</TableHead>
-                                        <TableHead>{t("resource")}</TableHead>
-                                        <TableHead>{t("ipAddress")}</TableHead>
-                                        <TableHead>{t("breakGlassColumn")}</TableHead>
-                                        <TableHead className="w-[40px]"></TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {loading && logs.length === 0 ? (
-                                        Array.from({ length: 8 }).map((_, i) => (
+                    <CardContent>
+                        <div className="rounded-md border border-white/10 overflow-hidden">
+                            <div className="max-h-[500px] overflow-auto lg:max-h-[620px]">
+                                <Table>
+                                    <TableHeader className="sticky top-0 z-20 bg-white/5 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+                                        <TableRow className="hover:bg-transparent border-white/10">
+                                            <TableHead className="w-[120px]">{t("time")}</TableHead>
+                                            <TableHead>{t("user")}</TableHead>
+                                            <TableHead>{t("action")}</TableHead>
+                                            <TableHead>{t("result")}</TableHead>
+                                            <TableHead>{t("resource")}</TableHead>
+                                            <TableHead>{t("ipAddress")}</TableHead>
+                                            <TableHead>{t("breakGlassColumn")}</TableHead>
+                                            <TableHead className="w-[40px]"></TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {loading && logs.length === 0 ? (
+                                            Array.from({ length: 8 }).map((_, i) => (
                                                 <TableRow key={i} className="border-white/10">
                                                     <TableCell><Skeleton className="h-4 w-[80px]" /></TableCell>
                                                     <TableCell><Skeleton className="h-4 w-[150px]" /></TableCell>
@@ -943,331 +956,330 @@ export function AuditLogsContent() {
                                                     <TableCell><Skeleton className="h-4 w-[60px]" /></TableCell>
                                                     <TableCell><Skeleton className="h-4 w-[20px]" /></TableCell>
                                                 </TableRow>
-                                        ))
-                                    ) : logs.length === 0 ? (
-                                        <TableRow>
-                                            <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
-                                                {t("noAuditLogsFound")}
-                                            </TableCell>
-                                        </TableRow>
-                                    ) : (
-                                        <AnimatePresence mode="popLayout">
-                                            {logs.map((log) => (
-                                                <m.tr
-                                                    key={log.id}
-                                                    initial={{ opacity: 0, y: 10 }}
-                                                    animate={{ opacity: 1, y: 0 }}
-                                                    exit={{ opacity: 0, y: -10 }}
-                                                    transition={{ duration: 0.15 }}
-                                                    className={cn(
-                                                        "group border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer",
-                                                        log.is_break_glass && "bg-red-500/5 hover:bg-red-500/10"
-                                                    )}
-                                                    onClick={() => setSelectedLog(log)}
-                                                >
-                                                    <TableCell className="text-sm">
-                                                        <div title={localizeDateTime(log.created_at)}>
-                                                            <span className="text-muted-foreground">{timeAgo(log.created_at, language)}</span>
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div className="min-w-0">
-                                                            <span className="block text-sm font-medium truncate">
-                                                                {log.user_name || "-"}
-                                                            </span>
-                                                            <span className="block text-xs text-muted-foreground truncate">
-                                                                {log.user_email || "-"}
-                                                            </span>
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Badge variant="outline" className={cn("text-xs", getActionColor(log.action))}>
-                                                            {actionLabel(log.action)}
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Badge
-                                                            variant="outline"
-                                                            className={cn(
-                                                                "text-xs",
-                                                                log.result === "failure"
-                                                                    ? "border-red-500/20 text-red-500 bg-red-500/10"
-                                                                    : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
-                                                            )}
-                                                        >
-                                                            {resultLabel(log.result)}
-                                                        </Badge>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <div className="min-w-0">
-                                                            <span className="block text-sm">{resourceLabel(log.resource_type)}</span>
-                                                            <span className="block text-xs text-muted-foreground font-mono">
-                                                                {shortenId(log.resource_id)}
-                                                            </span>
-                                                        </div>
-                                                    </TableCell>
-                                                    <TableCell className="text-sm text-muted-foreground font-mono">
-                                                        {log.ip_address || "-"}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        {log.is_break_glass ? (
-                                                            <Badge variant="outline" className="border-red-500/20 text-red-500 bg-red-500/10 flex items-center gap-1 w-fit">
-                                                                <ShieldAlert className="w-3 h-3" />
-                                                                {t("yes")}
-                                                            </Badge>
-                                                        ) : (
-                                                            <span className="text-xs text-muted-foreground">-</span>
-                                                        )}
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                                                    </TableCell>
-                                                </m.tr>
-                                            ))}
-                                        </AnimatePresence>
-                                    )}
-                                </TableBody>
-                            </Table>
-                        </div>
-                    </div>
-
-                    {/* Pagination */}
-                    <div className="flex flex-col gap-3 border-t border-white/10 py-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-medium text-muted-foreground">
-                                {t("pageOf")} {page} / {totalPages || 1}
-                            </span>
-                            <Select
-                                value={limit.toString()}
-                                onValueChange={(val) => {
-                                    setLimit(Number(val));
-                                    setPage(1);
-                                }}
-                            >
-                                <SelectTrigger variant="glass" className="h-8 w-[96px] rounded-full text-xs shadow-sm">
-                                    <SelectValue>{limit}</SelectValue>
-                                </SelectTrigger>
-                                <SelectContent side="top">
-                                    {PAGE_SIZE_OPTIONS.map((size) => (
-                                        <SelectItem key={size} value={size.toString()}>
-                                            {size}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            <span className="text-xs text-muted-foreground">{t("perPage")}</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-8 rounded-full border-white/20 bg-white/5 px-4 text-xs shadow-sm hover:bg-white/10"
-                                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                                disabled={page === 1 || loading}
-                            >
-                                {t("previous")}
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-8 rounded-full border-white/20 bg-white/5 px-4 text-xs shadow-sm hover:bg-white/10"
-                                onClick={() => setPage((p) => p + 1)}
-                                disabled={page >= totalPages || loading}
-                            >
-                                {t("next")}
-                            </Button>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
-
-            {/* Detail Sheet — Centered Modal */}
-            <Sheet open={!!selectedLog} onOpenChange={(open) => !open && setSelectedLog(null)}>
-                <SheetContent side="center" className="w-[min(94vw,640px)] max-h-[88vh] p-0 overflow-hidden rounded-2xl border border-border/60 bg-background/95">
-                    {selectedLog && (
-                        <>
-                            {/* Header with action badge */}
-                            <SheetHeader className="px-6 pt-6 pb-4 border-b bg-muted/20">
-                                <SheetTitle className="flex items-center gap-3">
-                                    <div className={cn(
-                                        "p-2 rounded-lg",
-                                        selectedLog.is_break_glass ? "bg-red-500/10" : "bg-primary/10"
-                                    )}>
-                                        {selectedLog.is_break_glass
-                                            ? <ShieldAlert className="w-5 h-5 text-red-500" />
-                                            : <Eye className="w-5 h-5 text-primary" />
-                                        }
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <Badge variant="outline" className={cn("text-xs", getActionColor(selectedLog.action))}>
-                                                {actionLabel(selectedLog.action)}
-                                            </Badge>
-                                            <Badge
-                                                variant="outline"
-                                                className={cn(
-                                                    "text-xs",
-                                                    selectedLog.result === "failure"
-                                                        ? "border-red-500/20 text-red-500 bg-red-500/10"
-                                                        : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
-                                                )}
-                                            >
-                                                {resultLabel(selectedLog.result)}
-                                            </Badge>
-                                            {selectedLog.is_break_glass && (
-                                                <Badge variant="outline" className="border-red-500/20 text-red-500 bg-red-500/10 text-xs">
-                                                    {t("breakGlass")}
-                                                </Badge>
-                                            )}
-                                        </div>
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                            {localizeDateTime(selectedLog.created_at)} ({timeAgo(selectedLog.created_at, language)})
-                                        </p>
-                                    </div>
-                                </SheetTitle>
-                                <SheetDescription className="sr-only">
-                                    {t("auditLogDetailView")}
-                                </SheetDescription>
-                            </SheetHeader>
-
-                            <div className="p-6 space-y-5 overflow-y-auto max-h-[calc(88vh-100px)]">
-                                {/* User Section */}
-                                <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
-                                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                                        <Users className="w-3.5 h-3.5" />
-                                        {t("user")}
-                                    </p>
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm uppercase shrink-0">
-                                            {selectedLog.user_name ? selectedLog.user_name[0] : selectedLog.user_email ? selectedLog.user_email[0] : "?"}
-                                        </div>
-                                        <div className="min-w-0">
-                                            <p className="text-sm font-medium truncate">{selectedLog.user_name || t("unknown")}</p>
-                                            <p className="text-xs text-muted-foreground truncate">{selectedLog.user_email || "-"}</p>
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 pt-3 border-t border-border/40 grid grid-cols-2 gap-3">
-                                        <div>
-                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("userId")}</p>
-                                            <p className="text-xs font-mono text-muted-foreground mt-0.5 truncate">{selectedLog.user_id || "-"}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("ipAddress")}</p>
-                                            <p className="text-xs font-mono text-muted-foreground mt-0.5">{selectedLog.ip_address || "-"}</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Resource Section */}
-                                <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
-                                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                                        <Activity className="w-3.5 h-3.5" />
-                                        {t("resource")}
-                                    </p>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("resourceType")}</p>
-                                            <p className="text-sm mt-0.5">{resourceLabel(selectedLog.resource_type)}</p>
-                                        </div>
-                                        <div>
-                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("resourceId")}</p>
-                                            <p className="text-xs font-mono text-muted-foreground mt-0.5 break-all">{selectedLog.resource_id || "-"}</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Break Glass Section */}
-                                {selectedLog.is_break_glass && (
-                                    <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4 space-y-2">
-                                        <p className="text-xs font-medium text-red-500 uppercase tracking-wide flex items-center gap-1.5">
-                                            <ShieldAlert className="w-3.5 h-3.5" />
-                                            {t("breakGlassAccess")}
-                                        </p>
-                                        {selectedLog.break_glass_reason ? (
-                                            <p className="text-sm text-foreground">{selectedLog.break_glass_reason}</p>
+                                            ))
+                                        ) : logs.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                                                    {t("noAuditLogsFound")}
+                                                </TableCell>
+                                            </TableRow>
                                         ) : (
-                                            <p className="text-sm text-muted-foreground italic">{t("noReasonProvided")}</p>
+                                            <AnimatePresence mode="popLayout">
+                                                {logs.map((log) => (
+                                                    <m.tr
+                                                        key={log.id}
+                                                        initial={{ opacity: 0, y: 10 }}
+                                                        animate={{ opacity: 1, y: 0 }}
+                                                        exit={{ opacity: 0, y: -10 }}
+                                                        transition={{ duration: 0.15 }}
+                                                        className={cn(
+                                                            "group border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer",
+                                                            log.is_break_glass && "bg-red-500/5 hover:bg-red-500/10"
+                                                        )}
+                                                        onClick={() => setSelectedLog(log)}
+                                                    >
+                                                        <TableCell className="text-sm">
+                                                            <div title={localizeDateTime(log.created_at)}>
+                                                                <span className="text-muted-foreground">{timeAgo(log.created_at, language)}</span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="min-w-0">
+                                                                <span className="block text-sm font-medium truncate">
+                                                                    {log.user_name || "-"}
+                                                                </span>
+                                                                <span className="block text-xs text-muted-foreground truncate">
+                                                                    {log.user_email || "-"}
+                                                                </span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Badge variant="outline" className={cn("text-xs", getActionColor(log.action))}>
+                                                                {actionLabel(log.action)}
+                                                            </Badge>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Badge
+                                                                variant="outline"
+                                                                className={cn(
+                                                                    "text-xs",
+                                                                    log.result === "failure"
+                                                                        ? "border-red-500/20 text-red-500 bg-red-500/10"
+                                                                        : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
+                                                                )}
+                                                            >
+                                                                {resultLabel(log.result)}
+                                                            </Badge>
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <div className="min-w-0">
+                                                                <span className="block text-sm">{resourceLabel(log.resource_type)}</span>
+                                                                <span className="block text-xs text-muted-foreground font-mono">
+                                                                    {shortenId(log.resource_id)}
+                                                                </span>
+                                                            </div>
+                                                        </TableCell>
+                                                        <TableCell className="text-sm text-muted-foreground font-mono">
+                                                            {log.ip_address || "-"}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {log.is_break_glass ? (
+                                                                <Badge variant="outline" className="border-red-500/20 text-red-500 bg-red-500/10 flex items-center gap-1 w-fit">
+                                                                    <ShieldAlert className="w-3 h-3" />
+                                                                    {t("yes")}
+                                                                </Badge>
+                                                            ) : (
+                                                                <span className="text-xs text-muted-foreground">-</span>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                        </TableCell>
+                                                    </m.tr>
+                                                ))}
+                                            </AnimatePresence>
                                         )}
-                                    </div>
-                                )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </div>
 
-                                {/* Details Section */}
-                                {selectedLog.details && (
+                        {/* Pagination - Load More */}
+                        <div className="flex flex-col gap-3 border-t border-white/10 py-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-medium text-muted-foreground">
+                                    {logs.length} {t("allAuditEntries")}
+                                </span>
+                                <Select
+                                    value={limit.toString()}
+                                    onValueChange={(val) => {
+                                        setLimit(Number(val));
+                                    }}
+                                >
+                                    <SelectTrigger variant="glass" className="h-8 w-[96px] rounded-full text-xs shadow-sm">
+                                        <SelectValue>{limit}</SelectValue>
+                                    </SelectTrigger>
+                                    <SelectContent side="top">
+                                        {PAGE_SIZE_OPTIONS.map((size) => (
+                                            <SelectItem key={size} value={size.toString()}>
+                                                {size}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                                <span className="text-xs text-muted-foreground">{t("perPage")}</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                {nextCursor && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 rounded-full border-white/20 bg-white/5 px-4 text-xs shadow-sm hover:bg-white/10"
+                                        onClick={() => loadLogs(false, true)}
+                                        disabled={loadingMore || loading}
+                                    >
+                                        {loadingMore ? (
+                                            <>
+                                                <RefreshCw className="mr-2 h-3 w-3 animate-spin" />
+                                                Loading...
+                                            </>
+                                        ) : (
+                                            t("next") || "Load More"
+                                        )}
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Detail Sheet — Centered Modal */}
+                <Sheet open={!!selectedLog} onOpenChange={(open) => !open && setSelectedLog(null)}>
+                    <SheetContent side="center" className="w-[min(94vw,640px)] max-h-[88vh] p-0 overflow-hidden rounded-2xl border border-border/60 bg-background/95">
+                        {selectedLog && (
+                            <>
+                                {/* Header with action badge */}
+                                <SheetHeader className="px-6 pt-6 pb-4 border-b bg-muted/20">
+                                    <SheetTitle className="flex items-center gap-3">
+                                        <div className={cn(
+                                            "p-2 rounded-lg",
+                                            selectedLog.is_break_glass ? "bg-red-500/10" : "bg-primary/10"
+                                        )}>
+                                            {selectedLog.is_break_glass
+                                                ? <ShieldAlert className="w-5 h-5 text-red-500" />
+                                                : <Eye className="w-5 h-5 text-primary" />
+                                            }
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <Badge variant="outline" className={cn("text-xs", getActionColor(selectedLog.action))}>
+                                                    {actionLabel(selectedLog.action)}
+                                                </Badge>
+                                                <Badge
+                                                    variant="outline"
+                                                    className={cn(
+                                                        "text-xs",
+                                                        selectedLog.result === "failure"
+                                                            ? "border-red-500/20 text-red-500 bg-red-500/10"
+                                                            : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
+                                                    )}
+                                                >
+                                                    {resultLabel(selectedLog.result)}
+                                                </Badge>
+                                                {selectedLog.is_break_glass && (
+                                                    <Badge variant="outline" className="border-red-500/20 text-red-500 bg-red-500/10 text-xs">
+                                                        {t("breakGlass")}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                {localizeDateTime(selectedLog.created_at)} ({timeAgo(selectedLog.created_at, language)})
+                                            </p>
+                                        </div>
+                                    </SheetTitle>
+                                    <SheetDescription className="sr-only">
+                                        {t("auditLogDetailView")}
+                                    </SheetDescription>
+                                </SheetHeader>
+
+                                <div className="p-6 space-y-5 overflow-y-auto max-h-[calc(88vh-100px)]">
+                                    {/* User Section */}
                                     <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
                                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                                            <ScrollText className="w-3.5 h-3.5" />
-                                            {t("details")}
+                                            <Users className="w-3.5 h-3.5" />
+                                            {t("user")}
                                         </p>
-                                        <pre className="text-sm bg-background rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words font-mono text-foreground border border-border/40">
-                                            {tryFormatJson(selectedLog.details)}
-                                        </pre>
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm uppercase shrink-0">
+                                                {selectedLog.user_name ? selectedLog.user_name[0] : selectedLog.user_email ? selectedLog.user_email[0] : "?"}
+                                            </div>
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-medium truncate">{selectedLog.user_name || t("unknown")}</p>
+                                                <p className="text-xs text-muted-foreground truncate">{selectedLog.user_email || "-"}</p>
+                                            </div>
+                                        </div>
+                                        <div className="mt-3 pt-3 border-t border-border/40 grid grid-cols-2 gap-3">
+                                            <div>
+                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("userId")}</p>
+                                                <p className="text-xs font-mono text-muted-foreground mt-0.5 truncate">{selectedLog.user_id || "-"}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("ipAddress")}</p>
+                                                <p className="text-xs font-mono text-muted-foreground mt-0.5">{selectedLog.ip_address || "-"}</p>
+                                            </div>
+                                        </div>
                                     </div>
-                                )}
 
-                                {/* Change History Section */}
-                                {(selectedLog.old_values || selectedLog.new_values) && (
+                                    {/* Resource Section */}
                                     <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
                                         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
                                             <Activity className="w-3.5 h-3.5" />
-                                            {t("changeHistory")}
+                                            {t("resource")}
                                         </p>
-                                        <div className="space-y-4">
-                                            {(() => {
-                                                const oldVals = selectedLog.old_values || {};
-                                                const newVals = selectedLog.new_values || {};
-                                                // Find all keys that exist in either
-                                                const allKeys = Array.from(new Set([...Object.keys(oldVals), ...Object.keys(newVals)]));
-                                                // Filter keys where values are different
-                                                const changedKeys = allKeys.filter(key => JSON.stringify(oldVals[key]) !== JSON.stringify(newVals[key]));
-
-                                                if (changedKeys.length === 0) {
-                                                    return <p className="text-sm text-muted-foreground italic">{t("noSpecificChangesDetected")}</p>;
-                                                }
-
-                                                return (
-                                                    <div className="rounded-md border border-border/40 overflow-hidden">
-                                                        <Table>
-                                                            <TableHeader className="bg-muted/30">
-                                                                <TableRow className="border-border/40 hover:bg-transparent">
-                                                                    <TableHead className="h-8 text-xs font-medium">{t("field")}</TableHead>
-                                                                    <TableHead className="h-8 text-xs font-medium text-red-500/80">{t("oldValue")}</TableHead>
-                                                                    <TableHead className="h-8 text-xs font-medium text-emerald-500/80">{t("newValue")}</TableHead>
-                                                                </TableRow>
-                                                            </TableHeader>
-                                                            <TableBody>
-                                                                {changedKeys.map((key) => (
-                                                                    <TableRow key={key} className="border-border/40 hover:bg-transparent">
-                                                                        <TableCell className="py-2 text-xs font-medium font-mono text-muted-foreground">
-                                                                            {translateFieldLabel(key, language)}
-                                                                        </TableCell>
-                                                                        <TableCell className="py-2 text-xs font-mono text-red-600/90 break-all bg-red-500/5">
-                                                                            {translateFieldValue(key, oldVals[key], language)}
-                                                                        </TableCell>
-                                                                        <TableCell className="py-2 text-xs font-mono text-emerald-600/90 break-all bg-emerald-500/5">
-                                                                            {translateFieldValue(key, newVals[key], language)}
-                                                                        </TableCell>
-                                                                    </TableRow>
-                                                                ))}
-                                                            </TableBody>
-                                                        </Table>
-                                                    </div>
-                                                );
-                                            })()}
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("resourceType")}</p>
+                                                <p className="text-sm mt-0.5">{resourceLabel(selectedLog.resource_type)}</p>
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("resourceId")}</p>
+                                                <p className="text-xs font-mono text-muted-foreground mt-0.5 break-all">{selectedLog.resource_id || "-"}</p>
+                                            </div>
                                         </div>
                                     </div>
-                                )}
 
-                                {/* Metadata Footer */}
-                                <div className="pt-2 border-t border-border/40">
-                                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("logId")}</p>
-                                    <p className="text-xs font-mono text-muted-foreground mt-0.5 break-all">{selectedLog.id}</p>
+                                    {/* Break Glass Section */}
+                                    {selectedLog.is_break_glass && (
+                                        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4 space-y-2">
+                                            <p className="text-xs font-medium text-red-500 uppercase tracking-wide flex items-center gap-1.5">
+                                                <ShieldAlert className="w-3.5 h-3.5" />
+                                                {t("breakGlassAccess")}
+                                            </p>
+                                            {selectedLog.break_glass_reason ? (
+                                                <p className="text-sm text-foreground">{selectedLog.break_glass_reason}</p>
+                                            ) : (
+                                                <p className="text-sm text-muted-foreground italic">{t("noReasonProvided")}</p>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Details Section */}
+                                    {selectedLog.details && (
+                                        <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
+                                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                                                <ScrollText className="w-3.5 h-3.5" />
+                                                {t("details")}
+                                            </p>
+                                            <pre className="text-sm bg-background rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-words font-mono text-foreground border border-border/40">
+                                                {typeof selectedLog.details === "string" ? tryFormatJson(selectedLog.details) : JSON.stringify(selectedLog.details, null, 2)}
+                                            </pre>
+                                        </div>
+                                    )}
+
+                                    {/* Change History Section */}
+                                    {(selectedLog.old_values || selectedLog.new_values) && (
+                                        <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
+                                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                                                <Activity className="w-3.5 h-3.5" />
+                                                {t("changeHistory")}
+                                            </p>
+                                            <div className="space-y-4">
+                                                {(() => {
+                                                    const oldVals = selectedLog.old_values || {};
+                                                    const newVals = selectedLog.new_values || {};
+                                                    // Find all keys that exist in either
+                                                    const allKeys = Array.from(new Set([...Object.keys(oldVals), ...Object.keys(newVals)]));
+                                                    // Filter keys where values are different
+                                                    const changedKeys = allKeys.filter(key => JSON.stringify(oldVals[key]) !== JSON.stringify(newVals[key]));
+
+                                                    if (changedKeys.length === 0) {
+                                                        return <p className="text-sm text-muted-foreground italic">{t("noSpecificChangesDetected")}</p>;
+                                                    }
+
+                                                    return (
+                                                        <div className="rounded-md border border-border/40 overflow-hidden">
+                                                            <Table>
+                                                                <TableHeader className="bg-muted/30">
+                                                                    <TableRow className="border-border/40 hover:bg-transparent">
+                                                                        <TableHead className="h-8 text-xs font-medium">{t("field")}</TableHead>
+                                                                        <TableHead className="h-8 text-xs font-medium text-red-500/80">{t("oldValue")}</TableHead>
+                                                                        <TableHead className="h-8 text-xs font-medium text-emerald-500/80">{t("newValue")}</TableHead>
+                                                                    </TableRow>
+                                                                </TableHeader>
+                                                                <TableBody>
+                                                                    {changedKeys.map((key) => (
+                                                                        <TableRow key={key} className="border-border/40 hover:bg-transparent">
+                                                                            <TableCell className="py-2 text-xs font-medium font-mono text-muted-foreground">
+                                                                                {translateFieldLabel(key, language)}
+                                                                            </TableCell>
+                                                                            <TableCell className="py-2 text-xs font-mono text-red-600/90 break-all bg-red-500/5">
+                                                                                {translateFieldValue(key, oldVals[key], language)}
+                                                                            </TableCell>
+                                                                            <TableCell className="py-2 text-xs font-mono text-emerald-600/90 break-all bg-emerald-500/5">
+                                                                                {translateFieldValue(key, newVals[key], language)}
+                                                                            </TableCell>
+                                                                        </TableRow>
+                                                                    ))}
+                                                                </TableBody>
+                                                            </Table>
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Metadata Footer */}
+                                    <div className="pt-2 border-t border-border/40">
+                                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("logId")}</p>
+                                        <p className="text-xs font-mono text-muted-foreground mt-0.5 break-all">{selectedLog.id}</p>
+                                    </div>
                                 </div>
-                            </div>
-                        </>
-                    )}
-                </SheetContent>
-            </Sheet >
-        </main >
+                            </>
+                        )}
+                    </SheetContent>
+                </Sheet >
+            </main >
         </LazyMotion>
     );
 }
