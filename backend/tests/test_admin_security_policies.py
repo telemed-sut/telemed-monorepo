@@ -1,6 +1,6 @@
 """Tests for admin-only security policy hardening."""
 
-import json
+
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
@@ -91,7 +91,8 @@ def test_emergency_unlock_admin_requires_super_admin_or_whitelisted_ip(
         .order_by(AuditLog.created_at.desc())
     )
     assert log is not None
-    assert json.loads(log.details)["success"] is False
+    detail = log.details if isinstance(log.details, dict) else __import__('json').loads(log.details)
+    assert detail["success"] is False
 
 
 def test_super_admin_can_emergency_unlock_admin(client: TestClient, db: Session):
@@ -304,7 +305,7 @@ def test_security_stats_tracks_403_spike_counter(client: TestClient, db: Session
             user_id=staff.id,
             action="http_403_denied",
             resource_type="http_request",
-            details=json.dumps({"path": "/users", "status_code": 403}),
+            details={"path": "/users", "status_code": 403},
             ip_address="127.0.0.1",
             is_break_glass=False,
         )
@@ -315,7 +316,7 @@ def test_security_stats_tracks_403_spike_counter(client: TestClient, db: Session
             user_id=admin.id,
             action="user_purge_deleted_summary",
             resource_type="user",
-            details=json.dumps({"purged": 2}),
+            details={"purged": 2},
             ip_address="127.0.0.1",
             is_break_glass=False,
         )
@@ -325,7 +326,7 @@ def test_security_stats_tracks_403_spike_counter(client: TestClient, db: Session
             user_id=admin.id,
             action="admin_force_password_reset",
             resource_type="user",
-            details=json.dumps({"target_email": "incident@example.com"}),
+            details={"target_email": "incident@example.com"},
             ip_address="127.0.0.1",
             is_break_glass=False,
         )

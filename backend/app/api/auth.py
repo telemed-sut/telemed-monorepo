@@ -1,5 +1,4 @@
 import logging
-import json
 from datetime import datetime, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -275,7 +274,7 @@ def disable_two_factor(
             action="two_factor_disabled",
             resource_type="user",
             resource_id=current_user.id,
-            details=json.dumps({"revoked_devices": revoked_devices, "revoked_backup_codes": revoked_codes}),
+            details={"revoked_devices": revoked_devices, "revoked_backup_codes": revoked_codes},
             ip_address=_client_ip(request),
             is_break_glass=False,
             status="success",
@@ -309,13 +308,11 @@ def reset_two_factor(
             action="two_factor_reset",
             resource_type="user",
             resource_id=current_user.id,
-            details=json.dumps(
-                {
-                    "reason": payload.reason or "",
-                    "revoked_devices": revoked_devices,
-                    "revoked_backup_codes": revoked_codes,
-                }
-            ),
+            details={
+                "reason": payload.reason or "",
+                "revoked_devices": revoked_devices,
+                "revoked_backup_codes": revoked_codes,
+            },
             ip_address=_client_ip(request),
             is_break_glass=False,
             status="success",
@@ -344,7 +341,7 @@ def regenerate_backup_codes(
             action="two_factor_backup_codes_regenerated",
             resource_type="user",
             resource_id=current_user.id,
-            details=json.dumps({"count": len(codes)}),
+            details={"count": len(codes)},
             ip_address=_client_ip(request),
             is_break_glass=False,
             status="success",
@@ -441,7 +438,7 @@ def revoke_trusted_device(
             action="trusted_device_revoked",
             resource_type="user_trusted_device",
             resource_id=device_id,
-            details=json.dumps({"device_id": str(device_id)}),
+            details={"device_id": str(device_id)},
             ip_address=_client_ip(request),
             is_break_glass=False,
             status="success",
@@ -468,7 +465,7 @@ def revoke_all_trusted_devices(
             action="trusted_devices_revoked_all",
             resource_type="user",
             resource_id=current_user.id,
-            details=json.dumps({"revoked": revoked}),
+            details={"revoked": revoked},
             ip_address=_client_ip(request),
             is_break_glass=False,
             status="success",
@@ -722,7 +719,7 @@ def login(
                         action="trusted_device_created",
                         resource_type="user_trusted_device",
                         resource_id=trusted_device.id,
-                        details=json.dumps({"trusted_device_id": str(trusted_device.id)}),
+                        details={"trusted_device_id": str(trusted_device.id)},
                         ip_address=ip,
                         is_break_glass=False,
                         status="success",
@@ -876,7 +873,7 @@ def accept_invite(request: Request, payload: InviteAcceptRequest, db: Session = 
             action="invite_accept",
             resource_type="user_invite",
             resource_id=invite.id,
-            details=json.dumps({"email": invite.email, "role": invite.role.value}),
+            details={"email": invite.email, "role": invite.role.value},
             ip_address=_client_ip(request),
             is_break_glass=False,
             status="success",

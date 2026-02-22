@@ -1,4 +1,3 @@
-import json
 import logging
 import secrets
 from datetime import datetime, timezone, timedelta
@@ -60,7 +59,7 @@ def _write_unlock_audit(
             action="admin_emergency_unlock",
             resource_type="user",
             resource_id=target_user.id if target_user else None,
-            details=json.dumps(details),
+            details=details,
             ip_address=ip_address,
             is_break_glass=False,
             status="success" if success else "failure",
@@ -328,7 +327,7 @@ def reset_user_two_factor_by_super_admin(
                 action="admin_force_2fa_reset_denied",
                 resource_type="user",
                 resource_id=user_id,
-                details=json.dumps({"reason": payload.reason, "error": "not_super_admin"}),
+                details={"reason": payload.reason, "error": "not_super_admin"},
                 ip_address=ip,
                 is_break_glass=False,
                 status="failure",
@@ -349,7 +348,7 @@ def reset_user_two_factor_by_super_admin(
                 action="admin_force_2fa_reset_denied",
                 resource_type="user",
                 resource_id=user_id,
-                details=json.dumps({"reason": payload.reason, "error": "target_not_found"}),
+                details={"reason": payload.reason, "error": "target_not_found"},
                 ip_address=ip,
                 is_break_glass=False,
                 status="failure",
@@ -370,14 +369,12 @@ def reset_user_two_factor_by_super_admin(
             action="admin_force_2fa_reset",
             resource_type="user",
             resource_id=target.id,
-            details=json.dumps(
-                {
-                    "reason": payload.reason,
-                    "target_email": target.email,
-                    "revoked_devices": revoked_devices,
-                    "revoked_backup_codes": revoked_backup_codes,
-                }
-            ),
+            details={
+                "reason": payload.reason,
+                "target_email": target.email,
+                "revoked_devices": revoked_devices,
+                "revoked_backup_codes": revoked_backup_codes,
+            },
             ip_address=ip,
             is_break_glass=False,
             status="success",
@@ -416,7 +413,7 @@ def reset_user_password_by_super_admin(
                 action="admin_force_password_reset_denied",
                 resource_type="user",
                 resource_id=user_id,
-                details=json.dumps({"reason": reason, "error": "not_super_admin"}),
+                details={"reason": reason, "error": "not_super_admin"},
                 ip_address=ip,
                 is_break_glass=False,
                 status="failure",
@@ -437,7 +434,7 @@ def reset_user_password_by_super_admin(
                 action="admin_force_password_reset_denied",
                 resource_type="user",
                 resource_id=user_id,
-                details=json.dumps({"reason": reason, "error": "target_not_found"}),
+                details={"reason": reason, "error": "target_not_found"},
                 ip_address=ip,
                 is_break_glass=False,
                 status="failure",
@@ -466,12 +463,10 @@ def reset_user_password_by_super_admin(
             action="admin_force_password_reset",
             resource_type="user",
             resource_id=target.id,
-            details=json.dumps(
-                {
-                    "reason": reason,
-                    "target_email": target.email,
-                }
-            ),
+            details={
+                "reason": reason,
+                "target_email": target.email,
+            },
             ip_address=ip,
             is_break_glass=False,
             status="success",

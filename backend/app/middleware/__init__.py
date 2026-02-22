@@ -1,5 +1,4 @@
 import logging
-import json
 import time
 from datetime import datetime, timezone
 from typing import Dict, Tuple
@@ -96,7 +95,7 @@ class SecurityAuditMiddleware(BaseHTTPMiddleware):
                         user_id=actor_id,
                         action="http_403_denied",
                         resource_type="http_request",
-                        details=json.dumps(details),
+                        details=details,
                         ip_address=ip_address,
                         is_break_glass=False,
                         status="failure",

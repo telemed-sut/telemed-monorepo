@@ -1,6 +1,5 @@
 import csv
 import io
-import json
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
@@ -58,7 +57,7 @@ def _write_audit_log(
         user_id=user.id if user else None,
         action=action,
         resource_type="user",
-        details=json.dumps(details or {}),
+        details=details or {},
         ip_address="127.0.0.1",
         is_break_glass=False,
         created_at=created_at or datetime.now(timezone.utc),
