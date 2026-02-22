@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
@@ -17,22 +17,14 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import {
@@ -130,12 +122,10 @@ export function PatientsTable() {
   const [editing, setEditing] = useState<Patient | null>(null);
   const [formData, setFormData] = useState<PatientFormState>(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [justLoaded, setJustLoaded] = useState(false);
   const [assignmentPatient, setAssignmentPatient] = useState<Patient | null>(null);
 
   const isInitialLoading = loading && patients.length === 0;
   const isRefetching = loading && patients.length > 0;
-  const loadingRef = useRef(false);
 
   const startEntry = total === 0 ? 0 : (page - 1) * limit + 1;
   const endEntry = total === 0 ? 0 : Math.min(page * limit, total);
@@ -170,17 +160,10 @@ export function PatientsTable() {
   // Cache for pages to enable instant navigation
   const cacheRef = useRef<Map<string, { items: Patient[]; total: number }>>(new Map());
 
-  const getCacheKey = (p: number) => `${p}-${limit}-${debouncedSearch}-${sort}-${order}`;
-
-  // Track when a fetch finishes to animate new rows without hiding existing ones
-  useEffect(() => {
-    if (loadingRef.current && !loading) {
-      setJustLoaded(true);
-      const id = setTimeout(() => setJustLoaded(false), 220);
-      return () => clearTimeout(id);
-    }
-    loadingRef.current = loading;
-  }, [loading]);
+  const getCacheKey = useCallback(
+    (p: number) => `${p}-${limit}-${debouncedSearch}-${sort}-${order}`,
+    [limit, debouncedSearch, sort, order]
+  );
 
   useEffect(() => {
     if (!token) return;
@@ -251,7 +234,7 @@ export function PatientsTable() {
     return () => {
       cancelled = true;
     };
-  }, [token, page, limit, debouncedSearch, sort, order]);
+  }, [token, page, limit, debouncedSearch, sort, order, clearToken, getCacheKey, language, router]);
 
   const resetForm = (patient?: Patient) => {
     if (patient) {

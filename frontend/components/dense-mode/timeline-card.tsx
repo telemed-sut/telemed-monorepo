@@ -1,6 +1,5 @@
 "use client";
 
-import { useDenseModeStore } from "@/store/dense-mode-store";
 import { Badge } from "@/components/ui/badge";
 import {
     Pill,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
@@ -147,7 +147,7 @@ export function SettingsContent() {
     setUiTone(getStoredUITone());
   }, []);
 
-  const load2FAStatus = async () => {
+  const load2FAStatus = useCallback(async () => {
     if (!token) return;
     setTwoFALoading(true);
     try {
@@ -158,9 +158,9 @@ export function SettingsContent() {
     } finally {
       setTwoFALoading(false);
     }
-  };
+  }, [token, language]);
 
-  const loadTrustedDevices = async () => {
+  const loadTrustedDevices = useCallback(async () => {
     if (!token) return;
     setTrustedLoading(true);
     try {
@@ -171,13 +171,13 @@ export function SettingsContent() {
     } finally {
       setTrustedLoading(false);
     }
-  };
+  }, [token, language]);
 
   useEffect(() => {
     if (!hydrated || !token) return;
     void load2FAStatus();
     void loadTrustedDevices();
-  }, [hydrated, token]);
+  }, [hydrated, token, load2FAStatus, loadTrustedDevices]);
 
   useEffect(() => {
     let cancelled = false;

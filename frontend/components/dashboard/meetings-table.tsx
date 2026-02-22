@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
@@ -19,7 +19,6 @@ import {
     SheetTitle,
 } from "@/components/ui/sheet";
 import {
-    Table,
     TableBody,
     TableCell,
     TableHead,
@@ -99,8 +98,8 @@ export function MeetingsTable() {
     const [limit, setLimit] = useState(10);
     const [search, setSearch] = useState("");
     const [debouncedSearch, setDebouncedSearch] = useState("");
-    const [sort, setSort] = useState("date_time");
-    const [order, setOrder] = useState<"asc" | "desc">("desc");
+    const sort = "date_time";
+    const order: "asc" | "desc" = "desc";
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -110,13 +109,10 @@ export function MeetingsTable() {
     const [formData, setFormData] = useState<MeetingFormState>(emptyForm);
     const [saving, setSaving] = useState(false);
 
-    // Load patients for the dropdown
     const [patients, setPatients] = useState<Patient[]>([]);
-    const [loadingPatients, setLoadingPatients] = useState(false);
 
     const isInitialLoading = loading && meetings.length === 0;
     const isRefetching = loading && meetings.length > 0;
-    const loadingRef = useRef(false);
 
     const startEntry = total === 0 ? 0 : (page - 1) * limit + 1;
     const endEntry = total === 0 ? 0 : Math.min(page * limit, total);
@@ -142,11 +138,9 @@ export function MeetingsTable() {
     // Load patients for form dropdown
     useEffect(() => {
         if (!token) return;
-        setLoadingPatients(true);
         fetchPatients({ page: 1, limit: 10000 }, token)
             .then((res) => setPatients(res.items))
-            .catch(() => { })
-            .finally(() => setLoadingPatients(false));
+            .catch(() => { });
     }, [token]);
 
     // Fetch meetings
@@ -183,7 +177,7 @@ export function MeetingsTable() {
         };
         loadMeetings();
         return () => { cancelled = true; };
-    }, [token, page, limit, debouncedSearch, sort, order]);
+    }, [token, page, limit, debouncedSearch, sort, order, clearToken, router]);
 
     const resetForm = (meeting?: Meeting) => {
         if (meeting) {
