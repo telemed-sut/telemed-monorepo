@@ -7,5 +7,5 @@ def read_root():
     return {"message": "Simple FastAPI Test", "status": "working"}
 
 @app.get("/test")
-def test():
+def read_test():
     return {"test": "ok", "python_version": "working"}

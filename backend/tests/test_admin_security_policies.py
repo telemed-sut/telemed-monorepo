@@ -140,13 +140,13 @@ def test_trusted_device_bypasses_2fa_challenge(client: TestClient, db: Session, 
     trusted_cookie = first.cookies.get(auth_api.settings.trusted_device_cookie_name)
     assert trusted_cookie
 
+    client.cookies.set(auth_api.settings.trusted_device_cookie_name, trusted_cookie)
     second = client.post(
         "/auth/login",
         json={
             "email": "trusted-admin@example.com",
             "password": "TestPass123",
         },
-        cookies={auth_api.settings.trusted_device_cookie_name: trusted_cookie},
     )
     assert second.status_code == 200, second.text
 

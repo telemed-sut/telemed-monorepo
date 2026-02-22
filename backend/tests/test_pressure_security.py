@@ -113,7 +113,7 @@ def test_add_pressure_accepts_body_hash_signature(client: TestClient, db: Sessio
     )
     headers["Content-Type"] = "application/json"
 
-    response = client.post("/add_pressure", data=payload_raw, headers=headers)
+    response = client.post("/add_pressure", content=payload_raw, headers=headers)
     assert response.status_code == 201, response.text
 
 
@@ -137,7 +137,7 @@ def test_add_pressure_rejects_invalid_body_hash(client: TestClient, db: Session)
     )
     headers["Content-Type"] = "application/json"
 
-    response = client.post("/add_pressure", data=payload_raw, headers=headers)
+    response = client.post("/add_pressure", content=payload_raw, headers=headers)
     assert response.status_code == 403
     assert "Invalid signature" in response.text
 
@@ -326,7 +326,7 @@ def test_add_pressure_accepts_strict_mode_with_registered_device(client: TestCli
     pressure_api.settings.device_api_require_nonce = True
     pressure_api.settings.device_api_secret = None
     try:
-        response = client.post("/add_pressure", data=payload_raw, headers=headers)
+        response = client.post("/add_pressure", content=payload_raw, headers=headers)
         assert response.status_code == 201, response.text
     finally:
         pressure_api.settings.device_api_secrets = original_secret_map
