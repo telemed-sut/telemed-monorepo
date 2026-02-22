@@ -1381,6 +1381,8 @@ export interface DeviceErrorLog {
 
 export interface FetchDeviceStatsOptions {
   topDevices?: number;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 export async function fetchDeviceStats(
@@ -1393,6 +1395,12 @@ export async function fetchDeviceStats(
   if (typeof options.topDevices === "number") {
     params.set("top_devices", String(options.topDevices));
   }
+  if (options.dateFrom) {
+    params.set("date_from", options.dateFrom);
+  }
+  if (options.dateTo) {
+    params.set("date_to", options.dateTo);
+  }
 
   return apiFetch<DeviceStats>(`/device/v1/stats?${params.toString()}`, { method: "GET" }, token);
 }
@@ -1401,6 +1409,7 @@ export interface FetchDeviceErrorsOptions {
   limit?: number;
   hours?: number;
   since?: string;
+  until?: string;
   sinceId?: number;
   deviceId?: string;
 }
@@ -1414,6 +1423,9 @@ export async function fetchDeviceErrors(token: string, options: FetchDeviceError
   }
   if (options.since) {
     params.set("since", options.since);
+  }
+  if (options.until) {
+    params.set("until", options.until);
   }
   if (typeof options.sinceId === "number") {
     params.set("since_id", String(options.sinceId));
