@@ -325,6 +325,32 @@ class TestSoftDelete:
         assert restored["deleted_at"] is None
         assert restored["is_active"] is True
 
+    def test_restore_soft_deleted_user_from_legacy_string_audit_details(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-restore-legacy@example.com", role=UserRole.admin)
+        target = _make_user(db, email="restore-legacy@example.com", role=UserRole.staff)
+        token = _login(client, "admin-restore-legacy@example.com")
+
+        delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        latest_delete_log = db.query(AuditLog).filter(
+            AuditLog.action == "user_delete",
+            AuditLog.resource_id == PyUUID(str(target.id)),
+        ).order_by(AuditLog.created_at.desc()).first()
+        assert latest_delete_log is not None
+
+        import json
+        latest_delete_log.details = json.dumps({"before": {"email": "restore-legacy@example.com"}})
+        db.add(latest_delete_log)
+        db.commit()
+
+        restore_resp = client.post(f"/users/{target.id}/restore", headers=_auth(token))
+        assert restore_resp.status_code == 200, restore_resp.text
+        restored = restore_resp.json()
+        assert restored["email"] == "restore-legacy@example.com"
+        assert restored["deleted_at"] is None
+        assert restored["is_active"] is True
+
     def test_restore_keeps_retired_email_when_original_is_taken(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-restore2@example.com", role=UserRole.admin)
         target = _make_user(db, email="restore-conflict@example.com", role=UserRole.staff)
