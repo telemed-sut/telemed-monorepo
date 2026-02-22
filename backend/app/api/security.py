@@ -1,4 +1,5 @@
 import json
+import logging
 import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -23,16 +24,11 @@ from app.services.auth import get_admin_user, get_db
 
 router = APIRouter(prefix="/security", tags=["security"])
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
-def _client_ip(request: Request) -> str:
-    ip = request.headers.get("cf-connecting-ip")
-    if ip:
-        return ip
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+# Use shared utility for consistent IP extraction across all routes.
+from app.core.request_utils import get_client_ip as _client_ip  # noqa: E402
 
 
 def _write_unlock_audit(
@@ -67,6 +63,7 @@ def _write_unlock_audit(
             details=json.dumps(details),
             ip_address=ip_address,
             is_break_glass=False,
+            status="success" if success else "failure",
         )
     )
     db.commit()
@@ -269,6 +266,12 @@ def emergency_unlock_admin(
         message="Admin account emergency unlock completed",
     )
 
+    logger.info(
+        "Emergency unlock: user=%s was_locked=%s authorized_by=%s actor=%s",
+        target.email, was_locked,
+        "super_admin" if authorized_by_super_admin else "whitelisted_ip",
+        optional_user.email if optional_user else "anonymous",
+    )
     return AdminEmergencyUnlockResponse(
         message=f"Admin account {target.email} has been unlocked.",
         user_id=str(target.id),
@@ -328,6 +331,7 @@ def reset_user_two_factor_by_super_admin(
                 details=json.dumps({"reason": payload.reason, "error": "not_super_admin"}),
                 ip_address=ip,
                 is_break_glass=False,
+                status="failure",
             )
         )
         db.commit()
@@ -348,6 +352,7 @@ def reset_user_two_factor_by_super_admin(
                 details=json.dumps({"reason": payload.reason, "error": "target_not_found"}),
                 ip_address=ip,
                 is_break_glass=False,
+                status="failure",
             )
         )
         db.commit()
@@ -375,6 +380,7 @@ def reset_user_two_factor_by_super_admin(
             ),
             ip_address=ip,
             is_break_glass=False,
+            status="success",
         )
     )
     db.commit()
@@ -413,6 +419,7 @@ def reset_user_password_by_super_admin(
                 details=json.dumps({"reason": reason, "error": "not_super_admin"}),
                 ip_address=ip,
                 is_break_glass=False,
+                status="failure",
             )
         )
         db.commit()
@@ -433,6 +440,7 @@ def reset_user_password_by_super_admin(
                 details=json.dumps({"reason": reason, "error": "target_not_found"}),
                 ip_address=ip,
                 is_break_glass=False,
+                status="failure",
             )
         )
         db.commit()
@@ -466,6 +474,7 @@ def reset_user_password_by_super_admin(
             ),
             ip_address=ip,
             is_break_glass=False,
+            status="success",
         )
     )
     db.commit()
@@ -622,9 +631,7 @@ def create_ip_ban(
     current_user: User = Depends(get_admin_user),
 ):
     # Prevent banning own IP
-    client_ip = request.headers.get("cf-connecting-ip")
-    if not client_ip:
-        client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+    client_ip = _client_ip(request)
     
     if payload.ip_address == client_ip:
         raise HTTPException(
@@ -677,6 +684,7 @@ def unban_ip(
 
     db.delete(ban)
     db.commit()
+    logger.info("IP unbanned: %s by=%s", ip_address, current_user.email)
     return {"message": f"IP {ip_address} has been unbanned"}
 
 

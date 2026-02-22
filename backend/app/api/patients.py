@@ -21,8 +21,8 @@ from app.schemas.patient_assignment import (
 from app.schemas.patient import PatientCreate, PatientListResponse, PatientOut, PatientUpdate
 from app.services import auth as auth_service
 from app.services import patient as patient_service
-from app.services import novu as novu_service
 from app.services import audit as audit_service
+from app.core.request_utils import get_client_ip
 from fastapi.encoders import jsonable_encoder
 
 router = APIRouter(prefix="/patients", tags=["patients"])
@@ -32,7 +32,19 @@ logger = logging.getLogger(__name__)
 
 def notify_staff(db: Session, current_user: User, background_tasks: BackgroundTasks, 
                  action: str, patient_name: str):
-    """Send notification to all staff except the current user"""
+    """Send notification to all staff except the current user.
+
+    Uses Novu notification service when enabled. Silently skips if Novu is
+    disabled or not configured (``NOVU_ENABLED=false``).
+    """
+    from app.core.config import get_settings as _get_settings
+    _cfg = _get_settings()
+    if not _cfg.novu_enabled:
+        return
+
+    # Lazy import — only loaded when Novu is actually enabled.
+    from app.services import novu as novu_service  # noqa: E402
+
     stmt = select(User.id).where(User.role.in_([UserRole.admin, UserRole.staff]))
     user_ids = [str(row[0]) for row in db.execute(stmt).fetchall() if str(row[0]) != str(current_user.id)]
     
@@ -117,7 +129,7 @@ def get_patient(
         db,
         current_user=current_user,
         patient_id=patient.id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
 
     return patient
@@ -142,7 +154,7 @@ def update_patient(
         db,
         current_user=current_user,
         patient_id=patient.id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
 
     # Audit: Capture old state
@@ -170,7 +182,7 @@ def update_patient(
                 resource_type="patient",
                 resource_id=updated.id,
                 details=f"Updated patient {updated.first_name} {updated.last_name}",
-                ip_address=request.client.host if request.client else None,
+                ip_address=get_client_ip(request),
                 old_values=old_data,
                 new_values=new_data
             )
@@ -234,7 +246,7 @@ def create_patient_assignment(
         resource_type="doctor_patient_assignment",
         resource_id=assignment.id,
         details=f"Assigned doctor {assignment.doctor_id} to patient {patient_id} as {assignment.role}",
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
     return assignment
 
@@ -271,7 +283,7 @@ def update_patient_assignment(
         resource_type="doctor_patient_assignment",
         resource_id=assignment.id,
         details=f"Updated assignment {assignment_id} for patient {patient_id} to role {assignment.role}",
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
     return assignment
 
@@ -304,7 +316,7 @@ def delete_patient_assignment(
         resource_type="doctor_patient_assignment",
         resource_id=removed.id,
         details=f"Removed doctor {removed.doctor_id} from patient {patient_id}",
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
     return None
 

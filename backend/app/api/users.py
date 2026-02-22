@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 from uuid import UUID
@@ -29,10 +30,11 @@ from app.services.auth import get_admin_user, get_current_user
 
 router = APIRouter(prefix="/users", tags=["users"])
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
-def _client_ip(request: Request) -> str:
-    return request.client.host if request.client else "unknown"
+# Use shared utility for consistent IP extraction across all routes.
+from app.core.request_utils import get_client_ip as _client_ip  # noqa: E402
 
 
 def _user_snapshot(user: User) -> dict:
@@ -97,9 +99,17 @@ def _restore_email_from_audit(db: Session, user_id: UUID) -> str | None:
     if not latest_delete_audit or not latest_delete_audit.details:
         return None
 
-    try:
-        details = json.loads(latest_delete_audit.details)
-    except (TypeError, json.JSONDecodeError):
+    # JSONB column auto-deserializes to dict in SQLAlchemy, but legacy
+    # rows may hold a raw JSON string.  Handle both formats safely.
+    raw = latest_delete_audit.details
+    if isinstance(raw, dict):
+        details = raw
+    elif isinstance(raw, str):
+        try:
+            details = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            return None
+    else:
         return None
 
     if not isinstance(details, dict):
@@ -319,6 +329,7 @@ def create_user(
         ip_address=_client_ip(request),
     )
 
+    logger.info("User created: id=%s email=%s role=%s by=%s", user.id, user.email, user.role.value, current_user.email)
     return user
 
 
@@ -504,6 +515,7 @@ def update_user(
         ip_address=_client_ip(request),
     )
 
+    logger.info("User updated: id=%s by=%s", user.id, current_user.email)
     return user
 
 
@@ -620,6 +632,7 @@ def delete_user(
         ip_address=_client_ip(request),
     )
 
+    logger.info("User soft-deleted: id=%s by=%s", user_id, current_user.email)
     return None
 
 

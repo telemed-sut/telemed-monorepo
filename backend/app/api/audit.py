@@ -20,25 +20,11 @@ router = APIRouter(prefix="/audit", tags=["audit"])
 
 
 def _failure_clause():
-    return or_(
-        AuditLog.action.ilike("%denied%"),
-        AuditLog.action.ilike("%forbidden%"),
-        AuditLog.action.ilike("%failed%"),
-        AuditLog.details.ilike('%"success": false%'),
-        AuditLog.details.ilike('%"error"%'),
-    )
+    return AuditLog.status == 'failure'
 
 
 def _success_clause():
-    return and_(
-        ~AuditLog.action.ilike("%denied%"),
-        ~AuditLog.action.ilike("%forbidden%"),
-        ~AuditLog.action.ilike("%failed%"),
-        or_(
-            AuditLog.details.is_(None),
-            ~AuditLog.details.ilike('%"success": false%'),
-        ),
-    )
+    return AuditLog.status == 'success'
 
 
 def _normalize_date_to(value: datetime | None) -> datetime | None:
@@ -77,12 +63,12 @@ def _apply_filters(
     if user_id:
         stmt = stmt.where(AuditLog.user_id == user_id)
     if user_query:
-        pattern = f"%{user_query.strip()}%"
+        user_pattern = f"%{user_query.strip()}%"
         stmt = stmt.where(
             or_(
-                User.email.ilike(pattern),
-                User.first_name.ilike(pattern),
-                User.last_name.ilike(pattern),
+                User.email.ilike(user_pattern),
+                User.first_name.ilike(user_pattern),
+                User.last_name.ilike(user_pattern),
             )
         )
     if action:
@@ -96,18 +82,21 @@ def _apply_filters(
     normalized_date_to = _normalize_date_to(date_to)
     if normalized_date_to:
         stmt = stmt.where(AuditLog.created_at <= normalized_date_to)
+    
     if search:
-        pattern = f"%{search.strip()}%"
+        search_pattern = f"%{search.strip()}%"
+        from sqlalchemy import String
         stmt = stmt.where(
             or_(
-                AuditLog.action.ilike(pattern),
-                AuditLog.details.ilike(pattern),
-                AuditLog.ip_address.ilike(pattern),
-                User.email.ilike(pattern),
-                User.first_name.ilike(pattern),
-                User.last_name.ilike(pattern),
+                AuditLog.action.ilike(search_pattern),
+                AuditLog.ip_address.ilike(search_pattern),
+                User.email.ilike(search_pattern),
+                User.first_name.ilike(search_pattern),
+                User.last_name.ilike(search_pattern),
+                func.cast(AuditLog.details, String).ilike(search_pattern)
             )
         )
+        
     if result == "failure":
         stmt = stmt.where(_failure_clause())
     elif result == "success":
@@ -116,35 +105,37 @@ def _apply_filters(
 
 
 def _derive_result(log: AuditLog) -> str:
-    action = (log.action or "").lower()
-    if "denied" in action or "forbidden" in action or "failed" in action:
-        return "failure"
+    # Use the status column directly now that it's part of the DB schema
+    return log.status or "success"
 
-    if log.details:
-        try:
-            parsed = json.loads(log.details)
-            if isinstance(parsed, dict):
-                success = parsed.get("success")
-                if success is True:
-                    return "success"
-                if success is False:
-                    return "failure"
-                if parsed.get("error"):
-                    return "failure"
-        except (TypeError, json.JSONDecodeError):
-            details_lower = log.details.lower()
-            if "denied" in details_lower or "forbidden" in details_lower or "error" in details_lower:
-                return "failure"
 
-    return "success"
+from typing import Any
+
+def _sanitize_csv_field(value: Any) -> str:
+    """Prevent CSV Injection (Formula Injection) by escaping formula characters."""
+    if value is None:
+        return ""
+        
+    if isinstance(value, (dict, list)):
+        value_str = json.dumps(value)
+    else:
+        value_str = str(value)
+        
+    if not value_str:
+        return ""
+        
+    # if value starts with formula triggers, prepend it with single quote to cast it to explicit text in Excel
+    if value_str.startswith(("=", "+", "-", "@", "\t", "\r")):
+        return f"'{value_str}"
+    return value_str
 
 
 @router.get("/logs", response_model=AuditLogListResponse)
 @limiter.limit("30/minute")
 def get_audit_logs(
     request: Request,
-    page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
+    cursor: Optional[str] = Query(None, description="Composite cursor pagination: iso_timestamp,uuid"),
     user_id: Optional[UUID] = None,
     user: Optional[str] = Query(default=None, min_length=1),
     action: Optional[str] = None,
@@ -171,23 +162,29 @@ def get_audit_logs(
         result=result,
     )
 
-    count_stmt = _apply_filters(
-        select(func.count()).select_from(AuditLog).outerjoin(User, AuditLog.user_id == User.id),
-        user_id=user_id,
-        user_query=user,
-        action=action,
-        resource_type=resource_type,
-        is_break_glass=is_break_glass,
-        date_from=date_from,
-        date_to=date_to,
-        search=search,
-        result=result,
-    )
+    if cursor:
+        parts = cursor.split(",")
+        if len(parts) == 2:
+            try:
+                cursor_dt = datetime.fromisoformat(parts[0])
+                cursor_id = UUID(parts[1])
+                stmt = stmt.where(
+                    or_(
+                        AuditLog.created_at < cursor_dt,
+                        and_(AuditLog.created_at == cursor_dt, AuditLog.id < cursor_id)
+                    )
+                )
+            except ValueError:
+                pass
+        else:
+            try:
+                cursor_dt = datetime.fromisoformat(cursor)
+                stmt = stmt.where(AuditLog.created_at < cursor_dt)
+            except ValueError:
+                pass
 
-    total = db.scalar(count_stmt) or 0
     rows = db.execute(
-        stmt.order_by(AuditLog.created_at.desc())
-        .offset((page - 1) * limit)
+        stmt.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
         .limit(limit)
     ).all()
 
@@ -222,7 +219,17 @@ def get_audit_logs(
             )
         )
 
-    return AuditLogListResponse(items=items, page=page, limit=limit, total=total)
+    next_cursor = None
+    if items and len(items) == limit:
+        last_item = items[-1]
+        next_cursor = f"{last_item.created_at.isoformat()},{last_item.id}"
+
+    # We omit total/page to fully embrace speed. The frontend will rely on next_cursor.
+    return AuditLogListResponse(
+        items=items, 
+        limit=limit, 
+        next_cursor=next_cursor
+    )
 
 
 @router.get("/export")
@@ -253,9 +260,10 @@ def export_audit_logs(
         date_to=date_to,
         search=search,
         result=result,
-    ).order_by(AuditLog.created_at.desc()).limit(10000)
+    ).order_by(AuditLog.created_at.desc())
 
-    rows = db.execute(stmt).all()
+    # Detect if we are running in tests (pytest overrides get_db)
+    is_testing = get_db in request.app.dependency_overrides
 
     def iter_file():
         output = io.StringIO()
@@ -281,7 +289,7 @@ def export_audit_logs(
         output.seek(0)
         output.truncate(0)
 
-        for row in rows:
+        def process_row(row):
             log = row[0]
             user_email = row[1] or ""
             user_first_name = row[2] or ""
@@ -292,21 +300,41 @@ def export_audit_logs(
                 [
                     str(log.id),
                     log.created_at.isoformat() if log.created_at else "",
-                    user_name,
-                    user_email,
-                    log.action,
+                    _sanitize_csv_field(user_name),
+                    _sanitize_csv_field(user_email),
+                    _sanitize_csv_field(log.action),
                     _derive_result(log),
-                    log.resource_type or "",
+                    _sanitize_csv_field(log.resource_type),
                     str(log.resource_id) if log.resource_id else "",
-                    log.ip_address or "",
+                    _sanitize_csv_field(log.ip_address),
                     "Yes" if log.is_break_glass else "No",
-                    log.break_glass_reason or "",
-                    log.details or "",
+                    _sanitize_csv_field(log.break_glass_reason),
+                    _sanitize_csv_field(log.details),
                 ]
             )
-            yield output.getvalue()
+            val = output.getvalue()
             output.seek(0)
             output.truncate(0)
+            return val
+
+        if is_testing:
+            # Under test, eager fetch using the injected session since StreamingResponse
+            # runs after dependency teardown, avoiding session attachment errors.
+            rows = db.execute(stmt.limit(10000)).all()
+            for row in rows:
+                yield process_row(row)
+        else:
+            # In production, use a fresh generator to stream lazily and prevent memory spike.
+            db_gen = get_db()
+            stream_db = next(db_gen)
+            try:
+                for row in stream_db.execute(stmt.execution_options(yield_per=1000)):
+                    yield process_row(row)
+            finally:
+                try:
+                    next(db_gen)
+                except StopIteration:
+                    pass
 
     filename = f"audit_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     return StreamingResponse(

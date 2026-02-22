@@ -16,6 +16,7 @@ from app.db.session import SessionLocal
 from app.models.audit_log import AuditLog
 from app.models.ip_ban import IPBan
 from app.services.security import is_ip_whitelisted
+from app.core.request_utils import get_client_ip as _get_client_ip
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -25,21 +26,6 @@ _ip_ban_cache: Dict[str, Tuple[float, float]] = {}
 _CACHE_TTL = 30  # seconds
 
 
-def _get_client_ip(request: Request) -> str:
-    # Prioritize Cloudflare header
-    cf_ip = request.headers.get("cf-connecting-ip")
-
-
-    # Prioritize Cloudflare header
-    if cf_ip:
-        return cf_ip
-        
-    x_forwarded = request.headers.get("x-forwarded-for")
-    if x_forwarded:
-        return x_forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return "unknown"
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -113,6 +99,7 @@ class SecurityAuditMiddleware(BaseHTTPMiddleware):
                         details=json.dumps(details),
                         ip_address=ip_address,
                         is_break_glass=False,
+                        status="failure",
                     )
                 )
                 db.commit()

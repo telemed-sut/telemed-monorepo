@@ -56,6 +56,7 @@ def main() -> int:
                     details=json.dumps(details),
                     ip_address=requester_ip,
                     is_break_glass=False,
+                    status="success" if success else "failure",
                 )
             )
             db.commit()

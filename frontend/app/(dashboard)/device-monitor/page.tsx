@@ -983,28 +983,28 @@ export default function DeviceMonitorPage() {
   );
   const selectedDeviceSummary = selectedDeviceIds.length
     ? selectedDeviceIds.slice(0, 2).join(", ") +
-      (selectedDeviceIds.length > 2 ? ` +${selectedDeviceIds.length - 2}` : "")
+    (selectedDeviceIds.length > 2 ? ` +${selectedDeviceIds.length - 2}` : "")
     : tr(language, "All devices", "ทุกอุปกรณ์");
   const rangeHasAnyActivity = (stats?.success_count ?? 0) + (stats?.error_count ?? 0) > 0;
   const noErrorButHasTraffic = (stats?.success_count ?? 0) > 0 && (stats?.error_count ?? 0) === 0;
   const showNoDataFallback = !rangeHasAnyActivity;
   const noDataReasonText = showNoDataFallback
     ? tr(
-        language,
-        "No ingestion data found in this period.",
-        "ช่วงเวลานี้ไม่พบการรับข้อมูลจากอุปกรณ์"
-      )
+      language,
+      "No ingestion data found in this period.",
+      "ช่วงเวลานี้ไม่พบการรับข้อมูลจากอุปกรณ์"
+    )
     : noErrorButHasTraffic
       ? tr(
-          language,
-          "Requests were successful in this period, so there are no error logs to display.",
-          "ช่วงเวลานี้คำขอสำเร็จทั้งหมด จึงไม่มี error log ให้แสดง"
-        )
+        language,
+        "Requests were successful in this period, so there are no error logs to display.",
+        "ช่วงเวลานี้คำขอสำเร็จทั้งหมด จึงไม่มี error log ให้แสดง"
+      )
       : tr(
-          language,
-          "No matching data for current filters.",
-          "ไม่พบข้อมูลตามตัวกรองปัจจุบัน"
-        );
+        language,
+        "No matching data for current filters.",
+        "ไม่พบข้อมูลตามตัวกรองปัจจุบัน"
+      );
   const previousErrorCount = comparisonStats?.error_count ?? 0;
   const currentErrorCount = stats?.error_count ?? 0;
   const errorCountDiff = currentErrorCount - previousErrorCount;
@@ -1213,7 +1213,7 @@ export default function DeviceMonitorPage() {
           <Select
             value={activeSavedViewId || "__none__"}
             onValueChange={(value) => {
-              if (value === "__none__") {
+              if (!value || value === "__none__") {
                 setActiveSavedViewId("");
                 return;
               }
@@ -1221,7 +1221,7 @@ export default function DeviceMonitorPage() {
             }}
           >
             <SelectTrigger className="h-8 w-[170px]">
-              <SelectValue placeholder={tr(language, "Saved Views", "มุมมองที่บันทึก")} />
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__none__">{tr(language, "Saved Views", "มุมมองที่บันทึก")}</SelectItem>
@@ -1347,9 +1347,8 @@ export default function DeviceMonitorPage() {
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-start gap-3">
               <div
-                className={`mt-0.5 rounded-full p-1.5 ${
-                  isThresholdBreached ? "bg-destructive/15 text-destructive" : "bg-emerald-500/15 text-emerald-600"
-                }`}
+                className={`mt-0.5 rounded-full p-1.5 ${isThresholdBreached ? "bg-destructive/15 text-destructive" : "bg-emerald-500/15 text-emerald-600"
+                  }`}
               >
                 <ShieldAlert className="size-4" />
               </div>
@@ -1358,15 +1357,15 @@ export default function DeviceMonitorPage() {
                 <p className="text-xs text-muted-foreground">
                   {isThresholdBreached
                     ? tr(
-                        language,
-                        `Error rate is ${currentErrorRatePercent.toFixed(2)}% and exceeded threshold (${errorRateThreshold.toFixed(2)}%).`,
-                        `อัตราข้อผิดพลาดอยู่ที่ ${currentErrorRatePercent.toFixed(2)}% และเกินเกณฑ์ (${errorRateThreshold.toFixed(2)}%).`
-                      )
+                      language,
+                      `Error rate is ${currentErrorRatePercent.toFixed(2)}% and exceeded threshold (${errorRateThreshold.toFixed(2)}%).`,
+                      `อัตราข้อผิดพลาดอยู่ที่ ${currentErrorRatePercent.toFixed(2)}% และเกินเกณฑ์ (${errorRateThreshold.toFixed(2)}%).`
+                    )
                     : tr(
-                        language,
-                        `Error rate is ${currentErrorRatePercent.toFixed(2)}%, below threshold (${errorRateThreshold.toFixed(2)}%).`,
-                        `อัตราข้อผิดพลาดอยู่ที่ ${currentErrorRatePercent.toFixed(2)}% ต่ำกว่าเกณฑ์ (${errorRateThreshold.toFixed(2)}%).`
-                      )}
+                      language,
+                      `Error rate is ${currentErrorRatePercent.toFixed(2)}%, below threshold (${errorRateThreshold.toFixed(2)}%).`,
+                      `อัตราข้อผิดพลาดอยู่ที่ ${currentErrorRatePercent.toFixed(2)}% ต่ำกว่าเกณฑ์ (${errorRateThreshold.toFixed(2)}%).`
+                    )}
                 </p>
               </div>
             </div>
@@ -1397,13 +1396,12 @@ export default function DeviceMonitorPage() {
           <div className="mt-4 pt-4 border-t border-border/60 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               <div
-                className={`rounded-full p-1.5 ${
-                  spikeAlert.level === "critical"
-                    ? "bg-destructive/15 text-destructive"
-                    : spikeAlert.level === "warning"
-                      ? "bg-amber-500/15 text-amber-600"
-                      : "bg-emerald-500/15 text-emerald-600"
-                }`}
+                className={`rounded-full p-1.5 ${spikeAlert.level === "critical"
+                  ? "bg-destructive/15 text-destructive"
+                  : spikeAlert.level === "warning"
+                    ? "bg-amber-500/15 text-amber-600"
+                    : "bg-emerald-500/15 text-emerald-600"
+                  }`}
               >
                 {spikeAlert.direction === "up" ? (
                   <TrendingUp className="size-3.5" />
@@ -1688,109 +1686,108 @@ export default function DeviceMonitorPage() {
                 </ResponsiveContainer>
               )}
             </div>
-            </div>
-            {(showNoDataFallback || noErrorButHasTraffic) && (
-              <div className="rounded-md border border-dashed border-border/70 px-3 py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-[10px] sm:text-xs text-muted-foreground">{noDataReasonText}</p>
-                {(showNoDataFallback || latestErrorActivityAt) && (
-                  <Button variant="outline" size="sm" className="h-7 text-xs" onClick={jumpToLatestDataWindow}>
-                    {tr(language, "Go to latest data window", "ไปช่วงที่มีข้อมูลล่าสุด")}
-                  </Button>
-                )}
-              </div>
-            )}
-            {hasSingleDeviceBar && (
-              <p className="text-[10px] sm:text-xs text-muted-foreground">
-                {tr(
-                  language,
-                  "Only one device has errors in this period, so hover appears on a single zone.",
-                  "ช่วงเวลานี้มีอุปกรณ์ที่ผิดพลาดเพียง 1 ตัว จึงแสดงโฮเวอร์ได้เพียงโซนเดียว"
-                )}
-              </p>
-            )}
-
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-3 sm:p-3.5 space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                    {tr(language, "Top Failing Devices Details", "รายละเอียดอุปกรณ์ที่ผิดพลาดสูงสุด")}
-                  </p>
-                  <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-1">
-                    {tr(language, "Click a device to filter Error by Type and Recent Logs.", "คลิกอุปกรณ์เพื่อกรองประเภทข้อผิดพลาดและบันทึกล่าสุด")}
-                  </p>
-                </div>
-                <span className="text-[10px] sm:text-xs text-muted-foreground">{tr(language, "Top 3", "อันดับสูงสุด 3 รายการ")}</span>
-              </div>
-              {topFailingDeviceDetails.length > 0 ? (
-                <div className="grid gap-2.5">
-                  {topFailingDeviceDetails.map((device) => (
-                    <button
-                      type="button"
-                      key={device.deviceId}
-                      onClick={() =>
-                        setSelectedDeviceIds((current) =>
-                          current.includes(device.deviceId)
-                            ? current.filter((id) => id !== device.deviceId)
-                            : [...current, device.deviceId]
-                        )
-                      }
-                      className={`w-full text-left rounded-md border p-2.5 sm:p-3 transition-colors ${
-                        selectedDeviceSet.has(device.deviceId)
-                          ? "border-[var(--med-primary-light)] bg-[var(--med-primary-light)]/10"
-                          : "border-border/60 bg-background/90 hover:bg-muted/40"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs sm:text-sm font-semibold">{device.deviceId}</span>
-                          <Badge
-                            variant={device.isOnline ? "secondary" : "outline"}
-                            className="h-5 px-2 text-[10px] leading-none"
-                          >
-                            {device.isOnline ? tr(language, "Online", "ออนไลน์") : tr(language, "Offline", "ออฟไลน์")}
-                          </Badge>
-                          {selectedDeviceSet.has(device.deviceId) && (
-                            <Badge variant="secondary" className="h-5 px-2 text-[10px] leading-none">
-                              {tr(language, "Active Filter", "ตัวกรองที่ใช้งาน")}
-                            </Badge>
-                          )}
-                          <Badge className={`h-5 px-2 text-[10px] leading-none border ${getFreshnessMeta(device.lastSeen, language).className}`}>
-                            {getFreshnessMeta(device.lastSeen, language).label}
-                          </Badge>
-                        </div>
-                        <span className="text-[11px] sm:text-xs text-muted-foreground tabular-nums">
-                          {device.errorCount} {tr(language, "errors", "ข้อผิดพลาด")} · {device.share.toFixed(1)}%
-                        </span>
-                      </div>
-
-                      <div className="mt-2 h-1.5 rounded-full bg-muted">
-                        <div
-                          className="h-full rounded-full bg-[var(--med-primary-light)] transition-all"
-                          style={{ width: `${Math.min(100, Math.max(device.share, 5))}%` }}
-                        />
-                      </div>
-
-                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs text-muted-foreground">
-                        <span>
-                          {tr(language, "Type", "ประเภท")}: <span className="font-medium text-foreground">{localizeErrorType(device.dominantType, language)}</span>
-                          {device.dominantTypeCount > 0 ? ` (${device.dominantTypeCount})` : ""}
-                        </span>
-                        <span>
-                          {tr(language, "Last seen", "พบล่าสุด")}:{" "}
-                          <span className="font-medium text-foreground">{formatTimeAgo(device.lastSeen, language)}</span>
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-md border border-dashed border-border/70 p-3 text-xs text-muted-foreground">
-                  {tr(language, "No device errors found in", "ไม่พบข้อผิดพลาดของอุปกรณ์ในช่วง")} {rangeLabel}.
-                </div>
+          </div>
+          {(showNoDataFallback || noErrorButHasTraffic) && (
+            <div className="rounded-md border border-dashed border-border/70 px-3 py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[10px] sm:text-xs text-muted-foreground">{noDataReasonText}</p>
+              {(showNoDataFallback || latestErrorActivityAt) && (
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={jumpToLatestDataWindow}>
+                  {tr(language, "Go to latest data window", "ไปช่วงที่มีข้อมูลล่าสุด")}
+                </Button>
               )}
             </div>
+          )}
+          {hasSingleDeviceBar && (
+            <p className="text-[10px] sm:text-xs text-muted-foreground">
+              {tr(
+                language,
+                "Only one device has errors in this period, so hover appears on a single zone.",
+                "ช่วงเวลานี้มีอุปกรณ์ที่ผิดพลาดเพียง 1 ตัว จึงแสดงโฮเวอร์ได้เพียงโซนเดียว"
+              )}
+            </p>
+          )}
 
+          <div className="rounded-lg border border-border/60 bg-muted/20 p-3 sm:p-3.5 space-y-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  {tr(language, "Top Failing Devices Details", "รายละเอียดอุปกรณ์ที่ผิดพลาดสูงสุด")}
+                </p>
+                <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-1">
+                  {tr(language, "Click a device to filter Error by Type and Recent Logs.", "คลิกอุปกรณ์เพื่อกรองประเภทข้อผิดพลาดและบันทึกล่าสุด")}
+                </p>
+              </div>
+              <span className="text-[10px] sm:text-xs text-muted-foreground">{tr(language, "Top 3", "อันดับสูงสุด 3 รายการ")}</span>
+            </div>
+            {topFailingDeviceDetails.length > 0 ? (
+              <div className="grid gap-2.5">
+                {topFailingDeviceDetails.map((device) => (
+                  <button
+                    type="button"
+                    key={device.deviceId}
+                    onClick={() =>
+                      setSelectedDeviceIds((current) =>
+                        current.includes(device.deviceId)
+                          ? current.filter((id) => id !== device.deviceId)
+                          : [...current, device.deviceId]
+                      )
+                    }
+                    className={`w-full text-left rounded-md border p-2.5 sm:p-3 transition-colors ${selectedDeviceSet.has(device.deviceId)
+                      ? "border-[var(--med-primary-light)] bg-[var(--med-primary-light)]/10"
+                      : "border-border/60 bg-background/90 hover:bg-muted/40"
+                      }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs sm:text-sm font-semibold">{device.deviceId}</span>
+                        <Badge
+                          variant={device.isOnline ? "secondary" : "outline"}
+                          className="h-5 px-2 text-[10px] leading-none"
+                        >
+                          {device.isOnline ? tr(language, "Online", "ออนไลน์") : tr(language, "Offline", "ออฟไลน์")}
+                        </Badge>
+                        {selectedDeviceSet.has(device.deviceId) && (
+                          <Badge variant="secondary" className="h-5 px-2 text-[10px] leading-none">
+                            {tr(language, "Active Filter", "ตัวกรองที่ใช้งาน")}
+                          </Badge>
+                        )}
+                        <Badge className={`h-5 px-2 text-[10px] leading-none border ${getFreshnessMeta(device.lastSeen, language).className}`}>
+                          {getFreshnessMeta(device.lastSeen, language).label}
+                        </Badge>
+                      </div>
+                      <span className="text-[11px] sm:text-xs text-muted-foreground tabular-nums">
+                        {device.errorCount} {tr(language, "errors", "ข้อผิดพลาด")} · {device.share.toFixed(1)}%
+                      </span>
+                    </div>
+
+                    <div className="mt-2 h-1.5 rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-[var(--med-primary-light)] transition-all"
+                        style={{ width: `${Math.min(100, Math.max(device.share, 5))}%` }}
+                      />
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs text-muted-foreground">
+                      <span>
+                        {tr(language, "Type", "ประเภท")}: <span className="font-medium text-foreground">{localizeErrorType(device.dominantType, language)}</span>
+                        {device.dominantTypeCount > 0 ? ` (${device.dominantTypeCount})` : ""}
+                      </span>
+                      <span>
+                        {tr(language, "Last seen", "พบล่าสุด")}:{" "}
+                        <span className="font-medium text-foreground">{formatTimeAgo(device.lastSeen, language)}</span>
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed border-border/70 p-3 text-xs text-muted-foreground">
+                {tr(language, "No device errors found in", "ไม่พบข้อผิดพลาดของอุปกรณ์ในช่วง")} {rangeLabel}.
+              </div>
+            )}
           </div>
+
+        </div>
 
         <div className="min-[500px]:col-span-3 grid gap-4 self-start">
           <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 flex items-center justify-between gap-2">
@@ -1911,15 +1908,15 @@ export default function DeviceMonitorPage() {
             <CardContent>
               <div className="h-[220px] overflow-auto">
                 <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{tr(language, "Time", "เวลา")}</TableHead>
-                        <TableHead>{tr(language, "Device", "อุปกรณ์")}</TableHead>
-                        <TableHead>{tr(language, "Code", "รหัสปัญหา")}</TableHead>
-                        <TableHead>{tr(language, "Error", "ข้อผิดพลาด")}</TableHead>
-                        <TableHead>{tr(language, "Suggestion", "คำแนะนำแก้ไข")}</TableHead>
-                      </TableRow>
-                    </TableHeader>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{tr(language, "Time", "เวลา")}</TableHead>
+                      <TableHead>{tr(language, "Device", "อุปกรณ์")}</TableHead>
+                      <TableHead>{tr(language, "Code", "รหัสปัญหา")}</TableHead>
+                      <TableHead>{tr(language, "Error", "ข้อผิดพลาด")}</TableHead>
+                      <TableHead>{tr(language, "Suggestion", "คำแนะนำแก้ไข")}</TableHead>
+                    </TableRow>
+                  </TableHeader>
                   <TableBody>
                     {recentScopedErrors.slice(0, 50).map((log) => (
                       <TableRow key={log.id}>

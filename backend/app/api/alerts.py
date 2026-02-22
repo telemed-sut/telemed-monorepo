@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from uuid import UUID
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -12,8 +13,10 @@ from app.models.user import User
 from app.schemas.alert import AlertAcknowledge
 from app.services import audit as audit_service
 from app.services.auth import get_db, get_doctor_user, _has_active_assignment
+from app.core.request_utils import get_client_ip
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/{alert_id}/acknowledge", status_code=status.HTTP_200_OK)
@@ -53,7 +56,9 @@ def acknowledge_alert(
         "acknowledge_alert",
         resource_type="alert",
         resource_id=alert_id,
-        details=payload.reason,
-        ip_address=request.client.host if request.client else None,
+        details={"reason": payload.reason},
+        ip_address=get_client_ip(request),
+        status="success",
     )
+    logger.info("Alert acknowledged: alert=%s by=%s reason=%s", alert_id, current_user.email, payload.reason or "none")
     return {"message": "Alert acknowledged", "alert_id": str(alert_id)}

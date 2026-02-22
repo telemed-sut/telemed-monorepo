@@ -17,6 +17,7 @@ from app.db.session import SessionLocal
 from app.middleware import IPBanMiddleware, SecurityAuditMiddleware, SecurityHeadersMiddleware
 from app.models.device_error_log import DeviceErrorLog
 from app.services.security import record_login_attempt
+from app.core.request_utils import get_client_ip
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
             body = await request.json()
             email = body.get("email")
             if email:
-                ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (request.client.host if request.client else "unknown")
+                ip = get_client_ip(request)
                 with SessionLocal() as db:
                     record_login_attempt(
                         db,
@@ -47,7 +48,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
                     )
                     db.commit()
         except Exception:
-            pass
+            logger.warning("Failed to record rate-limited login attempt", exc_info=True)
 
     return JSONResponse(
         status_code=429,
@@ -60,14 +61,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     )
 
 
-def _extract_client_ip(request: Request) -> str:
-    x_forwarded = request.headers.get("x-forwarded-for")
-    if x_forwarded:
-        return x_forwarded.split(",")[0].strip()
-    if request.client:
-        return request.client.host
-    return "unknown"
-
+_extract_client_ip = get_client_ip
 
 def _format_validation_summary(exc: RequestValidationError, max_items: int = 6) -> str:
     errors = []

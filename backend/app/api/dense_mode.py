@@ -18,6 +18,7 @@ from app.services import audit as audit_service
 from app.services import dense_mode as dense_mode_service
 from app.services import order as order_service
 from app.services import timeline as timeline_service
+from app.core.request_utils import get_client_ip
 from app.services.auth import (
     get_clinical_user,
     get_db,
@@ -49,7 +50,7 @@ def get_patient_summary(
         "view_patient_summary",
         resource_type="patient",
         resource_id=patient_id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
     return result
 
@@ -71,7 +72,7 @@ def get_patient_timeline(
         "view_patient_timeline",
         resource_type="patient",
         resource_id=patient_id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
     return timeline_service.get_patient_timeline(db, patient_id, cursor, limit)
 
@@ -103,7 +104,7 @@ def get_active_orders(
         "view_active_orders",
         resource_type="patient",
         resource_id=patient_id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
 
     return {"medications": list(meds), "labs": list(labs)}
@@ -138,7 +139,7 @@ def get_lab_trends(
         "view_lab_trends",
         resource_type="patient",
         resource_id=patient_id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
 
     return {
@@ -174,7 +175,7 @@ def create_order(
         f"create_{payload.order_type.value}_order",
         resource_type=payload.order_type.value,
         resource_id=record.id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
     return record
 
@@ -196,7 +197,7 @@ def create_note(
         "create_note",
         resource_type="note",
         resource_id=event.id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
     )
     return event
 
@@ -240,7 +241,7 @@ def break_glass_access(
         "break_glass",
         resource_type="patient",
         resource_id=patient_id,
-        ip_address=request.client.host if request.client else None,
+        ip_address=get_client_ip(request),
         is_break_glass=True,
         break_glass_reason=normalized_reason,
     )

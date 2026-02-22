@@ -17,6 +17,7 @@ from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.models.device_error_log import DeviceErrorLog
 from app.models.device_request_nonce import DeviceRequestNonce
+from app.core.request_utils import get_client_ip
 
 router = APIRouter()
 settings = get_settings()
@@ -28,7 +29,7 @@ GENERIC_AUTH_ERROR = "Invalid signature"
 
 def log_device_error(db: Session, device_id: str, error_msg: str, request: Request):
     try:
-        ip = request.client.host if request.client else "unknown"
+        ip = get_client_ip(request)
         endpoint = str(request.url)
 
         error_log = DeviceErrorLog(

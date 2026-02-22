@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Any
+import logging
 from datetime import datetime, timedelta, timezone
 
 from app.services.auth import get_db, get_admin_user
@@ -11,6 +12,7 @@ from app.core.limiter import limiter
 
 router = APIRouter()
 MAX_LOOKBACK_HOURS = 24 * 90
+logger = logging.getLogger(__name__)
 
 AUTH_ERROR_HINTS = {
     "missing_required_headers": "Send X-Device-Id, X-Timestamp, and X-Signature headers.",

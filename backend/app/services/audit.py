@@ -12,12 +12,13 @@ def log_action(
     action: str,
     resource_type: Optional[str] = None,
     resource_id: Optional[UUID] = None,
-    details: Optional[str] = None,
+    details: Optional[str | dict] = None,
     ip_address: Optional[str] = None,
     is_break_glass: bool = False,
     break_glass_reason: Optional[str] = None,
     old_values: Optional[dict] = None,
     new_values: Optional[dict] = None,
+    status: str = "success",
 ) -> AuditLog:
     """Write an entry to the audit log."""
     entry = AuditLog(
@@ -31,6 +32,7 @@ def log_action(
         break_glass_reason=break_glass_reason,
         old_values=old_values,
         new_values=new_values,
+        status=status,
     )
     db.add(entry)
     db.commit()

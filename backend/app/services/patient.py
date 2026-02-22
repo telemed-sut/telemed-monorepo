@@ -1,4 +1,4 @@
-import json
+import logging
 from typing import List, Literal, Optional, Tuple
 from uuid import UUID
 
@@ -15,6 +15,7 @@ from app.schemas.patient import PatientCreate, PatientUpdate
 from app.services import audit as audit_service
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 AssignmentRole = Literal["primary", "consulting"]
 ALLOWED_ASSIGNMENT_ROLES = {"primary", "consulting"}
 
@@ -101,17 +102,20 @@ def _log_patient_access_denied(
             action="patient_access_denied",
             resource_type="patient",
             resource_id=patient_id,
-            details=json.dumps(
-                {
-                    "reason": reason,
-                    "role": current_user.role.value,
-                }
-            ),
+            details={
+                "reason": reason,
+                "role": current_user.role.value,
+            },
             ip_address=ip_address,
         )
     except Exception:
         # Access denial must still be enforced even if audit insert fails.
-        pass
+        logger.warning(
+            "Failed to write patient_access_denied audit for user=%s patient=%s",
+            current_user.id,
+            patient_id,
+            exc_info=True,
+        )
 
 
 def verify_doctor_patient_access(

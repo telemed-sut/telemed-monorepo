@@ -1,3 +1,4 @@
+from typing import Any
 from datetime import datetime
 
 from pydantic import BaseModel
@@ -12,17 +13,16 @@ class AuditLogResponse(BaseModel):
     result: str
     resource_type: str | None = None
     resource_id: str | None = None
-    details: str | None = None
+    details: Any | None = None
     ip_address: str | None = None
     is_break_glass: bool
     break_glass_reason: str | None = None
-    old_values: dict | None = None
-    new_values: dict | None = None
+    old_values: Any | None = None
+    new_values: Any | None = None
     created_at: datetime
 
 
 class AuditLogListResponse(BaseModel):
     items: list[AuditLogResponse]
-    page: int
     limit: int
-    total: int
+    next_cursor: str | None = None

@@ -157,7 +157,7 @@ function HoursColumn() {
           style={{ height: HOUR_HEIGHT }}
         >
           <span className="absolute -top-[0.6em] left-2 md:left-3 text-xs md:text-sm text-muted-foreground bg-background px-0.5 leading-none">
-            {hour > 0 ? formatHourLabel(hour, language) : ""}
+            {Number(hour) > 0 ? formatHourLabel(Number(hour), language) : ""}
           </span>
         </div>
       ))}
@@ -732,12 +732,12 @@ export function EventDetailSheet({
                 </div>
               </div>
 
-                {/* Propose new time */}
-                <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" disabled={!canWrite}>
-                    <span>{tr(language, "Propose new time", "เสนอเวลาใหม่")}</span>
-                    <HugeiconsIcon
-                      icon={ArrowUpRight01Icon}
+              {/* Propose new time */}
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" disabled={!canWrite}>
+                  <span>{tr(language, "Propose new time", "เสนอเวลาใหม่")}</span>
+                  <HugeiconsIcon
+                    icon={ArrowUpRight01Icon}
                     className="size-4"
                   />
                 </Button>
