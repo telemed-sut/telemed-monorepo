@@ -1,12 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  FileExportIcon,
-  Calendar01Icon,
-} from "@hugeicons/core-free-icons";
 import { fetchMeetings } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
@@ -20,8 +14,6 @@ const I18N: Record<
     and: string;
     totalScheduled: string;
     consultations: string;
-    export: string;
-    newAppointment: string;
   }
 > = {
   en: {
@@ -31,8 +23,6 @@ const I18N: Record<
     and: "and",
     totalScheduled: "Total Scheduled",
     consultations: "consultations.",
-    export: "Export",
-    newAppointment: "New Appointment",
   },
   th: {
     youHave: "วันนี้คุณมี",
@@ -40,8 +30,6 @@ const I18N: Record<
     and: "และมี",
     totalScheduled: "นัดหมายทั้งหมด",
     consultations: "",
-    export: "ส่งออก",
-    newAppointment: "นัดหมายใหม่",
   },
 };
 
@@ -67,27 +55,15 @@ export function AlertBanner() {
   }, [token]);
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-      <div className="flex items-start sm:items-center gap-4">
-        <span className="text-4xl">🩺</span>
-        <p className="text-sm sm:text-base leading-relaxed">
-          <span className="text-muted-foreground">{t.youHave} </span>
-          <span className="font-semibold">{t.appointmentsToday(todayCount)}</span>
-          <span> {t.and} </span>
-          <span className="font-semibold">{pendingCount} {t.totalScheduled}</span>
-          <span className="text-muted-foreground"> {t.consultations}</span>
-        </p>
-      </div>
-      <div className="flex items-center gap-3">
-        <Button variant="outline" size="sm" className="gap-2">
-          <HugeiconsIcon icon={FileExportIcon} className="size-4" />
-          {t.export}
-        </Button>
-        <Button size="sm" className="gap-2 bg-[var(--med-primary-light)] text-white hover:bg-[var(--med-primary)]">
-          <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
-          {t.newAppointment}
-        </Button>
-      </div>
+    <div className="flex items-start sm:items-center gap-4">
+      <span className="text-4xl">🩺</span>
+      <p className="text-sm sm:text-base leading-relaxed">
+        <span className="text-muted-foreground">{t.youHave} </span>
+        <span className="font-semibold">{t.appointmentsToday(todayCount)}</span>
+        <span> {t.and} </span>
+        <span className="font-semibold">{pendingCount} {t.totalScheduled}</span>
+        <span className="text-muted-foreground"> {t.consultations}</span>
+      </p>
     </div>
   );
 }

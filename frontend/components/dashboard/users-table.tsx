@@ -70,6 +70,7 @@ import {
 
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { cn } from "@/lib/utils";
+import { buildProfileSeed, getProfileOrbStyle } from "@/components/ui/profile-avatar-orb";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -1152,13 +1153,23 @@ export function UsersTable() {
             ),
             cell: ({ row }) => {
                 const user = row.original;
-                const fallback = user.first_name ? user.first_name[0] : user.email[0].toUpperCase();
+                const profileSeed = buildProfileSeed(
+                    user.id,
+                    user.first_name,
+                    user.last_name,
+                    user.email
+                );
                 return (
                     <div className="flex items-center gap-2">
                         <Avatar className="h-8 w-8">
                             <AvatarImage src={user.avatar_url || undefined} />
-                            <AvatarFallback className="bg-primary/10 text-primary font-bold text-xs">
-                                {fallback}
+                            <AvatarFallback
+                                className="transition-transform duration-200 hover:scale-[1.03]"
+                                style={getProfileOrbStyle(profileSeed)}
+                            >
+                                <span className="sr-only">
+                                    {getDisplayName(user.first_name, user.last_name, user.email)}
+                                </span>
                             </AvatarFallback>
                         </Avatar>
                         <div className="flex flex-col">

@@ -1980,6 +1980,7 @@ export function MeetingsContent() {
   const currentWeekStart = useCalendarStore((s) => s.currentWeekStart);
   const goToToday = useCalendarStore((s) => s.goToToday);
   const goToDate = useCalendarStore((s) => s.goToDate);
+  const getFilteredMeetings = useCalendarStore((s) => s.getFilteredMeetings);
   const searchQuery = useCalendarStore((s) => s.searchQuery);
   const setSearchQuery = useCalendarStore((s) => s.setSearchQuery);
   const eventTypeFilter = useCalendarStore((s) => s.eventTypeFilter);
@@ -2018,6 +2019,30 @@ export function MeetingsContent() {
   const totalEventsCount = meetings.length;
 
   const hasActiveFilters = eventTypeFilter !== "all";
+
+  const goToLatestDay = useCallback(() => {
+    const filteredMeetings = getFilteredMeetings();
+
+    if (!filteredMeetings.length) {
+      goToToday();
+      return;
+    }
+
+    const validDates = filteredMeetings
+      .map((meeting) => new Date(meeting.date_time))
+      .filter((date) => !Number.isNaN(date.getTime()));
+
+    if (!validDates.length) {
+      goToToday();
+      return;
+    }
+
+    const latestDate = validDates.reduce((latest, current) =>
+      current.getTime() > latest.getTime() ? current : latest
+    );
+
+    goToDate(latestDate);
+  }, [getFilteredMeetings, goToDate, goToToday]);
 
   const loadMeetings = useCallback(
     async (background = false) => {
@@ -2240,15 +2265,17 @@ export function MeetingsContent() {
                   </Button>
                 </SchedulePopover>
 
-                <MonthCalendarPopover
-                  meetings={meetings}
-                  patients={patients}
-                  doctors={doctors}
-                  token={token}
-                  currentUserId={userId}
-                  userRole={userRole}
-                  onMeetingCreated={handleMeetingCreated}
-                />
+                <div className="hidden md:block">
+                  <MonthCalendarPopover
+                    meetings={meetings}
+                    patients={patients}
+                    doctors={doctors}
+                    token={token}
+                    currentUserId={userId}
+                    userRole={userRole}
+                    onMeetingCreated={handleMeetingCreated}
+                  />
+                </div>
 
                 {/* View mode toggle: Calendar / Queue */}
                 <div className="flex items-center rounded-lg border border-border p-0.5 gap-0.5">
@@ -2360,7 +2387,7 @@ export function MeetingsContent() {
               <Button
                 variant="outline"
                 className="h-8 px-3 shrink-0"
-                onClick={goToToday}
+                onClick={goToLatestDay}
               >
                 {tr(language, "Today", "วันนี้")}
               </Button>
