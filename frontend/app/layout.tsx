@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
@@ -8,6 +9,11 @@ import { ProgressBar } from "@/components/progress-bar";
 import { TranslationSafeguard } from "@/components/translation-safeguard";
 import { I18nProvider } from "@/components/i18n-provider";
 import { UIToneInitializer } from "@/components/ui-tone-initializer";
+
+const notoSansThai = Noto_Sans_Thai({
+  subsets: ["latin", "thai"],
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "E Med Help SUT — Telemedicine Dashboard",
@@ -21,7 +27,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="antialiased bg-background font-sans" suppressHydrationWarning>
+      <body
+        className={`${notoSansThai.className} antialiased bg-background`}
+        suppressHydrationWarning
+      >
         <ThemeProvider
           attribute="class"
           forcedTheme="light"

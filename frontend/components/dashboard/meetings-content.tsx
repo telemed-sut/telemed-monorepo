@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { addWeeks, setHours, setMinutes } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
@@ -613,10 +614,11 @@ const DoctorMemberItem = ({
   >
     <div className="relative mr-4 shrink-0">
       {member.avatar ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <Image
           src={member.avatar}
           alt={member.label}
+          width={48}
+          height={48}
           className="h-12 w-12 rounded-full ring-2 ring-background shadow-sm grayscale-[0.1] transition-all duration-300 group-hover:grayscale-0"
         />
       ) : (
@@ -677,10 +679,11 @@ const PatientMemberItem = ({
   >
     <div className="relative mr-4 shrink-0">
       {member.avatar ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <Image
           src={member.avatar}
           alt={member.label}
+          width={48}
+          height={48}
           className="h-12 w-12 rounded-full ring-2 ring-background shadow-sm grayscale-[0.1] transition-all duration-300 group-hover:grayscale-0"
         />
       ) : (
