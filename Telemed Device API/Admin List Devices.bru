@@ -1,7 +1,7 @@
 meta {
-  name: Admin List Devices
+  name: Admin List Devices (Optional)
   type: http
-  seq: 4
+  seq: 5
 }
 
 get {
@@ -10,13 +10,13 @@ get {
   auth: inherit
 }
 
-headers {
-  Authorization: Bearer {{adminToken}}
-}
-
 params:query {
   page: 1
   limit: 20
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
 }
 
 script:post-response {
@@ -24,7 +24,7 @@ script:post-response {
   if (status !== 200) {
     throw new Error(`Expected HTTP 200 OK, got ${status}`);
   }
-
+  
   const rawBody = res.getBody();
   const body = typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
   if (!body || !Array.isArray(body.items)) {
