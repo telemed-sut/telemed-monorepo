@@ -8,7 +8,6 @@ import { DashboardHeader } from "@/components/dashboard/header";
 import { PageTransition } from "@/components/dashboard/page-transition";
 import { useAuthStore } from "@/store/auth-store";
 import { useTokenRefresh } from "@/hooks/use-token-refresh";
-import DashboardLoading from "./loading";
 
 export default function DashboardLayout({
   children,
@@ -33,7 +32,13 @@ export default function DashboardLayout({
     }
   }, [hydrated, token, router]);
 
-  const ready = hydrated && !!token;
+  if (!hydrated) {
+    return <main className="min-h-screen bg-background" aria-busy="true" />;
+  }
+
+  if (!token) {
+    return <main className="min-h-screen bg-background" aria-busy="true" />;
+  }
 
   return (
     <SidebarProvider className="bg-sidebar">
@@ -41,11 +46,7 @@ export default function DashboardLayout({
       <div className="h-svh overflow-hidden lg:p-2 w-full">
         <div className="lg:border lg:rounded-md overflow-hidden flex flex-col items-center justify-start bg-container h-full w-full bg-background">
           <DashboardHeader />
-          {ready ? (
-            <PageTransition>{children}</PageTransition>
-          ) : (
-            <DashboardLoading />
-          )}
+          <PageTransition>{children}</PageTransition>
         </div>
       </div>
     </SidebarProvider>
