@@ -1,0 +1,42 @@
+meta {
+  name: Admin List Devices
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/security/devices?page=1&limit=20
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}
+
+params:query {
+  page: 1
+  limit: 20
+}
+
+script:post-response {
+  const status = res.getStatus();
+  if (status !== 200) {
+    throw new Error(`Expected HTTP 200 OK, got ${status}`);
+  }
+
+  const rawBody = res.getBody();
+  const body = typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
+  if (!body || !Array.isArray(body.items)) {
+    throw new Error("Expected response body with items array.");
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+
+docs {
+  List registered devices from admin API.
+}

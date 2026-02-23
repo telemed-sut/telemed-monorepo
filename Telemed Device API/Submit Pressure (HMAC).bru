@@ -21,23 +21,23 @@ body:json {
       "heart_rate": 82,
       "sys_rate": 125,
       "dia_rate": 85,
-      "a": [10, 20, 30, 40, 50],
+      "a": [10, 20, 30, 40, 70],
       "b": [5, 15, 25, 35, 45]
   }
 }
 
 script:pre-request {
   const crypto = require('crypto');
-
+  
   const secret = bru.getEnvVar("deviceSecret");
   const deviceId = bru.getEnvVar("deviceId") || "test_device_NEW_006";
   if (!secret) {
     throw new Error('Please set Bruno Environment variable "deviceSecret".');
   }
-
+  
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const nonce = crypto.randomBytes(16).toString('hex');
-
+  
   // Pre-request runs before Bruno interpolation, so resolve {{vars}} on raw body text.
   const bodyRawFromRequest = req.getBody({ raw: true });
   let rawBody = typeof bodyRawFromRequest === "string"
@@ -51,28 +51,46 @@ script:pre-request {
   if (typeof req.setBody === "function") {
     req.setBody(rawBody);
   }
-
+  
   const bodyHash = crypto.createHash('sha256').update(rawBody, "utf8").digest('hex');
-
+  
   // Toggle based on backend config:
   // - DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE
   // - DEVICE_API_REQUIRE_NONCE
   const requireBodyHash = true;
   const requireNonce = true;
-
+  
   let message = timestamp + deviceId;
   if (requireBodyHash) message += bodyHash;
   if (requireNonce) message += nonce;
-
+  
   const signature = crypto.createHmac('sha256', secret)
     .update(message)
     .digest('hex');
-
+  
   req.setHeader("X-Timestamp", timestamp);
   req.setHeader("X-Signature", signature);
   req.setHeader("X-Device-Id", deviceId);
   if (requireBodyHash) req.setHeader("X-Body-Hash", bodyHash);
   if (requireNonce) req.setHeader("X-Nonce", nonce);
+}
+
+script:post-response {
+  const status = res.getStatus();
+  if (status !== 201) {
+    throw new Error(`Expected HTTP 201 Created, got ${status}`);
+  }
+
+  const rawBody = res.getBody();
+  const body = typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
+
+  if (!body || body.status !== "ok") {
+    throw new Error('Expected response body: {"status":"ok"}');
+  }
+
+  if ("id" in body || "patient_id" in body || "received_at" in body) {
+    throw new Error("Response leaked internal fields (id/patient_id/received_at).");
+  }
 }
 
 settings {
@@ -82,4 +100,5 @@ settings {
 
 docs {
   Send blood pressure payload to /device/v1/pressure with auto-generated HMAC headers.
+  Expected success response: {"status":"ok"} (no id/patient_id/received_at fields).
 }

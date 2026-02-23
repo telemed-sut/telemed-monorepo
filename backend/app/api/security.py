@@ -1,17 +1,20 @@
 import logging
+import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, EmailStr, model_validator
-from sqlalchemy import func, select
+from pydantic import BaseModel, EmailStr, Field, model_validator
+from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.core.security import generate_totp_secret, get_password_hash
 from app.models.audit_log import AuditLog
+from app.models.device_registration import DeviceRegistration
 from app.models.enums import UserRole
 from app.models.ip_ban import IPBan
 from app.models.login_attempt import LoginAttempt
@@ -166,6 +169,130 @@ class AdminUserPasswordResetResponse(BaseModel):
     email: str
     reset_token: str
     reset_token_expires_in: int
+
+
+class DeviceRegistrationView(BaseModel):
+    id: str
+    device_id: str
+    display_name: str
+    notes: str | None = None
+    is_active: bool
+    last_seen_at: datetime | None = None
+    deactivated_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DeviceRegistrationListResponse(BaseModel):
+    items: list[DeviceRegistrationView]
+    total: int
+    page: int
+    limit: int
+
+
+class DeviceRegistrationCreateRequest(BaseModel):
+    device_id: str = Field(..., min_length=1, max_length=128)
+    display_name: str = Field(..., min_length=1, max_length=200)
+    device_secret: str | None = None
+    notes: str | None = Field(default=None, max_length=500)
+    is_active: bool = True
+
+    @model_validator(mode="after")
+    def normalize_fields(self):
+        self.device_id = self.device_id.strip()
+        self.display_name = self.display_name.strip()
+        self.notes = self.notes.strip() if self.notes else None
+        if not self.device_id:
+            raise ValueError("device_id must not be empty.")
+        if not self.display_name:
+            raise ValueError("display_name must not be empty.")
+        return self
+
+
+class DeviceRegistrationCreateResponse(BaseModel):
+    device: DeviceRegistrationView
+    device_secret: str
+
+
+class DeviceRegistrationUpdateRequest(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=200)
+    notes: str | None = Field(default=None, max_length=500)
+    is_active: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_payload(self):
+        if self.display_name is None and self.notes is None and self.is_active is None:
+            raise ValueError("At least one field must be provided.")
+        if self.display_name is not None:
+            self.display_name = self.display_name.strip()
+            if not self.display_name:
+                raise ValueError("display_name must not be empty.")
+        if self.notes is not None:
+            self.notes = self.notes.strip() or None
+        return self
+
+
+class DeviceRegistrationRotateSecretRequest(BaseModel):
+    device_secret: str | None = None
+
+
+class DeviceRegistrationRotateSecretResponse(BaseModel):
+    message: str
+    device_secret: str
+    rotated_at: datetime
+
+
+DEVICE_SECRET_MIN_LENGTH = 32
+
+
+def _normalize_device_secret(raw_secret: str | None) -> str:
+    if raw_secret is None:
+        return secrets.token_urlsafe(48)
+
+    normalized = raw_secret.strip()
+    if len(normalized) < DEVICE_SECRET_MIN_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"device_secret must be at least {DEVICE_SECRET_MIN_LENGTH} characters.",
+        )
+    return normalized
+
+
+def _to_device_registration_view(device: DeviceRegistration) -> DeviceRegistrationView:
+    return DeviceRegistrationView(
+        id=str(device.id),
+        device_id=device.device_id,
+        display_name=device.display_name,
+        notes=device.notes,
+        is_active=bool(device.is_active),
+        last_seen_at=device.last_seen_at,
+        deactivated_at=device.deactivated_at,
+        created_at=device.created_at,
+        updated_at=device.updated_at,
+    )
+
+
+def _write_device_registry_audit(
+    db: Session,
+    *,
+    actor: User,
+    ip_address: str,
+    action: str,
+    device: DeviceRegistration,
+    details: dict,
+) -> None:
+    db.add(
+        AuditLog(
+            user_id=actor.id,
+            action=action,
+            resource_type="device_registration",
+            resource_id=device.id,
+            details=details,
+            ip_address=ip_address,
+            is_break_glass=False,
+            status="success",
+        )
+    )
 
 
 # ── Endpoints ──
@@ -470,6 +597,195 @@ def reset_user_password_by_super_admin(
         email=target.email,
         reset_token=reset_token,
         reset_token_expires_in=settings.password_reset_expires_in,
+    )
+
+
+@router.get("/devices", response_model=DeviceRegistrationListResponse)
+@limiter.limit("30/minute")
+def list_registered_devices(
+    request: Request,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=200),
+    q: str | None = Query(default=None),
+    is_active: bool | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    stmt = select(DeviceRegistration)
+    count_stmt = select(func.count()).select_from(DeviceRegistration)
+
+    keyword = q.strip() if q else ""
+    if keyword:
+        pattern = f"%{keyword}%"
+        search_condition = or_(
+            DeviceRegistration.device_id.ilike(pattern),
+            DeviceRegistration.display_name.ilike(pattern),
+        )
+        stmt = stmt.where(search_condition)
+        count_stmt = count_stmt.where(search_condition)
+
+    if is_active is not None:
+        active_filter = DeviceRegistration.is_active.is_(is_active)
+        stmt = stmt.where(active_filter)
+        count_stmt = count_stmt.where(active_filter)
+
+    total = db.scalar(count_stmt) or 0
+    rows = db.scalars(
+        stmt.order_by(DeviceRegistration.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    ).all()
+
+    return DeviceRegistrationListResponse(
+        items=[_to_device_registration_view(row) for row in rows],
+        total=total,
+        page=page,
+        limit=limit,
+    )
+
+
+@router.post("/devices", response_model=DeviceRegistrationCreateResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
+def create_registered_device(
+    request: Request,
+    payload: DeviceRegistrationCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    secret_value = _normalize_device_secret(payload.device_secret)
+    now = datetime.now(timezone.utc)
+
+    device = DeviceRegistration(
+        device_id=payload.device_id,
+        display_name=payload.display_name,
+        device_secret=secret_value,
+        notes=payload.notes,
+        is_active=payload.is_active,
+        deactivated_at=None if payload.is_active else now,
+        created_by=current_user.id,
+        updated_by=current_user.id,
+    )
+    db.add(device)
+
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Device ID already exists.",
+        )
+
+    _write_device_registry_audit(
+        db,
+        actor=current_user,
+        ip_address=_client_ip(request),
+        action="device_registration_create",
+        device=device,
+        details={
+            "device_id": payload.device_id,
+            "display_name": payload.display_name,
+            "is_active": payload.is_active,
+        },
+    )
+
+    db.commit()
+    db.refresh(device)
+
+    return DeviceRegistrationCreateResponse(
+        device=_to_device_registration_view(device),
+        device_secret=secret_value,
+    )
+
+
+@router.patch("/devices/{device_id}", response_model=DeviceRegistrationView)
+@limiter.limit("20/minute")
+def update_registered_device(
+    request: Request,
+    device_id: str,
+    payload: DeviceRegistrationUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    normalized_device_id = device_id.strip()
+    if not normalized_device_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="device_id is required.")
+
+    device = db.scalar(select(DeviceRegistration).where(DeviceRegistration.device_id == normalized_device_id))
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
+
+    now = datetime.now(timezone.utc)
+    if payload.display_name is not None:
+        device.display_name = payload.display_name
+    if payload.notes is not None:
+        device.notes = payload.notes
+    if payload.is_active is not None:
+        device.is_active = payload.is_active
+        device.deactivated_at = None if payload.is_active else now
+
+    device.updated_by = current_user.id
+    db.add(device)
+
+    _write_device_registry_audit(
+        db,
+        actor=current_user,
+        ip_address=_client_ip(request),
+        action="device_registration_update",
+        device=device,
+        details={
+            "device_id": device.device_id,
+            "display_name": device.display_name,
+            "is_active": bool(device.is_active),
+        },
+    )
+
+    db.commit()
+    db.refresh(device)
+    return _to_device_registration_view(device)
+
+
+@router.post("/devices/{device_id}/rotate-secret", response_model=DeviceRegistrationRotateSecretResponse)
+@limiter.limit("20/minute")
+def rotate_registered_device_secret(
+    request: Request,
+    device_id: str,
+    payload: DeviceRegistrationRotateSecretRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    normalized_device_id = device_id.strip()
+    if not normalized_device_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="device_id is required.")
+
+    device = db.scalar(select(DeviceRegistration).where(DeviceRegistration.device_id == normalized_device_id))
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
+
+    secret_value = _normalize_device_secret(payload.device_secret)
+    now = datetime.now(timezone.utc)
+
+    device.device_secret = secret_value
+    device.updated_by = current_user.id
+    db.add(device)
+
+    _write_device_registry_audit(
+        db,
+        actor=current_user,
+        ip_address=_client_ip(request),
+        action="device_registration_rotate_secret",
+        device=device,
+        details={
+            "device_id": device.device_id,
+            "is_active": bool(device.is_active),
+            "rotated_at": now.isoformat(),
+        },
+    )
+
+    db.commit()
+    db.refresh(device)
+    return DeviceRegistrationRotateSecretResponse(
+        message=f"Secret rotated for {device.device_id}.",
+        device_secret=secret_value,
+        rotated_at=now,
     )
 
 

@@ -180,26 +180,22 @@ class Settings(BaseSettings):
         # Backward-compatible fallback for legacy environments.
         # In production, set DEVICE_API_ALLOW_JWT_SECRET_FALLBACK=false.
         if not self.device_api_secret:
-            if self.device_api_allow_jwt_secret_fallback:
+            if self.device_api_allow_jwt_secret_fallback and not self.device_api_require_registered_device:
                 self.device_api_secret = self.jwt_secret
-            elif not self.device_api_secrets:
+            elif not self.device_api_secrets and not self.device_api_require_registered_device:
                 raise ValueError(
-                    "DEVICE_API_SECRET is required when DEVICE_API_ALLOW_JWT_SECRET_FALLBACK=false and DEVICE_API_SECRETS is empty."
+                    "DEVICE_API_SECRET is required when DEVICE_API_ALLOW_JWT_SECRET_FALLBACK=false, DEVICE_API_SECRETS is empty, and DEVICE_API_REQUIRE_REGISTERED_DEVICE=false."
                 )
 
         if self.device_api_secret is not None:
             value = self.device_api_secret.strip()
             if not value:
-                if not self.device_api_secrets:
+                if not self.device_api_secrets and not self.device_api_require_registered_device:
                     raise ValueError("DEVICE_API_SECRET is required when DEVICE_API_SECRETS is empty.")
                 self.device_api_secret = None
             else:
                 self.device_api_secret = value
 
-        if self.device_api_require_registered_device and not self.device_api_secrets:
-            raise ValueError(
-                "DEVICE_API_REQUIRE_REGISTERED_DEVICE=true requires DEVICE_API_SECRETS to be configured."
-            )
         return self
 
     model_config = {

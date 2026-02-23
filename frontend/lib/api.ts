@@ -1636,6 +1636,98 @@ export async function fetchLoginAttempts(
   return apiFetch<LoginAttemptListResponse>(`/security/login-attempts${qs ? `?${qs}` : ""}`, {}, token);
 }
 
+export interface DeviceRegistration {
+  id: string;
+  device_id: string;
+  display_name: string;
+  notes: string | null;
+  is_active: boolean;
+  last_seen_at: string | null;
+  deactivated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeviceRegistrationListResponse {
+  items: DeviceRegistration[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface DeviceRegistrationCreatePayload {
+  device_id: string;
+  display_name: string;
+  notes?: string;
+  is_active?: boolean;
+  device_secret?: string;
+}
+
+export interface DeviceRegistrationCreateResponse {
+  device: DeviceRegistration;
+  device_secret: string;
+}
+
+export interface DeviceRegistrationUpdatePayload {
+  display_name?: string;
+  notes?: string;
+  is_active?: boolean;
+}
+
+export interface DeviceRegistrationRotateSecretPayload {
+  device_secret?: string;
+}
+
+export interface DeviceRegistrationRotateSecretResponse {
+  message: string;
+  device_secret: string;
+  rotated_at: string;
+}
+
+export async function fetchDeviceRegistrations(
+  params: { page?: number; limit?: number; q?: string; is_active?: boolean },
+  token: string,
+) {
+  const query = new URLSearchParams();
+  appendPagination(query, params, 200);
+  if (params.q) query.set("q", params.q);
+  if (params.is_active !== undefined) query.set("is_active", params.is_active ? "true" : "false");
+  const qs = query.toString();
+  return apiFetch<DeviceRegistrationListResponse>(`/security/devices${qs ? `?${qs}` : ""}`, {}, token);
+}
+
+export async function createDeviceRegistration(payload: DeviceRegistrationCreatePayload, token: string) {
+  return apiFetch<DeviceRegistrationCreateResponse>(
+    "/security/devices",
+    { method: "POST", body: JSON.stringify(payload) },
+    token,
+  );
+}
+
+export async function updateDeviceRegistration(
+  deviceId: string,
+  payload: DeviceRegistrationUpdatePayload,
+  token: string,
+) {
+  return apiFetch<DeviceRegistration>(
+    `/security/devices/${encodeURIComponent(deviceId)}`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    token,
+  );
+}
+
+export async function rotateDeviceRegistrationSecret(
+  deviceId: string,
+  payload: DeviceRegistrationRotateSecretPayload,
+  token: string,
+) {
+  return apiFetch<DeviceRegistrationRotateSecretResponse>(
+    `/security/devices/${encodeURIComponent(deviceId)}/rotate-secret`,
+    { method: "POST", body: JSON.stringify(payload) },
+    token,
+  );
+}
+
 // ── Bulk Delete ──────────────────────────────────────────
 
 export interface BulkDeletePatientsResponse {

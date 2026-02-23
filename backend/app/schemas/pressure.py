@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, Field, UUID4, field_validator, model_validator
+from pydantic import BaseModel, Field, UUID4, field_validator, model_validator
 
 class PressureCreate(BaseModel):
     # Map patient_id to user_id in the JSON input
@@ -42,12 +42,5 @@ class PressureCreate(BaseModel):
 
         return self
 
-class PressureResponse(BaseModel):
-    id: UUID4
-    received_at: datetime
-    patient_id: UUID4
-
-    model_config = ConfigDict(
-        populate_by_name=True,
-        from_attributes=True,
-    )
+class PressureIngestResponse(BaseModel):
+    status: str = "ok"

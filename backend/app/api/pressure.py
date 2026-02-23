@@ -8,13 +8,15 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.services.auth import get_db
-from app.schemas.pressure import PressureCreate, PressureResponse
+from app.schemas.pressure import PressureCreate, PressureIngestResponse
 from app.services.pressure import pressure_service
 from app.core.config import get_settings
 from app.core.limiter import limiter
+from app.models.device_registration import DeviceRegistration
 from app.models.device_error_log import DeviceErrorLog
 from app.models.device_request_nonce import DeviceRequestNonce
 from app.core.request_utils import get_client_ip
@@ -44,16 +46,27 @@ def log_device_error(db: Session, device_id: str, error_msg: str, request: Reque
         logger.exception("Failed to log device error for device=%s", device_id)
 
 
-def _resolve_device_secret(device_id: str) -> str:
+def _resolve_device_secret(db: Session, device_id: str) -> tuple[str, DeviceRegistration | None]:
+    registered_device = db.scalar(
+        select(DeviceRegistration).where(DeviceRegistration.device_id == device_id)
+    )
+    if registered_device:
+        if not registered_device.is_active:
+            raise ValueError("device_inactive")
+        secret = (registered_device.device_secret or "").strip()
+        if not secret:
+            raise ValueError("missing_device_secret")
+        return secret, registered_device
+
     device_secret = settings.device_api_secrets.get(device_id)
     if device_secret:
-        return device_secret
+        return device_secret, None
 
     if settings.device_api_require_registered_device:
         raise ValueError("unregistered_device")
 
     if settings.device_api_secret:
-        return settings.device_api_secret
+        return settings.device_api_secret, None
 
     raise ValueError("missing_device_secret")
 
@@ -169,7 +182,7 @@ async def verify_device_signature(
         if normalized_body_hash and not hmac.compare_digest(computed_body_hash, normalized_body_hash):
             raise ValueError("invalid_body_hash")
 
-        device_secret = _resolve_device_secret(normalized_device_id)
+        device_secret, registered_device = _resolve_device_secret(db, normalized_device_id)
 
         # 3. Verify signature (legacy: timestamp+device_id, hardened: +body_hash(+nonce))
         expected_signature = _compute_signature(
@@ -183,8 +196,14 @@ async def verify_device_signature(
         if not hmac.compare_digest(expected_signature, normalized_signature):
             raise ValueError("invalid_signature")
 
+        if registered_device:
+            registered_device.last_seen_at = datetime.now(timezone.utc)
+            db.add(registered_device)
+
         if normalized_nonce:
             _consume_nonce(db, normalized_device_id, normalized_nonce)
+        elif registered_device:
+            db.commit()
 
         request.state.device_request_timestamp = ts
         return True
@@ -203,7 +222,7 @@ async def verify_device_signature(
         )
 
 
-@router.post("/device/v1/pressure", response_model=PressureResponse, status_code=201)
+@router.post("/device/v1/pressure", response_model=PressureIngestResponse, status_code=201)
 @limiter.limit("60/minute")
 def create_pressure_record(
     request: Request,
@@ -223,12 +242,9 @@ def create_pressure_record(
                 update={"measured_at": datetime.fromtimestamp(signed_ts, tz=timezone.utc)}
             )
 
-        record = pressure_service.create_pressure(db, pressure_in)
-        return {
-            "id": record.id,
-            "received_at": record.created_at,
-            "patient_id": record.patient_id,
-        }
+        pressure_service.create_pressure(db, pressure_in)
+        # Keep device acknowledgement minimal; do not leak internal record identifiers.
+        return {"status": "ok"}
     except HTTPException as e:
         # Log known HTTP exceptions (like Patient not found)
         log_device_error(db, pressure_in.device_id, f"HTTP {e.status_code}: {e.detail}", request)
@@ -242,7 +258,7 @@ def create_pressure_record(
         )
 
 
-@router.post("/add_pressure", response_model=PressureResponse, status_code=201, deprecated=True)
+@router.post("/add_pressure", response_model=PressureIngestResponse, status_code=201, deprecated=True)
 @limiter.limit("60/minute")
 def add_pressure_alias(
     request: Request,
