@@ -17,7 +17,7 @@ headers {
 
 body:json {
   {
-    "device_id": "ward-bp-001",
+    "device_id": "ward-bp-002",
     "display_name": "Ward BP Device 01",
     "notes": "Near nursing station",
     "is_active": true
@@ -29,14 +29,14 @@ script:post-response {
   if (status !== 201) {
     throw new Error(`Expected HTTP 201 Created, got ${status}`);
   }
-
+  
   const rawBody = res.getBody();
   const body = typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
-
+  
   if (!body?.device?.device_id || !body?.device_secret) {
     throw new Error("Expected response to include device.device_id and device_secret.");
   }
-
+  
   bru.setEnvVar("deviceId", body.device.device_id);
   bru.setEnvVar("deviceSecret", body.device_secret);
 }
