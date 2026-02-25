@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
@@ -441,78 +442,130 @@ export function DeviceRegistryContent() {
             </div>
           </CardHeader>
           <CardContent className="grid gap-3">
-            {loading ? (
-              Array.from({ length: 3 }).map((_, index) => (
-                <div key={index} className="rounded-xl border p-4">
-                  <Skeleton className="h-5 w-48" />
-                  <Skeleton className="mt-2 h-4 w-36" />
-                  <Skeleton className="mt-3 h-4 w-full" />
-                </div>
-              ))
-            ) : devices.length === 0 ? (
-              <div className="rounded-xl border border-dashed p-8 text-center text-base text-muted-foreground">
-                {tr(language, "No devices found", "ไม่พบอุปกรณ์")}
-              </div>
-            ) : (
-              devices.map((device) => (
-                <div key={device.id} className="rounded-xl border bg-card p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-lg font-semibold">{device.display_name}</p>
-                      <p className="font-mono text-sm text-muted-foreground">{device.device_id}</p>
-                    </div>
-                    <Badge
-                      className={cn(
-                        "rounded-full px-3 py-1 text-sm",
-                        device.is_active
-                          ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
-                          : "bg-slate-200 text-slate-700 hover:bg-slate-200",
-                      )}
-                    >
-                      {device.is_active
-                        ? tr(language, "Active", "ใช้งานอยู่")
-                        : tr(language, "Inactive", "ปิดใช้งาน")}
-                    </Badge>
-                  </div>
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    {tr(language, "Last seen", "รับข้อมูลล่าสุด")}: {formatLastSeen(device.last_seen_at, language)}
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {tr(language, "Created", "สร้างเมื่อ")}: {formatDateTime(device.created_at, language)}
-                  </p>
-                  {device.notes && <p className="mt-2 text-sm">{device.notes}</p>}
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void handleRotateSecret(device)}
-                      disabled={savingId === device.id}
-                      className="h-11 text-sm"
-                    >
-                      {savingId === device.id ? (
-                        <RefreshCw className="mr-2 size-4 animate-spin" />
-                      ) : (
-                        <KeyRound className="mr-2 size-4" />
-                      )}
-                      {tr(language, "Rotate secret", "หมุนรหัสลับ")}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={device.is_active ? "destructive" : "default"}
-                      onClick={() => void handleToggleActive(device)}
-                      disabled={savingId === device.id}
-                      className="h-11 text-sm"
-                    >
-                      {device.is_active ? <PowerOff className="mr-2 size-4" /> : <Power className="mr-2 size-4" />}
-                      {device.is_active
-                        ? tr(language, "Deactivate", "ปิดการใช้งาน")
-                        : tr(language, "Activate", "เปิดการใช้งาน")}
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
+            <div className="rounded-xl border">
+              <Table className="text-sm sm:text-base">
+                <TableHeader className="[&_tr]:border-b bg-muted/40">
+                  <TableRow className="hover:bg-muted/40">
+                    <TableHead className="h-12 px-4 min-w-[180px]">
+                      {tr(language, "Device", "อุปกรณ์")}
+                    </TableHead>
+                    <TableHead className="h-12 px-4 min-w-[100px]">
+                      {tr(language, "Status", "สถานะ")}
+                    </TableHead>
+                    <TableHead className="h-12 px-4 min-w-[140px]">
+                      {tr(language, "Last seen", "รับข้อมูลล่าสุด")}
+                    </TableHead>
+                    <TableHead className="h-12 px-4 hidden lg:table-cell min-w-[150px]">
+                      {tr(language, "Created", "สร้างเมื่อ")}
+                    </TableHead>
+                    <TableHead className="h-12 px-4 hidden xl:table-cell min-w-[170px]">
+                      {tr(language, "Notes", "หมายเหตุ")}
+                    </TableHead>
+                    <TableHead className="h-12 px-4 text-right min-w-[180px]">
+                      {tr(language, "Actions", "การทำงาน")}
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    Array.from({ length: 5 }).map((_, index) => (
+                      <TableRow key={`device-skeleton-${index}`}>
+                        <TableCell className="px-4 py-3">
+                          <Skeleton className="h-5 w-40" />
+                          <Skeleton className="mt-2 h-4 w-52" />
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <Skeleton className="h-6 w-24 rounded-full" />
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <Skeleton className="h-4 w-36" />
+                        </TableCell>
+                        <TableCell className="px-4 py-3 hidden lg:table-cell">
+                          <Skeleton className="h-4 w-32" />
+                        </TableCell>
+                        <TableCell className="px-4 py-3 hidden xl:table-cell">
+                          <Skeleton className="h-4 w-48" />
+                        </TableCell>
+                        <TableCell className="px-4 py-3">
+                          <div className="ml-auto flex w-full max-w-[180px] gap-2">
+                            <Skeleton className="h-9 w-20" />
+                            <Skeleton className="h-9 w-20" />
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  ) : devices.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="h-28 text-center text-base text-muted-foreground">
+                        {tr(language, "No devices found", "ไม่พบอุปกรณ์")}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    devices.map((device) => (
+                      <TableRow key={device.id}>
+                        <TableCell className="px-4 py-3 align-top whitespace-normal">
+                          <p className="font-semibold">{device.display_name}</p>
+                          <p className="mt-1 font-mono text-sm text-muted-foreground break-all">{device.device_id}</p>
+                        </TableCell>
+                        <TableCell className="px-4 py-3 align-top">
+                          <Badge
+                            className={cn(
+                              "rounded-full px-3 py-1 text-sm",
+                              device.is_active
+                                ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"
+                                : "bg-slate-200 text-slate-700 hover:bg-slate-200",
+                            )}
+                          >
+                            {device.is_active
+                              ? tr(language, "Active", "ใช้งานอยู่")
+                              : tr(language, "Inactive", "ปิดใช้งาน")}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="px-4 py-3 align-top text-sm text-muted-foreground whitespace-normal">
+                          {formatLastSeen(device.last_seen_at, language)}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 align-top text-sm text-muted-foreground whitespace-normal hidden lg:table-cell">
+                          {formatDateTime(device.created_at, language)}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 align-top text-sm text-muted-foreground whitespace-normal hidden xl:table-cell max-w-[300px]">
+                          {device.notes || tr(language, "-", "-")}
+                        </TableCell>
+                        <TableCell className="px-4 py-3 align-top">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => void handleRotateSecret(device)}
+                              disabled={savingId === device.id}
+                              className="h-10 text-sm"
+                            >
+                              {savingId === device.id ? (
+                                <RefreshCw className="mr-2 size-4 animate-spin" />
+                              ) : (
+                                <KeyRound className="mr-2 size-4" />
+                              )}
+                              {tr(language, "Rotate", "หมุนรหัส")}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={device.is_active ? "destructive" : "default"}
+                              onClick={() => void handleToggleActive(device)}
+                              disabled={savingId === device.id}
+                              className="h-10 text-sm"
+                            >
+                              {device.is_active ? <PowerOff className="mr-2 size-4" /> : <Power className="mr-2 size-4" />}
+                              {device.is_active
+                                ? tr(language, "Disable", "ปิดใช้งาน")
+                                : tr(language, "Enable", "เปิดใช้งาน")}
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
 
             <div className="mt-2 flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
