@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Copy, KeyRound, Power, PowerOff, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import {
+  CheckCircle2,
+  Copy,
+  KeyRound,
+  MoreHorizontal,
+  Power,
+  PowerOff,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+} from "lucide-react";
 
 import {
   createDeviceRegistration,
@@ -19,6 +29,17 @@ import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -36,6 +57,17 @@ interface SecretReveal {
   secret: string;
   timestamp: string;
 }
+
+type PendingAction =
+  | {
+      kind: "toggle";
+      device: DeviceRegistration;
+    }
+  | {
+      kind: "rotate";
+      device: DeviceRegistration;
+    }
+  | null;
 
 function formatDateTime(dateTime: string, language: AppLanguage): string {
   return new Date(dateTime).toLocaleString(localeOf(language), {
@@ -74,6 +106,8 @@ export function DeviceRegistryContent() {
   const [displayName, setDisplayName] = useState("");
   const [notes, setNotes] = useState("");
   const [latestSecret, setLatestSecret] = useState<SecretReveal | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
   const pageSize = 20;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -97,9 +131,10 @@ export function DeviceRegistryContent() {
   );
 
   const loadDevices = useCallback(
-    async (options?: { silent?: boolean }) => {
+    async (options?: { silent?: boolean; showErrorToast?: boolean }) => {
       if (!token) return;
       const silent = options?.silent ?? false;
+      const showErrorToast = options?.showErrorToast ?? !silent;
       if (!silent) setLoading(true);
       if (silent) setRefreshing(true);
 
@@ -118,7 +153,7 @@ export function DeviceRegistryContent() {
       } catch (error: unknown) {
         const apiError = error as ApiError;
         handleAuthError(apiError);
-        if (!silent) {
+        if (showErrorToast) {
           toast.error(tr(language, "Unable to load device list", "ไม่สามารถโหลดรายการอุปกรณ์ได้"), {
             description: getErrorMessage(apiError),
           });
@@ -234,6 +269,34 @@ export function DeviceRegistryContent() {
       });
     } finally {
       setSavingId(null);
+    }
+  };
+
+  const requestRotateSecret = (device: DeviceRegistration) => {
+    setPendingAction({ kind: "rotate", device });
+    setConfirmOpen(true);
+  };
+
+  const requestToggleActive = (device: DeviceRegistration) => {
+    setPendingAction({ kind: "toggle", device });
+    setConfirmOpen(true);
+  };
+
+  const executeConfirmedAction = async () => {
+    if (!pendingAction) return;
+    if (pendingAction.kind === "rotate") {
+      await handleRotateSecret(pendingAction.device);
+    } else {
+      await handleToggleActive(pendingAction.device);
+    }
+    setConfirmOpen(false);
+    setPendingAction(null);
+  };
+
+  const closeConfirmDialog = (open: boolean) => {
+    setConfirmOpen(open);
+    if (!open) {
+      setPendingAction(null);
     }
   };
 
@@ -386,7 +449,7 @@ export function DeviceRegistryContent() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => void loadDevices({ silent: true })}
+                onClick={() => void loadDevices({ silent: true, showErrorToast: true })}
                 className="h-11 px-4 text-base"
                 disabled={refreshing}
               >
@@ -531,11 +594,11 @@ export function DeviceRegistryContent() {
                           {device.notes || tr(language, "-", "-")}
                         </TableCell>
                         <TableCell className="px-4 py-3 align-top">
-                          <div className="flex flex-wrap justify-end gap-2">
+                          <div className="hidden sm:flex flex-wrap justify-end gap-2">
                             <Button
                               type="button"
                               variant="outline"
-                              onClick={() => void handleRotateSecret(device)}
+                              onClick={() => requestRotateSecret(device)}
                               disabled={savingId === device.id}
                               className="h-10 text-sm"
                             >
@@ -549,7 +612,7 @@ export function DeviceRegistryContent() {
                             <Button
                               type="button"
                               variant={device.is_active ? "destructive" : "default"}
-                              onClick={() => void handleToggleActive(device)}
+                              onClick={() => requestToggleActive(device)}
                               disabled={savingId === device.id}
                               className="h-10 text-sm"
                             >
@@ -558,6 +621,39 @@ export function DeviceRegistryContent() {
                                 ? tr(language, "Disable", "ปิดใช้งาน")
                                 : tr(language, "Enable", "เปิดใช้งาน")}
                             </Button>
+                          </div>
+                          <div className="flex justify-end sm:hidden">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger
+                                disabled={savingId === device.id}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-input bg-background text-foreground shadow-sm hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                              >
+                                {savingId === device.id ? (
+                                  <RefreshCw className="size-4 animate-spin" />
+                                ) : (
+                                  <MoreHorizontal className="size-4" />
+                                )}
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem
+                                  onClick={() => requestRotateSecret(device)}
+                                  disabled={savingId === device.id}
+                                >
+                                  <KeyRound className="size-4" />
+                                  {tr(language, "Rotate", "หมุนรหัส")}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => requestToggleActive(device)}
+                                  disabled={savingId === device.id}
+                                  variant={device.is_active ? "destructive" : "default"}
+                                >
+                                  {device.is_active ? <PowerOff className="size-4" /> : <Power className="size-4" />}
+                                  {device.is_active
+                                    ? tr(language, "Disable", "ปิดใช้งาน")
+                                    : tr(language, "Enable", "เปิดใช้งาน")}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -594,6 +690,63 @@ export function DeviceRegistryContent() {
             </div>
           </CardContent>
         </Card>
+
+        <AlertDialog open={confirmOpen} onOpenChange={closeConfirmDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {pendingAction?.kind === "rotate"
+                  ? tr(language, "Rotate device secret?", "ยืนยันหมุนรหัสลับอุปกรณ์?")
+                  : tr(language, "Change device status?", "ยืนยันเปลี่ยนสถานะอุปกรณ์?")}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {pendingAction?.device ? (
+                  <>
+                    <span className="font-medium text-foreground">{pendingAction.device.display_name}</span>
+                    {" ("}
+                    <span className="font-mono">{pendingAction.device.device_id}</span>
+                    {")"}
+                  </>
+                ) : null}
+                {" — "}
+                {pendingAction?.kind === "rotate"
+                  ? tr(
+                      language,
+                      "A new secret will be issued and old device configuration will stop working.",
+                      "ระบบจะออกรหัสลับใหม่ และการตั้งค่าเดิมของอุปกรณ์จะใช้งานไม่ได้",
+                    )
+                  : pendingAction?.device?.is_active
+                    ? tr(language, "This device will stop sending data until re-enabled.", "อุปกรณ์นี้จะหยุดส่งข้อมูลจนกว่าจะเปิดใช้งานอีกครั้ง")
+                    : tr(language, "This device will be allowed to send data again.", "อุปกรณ์นี้จะกลับมาส่งข้อมูลได้อีกครั้ง")}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={Boolean(pendingAction?.device && savingId === pendingAction.device.id)}>
+                {tr(language, "Cancel", "ยกเลิก")}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  void executeConfirmedAction();
+                }}
+                disabled={Boolean(pendingAction?.device && savingId === pendingAction.device.id)}
+                className={cn(
+                  pendingAction?.kind === "toggle" && pendingAction?.device?.is_active
+                    ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    : "",
+                )}
+              >
+                {pendingAction?.device && savingId === pendingAction.device.id ? (
+                  <RefreshCw className="mr-2 size-4 animate-spin" />
+                ) : null}
+                {pendingAction?.kind === "rotate"
+                  ? tr(language, "Rotate secret", "หมุนรหัสลับ")
+                  : pendingAction?.device?.is_active
+                    ? tr(language, "Disable", "ปิดใช้งาน")
+                    : tr(language, "Enable", "เปิดใช้งาน")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </main>
   );
