@@ -174,8 +174,8 @@ export function DeviceRegistryContent() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const trimmed = searchInput.trim();
-      setPage(1);
-      setSearchQuery(trimmed);
+      setPage((prev) => (prev === 1 ? prev : 1));
+      setSearchQuery((prev) => (prev === trimmed ? prev : trimmed));
     }, 300);
     return () => window.clearTimeout(timer);
   }, [searchInput]);
