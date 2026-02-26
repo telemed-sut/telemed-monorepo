@@ -1,6 +1,13 @@
 name: Deploy To Google Cloud Run
 
 on:
+  push:
+    branches: [ develop ]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - ".github/workflows/deploy-cloud-run.yml"
+      - "scripts/cloud_run_smoke_test.py"
   workflow_dispatch:
     inputs:
       environment:
@@ -21,20 +28,25 @@ on:
         required: true
         type: boolean
         default: false
+      run_smoke_tests:
+        description: "Run smoke test (health + login + create patient)"
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: deploy-cloud-run-${{ inputs.environment }}
+  group: deploy-cloud-run-${{ github.event_name == 'push' && 'staging' || inputs.environment }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    environment: ${{ inputs.environment }}
+    environment: ${{ github.event_name == 'push' && 'staging' || inputs.environment }}
     env:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       GCP_REGION: ${{ vars.GCP_REGION }}
@@ -61,6 +73,20 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+
+    - name: Resolve deploy options
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+          echo "RUN_MIGRATIONS_ON_STARTUP=false" >> "$GITHUB_ENV"
+          echo "RUN_SEED_ON_STARTUP=false" >> "$GITHUB_ENV"
+          echo "RUN_SMOKE_TESTS=true" >> "$GITHUB_ENV"
+        else
+          echo "RUN_MIGRATIONS_ON_STARTUP=${{ inputs.run_migrations_on_startup }}" >> "$GITHUB_ENV"
+          echo "RUN_SEED_ON_STARTUP=${{ inputs.run_seed_on_startup }}" >> "$GITHUB_ENV"
+          echo "RUN_SMOKE_TESTS=${{ inputs.run_smoke_tests }}" >> "$GITHUB_ENV"
+        fi
 
     - name: Validate environment configuration
       shell: bash
@@ -174,8 +200,8 @@ jobs:
           --max-instances "$BACKEND_MAX_INSTANCES" \
           --set-env-vars "JWT_EXPIRES_IN=3600" \
           --set-env-vars "AUTH_COOKIE_SECURE=true" \
-          --set-env-vars "RUN_MIGRATIONS_ON_STARTUP=${{ inputs.run_migrations_on_startup }}" \
-          --set-env-vars "RUN_SEED_ON_STARTUP=${{ inputs.run_seed_on_startup }}" \
+          --set-env-vars "RUN_MIGRATIONS_ON_STARTUP=${RUN_MIGRATIONS_ON_STARTUP}" \
+          --set-env-vars "RUN_SEED_ON_STARTUP=${RUN_SEED_ON_STARTUP}" \
           --set-env-vars "FRONTEND_BASE_URL=${origin}" \
           --set-env-vars "CORS_ORIGINS=${origin}" \
           --set-secrets "$BACKEND_SECRET_BINDINGS"
@@ -247,6 +273,18 @@ jobs:
           --project "$GCP_PROJECT_ID" \
           --region "$GCP_REGION" \
           --update-env-vars "FRONTEND_BASE_URL=${{ steps.frontend-url.outputs.value }},CORS_ORIGINS=${{ steps.frontend-url.outputs.value }}"
+
+    - name: Run post-deploy smoke test
+      if: ${{ env.RUN_SMOKE_TESTS == 'true' }}
+      env:
+        BACKEND_BASE_URL: ${{ steps.backend-url.outputs.value }}
+        FRONTEND_BASE_URL: ${{ steps.frontend-url.outputs.value }}
+        SMOKE_TEST_EMAIL: ${{ secrets.SMOKE_TEST_EMAIL }}
+        SMOKE_TEST_PASSWORD: ${{ secrets.SMOKE_TEST_PASSWORD }}
+        SMOKE_TEST_OTP_CODE: ${{ secrets.SMOKE_TEST_OTP_CODE }}
+        SMOKE_TEST_CREATE_PATIENT: "true"
+      shell: bash
+      run: python3 scripts/cloud_run_smoke_test.py
 
     - name: Deployment summary
       shell: bash

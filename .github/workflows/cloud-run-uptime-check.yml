@@ -1,0 +1,80 @@
+name: Cloud Run Uptime Check
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: cloud-run-uptime-check
+  cancel-in-progress: true
+
+jobs:
+  uptime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: staging
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_BACKEND_SERVICE: ${{ vars.GCP_BACKEND_SERVICE }}
+      GCP_FRONTEND_SERVICE: ${{ vars.GCP_FRONTEND_SERVICE }}
+
+    steps:
+    - name: Validate required vars
+      shell: bash
+      run: |
+        set -euo pipefail
+        for key in GCP_PROJECT_ID GCP_REGION GCP_BACKEND_SERVICE GCP_FRONTEND_SERVICE; do
+          if [ -z "${!key:-}" ]; then
+            echo "Missing required variable: $key"
+            exit 1
+          fi
+        done
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+    - name: Set up gcloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ env.GCP_PROJECT_ID }}
+
+    - name: Resolve service URLs
+      id: urls
+      shell: bash
+      run: |
+        set -euo pipefail
+        backend_url="$(gcloud run services describe "$GCP_BACKEND_SERVICE" --project "$GCP_PROJECT_ID" --region "$GCP_REGION" --format='value(status.url)')"
+        frontend_url="$(gcloud run services describe "$GCP_FRONTEND_SERVICE" --project "$GCP_PROJECT_ID" --region "$GCP_REGION" --format='value(status.url)')"
+        if [ -z "$backend_url" ] || [ -z "$frontend_url" ]; then
+          echo "Failed to resolve Cloud Run URLs"
+          exit 1
+        fi
+        echo "backend=${backend_url}" >> "$GITHUB_OUTPUT"
+        echo "frontend=${frontend_url}" >> "$GITHUB_OUTPUT"
+
+    - name: Check backend health
+      shell: bash
+      run: curl -fsS --retry 2 --retry-delay 2 --max-time 10 "${{ steps.urls.outputs.backend }}/health"
+
+    - name: Check frontend availability
+      shell: bash
+      run: curl -fsS --retry 2 --retry-delay 2 --max-time 10 "${{ steps.urls.outputs.frontend }}"
+
+    - name: Write summary
+      shell: bash
+      run: |
+        {
+          echo "## Uptime Check Passed"
+          echo ""
+          echo "- Backend: ${{ steps.urls.outputs.backend }}/health"
+          echo "- Frontend: ${{ steps.urls.outputs.frontend }}"
+        } >> "$GITHUB_STEP_SUMMARY"

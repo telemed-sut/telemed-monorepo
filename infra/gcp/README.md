@@ -39,7 +39,10 @@ printf '%s' 'new-secret-value' | gcloud secrets versions add JWT_SECRET --data-f
 
 ## 2) Configure GitHub Environment
 
-Workflow file: `.github/workflows/deploy-cloud-run.yml`
+Workflow files:
+
+- `.github/workflows/deploy-cloud-run.yml`
+- `.github/workflows/cloud-run-uptime-check.yml`
 
 Create GitHub Environment (recommended: `staging`, `production`) and set:
 
@@ -47,6 +50,9 @@ Create GitHub Environment (recommended: `staging`, `production`) and set:
 - `secrets`:
   - `GCP_WORKLOAD_IDENTITY_PROVIDER`
   - `GCP_SERVICE_ACCOUNT_EMAIL`
+  - `SMOKE_TEST_EMAIL`
+  - `SMOKE_TEST_PASSWORD`
+  - `SMOKE_TEST_OTP_CODE` (optional if account has 2FA)
 
 `GCP_SERVICE_ACCOUNT_EMAIL` should be a deployer service account that can:
 
@@ -63,6 +69,7 @@ Run workflow manually:
 2. Select `environment`
 3. Set `run_migrations_on_startup=true` only when needed
 4. Keep `run_seed_on_startup=false` for cloud
+5. Keep `run_smoke_tests=true`
 
 The workflow will:
 
@@ -70,8 +77,43 @@ The workflow will:
 2. deploy backend to Cloud Run
 3. build frontend image with backend URL injected at build time
 4. deploy frontend to Cloud Run
+5. run smoke test (health + login + create patient)
 
-## 4) Security notes
+Auto deploy:
+
+- Push to `develop` auto-deploys to `staging` with safe defaults:
+  - `RUN_MIGRATIONS_ON_STARTUP=false`
+  - `RUN_SEED_ON_STARTUP=false`
+  - smoke test enabled
+
+## 4) Uptime Monitoring and Alerts
+
+- Scheduled uptime check every 15 minutes:
+  - `.github/workflows/cloud-run-uptime-check.yml`
+- Monitoring guide:
+  - `infra/gcp/monitoring-runbook.md`
+
+## 5) Cloud SQL backup/restore drill
+
+- Script:
+  - `infra/gcp/cloud-sql-backup-drill.sh`
+- Dry run:
+
+```bash
+./infra/gcp/cloud-sql-backup-drill.sh
+```
+
+- Execute one drill round:
+
+```bash
+./infra/gcp/cloud-sql-backup-drill.sh --execute --cleanup
+```
+
+## 6) Release checklist
+
+- `infra/gcp/release-checklist.md`
+
+## 7) Security notes
 
 - Keep `RUN_SEED_ON_STARTUP=false` in cloud environments.
 - Restrict `CORS_ORIGINS` to your frontend domain.

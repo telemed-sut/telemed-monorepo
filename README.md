@@ -87,6 +87,7 @@ Clinical-role onboarding is enforced through invite flow policies where configur
 - Docker and Docker Compose
 - GitHub Actions CI (`.github/workflows/backend-tests.yml`)
 - Google Cloud Run deployment workflow (`.github/workflows/deploy-cloud-run.yml`)
+- Cloud Run uptime monitor workflow (`.github/workflows/cloud-run-uptime-check.yml`)
 
 ## High-Level Architecture
 
@@ -228,6 +229,8 @@ These credentials are for local development only and must never be used in produ
 - Backend details: `backend/README.md`
 - Frontend details: `frontend/README.md`
 - Cloud Run deployment guide: `infra/gcp/README.md`
+- Monitoring runbook: `infra/gcp/monitoring-runbook.md`
+- Release checklist: `infra/gcp/release-checklist.md`
 - Admin security release notes: `RELEASE_NOTES_ADMIN_USERS_V2.md`
 
 ## Operational Notice
