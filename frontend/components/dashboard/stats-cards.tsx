@@ -10,7 +10,7 @@ import {
   InformationCircleIcon,
   Stethoscope02Icon,
 } from "@hugeicons/core-free-icons";
-import { fetchPatients, fetchMeetings } from "@/lib/api";
+import { fetchOverviewStats } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
@@ -89,56 +89,30 @@ export function StatsCards() {
 
     const loadStats = async () => {
       try {
-        const [patientsData, meetingsData] = await Promise.all([
-          fetchPatients({ page: 1, limit: 10000 }, token),
-          fetchMeetings({ page: 1, limit: 10000 }, token),
-        ]);
-
-        const today = new Date().toISOString().split("T")[0];
-        const todayMeetings = meetingsData.items.filter((m) =>
-          m.date_time?.startsWith(today)
-        );
-
-        const now = new Date();
-        const startOfWeek = new Date(now);
-        startOfWeek.setDate(now.getDate() - now.getDay());
-        startOfWeek.setHours(0, 0, 0, 0);
-        const endOfWeek = new Date(startOfWeek);
-        endOfWeek.setDate(startOfWeek.getDate() + 7);
-
-        const thisWeekMeetings = meetingsData.items.filter((m) => {
-          const d = new Date(m.date_time);
-          return d >= startOfWeek && d < endOfWeek;
-        });
-
-        const monthStart = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          1
-        ).toISOString();
-        const newThisMonth = patientsData.items.filter(
-          (p) => p.created_at && p.created_at >= monthStart
-        ).length;
+        const statsData = await fetchOverviewStats(token);
+        const todayMeetings = statsData.kpis.today_consultations;
+        const thisWeekMeetings = statsData.kpis.this_week_consultations;
+        const newThisMonth = statsData.kpis.this_month_new_patients;
 
         setStats([
           {
             title: t.totalPatients,
-            value: patientsData.total.toString(),
+            value: statsData.totals.patients.toString(),
             subtitle: t.thisMonth(newThisMonth),
             icon: UserGroupIcon,
             subtitleIcon: InformationCircleIcon,
           },
           {
             title: t.todayAppointments,
-            value: todayMeetings.length.toString(),
-            subtitle: t.totalScheduled(meetingsData.total),
+            value: todayMeetings.toString(),
+            subtitle: t.totalScheduled(statsData.totals.meetings),
             icon: Calendar01Icon,
             subtitleIcon: InformationCircleIcon,
           },
           {
             title: t.thisWeek,
-            value: thisWeekMeetings.length.toString(),
-            subtitle: t.todayCount(todayMeetings.length),
+            value: thisWeekMeetings.toString(),
+            subtitle: t.todayCount(todayMeetings),
             icon: Stethoscope02Icon,
             subtitleIcon: InformationCircleIcon,
           },

@@ -943,6 +943,7 @@ def create_ip_ban(
 
     # Check if already banned
     existing_ban = db.scalar(select(IPBan).where(IPBan.ip_address == payload.ip_address))
+    was_existing = existing_ban is not None
     if existing_ban:
         # Update existing ban
         existing_ban.reason = payload.reason or existing_ban.reason
@@ -962,6 +963,24 @@ def create_ip_ban(
         db.add(ban)
         db.commit()
         db.refresh(ban)
+
+    db.add(
+        AuditLog(
+            user_id=current_user.id,
+            action="ip_ban_create",
+            resource_type="ip_ban",
+            details={
+                "ip_address": ban.ip_address,
+                "duration_minutes": payload.duration_minutes,
+                "reason": payload.reason or "Manual ban by admin",
+                "updated_existing": was_existing,
+            },
+            ip_address=client_ip,
+            is_break_glass=False,
+            status="success",
+        )
+    )
+    db.commit()
 
     return IPBanResponse(
         id=str(ban.id),
@@ -984,6 +1003,18 @@ def unban_ip(
     if not ban:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="IP ban not found")
 
+    actor_ip = _client_ip(request)
+    db.add(
+        AuditLog(
+            user_id=current_user.id,
+            action="ip_ban_delete",
+            resource_type="ip_ban",
+            details={"ip_address": ip_address},
+            ip_address=actor_ip,
+            is_break_glass=False,
+            status="success",
+        )
+    )
     db.delete(ban)
     db.commit()
     logger.info("IP unbanned: %s by=%s", ip_address, current_user.email)

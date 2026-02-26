@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import extract, func, select
@@ -41,6 +41,10 @@ def get_overview_stats(
         "Jan", "Feb", "Mar", "Apr", "May", "Jun",
         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ]
+    now_utc = datetime.now(timezone.utc)
+    today_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=today_start.weekday())
+    month_start = today_start.replace(day=1)
 
     # New patients per month
     patients_stmt = (
@@ -94,6 +98,7 @@ def get_overview_stats(
 
     # Totals — also scoped by role
     if is_doctor:
+        visibility_clause = meeting_service.build_doctor_visibility_clause(current_user.id)
         total_patients_stmt = (
             select(func.count(func.distinct(Patient.id)))
             .select_from(Patient)
@@ -108,7 +113,37 @@ def get_overview_stats(
         total_meetings = db.scalar(
             select(func.count())
             .select_from(Meeting)
-            .where(meeting_service.build_doctor_visibility_clause(current_user.id))
+            .where(visibility_clause)
+        ) or 0
+        today_consultations = db.scalar(
+            select(func.count())
+            .select_from(Meeting)
+            .where(
+                visibility_clause,
+                Meeting.date_time >= today_start,
+                Meeting.date_time < today_start + timedelta(days=1),
+            )
+        ) or 0
+        this_week_consultations = db.scalar(
+            select(func.count())
+            .select_from(Meeting)
+            .where(
+                visibility_clause,
+                Meeting.date_time >= week_start,
+                Meeting.date_time < week_start + timedelta(days=7),
+            )
+        ) or 0
+        this_month_new_patients = db.scalar(
+            select(func.count(func.distinct(Patient.id)))
+            .select_from(Patient)
+            .join(DoctorPatientAssignment, DoctorPatientAssignment.patient_id == Patient.id)
+            .where(
+                DoctorPatientAssignment.doctor_id == current_user.id,
+                Patient.deleted_at.is_(None),
+                Patient.is_active == True,  # noqa: E712
+                Patient.created_at >= month_start,
+                Patient.created_at < today_start + timedelta(days=1),
+            )
         ) or 0
     else:
         total_patients = db.scalar(
@@ -118,6 +153,32 @@ def get_overview_stats(
             )
         ) or 0
         total_meetings = db.scalar(select(func.count()).select_from(Meeting)) or 0
+        today_consultations = db.scalar(
+            select(func.count())
+            .select_from(Meeting)
+            .where(
+                Meeting.date_time >= today_start,
+                Meeting.date_time < today_start + timedelta(days=1),
+            )
+        ) or 0
+        this_week_consultations = db.scalar(
+            select(func.count())
+            .select_from(Meeting)
+            .where(
+                Meeting.date_time >= week_start,
+                Meeting.date_time < week_start + timedelta(days=7),
+            )
+        ) or 0
+        this_month_new_patients = db.scalar(
+            select(func.count())
+            .select_from(Patient)
+            .where(
+                Patient.deleted_at.is_(None),
+                Patient.is_active == True,  # noqa: E712
+                Patient.created_at >= month_start,
+                Patient.created_at < today_start + timedelta(days=1),
+            )
+        ) or 0
 
     return {
         "year": year,
@@ -125,5 +186,10 @@ def get_overview_stats(
         "totals": {
             "patients": total_patients,
             "meetings": total_meetings,
+        },
+        "kpis": {
+            "today_consultations": today_consultations,
+            "this_week_consultations": this_week_consultations,
+            "this_month_new_patients": this_month_new_patients,
         },
     }

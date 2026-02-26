@@ -338,7 +338,7 @@ def verify_patient_access_doctor_or_nurse(
     request: Request,
     patient_id: UUID = Path(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_doctor_user),
+    current_user: User = Depends(get_doctor_or_nurse_user),
 ) -> User:
     """Same as verify_patient_access but retained for compatibility."""
     patient_service.verify_doctor_patient_access(

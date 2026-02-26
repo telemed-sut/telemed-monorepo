@@ -56,7 +56,7 @@ import {
     createMeeting,
     updateMeeting,
     deleteMeeting,
-    fetchPatients,
+    fetchAllPatients,
     type Meeting,
     type Patient,
     type MeetingCreatePayload,
@@ -138,8 +138,8 @@ export function MeetingsTable() {
     // Load patients for form dropdown
     useEffect(() => {
         if (!token) return;
-        fetchPatients({ page: 1, limit: 10000 }, token)
-            .then((res) => setPatients(res.items))
+        fetchAllPatients({ sort: "first_name", order: "asc" }, token, { maxItems: 5000 })
+            .then((items) => setPatients(items))
             .catch(() => { });
     }, [token]);
 

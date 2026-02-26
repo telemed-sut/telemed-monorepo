@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     # Device API Security
     device_api_secret: str | None = None
     device_api_secrets: Dict[str, str] = {}
-    device_api_allow_jwt_secret_fallback: bool = True
+    device_api_allow_jwt_secret_fallback: bool = False
     device_api_require_registered_device: bool = False
     device_api_require_body_hash_signature: bool = False
     device_api_require_nonce: bool = False
@@ -177,15 +177,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def apply_device_api_secret_fallback(self):
-        # Backward-compatible fallback for legacy environments.
-        # In production, set DEVICE_API_ALLOW_JWT_SECRET_FALLBACK=false.
-        if not self.device_api_secret:
-            if self.device_api_allow_jwt_secret_fallback and not self.device_api_require_registered_device:
-                self.device_api_secret = self.jwt_secret
-            elif not self.device_api_secrets and not self.device_api_require_registered_device:
-                raise ValueError(
-                    "DEVICE_API_SECRET is required when DEVICE_API_ALLOW_JWT_SECRET_FALLBACK=false, DEVICE_API_SECRETS is empty, and DEVICE_API_REQUIRE_REGISTERED_DEVICE=false."
-                )
+        if self.device_api_allow_jwt_secret_fallback:
+            raise ValueError("DEVICE_API_ALLOW_JWT_SECRET_FALLBACK is not allowed for security reasons.")
+
+        if not self.device_api_secret and not self.device_api_secrets and not self.device_api_require_registered_device:
+            raise ValueError(
+                "DEVICE_API_SECRET is required when DEVICE_API_SECRETS is empty and DEVICE_API_REQUIRE_REGISTERED_DEVICE=false."
+            )
 
         if self.device_api_secret is not None:
             value = self.device_api_secret.strip()
@@ -195,6 +193,9 @@ class Settings(BaseSettings):
                 self.device_api_secret = None
             else:
                 self.device_api_secret = value
+
+        if self.frontend_base_url.startswith("https://") and not self.auth_cookie_secure:
+            raise ValueError("AUTH_COOKIE_SECURE must be true when FRONTEND_BASE_URL is HTTPS.")
 
         return self
 

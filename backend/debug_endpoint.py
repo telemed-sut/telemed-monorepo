@@ -26,12 +26,12 @@ if not admin_user:
     print("❌ No users found in DB.")
     exit(1)
 
-print(f"Using user: {admin_user.email} (ID: {admin_user.id}, Role: {admin_user.role}, Active: {admin_user.is_active})")
-print(f"JWT Secret (first 5 chars): {settings.jwt_secret[:5]}")
+print(f"Using user ID: {admin_user.id} (Role: {admin_user.role}, Active: {admin_user.is_active})")
+print("JWT secret is configured.")
 
 # Generate token using the APP'S logic
 token = create_access_token({"sub": str(admin_user.id), "role": admin_user.role.value})
-print(f"Generated Token: {token[:20]}...")
+print("Generated access token for debug request.")
 
 url = "http://localhost:8000/security/login-attempts"
 req = urllib.request.Request(url)

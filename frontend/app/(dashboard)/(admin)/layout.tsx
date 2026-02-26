@@ -1,30 +1,8 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { fetchCurrentUserRoleServer } from "@/app/server-api";
 
 const AUTH_COOKIE_NAME = "access_token";
-
-function getApiBaseUrl(): string {
-  const raw = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-  return raw.endsWith("/") ? raw.slice(0, -1) : raw;
-}
-
-async function fetchCurrentUserRole(token: string): Promise<string | null> {
-  try {
-    const response = await fetch(`${getApiBaseUrl()}/auth/me`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      cache: "no-store",
-    });
-    if (!response.ok) return null;
-
-    const payload = (await response.json()) as { role?: unknown };
-    return typeof payload.role === "string" ? payload.role : null;
-  } catch {
-    return null;
-  }
-}
 
 export default async function AdminLayout({
   children,
@@ -37,7 +15,7 @@ export default async function AdminLayout({
     redirect("/login");
   }
 
-  const role = await fetchCurrentUserRole(token);
+  const role = await fetchCurrentUserRoleServer(token);
   if (!role) {
     redirect("/login");
   }

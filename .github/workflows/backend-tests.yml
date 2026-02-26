@@ -7,6 +7,17 @@ on:
     branches: [ main, develop ]
 
 jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Run gitleaks scan
+      uses: gitleaks/gitleaks-action@v2
+
   backend-test:
     runs-on: ubuntu-latest
     
@@ -26,7 +37,7 @@ jobs:
           --health-retries 5
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
     - name: Set up Python 3.11
       uses: actions/setup-python@v4
@@ -40,6 +51,12 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install pytest pytest-cov
+
+    - name: Lint backend with Ruff
+      working-directory: ./backend
+      run: |
+        pip install ruff
+        ruff check app tests
     
     - name: Run migrations
       working-directory: ./backend
@@ -81,6 +98,11 @@ jobs:
         JWT_EXPIRES_IN: 3600
       run: |
         python -m pytest --cov=app --cov-report=xml --cov-report=term
+
+    - name: Build backend bytecode
+      working-directory: ./backend
+      run: |
+        python -m compileall -q app
     
     - name: Upload coverage reports
       uses: codecov/codecov-action@v3
@@ -92,7 +114,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Bun
       uses: oven-sh/setup-bun@v2
@@ -115,11 +137,15 @@ jobs:
       working-directory: ./frontend
       run: bun run test
 
+    - name: Build frontend
+      working-directory: ./frontend
+      run: bun run build
+
   backend-device-security-strict:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Python 3.11
       uses: actions/setup-python@v4
@@ -146,3 +172,38 @@ jobs:
         DEVICE_API_SECRETS: '{"strict-device-001":"strict_device_secret_001_1234567890abcdef1234567890abc"}'
       run: |
         python -m pytest -q tests/test_pressure_security.py::test_add_pressure_accepts_strict_mode_with_registered_device
+
+  backend-security-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+        cache: "pip"
+
+    - name: Install scan tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install pip-audit bandit
+
+    - name: Dependency vulnerability scan (pip-audit)
+      run: pip-audit -r backend/requirements.txt
+
+    - name: SAST scan (Bandit)
+      run: bandit -q -r backend/app
+
+  docker-build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build backend image
+      run: docker build -t telemed-backend:ci ./backend
+
+    - name: Build frontend image
+      run: docker build -t telemed-frontend:ci ./frontend

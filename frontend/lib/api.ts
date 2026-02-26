@@ -710,7 +710,7 @@ export async function superAdminResetUserPassword(
   );
 }
 
-interface FetchPatientsParams {
+export interface FetchPatientsParams {
   page?: number;
   limit?: number;
   q?: string;
@@ -728,6 +728,43 @@ export async function fetchPatients(params: FetchPatientsParams, token: string) 
   const qs = search.toString();
   const path = `/patients${qs ? `?${qs}` : ""}`;
   return apiFetch<PatientListResponse>(path, { method: "GET" }, token);
+}
+
+interface FetchAllOptions {
+  pageSize?: number;
+  maxItems?: number;
+}
+
+const BULK_FETCH_DEFAULT_PAGE_SIZE = 200;
+const BULK_FETCH_DEFAULT_MAX_ITEMS = 5000;
+
+function normalizeMaxItems(maxItems?: number): number {
+  if (!Number.isFinite(maxItems)) return BULK_FETCH_DEFAULT_MAX_ITEMS;
+  return Math.max(1, Math.floor(maxItems as number));
+}
+
+export async function fetchAllPatients(
+  params: Omit<FetchPatientsParams, "page" | "limit">,
+  token: string,
+  options: FetchAllOptions = {}
+) {
+  const pageSize = clampLimit(options.pageSize ?? BULK_FETCH_DEFAULT_PAGE_SIZE, MAX_QUERY_LIMIT);
+  const maxItems = normalizeMaxItems(options.maxItems);
+  const maxPages = Math.ceil(maxItems / pageSize);
+  const items: Patient[] = [];
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const res = await fetchPatients({ ...params, page, limit: pageSize }, token);
+    if (res.items.length === 0) break;
+
+    const remaining = maxItems - items.length;
+    items.push(...res.items.slice(0, remaining));
+    if (items.length >= res.total || res.items.length < pageSize || items.length >= maxItems) {
+      break;
+    }
+  }
+
+  return items;
 }
 
 export async function createPatient(payload: Omit<Patient, "id">, token: string) {
@@ -880,7 +917,7 @@ export interface MeetingListResponse {
   total: number;
 }
 
-interface FetchMeetingsParams {
+export interface FetchMeetingsParams {
   page?: number;
   limit?: number;
   q?: string;
@@ -904,6 +941,30 @@ export async function fetchMeetings(params: FetchMeetingsParams, token: string) 
   const qs = search.toString();
   const path = `/meetings${qs ? `?${qs}` : ""}`;
   return apiFetch<MeetingListResponse>(path, { method: "GET" }, token);
+}
+
+export async function fetchAllMeetings(
+  params: Omit<FetchMeetingsParams, "page" | "limit">,
+  token: string,
+  options: FetchAllOptions = {}
+) {
+  const pageSize = clampLimit(options.pageSize ?? BULK_FETCH_DEFAULT_PAGE_SIZE, MAX_QUERY_LIMIT);
+  const maxItems = normalizeMaxItems(options.maxItems);
+  const maxPages = Math.ceil(maxItems / pageSize);
+  const items: Meeting[] = [];
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const res = await fetchMeetings({ ...params, page, limit: pageSize }, token);
+    if (res.items.length === 0) break;
+
+    const remaining = maxItems - items.length;
+    items.push(...res.items.slice(0, remaining));
+    if (items.length >= res.total || res.items.length < pageSize || items.length >= maxItems) {
+      break;
+    }
+  }
+
+  return items;
 }
 
 export interface MeetingCreatePayload {
@@ -1149,6 +1210,11 @@ export interface OverviewStatsResponse {
   year: number;
   monthly: MonthlyStats[];
   totals: { patients: number; meetings: number };
+  kpis: {
+    today_consultations: number;
+    this_week_consultations: number;
+    this_month_new_patients: number;
+  };
 }
 
 export async function fetchOverviewStats(token: string, year?: number) {

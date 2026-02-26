@@ -52,10 +52,11 @@ import { MonthCalendarPopover } from "./month-calendar-popover";
 import { useCalendarStore } from "@/store/calendar-store";
 import { useAuthStore } from "@/store/auth-store";
 import {
-  fetchMeetings,
+  fetchAllMeetings,
+  fetchAllPatients,
+  fetchPatients,
   createMeeting,
   updateMeeting,
-  fetchPatients,
   fetchUsers,
   fetchCurrentUser,
   type Meeting,
@@ -2059,15 +2060,16 @@ export function MeetingsContent() {
             ? userId
             : undefined;
 
-        const res = await fetchMeetings(
-          { page: 1, limit: 1000, doctor_id: doctorFilter },
-          token
+        const allMeetings = await fetchAllMeetings(
+          { doctor_id: doctorFilter },
+          token,
+          { maxItems: 5000 }
         );
 
         const scopedItems =
           userRole === "doctor" && doctorScope === "care-team" && userId
-            ? res.items.filter((item) => item.doctor_id !== userId)
-            : res.items;
+            ? allMeetings.filter((item) => item.doctor_id !== userId)
+            : allMeetings;
 
         setMeetings(scopedItems);
       } catch (err) {
@@ -2112,8 +2114,10 @@ export function MeetingsContent() {
   // Load patients & doctors for form
   useEffect(() => {
     if (!token) return;
-    fetchPatients({ page: 1, limit: 200, sort: "first_name", order: "asc" }, token)
-      .then((res) => setPatients(res.items))
+    fetchAllPatients({ sort: "first_name", order: "asc" }, token, {
+      maxItems: 5000,
+    })
+      .then((items) => setPatients(items))
       .catch(() => { });
     // Doctors can't access /users endpoint; use /auth/me for their own info
     if (userRole === "doctor") {

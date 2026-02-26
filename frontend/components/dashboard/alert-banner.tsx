@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchMeetings } from "@/lib/api";
+import { fetchOverviewStats } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
@@ -42,14 +42,10 @@ export function AlertBanner() {
 
   useEffect(() => {
     if (!token) return;
-    fetchMeetings({ page: 1, limit: 1000 }, token)
+    fetchOverviewStats(token)
       .then((res) => {
-        const today = new Date().toDateString();
-        const todayMeetings = res.items.filter(
-          (m) => new Date(m.date_time).toDateString() === today
-        );
-        setTodayCount(todayMeetings.length);
-        setPendingCount(res.total);
+        setTodayCount(res.kpis.today_consultations);
+        setPendingCount(res.totals.meetings);
       })
       .catch(() => {});
   }, [token]);
