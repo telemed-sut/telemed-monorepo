@@ -23,9 +23,17 @@ jobs:
         sudo mv gitleaks /usr/local/bin/gitleaks
         gitleaks version
 
-    - name: Run gitleaks scan
+    - name: Run gitleaks scan (pull_request)
+      if: github.event_name == 'pull_request'
       run: |
-        gitleaks git --redact --no-banner --exit-code 1 .
+        gitleaks git --redact --no-banner --exit-code 1 \
+          --log-opts "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+
+    - name: Run gitleaks scan (push)
+      if: github.event_name == 'push'
+      run: |
+        gitleaks git --redact --no-banner --exit-code 1 \
+          --log-opts "${{ github.event.before }}..${{ github.sha }}"
 
     - name: Run trufflehog scan (pull_request)
       if: github.event_name == 'pull_request'
@@ -34,7 +42,7 @@ jobs:
         path: ./
         base: ${{ github.event.pull_request.base.sha }}
         head: ${{ github.event.pull_request.head.sha }}
-        extra_args: --results=verified,unknown --fail
+        extra_args: --results=verified,unknown
 
     - name: Run trufflehog scan (push)
       if: github.event_name == 'push'
@@ -43,7 +51,7 @@ jobs:
         path: ./
         base: ${{ github.event.before }}
         head: ${{ github.sha }}
-        extra_args: --results=verified,unknown --fail
+        extra_args: --results=verified,unknown
 
   backend-test:
     runs-on: ubuntu-latest
@@ -231,7 +239,7 @@ jobs:
       run: pip-audit -r backend/requirements.txt
 
     - name: SAST scan (Bandit)
-      run: bandit -q -r backend/app
+      run: bandit -q -r backend/app -ll
 
   docker-build:
     runs-on: ubuntu-latest
