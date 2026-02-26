@@ -1,0 +1,255 @@
+name: Deploy To Google Cloud Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "GitHub Environment name (staging or production)"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+      run_migrations_on_startup:
+        description: "Set RUN_MIGRATIONS_ON_STARTUP for backend"
+        required: true
+        type: boolean
+        default: false
+      run_seed_on_startup:
+        description: "Set RUN_SEED_ON_STARTUP for backend"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-cloud-run-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ inputs.environment }}
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_AR_REPOSITORY: ${{ vars.GCP_AR_REPOSITORY }}
+      GCP_BACKEND_SERVICE: ${{ vars.GCP_BACKEND_SERVICE }}
+      GCP_FRONTEND_SERVICE: ${{ vars.GCP_FRONTEND_SERVICE }}
+      GCP_CLOUD_SQL_INSTANCE: ${{ vars.GCP_CLOUD_SQL_INSTANCE }}
+      GCP_BACKEND_SERVICE_ACCOUNT: ${{ vars.GCP_BACKEND_SERVICE_ACCOUNT }}
+      GCP_FRONTEND_SERVICE_ACCOUNT: ${{ vars.GCP_FRONTEND_SERVICE_ACCOUNT }}
+      FRONTEND_BASE_URL: ${{ vars.FRONTEND_BASE_URL }}
+      DATABASE_URL_SECRET_NAME: ${{ vars.DATABASE_URL_SECRET_NAME }}
+      JWT_SECRET_NAME: ${{ vars.JWT_SECRET_NAME }}
+      DEVICE_API_SECRET_NAME: ${{ vars.DEVICE_API_SECRET_NAME }}
+      NOVU_API_KEY_SECRET_NAME: ${{ vars.NOVU_API_KEY_SECRET_NAME }}
+      BACKEND_CPU: ${{ vars.BACKEND_CPU }}
+      BACKEND_MEMORY: ${{ vars.BACKEND_MEMORY }}
+      BACKEND_MIN_INSTANCES: ${{ vars.BACKEND_MIN_INSTANCES }}
+      BACKEND_MAX_INSTANCES: ${{ vars.BACKEND_MAX_INSTANCES }}
+      FRONTEND_CPU: ${{ vars.FRONTEND_CPU }}
+      FRONTEND_MEMORY: ${{ vars.FRONTEND_MEMORY }}
+      FRONTEND_MIN_INSTANCES: ${{ vars.FRONTEND_MIN_INSTANCES }}
+      FRONTEND_MAX_INSTANCES: ${{ vars.FRONTEND_MAX_INSTANCES }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Validate environment configuration
+      shell: bash
+      run: |
+        set -euo pipefail
+        required_vars=(
+          GCP_PROJECT_ID
+          GCP_REGION
+          GCP_AR_REPOSITORY
+          GCP_BACKEND_SERVICE
+          GCP_FRONTEND_SERVICE
+          GCP_CLOUD_SQL_INSTANCE
+          GCP_BACKEND_SERVICE_ACCOUNT
+          GCP_FRONTEND_SERVICE_ACCOUNT
+        )
+
+        missing=()
+        for key in "${required_vars[@]}"; do
+          value="${!key:-}"
+          if [ -z "$value" ]; then
+            missing+=("$key")
+          fi
+        done
+
+        if [ "${#missing[@]}" -gt 0 ]; then
+          echo "Missing required GitHub Environment variables: ${missing[*]}"
+          exit 1
+        fi
+
+        echo "DATABASE_URL_SECRET_NAME=${DATABASE_URL_SECRET_NAME:-DATABASE_URL}" >> "$GITHUB_ENV"
+        echo "JWT_SECRET_NAME=${JWT_SECRET_NAME:-JWT_SECRET}" >> "$GITHUB_ENV"
+        echo "DEVICE_API_SECRET_NAME=${DEVICE_API_SECRET_NAME:-DEVICE_API_SECRET}" >> "$GITHUB_ENV"
+        echo "BACKEND_CPU=${BACKEND_CPU:-1}" >> "$GITHUB_ENV"
+        echo "BACKEND_MEMORY=${BACKEND_MEMORY:-1Gi}" >> "$GITHUB_ENV"
+        echo "BACKEND_MIN_INSTANCES=${BACKEND_MIN_INSTANCES:-0}" >> "$GITHUB_ENV"
+        echo "BACKEND_MAX_INSTANCES=${BACKEND_MAX_INSTANCES:-3}" >> "$GITHUB_ENV"
+        echo "FRONTEND_CPU=${FRONTEND_CPU:-1}" >> "$GITHUB_ENV"
+        echo "FRONTEND_MEMORY=${FRONTEND_MEMORY:-512Mi}" >> "$GITHUB_ENV"
+        echo "FRONTEND_MIN_INSTANCES=${FRONTEND_MIN_INSTANCES:-0}" >> "$GITHUB_ENV"
+        echo "FRONTEND_MAX_INSTANCES=${FRONTEND_MAX_INSTANCES:-3}" >> "$GITHUB_ENV"
+
+        registry_host="${GCP_REGION}-docker.pkg.dev"
+        echo "AR_HOST=${registry_host}" >> "$GITHUB_ENV"
+        echo "BACKEND_IMAGE=${registry_host}/${GCP_PROJECT_ID}/${GCP_AR_REPOSITORY}/telemed-backend:${GITHUB_SHA}" >> "$GITHUB_ENV"
+        echo "FRONTEND_IMAGE=${registry_host}/${GCP_PROJECT_ID}/${GCP_AR_REPOSITORY}/telemed-frontend:${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+    - name: Set up gcloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ env.GCP_PROJECT_ID }}
+
+    - name: Configure Docker for Artifact Registry
+      shell: bash
+      run: gcloud auth configure-docker "${AR_HOST}" --quiet
+
+    - name: Verify required Secret Manager secrets
+      shell: bash
+      run: |
+        set -euo pipefail
+        required_secrets=(
+          "${DATABASE_URL_SECRET_NAME}"
+          "${JWT_SECRET_NAME}"
+          "${DEVICE_API_SECRET_NAME}"
+        )
+
+        for secret_name in "${required_secrets[@]}"; do
+          gcloud secrets describe "$secret_name" --project "$GCP_PROJECT_ID" >/dev/null
+        done
+
+        if [ -n "${NOVU_API_KEY_SECRET_NAME:-}" ]; then
+          gcloud secrets describe "$NOVU_API_KEY_SECRET_NAME" --project "$GCP_PROJECT_ID" >/dev/null
+          echo "BACKEND_SECRET_BINDINGS=DATABASE_URL=${DATABASE_URL_SECRET_NAME}:latest,JWT_SECRET=${JWT_SECRET_NAME}:latest,DEVICE_API_SECRET=${DEVICE_API_SECRET_NAME}:latest,NOVU_API_KEY=${NOVU_API_KEY_SECRET_NAME}:latest" >> "$GITHUB_ENV"
+        else
+          echo "BACKEND_SECRET_BINDINGS=DATABASE_URL=${DATABASE_URL_SECRET_NAME}:latest,JWT_SECRET=${JWT_SECRET_NAME}:latest,DEVICE_API_SECRET=${DEVICE_API_SECRET_NAME}:latest" >> "$GITHUB_ENV"
+        fi
+
+    - name: Build and push backend image
+      uses: docker/build-push-action@v6
+      with:
+        context: ./backend
+        file: ./backend/Dockerfile
+        push: true
+        tags: ${{ env.BACKEND_IMAGE }}
+        cache-from: type=gha,scope=gcp-backend
+        cache-to: type=gha,mode=max,scope=gcp-backend
+
+    - name: Deploy backend service
+      shell: bash
+      run: |
+        set -euo pipefail
+        origin="${FRONTEND_BASE_URL:-https://placeholder.invalid}"
+
+        gcloud run deploy "$GCP_BACKEND_SERVICE" \
+          --project "$GCP_PROJECT_ID" \
+          --region "$GCP_REGION" \
+          --platform managed \
+          --image "$BACKEND_IMAGE" \
+          --port 8000 \
+          --service-account "$GCP_BACKEND_SERVICE_ACCOUNT" \
+          --allow-unauthenticated \
+          --add-cloudsql-instances "$GCP_CLOUD_SQL_INSTANCE" \
+          --cpu "$BACKEND_CPU" \
+          --memory "$BACKEND_MEMORY" \
+          --min-instances "$BACKEND_MIN_INSTANCES" \
+          --max-instances "$BACKEND_MAX_INSTANCES" \
+          --set-env-vars "JWT_EXPIRES_IN=3600" \
+          --set-env-vars "AUTH_COOKIE_SECURE=true" \
+          --set-env-vars "RUN_MIGRATIONS_ON_STARTUP=${{ inputs.run_migrations_on_startup }}" \
+          --set-env-vars "RUN_SEED_ON_STARTUP=${{ inputs.run_seed_on_startup }}" \
+          --set-env-vars "FRONTEND_BASE_URL=${origin}" \
+          --set-env-vars "CORS_ORIGINS=${origin}" \
+          --set-secrets "$BACKEND_SECRET_BINDINGS"
+
+    - name: Resolve backend URL
+      id: backend-url
+      shell: bash
+      run: |
+        set -euo pipefail
+        backend_url="$(gcloud run services describe "$GCP_BACKEND_SERVICE" --project "$GCP_PROJECT_ID" --region "$GCP_REGION" --format='value(status.url)')"
+        if [ -z "$backend_url" ]; then
+          echo "Failed to resolve backend URL"
+          exit 1
+        fi
+        echo "value=${backend_url}" >> "$GITHUB_OUTPUT"
+
+    - name: Build and push frontend image
+      uses: docker/build-push-action@v6
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile
+        push: true
+        tags: ${{ env.FRONTEND_IMAGE }}
+        build-args: |
+          NEXT_PUBLIC_API_BASE_URL=/api
+          NEXT_SERVER_API_PROXY_TARGET=${{ steps.backend-url.outputs.value }}
+          NEXT_SERVER_API_BASE_URL=${{ steps.backend-url.outputs.value }}
+        cache-from: type=gha,scope=gcp-frontend
+        cache-to: type=gha,mode=max,scope=gcp-frontend
+
+    - name: Deploy frontend service
+      shell: bash
+      run: |
+        set -euo pipefail
+        gcloud run deploy "$GCP_FRONTEND_SERVICE" \
+          --project "$GCP_PROJECT_ID" \
+          --region "$GCP_REGION" \
+          --platform managed \
+          --image "$FRONTEND_IMAGE" \
+          --port 3000 \
+          --service-account "$GCP_FRONTEND_SERVICE_ACCOUNT" \
+          --allow-unauthenticated \
+          --cpu "$FRONTEND_CPU" \
+          --memory "$FRONTEND_MEMORY" \
+          --min-instances "$FRONTEND_MIN_INSTANCES" \
+          --max-instances "$FRONTEND_MAX_INSTANCES" \
+          --set-env-vars "NEXT_PUBLIC_API_BASE_URL=/api" \
+          --set-env-vars "NEXT_SERVER_API_PROXY_TARGET=${{ steps.backend-url.outputs.value }}" \
+          --set-env-vars "NEXT_SERVER_API_BASE_URL=${{ steps.backend-url.outputs.value }}"
+
+    - name: Resolve frontend URL
+      id: frontend-url
+      shell: bash
+      run: |
+        set -euo pipefail
+        frontend_url="$(gcloud run services describe "$GCP_FRONTEND_SERVICE" --project "$GCP_PROJECT_ID" --region "$GCP_REGION" --format='value(status.url)')"
+        if [ -z "$frontend_url" ]; then
+          echo "Failed to resolve frontend URL"
+          exit 1
+        fi
+        echo "value=${frontend_url}" >> "$GITHUB_OUTPUT"
+
+    - name: Sync backend origin and CORS with frontend URL
+      if: ${{ env.FRONTEND_BASE_URL == '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        gcloud run services update "$GCP_BACKEND_SERVICE" \
+          --project "$GCP_PROJECT_ID" \
+          --region "$GCP_REGION" \
+          --update-env-vars "FRONTEND_BASE_URL=${{ steps.frontend-url.outputs.value }},CORS_ORIGINS=${{ steps.frontend-url.outputs.value }}"
+
+    - name: Deployment summary
+      shell: bash
+      run: |
+        echo "Backend URL: ${{ steps.backend-url.outputs.value }}"
+        echo "Frontend URL: ${{ steps.frontend-url.outputs.value }}"

@@ -1,0 +1,53 @@
+services:
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/telemed-sut/telemed-backend:latest}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-3600}
+      DEVICE_API_SECRET: ${DEVICE_API_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      RUN_MIGRATIONS_ON_STARTUP: ${RUN_MIGRATIONS_ON_STARTUP:-true}
+      RUN_SEED_ON_STARTUP: ${RUN_SEED_ON_STARTUP:-false}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/telemed-sut/telemed-frontend:latest}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
+      NEXT_SERVER_API_PROXY_TARGET: ${NEXT_SERVER_API_PROXY_TARGET:-http://backend:8000}
+      NEXT_SERVER_API_BASE_URL: ${NEXT_SERVER_API_BASE_URL:-http://backend:8000}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:3000', (res) => process.exit(res.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1));",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s

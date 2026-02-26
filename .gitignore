@@ -76,6 +76,7 @@ alembic/versions/__pycache__/
 
 # Docker
 docker-compose.override.yml
+infra/gcp/cloud-run.env
 
 # Logs
 *.log

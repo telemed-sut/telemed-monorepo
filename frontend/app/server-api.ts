@@ -3,7 +3,15 @@ import "server-only";
 const DEFAULT_SERVER_API_BASE_URL = "http://localhost:8000";
 
 function getServerApiBaseUrl(): string {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_SERVER_API_BASE_URL;
+  const baseUrl =
+    process.env.NEXT_SERVER_API_BASE_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    DEFAULT_SERVER_API_BASE_URL;
+
+  if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+    return DEFAULT_SERVER_API_BASE_URL;
+  }
+
   return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
 }
 

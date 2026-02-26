@@ -8,15 +8,25 @@ RUN bun install --frozen-lockfile
 # Build stage
 FROM oven/bun:1.3.9-alpine AS builder
 WORKDIR /app
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+ARG NEXT_SERVER_API_PROXY_TARGET=http://localhost:8000
+ARG NEXT_SERVER_API_BASE_URL=http://localhost:8000
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED=1 \
+  NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL} \
+  NEXT_SERVER_API_PROXY_TARGET=${NEXT_SERVER_API_PROXY_TARGET} \
+  NEXT_SERVER_API_BASE_URL=${NEXT_SERVER_API_BASE_URL}
 RUN bun run build
 
 # Production stage
 FROM node:24-alpine AS runner
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=production \
+  NEXT_TELEMETRY_DISABLED=1 \
+  NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 \
+  NEXT_SERVER_API_PROXY_TARGET=http://localhost:8000 \
+  NEXT_SERVER_API_BASE_URL=http://localhost:8000
 
 RUN addgroup --system --gid 1001 nodejs && \
   adduser --system --uid 1001 nextjs && \
