@@ -60,5 +60,10 @@ def acknowledge_alert(
         ip_address=get_client_ip(request),
         status="success",
     )
-    logger.info("Alert acknowledged: alert=%s by=%s reason=%s", alert_id, current_user.email, payload.reason or "none")
+    logger.info(
+        "Alert acknowledged: alert=%s actor_id=%s reason=%s",
+        alert_id,
+        current_user.id,
+        payload.reason or "none",
+    )
     return {"message": "Alert acknowledged", "alert_id": str(alert_id)}

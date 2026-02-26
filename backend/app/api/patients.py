@@ -48,8 +48,13 @@ def _patient_audit_details(patient) -> dict:
     }
 
 
-def notify_staff(db: Session, current_user: User, background_tasks: BackgroundTasks, 
-                 action: str, patient_name: str):
+def notify_staff(
+    db: Session,
+    current_user: User,
+    background_tasks: BackgroundTasks,
+    action: str,
+    patient_id: str,
+):
     """Send notification to all staff except the current user.
 
     Uses Novu notification service when enabled. Silently skips if Novu is
@@ -69,10 +74,11 @@ def notify_staff(db: Session, current_user: User, background_tasks: BackgroundTa
     if not user_ids:
         return
     
+    actor_user_id = str(current_user.id)
     notify_fn = {
-        "created": lambda: novu_service.notify_patient_created(user_ids, patient_name, current_user.email),
-        "updated": lambda: novu_service.notify_patient_updated(user_ids, patient_name, current_user.email),
-        "deleted": lambda: novu_service.notify_patient_deleted(user_ids, patient_name, current_user.email),
+        "created": lambda: novu_service.notify_patient_created(user_ids, patient_id, actor_user_id),
+        "updated": lambda: novu_service.notify_patient_updated(user_ids, patient_id, actor_user_id),
+        "deleted": lambda: novu_service.notify_patient_deleted(user_ids, patient_id, actor_user_id),
     }.get(action)
     
     if notify_fn:
@@ -102,7 +108,7 @@ def create_patient(
         details={"patient_id": str(patient.id)},
         ip_address=get_client_ip(request),
     )
-    notify_staff(db, current_user, background_tasks, "created", f"{patient.first_name} {patient.last_name}")
+    notify_staff(db, current_user, background_tasks, "created", str(patient.id))
     return patient
 
 
@@ -185,7 +191,7 @@ def update_patient(
     )
 
     updated = patient_service.update_patient(db, patient, payload)
-    notify_staff(db, current_user, background_tasks, "updated", f"{updated.first_name} {updated.last_name}")
+    notify_staff(db, current_user, background_tasks, "updated", str(updated.id))
 
     # Audit: Store only metadata about changed fields (no PHI field values).
     try:
@@ -353,7 +359,6 @@ def delete_patient(
     if not patient:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
-    patient_name = f"{patient.first_name} {patient.last_name}"
     patient_service.delete_patient(db, patient, deleted_by=current_user.id)
     audit_service.log_action(
         db=db,
@@ -364,7 +369,7 @@ def delete_patient(
         details=_patient_audit_details(patient),
         ip_address=get_client_ip(request),
     )
-    notify_staff(db, current_user, background_tasks, "deleted", patient_name)
+    notify_staff(db, current_user, background_tasks, "deleted", str(patient.id))
     return None
 
 
@@ -396,7 +401,6 @@ def bulk_delete_patients(
         if not patient:
             errors.append(f"Patient {patient_id} not found")
             continue
-        patient_name = f"{patient.first_name} {patient.last_name}"
         patient_service.delete_patient(db, patient, deleted_by=current_user.id)
         audit_service.log_action(
             db=db,
@@ -407,7 +411,7 @@ def bulk_delete_patients(
             details={**_patient_audit_details(patient), "bulk": True},
             ip_address=get_client_ip(request),
         )
-        notify_staff(db, current_user, background_tasks, "deleted", patient_name)
+        notify_staff(db, current_user, background_tasks, "deleted", str(patient.id))
         deleted += 1
         deleted_ids.append(str(patient.id))
 

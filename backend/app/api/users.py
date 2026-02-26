@@ -329,7 +329,12 @@ def create_user(
         ip_address=_client_ip(request),
     )
 
-    logger.info("User created: id=%s email=%s role=%s by=%s", user.id, user.email, user.role.value, current_user.email)
+    logger.info(
+        "User created: id=%s role=%s actor_id=%s",
+        user.id,
+        user.role.value,
+        current_user.id,
+    )
     return user
 
 
@@ -515,7 +520,7 @@ def update_user(
         ip_address=_client_ip(request),
     )
 
-    logger.info("User updated: id=%s by=%s", user.id, current_user.email)
+    logger.info("User updated: id=%s actor_id=%s", user.id, current_user.id)
     return user
 
 
@@ -630,7 +635,7 @@ def delete_user(
         ip_address=_client_ip(request),
     )
 
-    logger.info("User soft-deleted: id=%s by=%s", user_id, current_user.email)
+    logger.info("User soft-deleted: id=%s actor_id=%s", user_id, current_user.id)
     return None
 
 

@@ -97,7 +97,7 @@ jobs:
         JWT_SECRET: test-secret-key
         JWT_EXPIRES_IN: 3600
       run: |
-        python -m pytest --cov=app --cov-report=xml --cov-report=term
+        python -m pytest --cov=app --cov-report=xml --cov-report=term --cov-fail-under=70
 
     - name: Build backend bytecode
       working-directory: ./backend
@@ -135,7 +135,7 @@ jobs:
 
     - name: Run frontend tests
       working-directory: ./frontend
-      run: bun run test
+      run: bun run test -- --coverage
 
     - name: Build frontend
       working-directory: ./frontend

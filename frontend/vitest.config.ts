@@ -10,6 +10,23 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./tests/setup.ts"],
     css: false,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json-summary", "lcov"],
+      exclude: [
+        "**/*.d.ts",
+        "tests/**",
+        "app/**",
+        "next.config.ts",
+        "vitest.config.ts",
+      ],
+      thresholds: {
+        lines: 20,
+        functions: 20,
+        statements: 20,
+        branches: 15,
+      },
+    },
   },
   resolve: {
     alias: {

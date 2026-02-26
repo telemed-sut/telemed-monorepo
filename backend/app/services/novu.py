@@ -8,10 +8,6 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Demo subscriber ID from Novu onboarding
-# TODO: For production, sync users with Novu using their actual user IDs
-DEMO_SUBSCRIBER_ID = "69672b3590916202e24e18f7"
-
 # Lazy initialization
 _novu_client = None
 
@@ -55,61 +51,72 @@ def send_notification(
     
     try:
         from novu.dto.event import InputEventDto
-        
+
         event = InputEventDto(
             name=workflow_name,
             recipients=subscriber_id,
             payload=payload or {}
         )
         client.trigger(event)
-        logger.info(f"Notification sent to {subscriber_id}: {workflow_name}")
+        logger.info("Notification sent: workflow=%s", workflow_name)
         return True
     except Exception as e:
-        logger.error(f"Failed to send notification: {e}")
+        logger.error("Failed to send notification: %s", e)
         return False
 
 
 def notify_patient_created(
     subscriber_ids: List[str],
-    patient_name: str,
-    created_by: str
+    patient_id: str,
+    created_by_user_id: str
 ) -> None:
-    """Notify when a new patient is created"""
-    # For demo, send to demo subscriber
-    send_notification(
-        subscriber_id=DEMO_SUBSCRIBER_ID,
-        workflow_name="onboarding-demo-workflow",
-        payload={
-            "message": f"New patient '{patient_name}' was created by {created_by}"
-        }
-    )
+    """Notify when a new patient is created without sending PHI/PII."""
+    payload = {
+        "event": "patient_created",
+        "patient_id": patient_id,
+        "actor_user_id": created_by_user_id,
+    }
+    for subscriber_id in subscriber_ids:
+        send_notification(
+            subscriber_id=subscriber_id,
+            workflow_name="patient-events",
+            payload=payload,
+        )
 
 
 def notify_patient_updated(
     subscriber_ids: List[str],
-    patient_name: str,
-    updated_by: str
+    patient_id: str,
+    updated_by_user_id: str
 ) -> None:
-    """Notify when a patient is updated"""
-    send_notification(
-        subscriber_id=DEMO_SUBSCRIBER_ID,
-        workflow_name="onboarding-demo-workflow",
-        payload={
-            "message": f"Patient '{patient_name}' was updated by {updated_by}"
-        }
-    )
+    """Notify when a patient is updated without sending PHI/PII."""
+    payload = {
+        "event": "patient_updated",
+        "patient_id": patient_id,
+        "actor_user_id": updated_by_user_id,
+    }
+    for subscriber_id in subscriber_ids:
+        send_notification(
+            subscriber_id=subscriber_id,
+            workflow_name="patient-events",
+            payload=payload,
+        )
 
 
 def notify_patient_deleted(
     subscriber_ids: List[str],
-    patient_name: str,
-    deleted_by: str
+    patient_id: str,
+    deleted_by_user_id: str
 ) -> None:
-    """Notify when a patient is deleted"""
-    send_notification(
-        subscriber_id=DEMO_SUBSCRIBER_ID,
-        workflow_name="onboarding-demo-workflow",
-        payload={
-            "message": f"Patient '{patient_name}' was deleted by {deleted_by}"
-        }
-    )
+    """Notify when a patient is deleted without sending PHI/PII."""
+    payload = {
+        "event": "patient_deleted",
+        "patient_id": patient_id,
+        "actor_user_id": deleted_by_user_id,
+    }
+    for subscriber_id in subscriber_ids:
+        send_notification(
+            subscriber_id=subscriber_id,
+            workflow_name="patient-events",
+            payload=payload,
+        )

@@ -389,10 +389,11 @@ def emergency_unlock_admin(
     )
 
     logger.info(
-        "Emergency unlock: user=%s was_locked=%s authorized_by=%s actor=%s",
-        target.email, was_locked,
+        "Emergency unlock: target_user_id=%s was_locked=%s authorized_by=%s actor_id=%s",
+        target.id,
+        was_locked,
         "super_admin",
-        current_user.email,
+        current_user.id,
     )
     return AdminEmergencyUnlockResponse(
         message=f"Admin account {target.email} has been unlocked.",
@@ -1017,7 +1018,7 @@ def unban_ip(
     )
     db.delete(ban)
     db.commit()
-    logger.info("IP unbanned: %s by=%s", ip_address, current_user.email)
+    logger.info("IP unbanned: %s actor_id=%s", ip_address, current_user.id)
     return {"message": f"IP {ip_address} has been unbanned"}
 
 
