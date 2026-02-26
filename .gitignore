@@ -13,7 +13,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -96,3 +96,7 @@ Telemed Device API/environments/*.bru
 
 
 AGENTS.md
+
+# Keep frontend shared libs tracked (rule above is for root-level Python /lib/)
+!frontend/lib/
+!frontend/lib/**
