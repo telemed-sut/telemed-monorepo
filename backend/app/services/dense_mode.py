@@ -16,7 +16,13 @@ from app.models.treatment import Treatment
 
 def get_patient_summary(db: Session, patient_id: UUID) -> dict | None:
     """Fetch all data needed for the dense mode summary panel."""
-    patient = db.scalar(select(Patient).where(Patient.id == patient_id))
+    patient = db.scalar(
+        select(Patient).where(
+            Patient.id == patient_id,
+            Patient.deleted_at.is_(None),
+            Patient.is_active == True,  # noqa: E712
+        )
+    )
     if not patient:
         return None
 

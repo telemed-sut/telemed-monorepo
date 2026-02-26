@@ -672,7 +672,8 @@ export interface AdminPasswordResetResponse {
   message: string;
   user_id: string;
   email: string;
-  temporary_password: string;
+  reset_token: string;
+  reset_token_expires_in: number;
 }
 
 export async function resolveSecurityUserByEmail(email: string, token: string) {
@@ -695,8 +696,7 @@ export async function adminEmergencyUnlock(payload: AdminEmergencyUnlockPayload,
 export async function superAdminResetUserPassword(
   userId: string,
   reason: string,
-  token: string,
-  temporaryPassword?: string
+  token: string
 ) {
   return apiFetch<AdminPasswordResetResponse>(
     `/security/users/${userId}/password/reset`,
@@ -704,14 +704,13 @@ export async function superAdminResetUserPassword(
       method: "POST",
       body: JSON.stringify({
         reason,
-        temporary_password: temporaryPassword || undefined,
       }),
     },
     token
   );
 }
 
-interface FetchPatientsParams {
+export interface FetchPatientsParams {
   page?: number;
   limit?: number;
   q?: string;
@@ -729,6 +728,43 @@ export async function fetchPatients(params: FetchPatientsParams, token: string) 
   const qs = search.toString();
   const path = `/patients${qs ? `?${qs}` : ""}`;
   return apiFetch<PatientListResponse>(path, { method: "GET" }, token);
+}
+
+interface FetchAllOptions {
+  pageSize?: number;
+  maxItems?: number;
+}
+
+const BULK_FETCH_DEFAULT_PAGE_SIZE = 200;
+const BULK_FETCH_DEFAULT_MAX_ITEMS = 5000;
+
+function normalizeMaxItems(maxItems?: number): number {
+  if (!Number.isFinite(maxItems)) return BULK_FETCH_DEFAULT_MAX_ITEMS;
+  return Math.max(1, Math.floor(maxItems as number));
+}
+
+export async function fetchAllPatients(
+  params: Omit<FetchPatientsParams, "page" | "limit">,
+  token: string,
+  options: FetchAllOptions = {}
+) {
+  const pageSize = clampLimit(options.pageSize ?? BULK_FETCH_DEFAULT_PAGE_SIZE, MAX_QUERY_LIMIT);
+  const maxItems = normalizeMaxItems(options.maxItems);
+  const maxPages = Math.ceil(maxItems / pageSize);
+  const items: Patient[] = [];
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const res = await fetchPatients({ ...params, page, limit: pageSize }, token);
+    if (res.items.length === 0) break;
+
+    const remaining = maxItems - items.length;
+    items.push(...res.items.slice(0, remaining));
+    if (items.length >= res.total || res.items.length < pageSize || items.length >= maxItems) {
+      break;
+    }
+  }
+
+  return items;
 }
 
 export async function createPatient(payload: Omit<Patient, "id">, token: string) {
@@ -881,7 +917,7 @@ export interface MeetingListResponse {
   total: number;
 }
 
-interface FetchMeetingsParams {
+export interface FetchMeetingsParams {
   page?: number;
   limit?: number;
   q?: string;
@@ -905,6 +941,30 @@ export async function fetchMeetings(params: FetchMeetingsParams, token: string) 
   const qs = search.toString();
   const path = `/meetings${qs ? `?${qs}` : ""}`;
   return apiFetch<MeetingListResponse>(path, { method: "GET" }, token);
+}
+
+export async function fetchAllMeetings(
+  params: Omit<FetchMeetingsParams, "page" | "limit">,
+  token: string,
+  options: FetchAllOptions = {}
+) {
+  const pageSize = clampLimit(options.pageSize ?? BULK_FETCH_DEFAULT_PAGE_SIZE, MAX_QUERY_LIMIT);
+  const maxItems = normalizeMaxItems(options.maxItems);
+  const maxPages = Math.ceil(maxItems / pageSize);
+  const items: Meeting[] = [];
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const res = await fetchMeetings({ ...params, page, limit: pageSize }, token);
+    if (res.items.length === 0) break;
+
+    const remaining = maxItems - items.length;
+    items.push(...res.items.slice(0, remaining));
+    if (items.length >= res.total || res.items.length < pageSize || items.length >= maxItems) {
+      break;
+    }
+  }
+
+  return items;
 }
 
 export interface MeetingCreatePayload {
@@ -1150,6 +1210,11 @@ export interface OverviewStatsResponse {
   year: number;
   monthly: MonthlyStats[];
   totals: { patients: number; meetings: number };
+  kpis: {
+    today_consultations: number;
+    this_week_consultations: number;
+    this_month_new_patients: number;
+  };
 }
 
 export async function fetchOverviewStats(token: string, year?: number) {
@@ -1635,6 +1700,98 @@ export async function fetchLoginAttempts(
   if (params.success !== undefined) query.set("success", params.success.toString());
   const qs = query.toString();
   return apiFetch<LoginAttemptListResponse>(`/security/login-attempts${qs ? `?${qs}` : ""}`, {}, token);
+}
+
+export interface DeviceRegistration {
+  id: string;
+  device_id: string;
+  display_name: string;
+  notes: string | null;
+  is_active: boolean;
+  last_seen_at: string | null;
+  deactivated_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeviceRegistrationListResponse {
+  items: DeviceRegistration[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface DeviceRegistrationCreatePayload {
+  device_id: string;
+  display_name: string;
+  notes?: string;
+  is_active?: boolean;
+  device_secret?: string;
+}
+
+export interface DeviceRegistrationCreateResponse {
+  device: DeviceRegistration;
+  device_secret: string;
+}
+
+export interface DeviceRegistrationUpdatePayload {
+  display_name?: string;
+  notes?: string;
+  is_active?: boolean;
+}
+
+export interface DeviceRegistrationRotateSecretPayload {
+  device_secret?: string;
+}
+
+export interface DeviceRegistrationRotateSecretResponse {
+  message: string;
+  device_secret: string;
+  rotated_at: string;
+}
+
+export async function fetchDeviceRegistrations(
+  params: { page?: number; limit?: number; q?: string; is_active?: boolean },
+  token: string,
+) {
+  const query = new URLSearchParams();
+  appendPagination(query, params, 200);
+  if (params.q) query.set("q", params.q);
+  if (params.is_active !== undefined) query.set("is_active", params.is_active ? "true" : "false");
+  const qs = query.toString();
+  return apiFetch<DeviceRegistrationListResponse>(`/security/devices${qs ? `?${qs}` : ""}`, {}, token);
+}
+
+export async function createDeviceRegistration(payload: DeviceRegistrationCreatePayload, token: string) {
+  return apiFetch<DeviceRegistrationCreateResponse>(
+    "/security/devices",
+    { method: "POST", body: JSON.stringify(payload) },
+    token,
+  );
+}
+
+export async function updateDeviceRegistration(
+  deviceId: string,
+  payload: DeviceRegistrationUpdatePayload,
+  token: string,
+) {
+  return apiFetch<DeviceRegistration>(
+    `/security/devices/${encodeURIComponent(deviceId)}`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    token,
+  );
+}
+
+export async function rotateDeviceRegistrationSecret(
+  deviceId: string,
+  payload: DeviceRegistrationRotateSecretPayload,
+  token: string,
+) {
+  return apiFetch<DeviceRegistrationRotateSecretResponse>(
+    `/security/devices/${encodeURIComponent(deviceId)}/rotate-secret`,
+    { method: "POST", body: JSON.stringify(payload) },
+    token,
+  );
 }
 
 // ── Bulk Delete ──────────────────────────────────────────

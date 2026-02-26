@@ -42,11 +42,5 @@ class PressureCreate(BaseModel):
 
         return self
 
-class PressureResponse(BaseModel):
-    id: UUID4
-    received_at: datetime
-    patient_id: UUID4
-
-    class Config:
-        populate_by_name = True
-        from_attributes = True
+class PressureIngestResponse(BaseModel):
+    status: str = "ok"

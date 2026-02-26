@@ -1,0 +1,53 @@
+meta {
+  name: 1) Admin Register Device
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/security/devices
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+  Authorization: Bearer {{adminToken}}
+}
+
+body:json {
+  {
+    "device_id": "ward-bp-002",
+    "display_name": "Ward BP Device 01",
+    "notes": "Near nursing station",
+    "is_active": true
+  }
+}
+
+script:post-response {
+  const status = res.getStatus();
+  if (status !== 201) {
+    throw new Error(`Expected HTTP 201 Created, got ${status}`);
+  }
+  
+  const rawBody = res.getBody();
+  const body = typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
+  
+  if (!body?.device?.device_id || !body?.device_secret) {
+    throw new Error("Expected response to include device.device_id and device_secret.");
+  }
+  
+  bru.setEnvVar("deviceId", body.device.device_id);
+  bru.setEnvVar("deviceSecret", body.device_secret);
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+
+docs {
+  Step 1: Register a new test device, then Bruno will auto-save:
+  - deviceId
+  - deviceSecret
+}

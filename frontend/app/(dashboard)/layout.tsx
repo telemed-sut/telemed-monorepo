@@ -1,53 +1,38 @@
-"use client";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import { DashboardSidebar } from "@/components/dashboard/sidebar";
-import { DashboardHeader } from "@/components/dashboard/header";
-import { PageTransition } from "@/components/dashboard/page-transition";
-import { useAuthStore } from "@/store/auth-store";
-import { useTokenRefresh } from "@/hooks/use-token-refresh";
-import DashboardLoading from "./loading";
+import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 
-export default function DashboardLayout({
+const AUTH_COOKIE_NAME = "access_token";
+
+function isJwtExpired(token: string): boolean {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return true;
+
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const normalized = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const payload = JSON.parse(
+      Buffer.from(normalized, "base64").toString("utf8")
+    ) as { exp?: number };
+
+    if (!payload.exp) return true;
+    return payload.exp * 1000 <= Date.now();
+  } catch {
+    return true;
+  }
+}
+
+export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const router = useRouter();
-  const token = useAuthStore((state) => state.token);
-  const hydrate = useAuthStore((state) => state.hydrate);
-  const hydrated = useAuthStore((state) => state.hydrated);
+  const cookieStore = await cookies();
+  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+  if (!token || isJwtExpired(token)) {
+    redirect("/login");
+  }
 
-  // Proactively refresh token before it expires
-  useTokenRefresh();
-
-  useEffect(() => {
-    hydrate();
-  }, [hydrate]);
-
-  useEffect(() => {
-    if (hydrated && !token) {
-      router.replace("/login");
-    }
-  }, [hydrated, token, router]);
-
-  const ready = hydrated && !!token;
-
-  return (
-    <SidebarProvider className="bg-sidebar">
-      <DashboardSidebar />
-      <div className="h-svh overflow-hidden lg:p-2 w-full">
-        <div className="lg:border lg:rounded-md overflow-hidden flex flex-col items-center justify-start bg-container h-full w-full bg-background">
-          <DashboardHeader />
-          {ready ? (
-            <PageTransition>{children}</PageTransition>
-          ) : (
-            <DashboardLoading />
-          )}
-        </div>
-      </div>
-    </SidebarProvider>
-  );
+  return <DashboardShell>{children}</DashboardShell>;
 }

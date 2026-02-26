@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.api import auth as auth_api
 from app.core.security import generate_totp_code, generate_totp_secret, get_password_hash
 from app.models.audit_log import AuditLog
+from app.models.device_registration import DeviceRegistration
 from app.models.enums import UserRole
 from app.models.user import User
 
@@ -66,7 +67,7 @@ def test_admin_login_with_valid_2fa_code_succeeds(client: TestClient, db: Sessio
     assert "access_token" in response.json()
 
 
-def test_emergency_unlock_admin_requires_super_admin_or_whitelisted_ip(
+def test_emergency_unlock_admin_requires_super_admin(
     client: TestClient,
     db: Session,
 ):
@@ -140,13 +141,13 @@ def test_trusted_device_bypasses_2fa_challenge(client: TestClient, db: Session, 
     trusted_cookie = first.cookies.get(auth_api.settings.trusted_device_cookie_name)
     assert trusted_cookie
 
+    client.cookies.set(auth_api.settings.trusted_device_cookie_name, trusted_cookie)
     second = client.post(
         "/auth/login",
         json={
             "email": "trusted-admin@example.com",
             "password": "TestPass123",
         },
-        cookies={auth_api.settings.trusted_device_cookie_name: trusted_cookie},
     )
     assert second.status_code == 200, second.text
 
@@ -246,12 +247,22 @@ def test_super_admin_can_reset_user_password(client: TestClient, db: Session):
     assert response.status_code == 200, response.text
     payload = response.json()
     assert payload["email"] == target.email
-    assert payload["temporary_password"]
+    assert payload["reset_token"]
+    assert payload["reset_token_expires_in"] > 0
+
+    reset = client.post(
+        "/auth/reset-password",
+        json={
+            "token": payload["reset_token"],
+            "new_password": "NewStrongPass456",
+        },
+    )
+    assert reset.status_code == 200, reset.text
 
     relogin = _login(
         client,
         target.email,
-        password=payload["temporary_password"],
+        password="NewStrongPass456",
     )
     assert relogin.status_code == 200, relogin.text
 
@@ -289,6 +300,63 @@ def test_admin_can_resolve_user_for_emergency_toolkit(client: TestClient, db: Se
     payload = response.json()
     assert payload["user_id"] == str(target.id)
     assert payload["email"] == target.email
+
+
+def test_admin_can_manage_device_registry(client: TestClient, db: Session):
+    admin = _make_user(db, email="registry-admin@example.com", role=UserRole.admin)
+    token = _login(client, admin.email).json()["access_token"]
+
+    created = client.post(
+        "/security/devices",
+        json={
+            "device_id": "ward-bp-001",
+            "display_name": "Ward BP Device 01",
+            "notes": "Near nursing station",
+            "is_active": True,
+        },
+        headers=_auth(token),
+    )
+    assert created.status_code == 201, created.text
+    created_payload = created.json()
+    assert created_payload["device"]["device_id"] == "ward-bp-001"
+    assert len(created_payload["device_secret"]) >= 32
+
+    listed = client.get("/security/devices?page=1&limit=20", headers=_auth(token))
+    assert listed.status_code == 200, listed.text
+    listed_payload = listed.json()
+    assert listed_payload["total"] >= 1
+    assert any(item["device_id"] == "ward-bp-001" for item in listed_payload["items"])
+
+    updated = client.patch(
+        "/security/devices/ward-bp-001",
+        json={"is_active": False, "notes": "Deactivated for maintenance"},
+        headers=_auth(token),
+    )
+    assert updated.status_code == 200, updated.text
+    updated_payload = updated.json()
+    assert updated_payload["is_active"] is False
+    assert updated_payload["deactivated_at"] is not None
+    assert updated_payload["notes"] == "Deactivated for maintenance"
+
+    rotated = client.post(
+        "/security/devices/ward-bp-001/rotate-secret",
+        json={},
+        headers=_auth(token),
+    )
+    assert rotated.status_code == 200, rotated.text
+    rotated_payload = rotated.json()
+    assert len(rotated_payload["device_secret"]) >= 32
+
+    row = db.scalar(select(DeviceRegistration).where(DeviceRegistration.device_id == "ward-bp-001"))
+    assert row is not None
+    assert row.device_secret == rotated_payload["device_secret"]
+
+
+def test_non_admin_cannot_access_device_registry(client: TestClient, db: Session):
+    staff = _make_user(db, email="registry-staff@example.com", role=UserRole.staff)
+    token = _login(client, staff.email).json()["access_token"]
+    response = client.get("/security/devices", headers=_auth(token))
+    assert response.status_code == 403
 
 
 def test_security_stats_tracks_403_spike_counter(client: TestClient, db: Session):

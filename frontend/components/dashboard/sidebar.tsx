@@ -29,6 +29,7 @@ import {
   ChevronsUpDown,
   ChevronRight,
   Activity,
+  Cpu,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/ui/logo";
@@ -64,6 +65,7 @@ const meetingsRoute: NavItem = {
 const adminOnlyRoutes: NavItem[] = [
   { id: "users", icon: UserCog, link: "/users" },
   { id: "device-monitor", icon: Activity, link: "/device-monitor" },
+  { id: "device-registry", icon: Cpu, link: "/device-registry" },
   { id: "audit-logs", icon: ScrollText, link: "/audit-logs" },
   { id: "security", icon: Shield, link: "/security" },
 ];
@@ -87,6 +89,7 @@ const SIDEBAR_LABELS: Record<
       meetings: "Meetings",
       users: "Users",
       "device-monitor": "Device Monitor",
+      "device-registry": "Device Registry",
       "audit-logs": "Audit Logs",
       security: "Security",
     },
@@ -104,6 +107,7 @@ const SIDEBAR_LABELS: Record<
       meetings: "การนัดหมาย",
       users: "ผู้ใช้",
       "device-monitor": "มอนิเตอร์อุปกรณ์",
+      "device-registry": "ทะเบียนอุปกรณ์",
       "audit-logs": "บันทึก Audit",
       security: "ความปลอดภัย",
     },

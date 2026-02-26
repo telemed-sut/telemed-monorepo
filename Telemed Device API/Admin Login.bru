@@ -1,0 +1,76 @@
+meta {
+  name: 0) Admin Login
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "email": "{{user_email}}",
+    "password": "{{user_password}}",
+    "otp_code": "{{user_otp}}"
+  }
+}
+
+script:pre-request {
+  const email = (bru.getEnvVar("user_email") || "").trim();
+  const password = (bru.getEnvVar("user_password") || "").trim();
+  const otp = (bru.getEnvVar("user_otp") || "").trim();
+  const rememberDeviceRaw = (bru.getEnvVar("remember_device") || "true").trim().toLowerCase();
+  const rememberDevice = !["false", "0", "no"].includes(rememberDeviceRaw);
+
+  if (!email) {
+    throw new Error('Please set Bruno Environment variable "user_email".');
+  }
+  if (!password) {
+    throw new Error('Please set Bruno Environment variable "user_password".');
+  }
+
+  const payload = {
+    email,
+    password,
+    remember_device: rememberDevice,
+  };
+  if (otp) {
+    payload.otp_code = otp;
+  }
+  req.setBody(JSON.stringify(payload));
+}
+
+script:post-response {
+  const status = res.getStatus();
+  const rawBody = res.getBody();
+  const body = typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
+  
+  if (status !== 200) {
+    throw new Error(`Expected HTTP 200 OK, got ${status}`);
+  }
+  
+  if (!body?.access_token) {
+    throw new Error("Expected response body to include access_token.");
+  }
+  
+  bru.setEnvVar("adminToken", body.access_token);
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+
+docs {
+  Step 0: Uses env vars user_email/user_password/user_otp.
+  If user_otp is empty, otp_code is omitted automatically.
+  remember_device defaults to true (set remember_device=false to disable).
+  On success this request auto-saves adminToken.
+}

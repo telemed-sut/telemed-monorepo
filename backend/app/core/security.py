@@ -20,6 +20,17 @@ TOTP_DIGITS = 6
 BACKUP_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
+class _JoseDatetimeCompat(datetime):
+    @classmethod
+    def utcnow(cls):
+        # python-jose still calls datetime.utcnow(); keep behavior without emitting
+        # Python 3.13 deprecation warnings.
+        return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+jwt.datetime = _JoseDatetimeCompat
+
+
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
@@ -32,7 +43,7 @@ def create_access_token(data: Dict[str, Any], expires_in: int | None = None) -> 
     settings = get_settings()
     to_encode = data.copy()
     ttl = expires_in if expires_in is not None else settings.jwt_expires_in
-    expire = datetime.now(timezone.utc) + timedelta(seconds=ttl)
+    expire = jwt.datetime.now(timezone.utc) + timedelta(seconds=ttl)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.jwt_secret, algorithm=ALGORITHM)
     return encoded_jwt

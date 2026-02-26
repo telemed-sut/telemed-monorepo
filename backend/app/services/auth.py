@@ -166,9 +166,16 @@ def get_current_user(
         detail="Invalid or expired token",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    raw_token = token or request.cookies.get(settings.auth_cookie_name)
+    cookie_token = request.cookies.get(settings.auth_cookie_name)
+    raw_token = token or cookie_token
     if not raw_token:
         raise credentials_exception
+
+    # CSRF mitigation for cookie-based auth:
+    # when authentication relies on cookies (not Bearer header),
+    # validate request origin on state-changing methods.
+    if token is None and cookie_token:
+        _validate_cookie_csrf(request)
 
     try:
         payload = decode_token(raw_token)
@@ -221,6 +228,38 @@ def get_optional_current_user(
     if user is None or not user.is_active:
         return None
     return user
+
+
+def _validate_cookie_csrf(request: Request) -> None:
+    safe_methods = {"GET", "HEAD", "OPTIONS", "TRACE"}
+    if request.method.upper() in safe_methods:
+        return
+
+    expected_origin = settings.frontend_base_url.rstrip("/")
+    if not expected_origin:
+        return
+
+    origin = request.headers.get("origin")
+    if origin:
+        if origin.rstrip("/") != expected_origin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="CSRF validation failed.",
+            )
+        return
+
+    referer = request.headers.get("referer")
+    if referer:
+        normalized_referer = referer.rstrip("/")
+        if normalized_referer == expected_origin or normalized_referer.startswith(f"{expected_origin}/"):
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CSRF validation failed.",
+        )
+
+    # Non-browser clients may omit origin/referer.
+    return
 
 
 def is_super_admin(user: Optional[User]) -> bool:
@@ -338,7 +377,7 @@ def verify_patient_access_doctor_or_nurse(
     request: Request,
     patient_id: UUID = Path(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_doctor_user),
+    current_user: User = Depends(get_doctor_or_nurse_user),
 ) -> User:
     """Same as verify_patient_access but retained for compatibility."""
     patient_service.verify_doctor_patient_access(

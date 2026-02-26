@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.api import pressure as pressure_api
+from app.models.device_registration import DeviceRegistration
 from app.models.patient import Patient
 
 
@@ -70,6 +71,31 @@ def test_add_pressure_accepts_legacy_signature(client: TestClient, db: Session):
 
     response = client.post("/add_pressure", json=payload, headers=headers)
     assert response.status_code == 201, response.text
+    assert response.json() == {"status": "ok"}
+
+
+def test_device_v1_pressure_success_response_is_minimal(client: TestClient, db: Session):
+    patient = _create_patient(db)
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": "device-minimal-response-001",
+        "heart_rate": 76,
+        "sys_rate": 121,
+        "dia_rate": 80,
+        "a": None,
+        "b": None,
+    }
+    headers = _sign_headers(
+        device_id="device-minimal-response-001",
+        timestamp=str(int(time.time())),
+    )
+
+    response = client.post("/device/v1/pressure", json=payload, headers=headers)
+    assert response.status_code == 201, response.text
+    assert response.json() == {"status": "ok"}
+    assert "id" not in response.json()
+    assert "patient_id" not in response.json()
+    assert "received_at" not in response.json()
 
 
 def test_add_pressure_rejects_header_payload_device_id_mismatch(client: TestClient, db: Session):
@@ -113,7 +139,7 @@ def test_add_pressure_accepts_body_hash_signature(client: TestClient, db: Sessio
     )
     headers["Content-Type"] = "application/json"
 
-    response = client.post("/add_pressure", data=payload_raw, headers=headers)
+    response = client.post("/add_pressure", content=payload_raw, headers=headers)
     assert response.status_code == 201, response.text
 
 
@@ -137,7 +163,7 @@ def test_add_pressure_rejects_invalid_body_hash(client: TestClient, db: Session)
     )
     headers["Content-Type"] = "application/json"
 
-    response = client.post("/add_pressure", data=payload_raw, headers=headers)
+    response = client.post("/add_pressure", content=payload_raw, headers=headers)
     assert response.status_code == 403
     assert "Invalid signature" in response.text
 
@@ -326,11 +352,103 @@ def test_add_pressure_accepts_strict_mode_with_registered_device(client: TestCli
     pressure_api.settings.device_api_require_nonce = True
     pressure_api.settings.device_api_secret = None
     try:
-        response = client.post("/add_pressure", data=payload_raw, headers=headers)
+        response = client.post("/add_pressure", content=payload_raw, headers=headers)
         assert response.status_code == 201, response.text
     finally:
         pressure_api.settings.device_api_secrets = original_secret_map
         pressure_api.settings.device_api_require_registered_device = original_require_registered
         pressure_api.settings.device_api_require_body_hash_signature = original_require_body_hash
         pressure_api.settings.device_api_require_nonce = original_require_nonce
+        pressure_api.settings.device_api_secret = original_global_secret
+
+
+def test_add_pressure_accepts_db_registered_device_and_updates_last_seen(client: TestClient, db: Session):
+    patient = _create_patient(db)
+    device_id = "db-registered-001"
+    device_secret = "db_registered_secret_001_1234567890abcdef123456789"
+    device = DeviceRegistration(
+        device_id=device_id,
+        display_name="Ward Device 01",
+        device_secret=device_secret,
+        is_active=True,
+    )
+    db.add(device)
+    db.commit()
+    db.refresh(device)
+
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": device_id,
+        "heart_rate": 80,
+        "sys_rate": 124,
+        "dia_rate": 81,
+        "a": None,
+        "b": None,
+    }
+    headers = _sign_headers(
+        device_id=device_id,
+        timestamp=str(int(time.time())),
+        secret=device_secret,
+    )
+
+    original_secret_map = dict(pressure_api.settings.device_api_secrets)
+    original_require_registered = pressure_api.settings.device_api_require_registered_device
+    original_global_secret = pressure_api.settings.device_api_secret
+
+    pressure_api.settings.device_api_secrets = {}
+    pressure_api.settings.device_api_require_registered_device = True
+    pressure_api.settings.device_api_secret = None
+    try:
+        response = client.post("/add_pressure", json=payload, headers=headers)
+        assert response.status_code == 201, response.text
+        db.refresh(device)
+        assert device.last_seen_at is not None
+    finally:
+        pressure_api.settings.device_api_secrets = original_secret_map
+        pressure_api.settings.device_api_require_registered_device = original_require_registered
+        pressure_api.settings.device_api_secret = original_global_secret
+
+
+def test_add_pressure_rejects_inactive_registered_device(client: TestClient, db: Session):
+    patient = _create_patient(db)
+    device_id = "db-inactive-001"
+    device_secret = "db_inactive_secret_001_1234567890abcdef1234567890"
+    device = DeviceRegistration(
+        device_id=device_id,
+        display_name="Ward Device Inactive",
+        device_secret=device_secret,
+        is_active=False,
+    )
+    db.add(device)
+    db.commit()
+
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": device_id,
+        "heart_rate": 80,
+        "sys_rate": 124,
+        "dia_rate": 81,
+        "a": None,
+        "b": None,
+    }
+    headers = _sign_headers(
+        device_id=device_id,
+        timestamp=str(int(time.time())),
+        secret=device_secret,
+    )
+
+    original_secret_map = dict(pressure_api.settings.device_api_secrets)
+    original_require_registered = pressure_api.settings.device_api_require_registered_device
+    original_global_secret = pressure_api.settings.device_api_secret
+
+    pressure_api.settings.device_api_secrets = {}
+    pressure_api.settings.device_api_require_registered_device = True
+    pressure_api.settings.device_api_secret = None
+    try:
+        response = client.post("/add_pressure", json=payload, headers=headers)
+        assert response.status_code == 403
+        assert "Invalid signature" in response.text
+    finally:
+        pressure_api.settings.device_api_secrets = original_secret_map
+        pressure_api.settings.device_api_require_registered_device = original_require_registered
         pressure_api.settings.device_api_secret = original_global_secret

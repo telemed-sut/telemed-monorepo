@@ -1,26 +1,28 @@
-"use client";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { fetchCurrentUserRoleServer } from "@/app/server-api";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuthStore } from "@/store/auth-store";
+const AUTH_COOKIE_NAME = "access_token";
 
-export default function AdminLayout({
+export default async function AdminLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const router = useRouter();
-  const token = useAuthStore((state) => state.token);
-  const role = useAuthStore((state) => state.role);
-  const hydrated = useAuthStore((state) => state.hydrated);
+  const cookieStore = await cookies();
+  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+  if (!token) {
+    redirect("/login");
+  }
 
-  useEffect(() => {
-    if (hydrated && token && role && role !== "admin") {
-      router.replace("/overview");
-    }
-  }, [hydrated, token, role, router]);
+  const role = await fetchCurrentUserRoleServer(token);
+  if (!role) {
+    redirect("/login");
+  }
 
-  if (!hydrated || !token || role !== "admin") return null;
+  if (role !== "admin") {
+    redirect("/overview");
+  }
 
   return <>{children}</>;
 }

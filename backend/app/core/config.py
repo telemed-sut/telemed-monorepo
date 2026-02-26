@@ -45,12 +45,13 @@ class Settings(BaseSettings):
     ip_ban_duration_minutes: int = 30
     ip_attempt_window_minutes: int = 15
     security_whitelisted_ips: str = "127.0.0.1,::1"
+    trusted_proxy_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
     security_403_spike_threshold_1h: int = 25
     
     # Device API Security
     device_api_secret: str | None = None
     device_api_secrets: Dict[str, str] = {}
-    device_api_allow_jwt_secret_fallback: bool = True
+    device_api_allow_jwt_secret_fallback: bool = False
     device_api_require_registered_device: bool = False
     device_api_require_body_hash_signature: bool = False
     device_api_require_nonce: bool = False
@@ -71,6 +72,7 @@ class Settings(BaseSettings):
         "rate_limit_whitelist",
         "super_admin_emails",
         "admin_unlock_whitelisted_ips",
+        "trusted_proxy_ips",
         mode="before",
     )
     @classmethod
@@ -175,29 +177,26 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def apply_device_api_secret_fallback(self):
-        # Backward-compatible fallback for legacy environments.
-        # In production, set DEVICE_API_ALLOW_JWT_SECRET_FALLBACK=false.
-        if not self.device_api_secret:
-            if self.device_api_allow_jwt_secret_fallback:
-                self.device_api_secret = self.jwt_secret
-            elif not self.device_api_secrets:
-                raise ValueError(
-                    "DEVICE_API_SECRET is required when DEVICE_API_ALLOW_JWT_SECRET_FALLBACK=false and DEVICE_API_SECRETS is empty."
-                )
+        if self.device_api_allow_jwt_secret_fallback:
+            raise ValueError("DEVICE_API_ALLOW_JWT_SECRET_FALLBACK is not allowed for security reasons.")
+
+        if not self.device_api_secret and not self.device_api_secrets and not self.device_api_require_registered_device:
+            raise ValueError(
+                "DEVICE_API_SECRET is required when DEVICE_API_SECRETS is empty and DEVICE_API_REQUIRE_REGISTERED_DEVICE=false."
+            )
 
         if self.device_api_secret is not None:
             value = self.device_api_secret.strip()
             if not value:
-                if not self.device_api_secrets:
+                if not self.device_api_secrets and not self.device_api_require_registered_device:
                     raise ValueError("DEVICE_API_SECRET is required when DEVICE_API_SECRETS is empty.")
                 self.device_api_secret = None
             else:
                 self.device_api_secret = value
 
-        if self.device_api_require_registered_device and not self.device_api_secrets:
-            raise ValueError(
-                "DEVICE_API_REQUIRE_REGISTERED_DEVICE=true requires DEVICE_API_SECRETS to be configured."
-            )
+        if self.frontend_base_url.startswith("https://") and not self.auth_cookie_secure:
+            raise ValueError("AUTH_COOKIE_SECURE must be true when FRONTEND_BASE_URL is HTTPS.")
+
         return self
 
     model_config = {

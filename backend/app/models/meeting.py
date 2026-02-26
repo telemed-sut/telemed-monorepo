@@ -12,7 +12,7 @@ class Meeting(Base):
     __tablename__ = "meetings"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    date_time = Column(DateTime(timezone=True), nullable=True)
+    date_time = Column(DateTime(timezone=True), nullable=True, index=True)
     description = Column(Text, nullable=True)
     doctor_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     note = Column(Text, nullable=True)
