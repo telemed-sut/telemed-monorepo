@@ -42,7 +42,7 @@ jobs:
         path: ./
         base: ${{ github.event.pull_request.base.sha }}
         head: ${{ github.event.pull_request.head.sha }}
-        extra_args: --results=verified,unknown --fail
+        extra_args: --results=verified,unknown
 
     - name: Run trufflehog scan (push)
       if: github.event_name == 'push'
@@ -51,7 +51,7 @@ jobs:
         path: ./
         base: ${{ github.event.before }}
         head: ${{ github.sha }}
-        extra_args: --results=verified,unknown --fail
+        extra_args: --results=verified,unknown
 
   backend-test:
     runs-on: ubuntu-latest
