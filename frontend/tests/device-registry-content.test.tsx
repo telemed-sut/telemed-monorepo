@@ -114,7 +114,7 @@ describe("DeviceRegistryContent", () => {
   it("renders registered device list after loading", async () => {
     await renderDeviceRegistry();
     await waitFor(() => expect(mockFetchDeviceRegistrations).toHaveBeenCalledTimes(1));
-    expect(await screen.findByRole("button", { name: /rotate/i })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /^delete$/i })).toBeTruthy();
     expect(await screen.findByRole("button", { name: /^disable$/i })).toBeTruthy();
   });
 

@@ -1740,14 +1740,9 @@ export interface DeviceRegistrationUpdatePayload {
   is_active?: boolean;
 }
 
-export interface DeviceRegistrationRotateSecretPayload {
-  device_secret?: string;
-}
-
-export interface DeviceRegistrationRotateSecretResponse {
+export interface DeviceRegistrationDeleteResponse {
   message: string;
-  device_secret: string;
-  rotated_at: string;
+  device_id: string;
 }
 
 export async function fetchDeviceRegistrations(
@@ -1782,14 +1777,10 @@ export async function updateDeviceRegistration(
   );
 }
 
-export async function rotateDeviceRegistrationSecret(
-  deviceId: string,
-  payload: DeviceRegistrationRotateSecretPayload,
-  token: string,
-) {
-  return apiFetch<DeviceRegistrationRotateSecretResponse>(
-    `/security/devices/${encodeURIComponent(deviceId)}/rotate-secret`,
-    { method: "POST", body: JSON.stringify(payload) },
+export async function deleteDeviceRegistration(deviceId: string, token: string) {
+  return apiFetch<DeviceRegistrationDeleteResponse>(
+    `/security/devices/${encodeURIComponent(deviceId)}`,
+    { method: "DELETE" },
     token,
   );
 }

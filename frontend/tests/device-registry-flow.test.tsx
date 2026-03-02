@@ -12,7 +12,6 @@ const {
   mockFetchDeviceRegistrations,
   mockCreateDeviceRegistration,
   mockUpdateDeviceRegistration,
-  mockRotateDeviceRegistrationSecret,
   mockGetErrorMessage,
   mockClipboardWriteText,
   mockAuthState,
@@ -29,7 +28,6 @@ const {
     mockFetchDeviceRegistrations: vi.fn(),
     mockCreateDeviceRegistration: vi.fn(),
     mockUpdateDeviceRegistration: vi.fn(),
-    mockRotateDeviceRegistrationSecret: vi.fn(),
     mockGetErrorMessage: vi.fn(),
     mockClipboardWriteText: vi.fn(),
     mockAuthState: {
@@ -73,7 +71,6 @@ vi.mock("@/lib/api", async (importOriginal) => {
     fetchDeviceRegistrations: mockFetchDeviceRegistrations,
     createDeviceRegistration: mockCreateDeviceRegistration,
     updateDeviceRegistration: mockUpdateDeviceRegistration,
-    rotateDeviceRegistrationSecret: mockRotateDeviceRegistrationSecret,
     getErrorMessage: mockGetErrorMessage,
   };
 });
@@ -116,11 +113,6 @@ beforeEach(() => {
   mockCreateDeviceRegistration.mockResolvedValue({
     device: makeDevice({ id: "d-2", device_id: "ward-bp-002", display_name: "Ward BP Device 02" }),
     device_secret: "generated-secret-123",
-  });
-  mockRotateDeviceRegistrationSecret.mockResolvedValue({
-    message: "rotated",
-    device_secret: "new-secret-value",
-    rotated_at: "2026-02-25T08:00:00.000Z",
   });
   mockUpdateDeviceRegistration.mockResolvedValue(makeDevice({ is_active: false }));
 });
