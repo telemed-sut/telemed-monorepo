@@ -1,0 +1,61 @@
+meta {
+  name: 3) Admin Delete Device
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/security/devices/{{deviceId}}
+  body: none
+  auth: inherit
+}
+
+headers {
+  Authorization: Bearer {{adminToken}}
+}
+
+script:pre-request {
+  const baseUrl = (bru.getEnvVar("baseUrl") || "").trim();
+  const deviceId = (bru.getEnvVar("deviceId") || "").trim();
+  if (!baseUrl) {
+    throw new Error('Please set Bruno Environment variable "baseUrl".');
+  }
+  if (!deviceId) {
+    throw new Error('Please set Bruno Environment variable "deviceId" first (run "1) Admin Register Device").');
+  }
+
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  if (typeof req.setUrl === "function") {
+    req.setUrl(`${normalizedBaseUrl}/security/devices/${encodeURIComponent(deviceId)}`);
+  }
+}
+
+script:post-response {
+  const status = res.getStatus();
+  const rawBody = res.getBody();
+  const body = typeof rawBody === "string" ? JSON.parse(rawBody) : rawBody;
+
+  if (status === 405) {
+    throw new Error(
+      'HTTP 405 Method Not Allowed: backend instance ยังไม่รองรับ DELETE /security/devices/{device_id}. ให้ pull latest + restart backend ก่อน แล้วลองใหม่.'
+    );
+  }
+
+  if (status !== 200) {
+    const detail = body?.detail ? ` (${body.detail})` : "";
+    throw new Error(`Expected HTTP 200 OK, got ${status}${detail}`);
+  }
+
+  if (!body?.device_id) {
+    throw new Error("Expected response to include device_id.");
+  }
+}
+
+settings {
+  encodeUrl: true
+  timeout: 0
+}
+
+docs {
+  Delete current {{deviceId}} from device registry.
+}

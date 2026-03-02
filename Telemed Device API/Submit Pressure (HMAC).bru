@@ -88,7 +88,7 @@ script:post-response {
 
   if (status === 403 && body?.detail === "Invalid signature") {
     throw new Error(
-      '403 Invalid signature: check env "deviceId" + "deviceSecret" must be a matched pair from registered device. If unsure, rotate secret and retry.'
+      '403 Invalid signature: check env "deviceId" + "deviceSecret" must be a matched pair from registered device (from step 1).'
     );
   }
 
