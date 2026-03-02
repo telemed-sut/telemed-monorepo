@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
-  Copy,
   Trash2,
-  KeyRound,
   MoreHorizontal,
   Power,
   PowerOff,
@@ -54,12 +52,6 @@ const DEVICE_REGISTRY_AUTO_REFRESH_MS = 15_000;
 
 type DeviceFilter = "all" | "active" | "inactive";
 
-interface SecretReveal {
-  deviceId: string;
-  secret: string;
-  timestamp: string;
-}
-
 type PendingAction =
   | {
       kind: "toggle" | "delete";
@@ -103,7 +95,6 @@ export function DeviceRegistryContent() {
   const [deviceId, setDeviceId] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [notes, setNotes] = useState("");
-  const [latestSecret, setLatestSecret] = useState<SecretReveal | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
@@ -208,7 +199,7 @@ export function DeviceRegistryContent() {
 
     setSubmitting(true);
     try {
-      const created = await createDeviceRegistration(
+      await createDeviceRegistration(
         {
           device_id: normalizedDeviceId,
           display_name: normalizedName,
@@ -217,11 +208,6 @@ export function DeviceRegistryContent() {
         },
         token,
       );
-      setLatestSecret({
-        deviceId: created.device.device_id,
-        secret: created.device_secret,
-        timestamp: new Date().toISOString(),
-      });
       resetForm();
       toast.success(tr(language, "Device registered successfully", "ลงทะเบียนอุปกรณ์สำเร็จแล้ว"));
       setPage(1);
@@ -284,16 +270,6 @@ export function DeviceRegistryContent() {
     setConfirmOpen(open);
     if (!open) {
       setPendingAction(null);
-    }
-  };
-
-  const handleCopySecret = async () => {
-    if (!latestSecret?.secret) return;
-    try {
-      await navigator.clipboard.writeText(latestSecret.secret);
-      toast.success(tr(language, "Secret copied", "คัดลอกรหัสลับแล้ว"));
-    } catch {
-      toast.error(tr(language, "Unable to copy secret", "ไม่สามารถคัดลอกรหัสลับได้"));
     }
   };
 
@@ -361,41 +337,6 @@ export function DeviceRegistryContent() {
             </div>
           </CardHeader>
         </Card>
-
-        {latestSecret && (
-          <Card className="border-amber-300 bg-amber-50/80">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl text-amber-900">
-                <KeyRound className="size-5" />
-                {tr(language, "One-time Secret (Save now)", "รหัสลับแบบแสดงครั้งเดียว (ให้บันทึกตอนนี้)")}
-              </CardTitle>
-              <CardDescription className="text-base text-amber-900/85">
-                {tr(
-                  language,
-                  "Show this secret to the device team once. It will not appear again in this UI.",
-                  "ให้ส่งรหัสนี้กับทีมอุปกรณ์เพียงครั้งเดียว หลังจากนี้จะไม่แสดงซ้ำในหน้านี้",
-                )}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="rounded-xl border border-amber-300 bg-white p-4">
-                <p className="text-sm text-slate-600">
-                  {tr(language, "Device", "อุปกรณ์")}: <span className="font-semibold text-slate-900">{latestSecret.deviceId}</span>
-                </p>
-                <p className="mt-1 text-sm text-slate-600">
-                  {tr(language, "Generated", "สร้างเมื่อ")}: {formatDateTime(latestSecret.timestamp, language)}
-                </p>
-                <p className="mt-4 break-all rounded-lg bg-slate-900 px-3 py-3 font-mono text-sm text-emerald-300">
-                  {latestSecret.secret}
-                </p>
-              </div>
-              <Button type="button" onClick={handleCopySecret} className="h-12 px-6 text-base">
-                <Copy className="mr-2 size-4" />
-                {tr(language, "Copy secret", "คัดลอกรหัสลับ")}
-              </Button>
-            </CardContent>
-          </Card>
-        )}
 
         <Card>
           <CardHeader>

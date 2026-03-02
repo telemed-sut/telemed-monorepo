@@ -13,7 +13,6 @@ const {
   mockCreateDeviceRegistration,
   mockUpdateDeviceRegistration,
   mockGetErrorMessage,
-  mockClipboardWriteText,
   mockAuthState,
   mockLanguageState,
 } = vi.hoisted(() => {
@@ -29,7 +28,6 @@ const {
     mockCreateDeviceRegistration: vi.fn(),
     mockUpdateDeviceRegistration: vi.fn(),
     mockGetErrorMessage: vi.fn(),
-    mockClipboardWriteText: vi.fn(),
     mockAuthState: {
       token: "test-token",
       hydrated: true,
@@ -97,11 +95,6 @@ async function renderDeviceRegistry() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  Object.assign(navigator, {
-    clipboard: {
-      writeText: mockClipboardWriteText,
-    },
-  });
 
   mockGetErrorMessage.mockReturnValue("api error");
   mockFetchDeviceRegistrations.mockResolvedValue({
@@ -122,7 +115,7 @@ afterEach(() => {
 });
 
 describe("Device registry flow", () => {
-  it("registers a device and allows copying one-time secret", async () => {
+  it("registers a device", async () => {
     await renderDeviceRegistry();
     await screen.findByText("Ward BP Device 01");
 
@@ -149,17 +142,9 @@ describe("Device registry flow", () => {
         "test-token",
       );
     });
-
-    expect(screen.getByText("One-time Secret (Save now)")).toBeInTheDocument();
-    expect(screen.getByText("generated-secret-123")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /copy secret/i }));
-
     await waitFor(() => {
-      expect(mockClipboardWriteText).toHaveBeenCalledWith("generated-secret-123");
+      expect(mockToastSuccess).toHaveBeenCalledWith("Device registered successfully");
     });
-    await waitFor(() => {
-      expect(mockToastSuccess).toHaveBeenCalledWith("Secret copied");
-    });
+    expect(screen.queryByText("One-time Secret (Save now)")).toBeNull();
   });
 });
