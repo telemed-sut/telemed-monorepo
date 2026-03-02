@@ -131,7 +131,7 @@ describe("DeviceRegistryContent", () => {
     await renderDeviceRegistry();
     await screen.findByText("Ward BP Device 01");
 
-    fireEvent.click(screen.getByRole("button", { name: /refresh/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^refresh$/i }));
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith("Unable to load device list", {

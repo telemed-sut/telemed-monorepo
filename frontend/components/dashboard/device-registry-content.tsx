@@ -50,6 +50,7 @@ import { toast } from "@/components/ui/toast";
 
 const tr = (language: AppLanguage, en: string, th: string) => (language === "th" ? th : en);
 const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
+const DEVICE_REGISTRY_AUTO_REFRESH_MS = 15_000;
 
 type DeviceFilter = "all" | "active" | "inactive";
 
@@ -105,6 +106,7 @@ export function DeviceRegistryContent() {
   const [latestSecret, setLatestSecret] = useState<SecretReveal | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
 
   const pageSize = 20;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -176,6 +178,17 @@ export function DeviceRegistryContent() {
     }, 300);
     return () => window.clearTimeout(timer);
   }, [searchInput]);
+
+  useEffect(() => {
+    if (!token || !autoRefreshEnabled) return;
+
+    const intervalId = window.setInterval(() => {
+      if (loading || refreshing || submitting || Boolean(savingId) || confirmOpen) return;
+      void loadDevices({ silent: true, showErrorToast: false });
+    }, DEVICE_REGISTRY_AUTO_REFRESH_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [token, autoRefreshEnabled, loading, refreshing, submitting, savingId, confirmOpen, loadDevices]);
 
   const resetForm = () => {
     setDeviceId("");
@@ -442,16 +455,29 @@ export function DeviceRegistryContent() {
                   {tr(language, "Search and activate/deactivate devices.", "ค้นหา และเปิด/ปิดการใช้งานอุปกรณ์")}
                 </CardDescription>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void loadDevices({ silent: true, showErrorToast: true })}
-                className="h-11 px-4 text-base"
-                disabled={refreshing}
-              >
-                <RefreshCw className={cn("mr-2 size-4", refreshing && "animate-spin")} />
-                {tr(language, "Refresh", "รีเฟรช")}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant={autoRefreshEnabled ? "default" : "outline"}
+                  onClick={() => setAutoRefreshEnabled((prev) => !prev)}
+                  className="h-11 px-4 text-base"
+                >
+                  <RefreshCw className={cn("mr-2 size-4", autoRefreshEnabled && "animate-spin")} />
+                  {autoRefreshEnabled
+                    ? tr(language, "Auto refresh on", "รีเฟรชอัตโนมัติ: เปิด")
+                    : tr(language, "Auto refresh off", "รีเฟรชอัตโนมัติ: ปิด")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void loadDevices({ silent: true, showErrorToast: true })}
+                  className="h-11 px-4 text-base"
+                  disabled={refreshing}
+                >
+                  <RefreshCw className={cn("mr-2 size-4", refreshing && "animate-spin")} />
+                  {tr(language, "Refresh", "รีเฟรช")}
+                </Button>
+              </div>
             </div>
             <div className="grid gap-3 md:grid-cols-[1fr_auto]">
               <div className="relative">
