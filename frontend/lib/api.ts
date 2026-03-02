@@ -171,6 +171,10 @@ const INTERNAL_ERROR_PATTERN =
 
 const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /access denied|permission denied|forbidden/i, message: "คุณไม่มีสิทธิ์ทำรายการนี้" },
+  {
+    pattern: /doctors?\s+can\s+only\s+create\s+meetings?\s+for\s+assigned\s+patients?\.?/i,
+    message: "แพทย์สามารถสร้างนัดหมายได้เฉพาะผู้ป่วยที่ได้รับมอบหมายเท่านั้น",
+  },
   { pattern: /super admin only/i, message: "รายการนี้ทำได้เฉพาะผู้ดูแลระดับสูงเท่านั้น" },
   { pattern: /user not found|not found/i, message: "ไม่พบข้อมูลผู้ใช้ที่ต้องการ" },
   { pattern: /already exists|already in use|already assigned/i, message: "ข้อมูลนี้มีอยู่แล้วในระบบ" },

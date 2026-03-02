@@ -30,14 +30,9 @@ def create_meeting(
     if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Doctors can create meetings only for assigned patients, and doctor_id is always self.
+    # Doctors always create meetings under their own account.
     if current_user.role == UserRole.doctor:
         payload.doctor_id = current_user.id
-        if not meeting_service.is_patient_assigned_to_doctor(db, current_user.id, payload.user_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Doctors can only create meetings for assigned patients.",
-            )
 
     meeting = meeting_service.create_meeting(db, payload)
     return meeting
@@ -127,14 +122,6 @@ def update_meeting(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Doctors cannot reassign meetings to another doctor.",
-            )
-
-        if payload.user_id and not meeting_service.is_patient_assigned_to_doctor(
-            db, current_user.id, payload.user_id
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Doctors can only assign meetings to patients in their care team.",
             )
 
     updated = meeting_service.update_meeting(db, meeting, payload, actor_id=current_user.id)

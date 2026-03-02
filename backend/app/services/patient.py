@@ -441,10 +441,8 @@ def list_patients_for_user(
     order: str,
 ) -> Tuple[List[Patient], int]:
     """List patients with role-aware filtering enforced in service layer."""
-    if current_user.role == UserRole.admin:
+    if current_user.role in (UserRole.admin, UserRole.doctor):
         doctor_id: Optional[UUID] = None
-    elif current_user.role == UserRole.doctor:
-        doctor_id = current_user.id
     else:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

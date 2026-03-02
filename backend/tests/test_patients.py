@@ -196,7 +196,7 @@ def test_staff_is_forbidden_on_patient_endpoints(client: TestClient, db: Session
     assert client.put(f"/patients/{patient_id}", json={"first_name": "No"}, headers=staff_headers).status_code == 403
 
 
-def test_doctor_list_only_assigned_patients(client: TestClient, db: Session):
+def test_doctor_list_includes_unassigned_patients(client: TestClient, db: Session):
     doctor = create_test_user(db, UserRole.doctor)
     admin = create_test_user(db, UserRole.admin)
 
@@ -225,7 +225,7 @@ def test_doctor_list_only_assigned_patients(client: TestClient, db: Session):
     items = list_response.json()["items"]
     ids = {item["id"] for item in items}
     assert assigned_id in ids
-    assert unassigned_id not in ids
+    assert unassigned_id in ids
 
 
 def test_doctor_get_unassigned_patient_is_blocked(client: TestClient, db: Session):
