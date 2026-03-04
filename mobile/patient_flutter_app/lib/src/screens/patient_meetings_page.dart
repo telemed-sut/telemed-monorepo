@@ -1,0 +1,495 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../config/app_config.dart';
+import '../models/patient_auth.dart';
+import '../models/patient_invite_link.dart';
+import '../services/patient_auth_api_client.dart';
+import '../services/patient_video_api_client.dart';
+import '../services/auth_storage.dart';
+import 'patient_login_page.dart';
+import 'patient_video_room_page.dart';
+
+/// Displays the patient's upcoming meetings with a "เข้าห้อง" (Join) button.
+class PatientMeetingsPage extends StatefulWidget {
+  const PatientMeetingsPage({super.key});
+
+  @override
+  State<PatientMeetingsPage> createState() => _PatientMeetingsPageState();
+}
+
+class _PatientMeetingsPageState extends State<PatientMeetingsPage>
+    with WidgetsBindingObserver {
+  List<PatientMeeting>? _meetings;
+  bool _isLoading = true;
+  String? _errorMessage;
+  String _patientName = '';
+  String? _joiningMeetingId;
+
+  /// Polling interval for silent background refresh.
+  static const _pollInterval = Duration(seconds: 1);
+  Timer? _pollTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadData();
+    _startPolling();
+  }
+
+  @override
+  void dispose() {
+    _stopPolling();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _silentRefresh();
+      _startPolling();
+    } else if (state == AppLifecycleState.paused) {
+      _stopPolling();
+    }
+  }
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(_pollInterval, (_) => _silentRefresh());
+  }
+
+  void _stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  /// Refresh meetings in the background without showing a loading spinner.
+  Future<void> _silentRefresh() async {
+    final token = await AuthStorage.getToken();
+    if (token == null || token.isEmpty) return;
+
+    try {
+      final client = PatientAuthApiClient(
+        baseUrl: AppConfig.telemedApiBaseUrl,
+      );
+      final meetings = await client.getMyMeetings(token);
+      if (!mounted) return;
+      setState(() {
+        _meetings = meetings;
+        _errorMessage = null;
+      });
+    } on PatientAuthApiException catch (e) {
+      if (e.statusCode == 401) {
+        await AuthStorage.clearSession();
+        if (mounted) _navigateToLogin();
+      }
+      // Silently ignore other errors during background poll.
+    } catch (_) {
+      // Silently ignore — don't overwrite the UI with an error on background poll.
+    }
+  }
+
+  Future<void> _loadData() async {
+    final token = await AuthStorage.getToken();
+    final name = await AuthStorage.getPatientName();
+
+    if (token == null || token.isEmpty) {
+      if (mounted) _navigateToLogin();
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+      _patientName = name ?? '';
+    });
+
+    try {
+      final client = PatientAuthApiClient(
+        baseUrl: AppConfig.telemedApiBaseUrl,
+      );
+      final meetings = await client.getMyMeetings(token);
+      if (!mounted) return;
+      setState(() {
+        _meetings = meetings;
+        _isLoading = false;
+      });
+    } on PatientAuthApiException catch (e) {
+      if (e.statusCode == 401) {
+        await AuthStorage.clearSession();
+        if (mounted) _navigateToLogin();
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = e.message;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _errorMessage = 'เกิดข้อผิดพลาด: $e';
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _navigateToLogin() {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const PatientLoginPage()),
+      (_) => false,
+    );
+  }
+
+  Future<void> _handleLogout() async {
+    await AuthStorage.clearSession();
+    if (mounted) _navigateToLogin();
+  }
+
+  Future<void> _handleJoinMeeting(PatientMeeting meeting) async {
+    final inviteUrl = meeting.patientInviteUrl;
+    if (inviteUrl == null || inviteUrl.isEmpty) {
+      _showSnackBar('ลิงก์เข้าห้องยังไม่พร้อม กรุณารอแพทย์สร้างลิงก์');
+      return;
+    }
+
+    final invite = PatientInviteLink.tryParse(inviteUrl);
+    if (invite == null || !invite.canJoin) {
+      _showSnackBar('ลิงก์เข้าห้องไม่ถูกต้อง');
+      return;
+    }
+
+    setState(() => _joiningMeetingId = meeting.meetingId);
+
+    try {
+      final apiClient = PatientVideoApiClient(
+        baseUrl: AppConfig.telemedApiBaseUrl,
+      );
+      final session = await apiClient.issuePatientVideoToken(
+        meetingId: invite.meetingId,
+        inviteToken: invite.inviteToken,
+        shortCode: invite.shortCode,
+      );
+
+      if (!mounted) return;
+
+      if (session.provider != 'zego') {
+        _showSnackBar('ระบบวิดีโอไม่รองรับ');
+        return;
+      }
+
+      final patientName = _patientName.isNotEmpty ? _patientName : 'คนไข้';
+
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => PatientVideoRoomPage(
+            session: session,
+            displayName: patientName,
+            startWithCamera: true,
+            startWithMicrophone: true,
+          ),
+        ),
+      );
+    } on PatientVideoApiException catch (e) {
+      if (mounted) _showSnackBar(e.message);
+    } catch (_) {
+      if (mounted) _showSnackBar('ไม่สามารถเข้าห้องได้ กรุณาลองใหม่');
+    } finally {
+      if (mounted) setState(() => _joiningMeetingId = null);
+    }
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'นัดหมายของฉัน',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            if (_patientName.isNotEmpty)
+              Text(
+                _patientName,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _isLoading ? null : _loadData,
+            tooltip: 'รีเฟรช',
+          ),
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'logout') _handleLogout();
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'logout',
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, size: 20),
+                    SizedBox(width: 8),
+                    Text('ออกจากระบบ'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      body: _buildBody(theme),
+    );
+  }
+
+  Widget _buildBody(ThemeData theme) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.error_outline,
+                  size: 48, color: theme.colorScheme.error),
+              const SizedBox(height: 16),
+              Text(
+                _errorMessage!,
+                style: TextStyle(color: theme.colorScheme.error),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _loadData,
+                icon: const Icon(Icons.refresh),
+                label: const Text('ลองใหม่'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final meetings = _meetings ?? [];
+    if (meetings.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.calendar_today,
+                  size: 48,
+                  color: theme.colorScheme.primary.withValues(alpha: 0.4)),
+              const SizedBox(height: 16),
+              Text(
+                'ยังไม่มีนัดหมาย',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'เมื่อแพทย์สร้างนัดหมายให้ จะแสดงที่นี่',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: meetings.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (context, index) {
+          final meeting = meetings[index];
+          return _MeetingCard(
+            meeting: meeting,
+            isJoining: _joiningMeetingId == meeting.meetingId,
+            onJoin: () => _handleJoinMeeting(meeting),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MeetingCard extends StatelessWidget {
+  const _MeetingCard({
+    required this.meeting,
+    required this.isJoining,
+    required this.onJoin,
+  });
+
+  final PatientMeeting meeting;
+  final bool isJoining;
+  final VoidCallback onJoin;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasInvite =
+        meeting.patientInviteUrl != null && meeting.patientInviteUrl!.isNotEmpty;
+    final isScheduled = meeting.status == 'scheduled';
+    final canJoin = hasInvite && isScheduled;
+
+    // Parse date
+    String formattedDate;
+    try {
+      final dt = DateTime.parse(meeting.dateTime).toLocal();
+      formattedDate =
+          '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')} น.';
+    } catch (_) {
+      formattedDate = meeting.dateTime;
+    }
+
+    final statusColor = switch (meeting.status) {
+      'scheduled' => const Color(0xFF2563EB),
+      'completed' => const Color(0xFF16A34A),
+      'cancelled' => const Color(0xFFDC2626),
+      _ => const Color(0xFF6B7280),
+    };
+
+    final statusLabel = switch (meeting.status) {
+      'scheduled' => 'นัดหมาย',
+      'completed' => 'เสร็จสิ้น',
+      'cancelled' => 'ยกเลิก',
+      _ => meeting.status,
+    };
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Doctor + status row
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor:
+                      theme.colorScheme.primary.withValues(alpha: 0.1),
+                  child: Icon(Icons.medical_services_outlined,
+                      color: theme.colorScheme.primary, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        meeting.doctorName,
+                        style: theme.textTheme.titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(Icons.schedule,
+                              size: 14,
+                              color: theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.5)),
+                          const SizedBox(width: 4),
+                          Text(
+                            formattedDate,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.6),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    statusLabel,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            // Join button
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: FilledButton.icon(
+                onPressed: canJoin && !isJoining ? onJoin : null,
+                icon: isJoining
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.videocam_rounded, size: 20),
+                label: Text(
+                  canJoin
+                      ? (isJoining ? 'กำลังเข้า...' : 'เข้าห้อง')
+                      : (!hasInvite
+                          ? 'รอแพทย์สร้างลิงก์'
+                          : (!isScheduled ? statusLabel : 'เข้าห้อง')),
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  backgroundColor:
+                      canJoin ? theme.colorScheme.primary : null,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
