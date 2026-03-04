@@ -360,8 +360,8 @@ class _MeetingCard extends StatelessWidget {
     final theme = Theme.of(context);
     final hasInvite =
         meeting.patientInviteUrl != null && meeting.patientInviteUrl!.isNotEmpty;
-    final isScheduled = meeting.status == 'scheduled';
-    final canJoin = hasInvite && isScheduled;
+    final isJoinable = meeting.status == 'scheduled' || meeting.status == 'in_progress';
+    final canJoin = hasInvite && isJoinable;
 
     // Parse date
     String formattedDate;
@@ -375,13 +375,15 @@ class _MeetingCard extends StatelessWidget {
 
     final statusColor = switch (meeting.status) {
       'scheduled' => const Color(0xFF2563EB),
-      'completed' => const Color(0xFF16A34A),
+      'in_progress' => const Color(0xFF16A34A),
+      'completed' => const Color(0xFF6B7280),
       'cancelled' => const Color(0xFFDC2626),
       _ => const Color(0xFF6B7280),
     };
 
     final statusLabel = switch (meeting.status) {
       'scheduled' => 'นัดหมาย',
+      'in_progress' => 'กำลังดำเนินการ',
       'completed' => 'เสร็จสิ้น',
       'cancelled' => 'ยกเลิก',
       _ => meeting.status,
@@ -475,7 +477,7 @@ class _MeetingCard extends StatelessWidget {
                       ? (isJoining ? 'กำลังเข้า...' : 'เข้าห้อง')
                       : (!hasInvite
                           ? 'รอแพทย์สร้างลิงก์'
-                          : (!isScheduled ? statusLabel : 'เข้าห้อง')),
+                          : (!isJoinable ? statusLabel : 'เข้าห้อง')),
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
                 style: FilledButton.styleFrom(

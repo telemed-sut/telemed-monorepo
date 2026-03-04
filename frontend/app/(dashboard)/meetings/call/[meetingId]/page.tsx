@@ -46,6 +46,11 @@ function isExpectedZegoConsoleNoise(message: string): boolean {
     normalized.includes("[zegoroommobile]createstream error") ||
     normalized.includes("a user gesture is required") ||
     normalized.includes("notallowederror") ||
+    normalized.includes("notfounderror") ||
+    normalized.includes("requested device not found") ||
+    normalized.includes("createStream or publishLocalStream failed".toLowerCase()) ||
+    normalized.includes("\"errorcode\":1103061") ||
+    normalized.includes("get media fail") ||
     normalized.includes("setsinkid") ||
     normalized.includes("\"code\":1104036")
   );
@@ -84,6 +89,101 @@ function isExpectedMediaPermissionNoise(reason: unknown): boolean {
     normalized.includes("setsinkid") ||
     normalized.includes("zego")
   );
+}
+
+type DoctorMediaWarmupPreference = {
+  allowCamera: boolean;
+  allowMicrophone: boolean;
+  hint: string | null;
+};
+
+function warmupDoctorMediaDevices(
+  language: AppLanguage
+): Promise<DoctorMediaWarmupPreference> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return Promise.resolve({
+      allowCamera: false,
+      allowMicrophone: false,
+      hint: tr(
+        language,
+        "This browser cannot access camera/microphone APIs. You can still join muted and retry in call controls.",
+        "เบราว์เซอร์นี้ไม่รองรับการเข้าถึงกล้อง/ไมค์ เข้าห้องแบบปิดไมค์ก่อนได้ และค่อยลองเปิดใหม่ในปุ่มควบคุมคอล"
+      ),
+    });
+  }
+
+  return navigator.mediaDevices
+    .getUserMedia({
+      video: {
+        facingMode: "user",
+      },
+      audio: true,
+    })
+    .then((stream) => {
+      stream.getTracks().forEach((track) => {
+        track.stop();
+      });
+      return {
+        allowCamera: true,
+        allowMicrophone: true,
+        hint: null,
+      };
+    })
+    .catch((error: unknown) => {
+      const normalized = stringifyErrorReason(error).toLowerCase();
+      if (
+        normalized.includes("notallowederror") ||
+        normalized.includes("permission denied") ||
+        normalized.includes("permission")
+      ) {
+        return {
+          allowCamera: false,
+          allowMicrophone: false,
+          hint: tr(
+            language,
+            "Camera/Mic permission is not allowed yet. Joined in muted mode; allow permission from browser settings, then enable devices in call controls.",
+            "ยังไม่ได้อนุญาตกล้อง/ไมค์ เข้าห้องแบบปิดอุปกรณ์ก่อน แล้วอนุญาตจากการตั้งค่าเบราว์เซอร์ก่อนกลับมาเปิดที่ปุ่มควบคุมคอล"
+          ),
+        };
+      }
+
+      if (
+        normalized.includes("notfounderror") ||
+        normalized.includes("overconstrainederror")
+      ) {
+        return {
+          allowCamera: false,
+          allowMicrophone: false,
+          hint: tr(
+            language,
+            "No usable camera/mic was found on this device right now. Join muted and retry camera later.",
+            "ไม่พบกล้อง/ไมค์ที่ใช้งานได้ในอุปกรณ์นี้ตอนนี้ เข้าห้องแบบปิดอุปกรณ์ก่อน และลองเปิดใหม่ภายหลัง"
+          ),
+        };
+      }
+
+      if (normalized.includes("user gesture")) {
+        return {
+          allowCamera: false,
+          allowMicrophone: false,
+          hint: tr(
+            language,
+            "Browser requires a user interaction before media can start. Joined muted; tap camera/mic in call controls to retry.",
+            "เบราว์เซอร์ต้องมีการกดจากผู้ใช้ก่อนเริ่มกล้อง/ไมค์ จึงเข้าห้องแบบปิดอุปกรณ์ก่อน แล้วกดปุ่มกล้อง/ไมค์ในคอลเพื่อเริ่มใหม่"
+          ),
+        };
+      }
+
+      return {
+        allowCamera: false,
+        allowMicrophone: false,
+        hint: tr(
+          language,
+          "Camera/Mic is not ready yet on this device. Joined in muted mode; tap camera/mic in call controls to retry.",
+          "กล้อง/ไมค์ยังไม่พร้อมในอุปกรณ์นี้ เข้าห้องแบบปิดอุปกรณ์ก่อน แล้วกดปุ่มกล้อง/ไมค์ในคอลเพื่อลองใหม่"
+        ),
+      };
+    });
 }
 
 let isSetSinkIdPatched = false;
@@ -135,6 +235,10 @@ function toDoctorCallNotice(language: AppLanguage, message: string): string {
   }
   if (
     normalized.includes("createstream") ||
+    normalized.includes("publishlocalstream failed") ||
+    normalized.includes("1103061") ||
+    normalized.includes("notfounderror") ||
+    normalized.includes("requested device not found") ||
     normalized.includes("1104036") ||
     normalized.includes("1004020") ||
     normalized.includes("play stream interrupted") ||
@@ -443,6 +547,22 @@ export default function MeetingCallPage() {
       setPatientInvite(null);
       setPatientInviteError(null);
       try {
+        if (!window.isSecureContext && window.location.hostname !== "localhost") {
+          throw new Error(
+            tr(
+              language,
+              "Camera/microphone access requires HTTPS on this domain. Open this page through HTTPS.",
+              "การเข้าถึงกล้อง/ไมค์บนโดเมนนี้ต้องใช้ HTTPS กรุณาเปิดหน้านี้ผ่าน HTTPS"
+            )
+          );
+        }
+
+        const mediaPreference = await warmupDoctorMediaDevices(language);
+        if (cancelled) return;
+        if (mediaPreference.hint) {
+          setCallNotice(mediaPreference.hint);
+        }
+
         const videoSession = await issueMeetingVideoToken(meetingId, token);
         if (cancelled) return;
 
@@ -491,9 +611,10 @@ export default function MeetingCallPage() {
         zegoInstanceRef.current = mountedInstance;
         mountedInstance.joinRoom({
           container: containerRef.current,
-          showPreJoinView: false,
-          turnOnCameraWhenJoining: true,
-          turnOnMicrophoneWhenJoining: true,
+          // Keep pre-join so browser/device permission can be handled explicitly.
+          showPreJoinView: true,
+          turnOnCameraWhenJoining: false,
+          turnOnMicrophoneWhenJoining: mediaPreference.allowMicrophone,
           sharedLinks: [
             {
               name: "Meeting Link",
