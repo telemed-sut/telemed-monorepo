@@ -16,7 +16,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/patient_db
+      - DATABASE_URL=replace_with_postgresql_connection_string
       - JWT_SECRET=${JWT_SECRET:-change_this_jwt_secret_for_local_dev_only_32_chars_minimum}
       - JWT_EXPIRES_IN=3600
       - DEVICE_API_SECRET=${DEVICE_API_SECRET:-change_this_device_secret_for_local_dev_only_32_chars_minimum}
