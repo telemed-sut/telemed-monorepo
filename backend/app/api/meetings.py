@@ -5,11 +5,19 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
-from app.models.enums import UserRole
+from app.models.enums import MeetingStatus, UserRole
 from app.models.user import User
 from app.schemas.meeting import MeetingCreate, MeetingListResponse, MeetingOut, MeetingUpdate
+from app.schemas.meeting_video import (
+    MeetingPatientInviteRequest,
+    MeetingPatientInviteResponse,
+    MeetingPatientTokenRequest,
+    MeetingVideoTokenRequest,
+    MeetingVideoTokenResponse,
+)
 from app.services import auth as auth_service
 from app.services import meeting as meeting_service
+from app.services import meeting_video as meeting_video_service
 
 router = APIRouter(prefix="/meetings", tags=["meetings"])
 settings = get_settings()
@@ -30,14 +38,9 @@ def create_meeting(
     if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # Doctors can create meetings only for assigned patients, and doctor_id is always self.
+    # Doctors always create meetings under their own account.
     if current_user.role == UserRole.doctor:
         payload.doctor_id = current_user.id
-        if not meeting_service.is_patient_assigned_to_doctor(db, current_user.id, payload.user_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Doctors can only create meetings for assigned patients.",
-            )
 
     meeting = meeting_service.create_meeting(db, payload)
     return meeting
@@ -100,6 +103,139 @@ def get_meeting(
     return meeting
 
 
+@router.post("/{meeting_id}/video/token", response_model=MeetingVideoTokenResponse)
+@limiter.limit("30/minute")
+def issue_meeting_video_token(
+    request: Request,
+    meeting_id: str,
+    payload: MeetingVideoTokenRequest,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Issue a short-lived meeting video token for authorized staff."""
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    meeting = meeting_service.get_meeting(db, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    if current_user.role == UserRole.doctor and not meeting_service.can_doctor_view_meeting(
+        db=db,
+        doctor_id=current_user.id,
+        meeting=meeting,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only access meetings you own or assigned patients.",
+        )
+
+    response = meeting_video_service.issue_meeting_video_token(
+        meeting=meeting,
+        current_user=current_user,
+        expires_in_seconds=payload.expires_in_seconds,
+    )
+    if meeting.status in (MeetingStatus.scheduled, MeetingStatus.waiting):
+        meeting.status = MeetingStatus.in_progress
+        db.add(meeting)
+        db.commit()
+    return response
+
+
+@router.post(
+    "/{meeting_id}/video/patient-invite",
+    response_model=MeetingPatientInviteResponse,
+)
+@limiter.limit("20/minute")
+def create_patient_meeting_invite(
+    request: Request,
+    meeting_id: str,
+    payload: MeetingPatientInviteRequest,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a signed invite URL/token that allows a patient app to join this meeting."""
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    meeting = meeting_service.get_meeting(db, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    if current_user.role == UserRole.doctor and not meeting_service.can_doctor_view_meeting(
+        db=db,
+        doctor_id=current_user.id,
+        meeting=meeting,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only access meetings you own or assigned patients.",
+        )
+
+    return meeting_video_service.create_patient_join_invite(
+        db=db,
+        meeting=meeting,
+        created_by_user_id=str(current_user.id),
+        expires_in_seconds=payload.expires_in_seconds,
+    )
+
+
+@router.post("/video/patient/token", response_model=MeetingVideoTokenResponse)
+@limiter.limit("30/minute")
+def issue_patient_video_token(
+    request: Request,
+    payload: MeetingPatientTokenRequest,
+    db: Session = Depends(auth_service.get_db),
+):
+    """Exchange a signed patient invite token for a short-lived meeting video token."""
+    resolved_meeting_id = ""
+    normalized_requested_meeting_id = (
+        meeting_video_service.normalize_meeting_id_text(payload.meeting_id or "")
+        if payload.meeting_id
+        else ""
+    )
+    if payload.short_code:
+        resolved_meeting_id = meeting_video_service.extract_meeting_id_from_patient_short_code(
+            db,
+            payload.short_code,
+        )
+        if (
+            normalized_requested_meeting_id
+            and normalized_requested_meeting_id != resolved_meeting_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Patient short code does not match meeting_id.",
+            )
+    else:
+        resolved_meeting_id = payload.meeting_id or meeting_video_service.extract_meeting_id_from_patient_invite_token(
+            payload.invite_token or ""
+        )
+
+    meeting = meeting_service.get_meeting(db, resolved_meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    if payload.short_code:
+        response = meeting_video_service.issue_patient_meeting_video_token_by_short_code(
+            db=db,
+            meeting=meeting,
+            short_code=payload.short_code,
+            expires_in_seconds=payload.expires_in_seconds,
+        )
+    else:
+        response = meeting_video_service.issue_patient_meeting_video_token(
+            meeting=meeting,
+            invite_token=payload.invite_token or "",
+            expires_in_seconds=payload.expires_in_seconds,
+        )
+    if meeting.status == MeetingStatus.scheduled:
+        meeting.status = MeetingStatus.waiting
+        db.add(meeting)
+        db.commit()
+    return response
+
+
 @router.put("/{meeting_id}", response_model=MeetingOut)
 @limiter.limit("30/minute")
 def update_meeting(
@@ -127,14 +263,6 @@ def update_meeting(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Doctors cannot reassign meetings to another doctor.",
-            )
-
-        if payload.user_id and not meeting_service.is_patient_assigned_to_doctor(
-            db, current_user.id, payload.user_id
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Doctors can only assign meetings to patients in their care team.",
             )
 
     updated = meeting_service.update_meeting(db, meeting, payload, actor_id=current_user.id)

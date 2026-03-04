@@ -1,0 +1,16 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+
+# Build outputs
+build/
+
+# IDE
+.idea/
+.vscode/
+
+# Local secrets
+config/dart_defines.local.json

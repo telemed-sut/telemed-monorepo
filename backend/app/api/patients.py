@@ -127,7 +127,7 @@ def list_patients(
     """List patients with pagination.
 
     - Admin: can list all patients.
-    - Doctor: can list only assigned patients.
+    - Doctor: can list all patients.
     """
     items, total = patient_service.list_patients_for_user(
         db,

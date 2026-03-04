@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
-import { deleteMeeting, createMeeting } from "@/lib/api";
+import { createMeetingPatientInvite, deleteMeeting, createMeeting } from "@/lib/api";
 import type { MeetingCreatePayload } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
@@ -464,6 +464,7 @@ export function EventDetailSheet({
   const setMeetings = useCalendarStore((s) => s.setMeetings);
   const [deleting, setDeleting] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
+  const [copyingPatientLink, setCopyingPatientLink] = useState(false);
 
   if (!meeting) return null;
 
@@ -490,6 +491,7 @@ export function EventDetailSheet({
     role === "doctor" && Boolean(currentUserId) && meeting.doctor_id === currentUserId;
   const canWrite = isAdmin || isOwnerDoctor;
   const canDelete = isAdmin;
+  const canStartCall = isOwnerDoctor && !["cancelled", "completed"].includes(meeting.status);
 
   const sheetParticipants = [
     {
@@ -621,6 +623,46 @@ export function EventDetailSheet({
     window.open(roomTarget, "_blank", "noopener,noreferrer");
   };
 
+  const handleStartCall = () => {
+    if (!canStartCall) {
+      toast.error(tr(language, "Only the assigned doctor can start this call", "เฉพาะแพทย์เจ้าของนัดหมายเท่านั้นที่เริ่มคอลได้"));
+      return;
+    }
+    window.location.assign(`/meetings/call/${meeting.id}`);
+  };
+
+  const handleCopyPatientJoinLink = async () => {
+    if (!token || copyingPatientLink) return;
+    if (!canWrite) {
+      toast.error(
+        tr(language, "This meeting is read-only for your account", "บัญชีของคุณดูได้อย่างเดียวสำหรับนัดหมายนี้")
+      );
+      return;
+    }
+    setCopyingPatientLink(true);
+    try {
+      const invite = await createMeetingPatientInvite(meeting.id, token);
+      await navigator.clipboard.writeText(invite.invite_url);
+      toast.success(
+        tr(
+          language,
+          "Patient join link copied. Send this to patient now.",
+          "คัดลอกลิงก์คนไข้แล้ว สามารถส่งให้คนไข้ได้ทันที"
+        )
+      );
+    } catch {
+      toast.error(
+        tr(
+          language,
+          "Unable to generate patient link right now.",
+          "ไม่สามารถสร้างลิงก์คนไข้ได้ในขณะนี้"
+        )
+      );
+    } finally {
+      setCopyingPatientLink(false);
+    }
+  };
+
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
@@ -691,6 +733,34 @@ export function EventDetailSheet({
                       />
                     </Button>
                   )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 hover:bg-muted"
+                    onClick={handleStartCall}
+                    disabled={!canStartCall}
+                    title={tr(language, "Start video call", "เริ่มวิดีโอคอล")}
+                  >
+                    <HugeiconsIcon
+                      icon={CallIcon}
+                      className="size-4 text-muted-foreground"
+                    />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 hover:bg-muted"
+                    onClick={() => {
+                      void handleCopyPatientJoinLink();
+                    }}
+                    disabled={!canWrite || copyingPatientLink}
+                    title={tr(language, "Copy patient join link", "คัดลอกลิงก์เข้าห้องของคนไข้")}
+                  >
+                    <HugeiconsIcon
+                      icon={LinkSquare01Icon}
+                      className="size-4 text-muted-foreground"
+                    />
+                  </Button>
                 </div>
                 <SheetClose
                   render={
@@ -733,7 +803,30 @@ export function EventDetailSheet({
               </div>
 
               {/* Propose new time */}
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  className="flex-1"
+                  onClick={handleStartCall}
+                  disabled={!canStartCall}
+                >
+                  <HugeiconsIcon icon={CallIcon} className="size-4" />
+                  <span>{tr(language, "Start Call", "เริ่มคอล")}</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    void handleCopyPatientJoinLink();
+                  }}
+                  disabled={!canWrite || copyingPatientLink}
+                >
+                  <HugeiconsIcon icon={LinkSquare01Icon} className="size-4" />
+                  <span>
+                    {copyingPatientLink
+                      ? tr(language, "Generating link...", "กำลังสร้างลิงก์...")
+                      : tr(language, "Copy patient link", "คัดลอกลิงก์คนไข้")}
+                  </span>
+                </Button>
                 <Button variant="outline" className="flex-1" disabled={!canWrite}>
                   <span>{tr(language, "Propose new time", "เสนอเวลาใหม่")}</span>
                   <HugeiconsIcon

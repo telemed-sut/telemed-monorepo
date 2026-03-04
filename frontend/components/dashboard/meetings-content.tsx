@@ -59,6 +59,7 @@ import {
   updateMeeting,
   fetchUsers,
   fetchCurrentUser,
+  getErrorMessage,
   type Meeting,
   type Patient,
   type User,
@@ -1631,8 +1632,10 @@ function CreateEventDialog({
         await onCreated(createdMeeting);
       }
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : tr(language, "Failed to create appointment", "สร้างนัดหมายไม่สำเร็จ");
+      const message = getErrorMessage(
+        err,
+        tr(language, "Failed to create appointment", "สร้างนัดหมายไม่สำเร็จ")
+      );
       toast.error(message);
     } finally {
       setSubmitting(false);
@@ -1930,7 +1933,7 @@ function CreateEventDialog({
           <Button
             onClick={handleSubmit}
             disabled={!canSubmit || submitting}
-            className="bg-[var(--med-primary-light)] text-white hover:bg-[var(--med-primary)] gap-2 px-5"
+            className="gap-2 px-5 bg-[var(--med-primary-dark)] border border-[var(--med-primary-deep)] text-white shadow-sm transition-all duration-200 hover:bg-[var(--med-primary)] hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:shadow-sm disabled:translate-y-0 disabled:shadow-sm"
           >
             {submitting ? (
               <span className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -2110,6 +2113,16 @@ export function MeetingsContent() {
   useEffect(() => {
     loadMeetings();
   }, [loadMeetings]);
+
+  useEffect(() => {
+    if (!token) return;
+    const interval = window.setInterval(() => {
+      void loadMeetings(true);
+    }, 15000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [token, loadMeetings]);
 
   // Load patients & doctors for form
   useEffect(() => {

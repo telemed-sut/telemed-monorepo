@@ -242,6 +242,11 @@ class DeviceRegistrationRotateSecretResponse(BaseModel):
     rotated_at: datetime
 
 
+class DeviceRegistrationDeleteResponse(BaseModel):
+    message: str
+    device_id: str
+
+
 DEVICE_SECRET_MIN_LENGTH = 32
 
 
@@ -742,6 +747,48 @@ def update_registered_device(
     db.commit()
     db.refresh(device)
     return _to_device_registration_view(device)
+
+
+@router.delete("/devices/{device_id}", response_model=DeviceRegistrationDeleteResponse)
+@limiter.limit("20/minute")
+def delete_registered_device(
+    request: Request,
+    device_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    normalized_device_id = device_id.strip()
+    if not normalized_device_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="device_id is required.")
+
+    device = db.scalar(select(DeviceRegistration).where(DeviceRegistration.device_id == normalized_device_id))
+    if not device:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
+
+    deleted_device_id = device.device_id
+    deleted_display_name = device.display_name
+    deleted_is_active = bool(device.is_active)
+
+    _write_device_registry_audit(
+        db,
+        actor=current_user,
+        ip_address=_client_ip(request),
+        action="device_registration_delete",
+        device=device,
+        details={
+            "device_id": deleted_device_id,
+            "display_name": deleted_display_name,
+            "is_active": deleted_is_active,
+        },
+    )
+
+    db.delete(device)
+    db.commit()
+
+    return DeviceRegistrationDeleteResponse(
+        message=f"Device {deleted_device_id} deleted.",
+        device_id=deleted_device_id,
+    )
 
 
 @router.post("/devices/{device_id}/rotate-secret", response_model=DeviceRegistrationRotateSecretResponse)

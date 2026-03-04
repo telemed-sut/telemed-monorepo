@@ -171,6 +171,10 @@ const INTERNAL_ERROR_PATTERN =
 
 const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /access denied|permission denied|forbidden/i, message: "คุณไม่มีสิทธิ์ทำรายการนี้" },
+  {
+    pattern: /doctors?\s+can\s+only\s+create\s+meetings?\s+for\s+assigned\s+patients?\.?/i,
+    message: "แพทย์สามารถสร้างนัดหมายได้เฉพาะผู้ป่วยที่ได้รับมอบหมายเท่านั้น",
+  },
   { pattern: /super admin only/i, message: "รายการนี้ทำได้เฉพาะผู้ดูแลระดับสูงเท่านั้น" },
   { pattern: /user not found|not found/i, message: "ไม่พบข้อมูลผู้ใช้ที่ต้องการ" },
   { pattern: /already exists|already in use|already assigned/i, message: "ข้อมูลนี้มีอยู่แล้วในระบบ" },
@@ -910,6 +914,26 @@ export interface Meeting {
   patient?: PatientBrief | null;
 }
 
+export interface MeetingVideoTokenResponse {
+  provider: "mock" | "zego";
+  app_id?: number | null;
+  room_id: string;
+  user_id: string;
+  token: string;
+  issued_at: string;
+  expires_at: string;
+}
+
+export interface MeetingPatientInviteResponse {
+  meeting_id: string;
+  room_id: string;
+  invite_token: string;
+  short_code: string;
+  invite_url: string;
+  issued_at: string;
+  expires_at: string;
+}
+
 export interface MeetingListResponse {
   items: Meeting[];
   page: number;
@@ -1009,6 +1033,74 @@ export async function deleteMeeting(id: string, token: string) {
     `/meetings/${id}`,
     { method: "DELETE" },
     token
+  );
+}
+
+export async function issueMeetingVideoToken(
+  meetingId: string,
+  token: string,
+  expiresInSeconds?: number
+) {
+  return apiFetch<MeetingVideoTokenResponse>(
+    `/meetings/${meetingId}/video/token`,
+    {
+      method: "POST",
+      body: JSON.stringify(
+        typeof expiresInSeconds === "number"
+          ? { expires_in_seconds: expiresInSeconds }
+          : {}
+      ),
+    },
+    token
+  );
+}
+
+export async function createMeetingPatientInvite(
+  meetingId: string,
+  token: string,
+  expiresInSeconds?: number
+) {
+  return apiFetch<MeetingPatientInviteResponse>(
+    `/meetings/${meetingId}/video/patient-invite`,
+    {
+      method: "POST",
+      body: JSON.stringify(
+        typeof expiresInSeconds === "number"
+          ? { expires_in_seconds: expiresInSeconds }
+          : {}
+      ),
+    },
+    token
+  );
+}
+
+export async function issuePatientMeetingVideoToken(params: {
+  meetingId?: string;
+  inviteToken?: string;
+  shortCode?: string;
+  expiresInSeconds?: number;
+}) {
+  const body: Record<string, unknown> = {
+  };
+  if (params.meetingId) {
+    body.meeting_id = params.meetingId;
+  }
+  if (params.inviteToken) {
+    body.invite_token = params.inviteToken;
+  }
+  if (params.shortCode) {
+    body.short_code = params.shortCode;
+  }
+  if (typeof params.expiresInSeconds === "number") {
+    body.expires_in_seconds = params.expiresInSeconds;
+  }
+
+  return apiFetch<MeetingVideoTokenResponse>(
+    "/meetings/video/patient/token",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    }
   );
 }
 
@@ -1740,14 +1832,9 @@ export interface DeviceRegistrationUpdatePayload {
   is_active?: boolean;
 }
 
-export interface DeviceRegistrationRotateSecretPayload {
-  device_secret?: string;
-}
-
-export interface DeviceRegistrationRotateSecretResponse {
+export interface DeviceRegistrationDeleteResponse {
   message: string;
-  device_secret: string;
-  rotated_at: string;
+  device_id: string;
 }
 
 export async function fetchDeviceRegistrations(
@@ -1782,14 +1869,10 @@ export async function updateDeviceRegistration(
   );
 }
 
-export async function rotateDeviceRegistrationSecret(
-  deviceId: string,
-  payload: DeviceRegistrationRotateSecretPayload,
-  token: string,
-) {
-  return apiFetch<DeviceRegistrationRotateSecretResponse>(
-    `/security/devices/${encodeURIComponent(deviceId)}/rotate-secret`,
-    { method: "POST", body: JSON.stringify(payload) },
+export async function deleteDeviceRegistration(deviceId: string, token: string) {
+  return apiFetch<DeviceRegistrationDeleteResponse>(
+    `/security/devices/${encodeURIComponent(deviceId)}`,
+    { method: "DELETE" },
     token,
   );
 }
@@ -1855,6 +1938,25 @@ export async function purgeDeletedUsers(
   return apiFetch<PurgeDeletedUsersResponse>(
     "/users/purge-deleted",
     { method: "POST", body: JSON.stringify(payload) },
+    token,
+  );
+}
+
+// ---------- Patient App Registration ----------
+
+export interface PatientRegistrationCodeResponse {
+  patient_id: string;
+  code: string;
+  expires_at: string;
+}
+
+export async function generatePatientRegistrationCode(
+  patientId: string,
+  token: string,
+): Promise<PatientRegistrationCodeResponse> {
+  return apiFetch<PatientRegistrationCodeResponse>(
+    `/patient-app/${patientId}/code`,
+    { method: "POST" },
     token,
   );
 }

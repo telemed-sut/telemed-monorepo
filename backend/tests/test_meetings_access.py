@@ -152,7 +152,7 @@ def test_doctor_can_read_assigned_non_owner_meeting_but_cannot_update_it(
     assert update_response.status_code == 403
 
 
-def test_doctor_create_meeting_requires_assignment_and_forces_doctor_id(
+def test_doctor_create_meeting_allows_any_patient_and_forces_doctor_id(
     client: TestClient,
     db: Session,
 ):
@@ -175,17 +175,46 @@ def test_doctor_create_meeting_requires_assignment_and_forces_doctor_id(
     assert ok_response.status_code == 201
     assert ok_response.json()["doctor_id"] == str(doctor.id)
 
-    denied_response = client.post(
+    unassigned_response = client.post(
         "/meetings",
         json={
             "date_time": datetime.now(timezone.utc).isoformat(),
             "doctor_id": str(doctor.id),
             "user_id": str(patient_unassigned.id),
-            "description": "Should be denied",
+            "description": "Should be allowed",
         },
         headers=_auth_headers(doctor),
     )
-    assert denied_response.status_code == 403
+    assert unassigned_response.status_code == 201
+    assert unassigned_response.json()["doctor_id"] == str(doctor.id)
+
+
+def test_doctor_can_update_own_meeting_to_unassigned_patient(
+    client: TestClient,
+    db: Session,
+):
+    doctor = _create_user(db, "doctor-update-own@example.com", UserRole.doctor)
+    patient_initial = _create_patient(db, "Initial", "Patient")
+    patient_unassigned = _create_patient(db, "Unassigned", "Patient")
+    meeting = _create_meeting(
+        db,
+        doctor_id=doctor.id,
+        patient_id=patient_initial.id,
+        description="Update own meeting",
+    )
+
+    update_response = client.put(
+        f"/meetings/{meeting.id}",
+        json={
+            "user_id": str(patient_unassigned.id),
+            "description": "Updated to unassigned patient",
+        },
+        headers=_auth_headers(doctor),
+    )
+
+    assert update_response.status_code == 200
+    assert update_response.json()["doctor_id"] == str(doctor.id)
+    assert update_response.json()["user_id"] == str(patient_unassigned.id)
 
 
 def test_staff_cannot_access_meetings_endpoints(

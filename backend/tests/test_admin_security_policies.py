@@ -351,6 +351,17 @@ def test_admin_can_manage_device_registry(client: TestClient, db: Session):
     assert row is not None
     assert row.device_secret == rotated_payload["device_secret"]
 
+    deleted = client.delete(
+        "/security/devices/ward-bp-001",
+        headers=_auth(token),
+    )
+    assert deleted.status_code == 200, deleted.text
+    deleted_payload = deleted.json()
+    assert deleted_payload["device_id"] == "ward-bp-001"
+
+    row_after_delete = db.scalar(select(DeviceRegistration).where(DeviceRegistration.device_id == "ward-bp-001"))
+    assert row_after_delete is None
+
 
 def test_non_admin_cannot_access_device_registry(client: TestClient, db: Session):
     staff = _make_user(db, email="registry-staff@example.com", role=UserRole.staff)

@@ -17,6 +17,7 @@ import {
   ArrowTurnBackwardIcon,
   PencilEdit01Icon,
   Delete01Icon,
+  CallIcon,
 } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -228,6 +229,7 @@ function QueueCard({
   onStatusChange,
   onCancelClick,
   onDuplicate,
+  onStartCall,
   onEdit,
   onDelete,
   onClick,
@@ -240,6 +242,7 @@ function QueueCard({
   onStatusChange: (meeting: Meeting, newStatus: MeetingStatus) => void;
   onCancelClick: (meeting: Meeting) => void;
   onDuplicate: (meeting: Meeting) => void;
+  onStartCall: (meeting: Meeting) => void;
   onEdit: (meeting: Meeting) => void;
   onDelete: (meeting: Meeting) => void;
   onClick: (meeting: Meeting) => void;
@@ -420,6 +423,16 @@ function QueueCard({
                 {tr(language, "Undo", "ย้อนกลับ")}
               </Button>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1.5"
+              onClick={() => onStartCall(meeting)}
+              disabled={loading || isTerminal}
+            >
+              <HugeiconsIcon icon={CallIcon} className="size-3.5" />
+              {tr(language, "Start Call", "เริ่มคอล")}
+            </Button>
           </>
         ) : (
           <span className="text-xs text-muted-foreground">{tr(language, "Read only", "ดูได้อย่างเดียว")}</span>
@@ -772,6 +785,21 @@ export function QueueView({
     [token, deleting, meetings, setMeetings, canDeleteMeeting, language]
   );
 
+  const handleStartCall = useCallback(
+    (meeting: Meeting) => {
+      if (role !== "doctor") {
+        toast.error(tr(language, "Only doctor accounts can start calls", "เฉพาะบัญชีแพทย์เท่านั้นที่เริ่มคอลได้"));
+        return;
+      }
+      if (!canWriteMeeting(meeting)) {
+        toast.error(tr(language, "This meeting is read-only for your account", "บัญชีของคุณดูได้อย่างเดียวสำหรับนัดหมายนี้"));
+        return;
+      }
+      window.location.assign(`/meetings/call/${meeting.id}`);
+    },
+    [role, language, canWriteMeeting]
+  );
+
   const requestDelete = useCallback(
     (meeting: Meeting) => {
       const patientName = meeting.patient
@@ -869,6 +897,7 @@ export function QueueView({
                 onStatusChange={handleStatusChange}
                 onCancelClick={requestCancel}
                 onDuplicate={handleDuplicate}
+                onStartCall={handleStartCall}
                 onEdit={onEditMeeting}
                 onDelete={requestDelete}
                 onClick={setSelectedMeeting}

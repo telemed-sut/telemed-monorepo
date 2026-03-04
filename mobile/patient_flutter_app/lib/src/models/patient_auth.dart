@@ -56,17 +56,11 @@ class PatientMeeting {
   final String? patientInviteUrl;
 
   factory PatientMeeting.fromJson(Map<String, dynamic> json) {
-    // Backend sends "id" (not "meeting_id") and "doctor" as an object.
-    final doctor = json['doctor'] as Map<String, dynamic>?;
-    final doctorName = doctor != null
-        ? '${doctor['first_name'] ?? ''} ${doctor['last_name'] ?? ''}'.trim()
-        : 'แพทย์';
-
     return PatientMeeting(
-      meetingId: (json['id'] ?? json['meeting_id'] ?? '') as String,
-      dateTime: (json['date_time'] ?? '') as String,
-      doctorName: doctorName.isNotEmpty ? doctorName : 'แพทย์',
-      status: (json['status'] as String?) ?? 'scheduled',
+      meetingId: json['meeting_id'] as String,
+      dateTime: json['date_time'] as String,
+      doctorName: json['doctor_name'] as String? ?? 'Doctor',
+      status: json['status'] as String? ?? 'scheduled',
       patientInviteUrl: json['patient_invite_url'] as String?,
     );
   }

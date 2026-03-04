@@ -12,9 +12,7 @@ const {
   mockFetchDeviceRegistrations,
   mockCreateDeviceRegistration,
   mockUpdateDeviceRegistration,
-  mockRotateDeviceRegistrationSecret,
   mockGetErrorMessage,
-  mockClipboardWriteText,
   mockAuthState,
   mockLanguageState,
 } = vi.hoisted(() => {
@@ -29,9 +27,7 @@ const {
     mockFetchDeviceRegistrations: vi.fn(),
     mockCreateDeviceRegistration: vi.fn(),
     mockUpdateDeviceRegistration: vi.fn(),
-    mockRotateDeviceRegistrationSecret: vi.fn(),
     mockGetErrorMessage: vi.fn(),
-    mockClipboardWriteText: vi.fn(),
     mockAuthState: {
       token: "test-token",
       hydrated: true,
@@ -73,7 +69,6 @@ vi.mock("@/lib/api", async (importOriginal) => {
     fetchDeviceRegistrations: mockFetchDeviceRegistrations,
     createDeviceRegistration: mockCreateDeviceRegistration,
     updateDeviceRegistration: mockUpdateDeviceRegistration,
-    rotateDeviceRegistrationSecret: mockRotateDeviceRegistrationSecret,
     getErrorMessage: mockGetErrorMessage,
   };
 });
@@ -100,11 +95,6 @@ async function renderDeviceRegistry() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  Object.assign(navigator, {
-    clipboard: {
-      writeText: mockClipboardWriteText,
-    },
-  });
 
   mockGetErrorMessage.mockReturnValue("api error");
   mockFetchDeviceRegistrations.mockResolvedValue({
@@ -117,11 +107,6 @@ beforeEach(() => {
     device: makeDevice({ id: "d-2", device_id: "ward-bp-002", display_name: "Ward BP Device 02" }),
     device_secret: "generated-secret-123",
   });
-  mockRotateDeviceRegistrationSecret.mockResolvedValue({
-    message: "rotated",
-    device_secret: "new-secret-value",
-    rotated_at: "2026-02-25T08:00:00.000Z",
-  });
   mockUpdateDeviceRegistration.mockResolvedValue(makeDevice({ is_active: false }));
 });
 
@@ -130,7 +115,7 @@ afterEach(() => {
 });
 
 describe("Device registry flow", () => {
-  it("registers a device and allows copying one-time secret", async () => {
+  it("registers a device", async () => {
     await renderDeviceRegistry();
     await screen.findByText("Ward BP Device 01");
 
@@ -157,17 +142,9 @@ describe("Device registry flow", () => {
         "test-token",
       );
     });
-
-    expect(screen.getByText("One-time Secret (Save now)")).toBeInTheDocument();
-    expect(screen.getByText("generated-secret-123")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /copy secret/i }));
-
     await waitFor(() => {
-      expect(mockClipboardWriteText).toHaveBeenCalledWith("generated-secret-123");
+      expect(mockToastSuccess).toHaveBeenCalledWith("Device registered successfully");
     });
-    await waitFor(() => {
-      expect(mockToastSuccess).toHaveBeenCalledWith("Secret copied");
-    });
+    expect(screen.queryByText("One-time Secret (Save now)")).toBeNull();
   });
 });

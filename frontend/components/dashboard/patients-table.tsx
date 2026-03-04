@@ -68,7 +68,7 @@ import {
   FilterHorizontalIcon,
   Stethoscope02Icon,
 } from "@hugeicons/core-free-icons";
-import { fetchPatients, createPatient, updatePatient, deletePatient, type Patient } from "@/lib/api";
+import { fetchPatients, createPatient, updatePatient, deletePatient, generatePatientRegistrationCode, type Patient } from "@/lib/api";
 import { buildProfileSeed, getProfileOrbStyle } from "@/components/ui/profile-avatar-orb";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
@@ -123,6 +123,10 @@ export function PatientsTable() {
   const [formData, setFormData] = useState<PatientFormState>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [assignmentPatient, setAssignmentPatient] = useState<Patient | null>(null);
+  const [regCodeDialogOpen, setRegCodeDialogOpen] = useState(false);
+  const [regCode, setRegCode] = useState<string | null>(null);
+  const [regCodePatientName, setRegCodePatientName] = useState("");
+  const [regCodeLoading, setRegCodeLoading] = useState(false);
 
   const isInitialLoading = loading && patients.length === 0;
   const isRefetching = loading && patients.length > 0;
@@ -405,6 +409,23 @@ export function PatientsTable() {
       },
       duration: 9000,
     });
+  };
+
+  const handleGenerateRegCode = async (patient: Patient) => {
+    if (!token) return;
+    setRegCodeLoading(true);
+    setRegCodePatientName(`${patient.first_name} ${patient.last_name}`);
+    setRegCodeDialogOpen(true);
+    setRegCode(null);
+    try {
+      const res = await generatePatientRegistrationCode(patient.id, token);
+      setRegCode(res.code);
+    } catch (err) {
+      toast.error(tr(language, "Failed to generate registration code", "ไม่สามารถสร้างรหัสลงทะเบียนได้"));
+      setRegCodeDialogOpen(false);
+    } finally {
+      setRegCodeLoading(false);
+    }
   };
 
   const getAgeFromDOB = (dateOfBirth: string) => {
@@ -814,6 +835,12 @@ export function PatientsTable() {
                                   <DropdownMenuItem onClick={() => setAssignmentPatient(patient)}>
                                     <HugeiconsIcon icon={Stethoscope02Icon} className="size-4 mr-2" />
                                     {tr(language, "Manage Doctors", "จัดการแพทย์")}
+                                  </DropdownMenuItem>
+                                )}
+                                {(role === "admin" || role === "doctor") && (
+                                  <DropdownMenuItem onClick={() => { void handleGenerateRegCode(patient); }}>
+                                    <HugeiconsIcon icon={AiPhone01Icon} className="size-4 mr-2" />
+                                    {tr(language, "App Reg Code", "รหัสลงทะเบียนแอป")}
                                   </DropdownMenuItem>
                                 )}
                                 {role === "admin" && (
@@ -1265,6 +1292,46 @@ export function PatientsTable() {
           }
         }}
       />
+
+      {/* Registration Code Dialog */}
+      <Dialog open={regCodeDialogOpen} onOpenChange={setRegCodeDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{tr(language, "App Registration Code", "รหัสลงทะเบียนแอป")}</DialogTitle>
+            <DialogDescription>
+              {tr(
+                language,
+                `Registration code for ${regCodePatientName}. The patient enters this code in the mobile app together with their phone number to set a PIN.`,
+                `รหัสลงทะเบียนสำหรับ ${regCodePatientName} ให้คนไข้กรอกรหัสนี้ในแอปมือถือพร้อมเบอร์โทรเพื่อตั้ง PIN`,
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-4 py-4">
+            {regCodeLoading ? (
+              <Skeleton className="h-14 w-48" />
+            ) : regCode ? (
+              <>
+                <div className="text-4xl font-mono font-bold tracking-[0.3em] text-primary select-all">
+                  {regCode}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {tr(language, "Valid for 72 hours", "ใช้ได้ภายใน 72 ชั่วโมง")}
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    navigator.clipboard.writeText(regCode);
+                    toast.success(tr(language, "Code copied!", "คัดลอกรหัสแล้ว!"));
+                  }}
+                >
+                  <HugeiconsIcon icon={Copy01Icon} className="size-4 mr-2" />
+                  {tr(language, "Copy Code", "คัดลอกรหัส")}
+                </Button>
+              </>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
 
     </div>
     </LazyMotion>

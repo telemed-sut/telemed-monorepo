@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
-  Copy,
-  KeyRound,
+  Trash2,
   MoreHorizontal,
   Power,
   PowerOff,
@@ -16,9 +15,9 @@ import {
 
 import {
   createDeviceRegistration,
+  deleteDeviceRegistration,
   fetchDeviceRegistrations,
   getErrorMessage,
-  rotateDeviceRegistrationSecret,
   updateDeviceRegistration,
   type ApiError,
   type DeviceRegistration,
@@ -49,22 +48,13 @@ import { toast } from "@/components/ui/toast";
 
 const tr = (language: AppLanguage, en: string, th: string) => (language === "th" ? th : en);
 const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
+const DEVICE_REGISTRY_AUTO_REFRESH_MS = 15_000;
 
 type DeviceFilter = "all" | "active" | "inactive";
 
-interface SecretReveal {
-  deviceId: string;
-  secret: string;
-  timestamp: string;
-}
-
 type PendingAction =
   | {
-      kind: "toggle";
-      device: DeviceRegistration;
-    }
-  | {
-      kind: "rotate";
+      kind: "toggle" | "delete";
       device: DeviceRegistration;
     }
   | null;
@@ -105,9 +95,9 @@ export function DeviceRegistryContent() {
   const [deviceId, setDeviceId] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [notes, setNotes] = useState("");
-  const [latestSecret, setLatestSecret] = useState<SecretReveal | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
 
   const pageSize = 20;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -180,6 +170,17 @@ export function DeviceRegistryContent() {
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
+  useEffect(() => {
+    if (!token || !autoRefreshEnabled) return;
+
+    const intervalId = window.setInterval(() => {
+      if (loading || refreshing || submitting || Boolean(savingId) || confirmOpen) return;
+      void loadDevices({ silent: true, showErrorToast: false });
+    }, DEVICE_REGISTRY_AUTO_REFRESH_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [token, autoRefreshEnabled, loading, refreshing, submitting, savingId, confirmOpen, loadDevices]);
+
   const resetForm = () => {
     setDeviceId("");
     setDisplayName("");
@@ -198,7 +199,7 @@ export function DeviceRegistryContent() {
 
     setSubmitting(true);
     try {
-      const created = await createDeviceRegistration(
+      await createDeviceRegistration(
         {
           device_id: normalizedDeviceId,
           display_name: normalizedName,
@@ -207,11 +208,6 @@ export function DeviceRegistryContent() {
         },
         token,
       );
-      setLatestSecret({
-        deviceId: created.device.device_id,
-        secret: created.device_secret,
-        timestamp: new Date().toISOString(),
-      });
       resetForm();
       toast.success(tr(language, "Device registered successfully", "ลงทะเบียนอุปกรณ์สำเร็จแล้ว"));
       setPage(1);
@@ -249,43 +245,20 @@ export function DeviceRegistryContent() {
     }
   };
 
-  const handleRotateSecret = async (device: DeviceRegistration) => {
-    if (!token) return;
-    setSavingId(device.id);
-    try {
-      const result = await rotateDeviceRegistrationSecret(device.device_id, {}, token);
-      setLatestSecret({
-        deviceId: device.device_id,
-        secret: result.device_secret,
-        timestamp: result.rotated_at,
-      });
-      toast.success(tr(language, "Device secret rotated", "หมุนรหัสลับอุปกรณ์สำเร็จแล้ว"));
-      void loadDevices({ silent: true });
-    } catch (error: unknown) {
-      const apiError = error as ApiError;
-      handleAuthError(apiError);
-      toast.error(tr(language, "Unable to rotate secret", "ไม่สามารถหมุนรหัสลับได้"), {
-        description: getErrorMessage(apiError),
-      });
-    } finally {
-      setSavingId(null);
-    }
-  };
-
-  const requestRotateSecret = (device: DeviceRegistration) => {
-    setPendingAction({ kind: "rotate", device });
-    setConfirmOpen(true);
-  };
-
   const requestToggleActive = (device: DeviceRegistration) => {
     setPendingAction({ kind: "toggle", device });
     setConfirmOpen(true);
   };
 
+  const requestDeleteDevice = (device: DeviceRegistration) => {
+    setPendingAction({ kind: "delete", device });
+    setConfirmOpen(true);
+  };
+
   const executeConfirmedAction = async () => {
     if (!pendingAction) return;
-    if (pendingAction.kind === "rotate") {
-      await handleRotateSecret(pendingAction.device);
+    if (pendingAction.kind === "delete") {
+      await handleDeleteDevice(pendingAction.device);
     } else {
       await handleToggleActive(pendingAction.device);
     }
@@ -300,13 +273,25 @@ export function DeviceRegistryContent() {
     }
   };
 
-  const handleCopySecret = async () => {
-    if (!latestSecret?.secret) return;
+  const handleDeleteDevice = async (device: DeviceRegistration) => {
+    if (!token) return;
+    setSavingId(device.id);
     try {
-      await navigator.clipboard.writeText(latestSecret.secret);
-      toast.success(tr(language, "Secret copied", "คัดลอกรหัสลับแล้ว"));
-    } catch {
-      toast.error(tr(language, "Unable to copy secret", "ไม่สามารถคัดลอกรหัสลับได้"));
+      await deleteDeviceRegistration(device.device_id, token);
+      toast.success(tr(language, "Device deleted", "ลบอุปกรณ์เรียบร้อยแล้ว"));
+      if (devices.length === 1 && page > 1) {
+        setPage((prev) => Math.max(1, prev - 1));
+      } else {
+        void loadDevices({ silent: true });
+      }
+    } catch (error: unknown) {
+      const apiError = error as ApiError;
+      handleAuthError(apiError);
+      toast.error(tr(language, "Unable to delete device", "ไม่สามารถลบอุปกรณ์ได้"), {
+        description: getErrorMessage(apiError),
+      });
+    } finally {
+      setSavingId(null);
     }
   };
 
@@ -352,41 +337,6 @@ export function DeviceRegistryContent() {
             </div>
           </CardHeader>
         </Card>
-
-        {latestSecret && (
-          <Card className="border-amber-300 bg-amber-50/80">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl text-amber-900">
-                <KeyRound className="size-5" />
-                {tr(language, "One-time Secret (Save now)", "รหัสลับแบบแสดงครั้งเดียว (ให้บันทึกตอนนี้)")}
-              </CardTitle>
-              <CardDescription className="text-base text-amber-900/85">
-                {tr(
-                  language,
-                  "Show this secret to the device team once. It will not appear again in this UI.",
-                  "ให้ส่งรหัสนี้กับทีมอุปกรณ์เพียงครั้งเดียว หลังจากนี้จะไม่แสดงซ้ำในหน้านี้",
-                )}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="rounded-xl border border-amber-300 bg-white p-4">
-                <p className="text-sm text-slate-600">
-                  {tr(language, "Device", "อุปกรณ์")}: <span className="font-semibold text-slate-900">{latestSecret.deviceId}</span>
-                </p>
-                <p className="mt-1 text-sm text-slate-600">
-                  {tr(language, "Generated", "สร้างเมื่อ")}: {formatDateTime(latestSecret.timestamp, language)}
-                </p>
-                <p className="mt-4 break-all rounded-lg bg-slate-900 px-3 py-3 font-mono text-sm text-emerald-300">
-                  {latestSecret.secret}
-                </p>
-              </div>
-              <Button type="button" onClick={handleCopySecret} className="h-12 px-6 text-base">
-                <Copy className="mr-2 size-4" />
-                {tr(language, "Copy secret", "คัดลอกรหัสลับ")}
-              </Button>
-            </CardContent>
-          </Card>
-        )}
 
         <Card>
           <CardHeader>
@@ -443,19 +393,32 @@ export function DeviceRegistryContent() {
               <div>
                 <CardTitle className="text-xl">{tr(language, "Registered devices", "อุปกรณ์ที่ลงทะเบียนแล้ว")}</CardTitle>
                 <CardDescription className="text-base">
-                  {tr(language, "Search, activate/deactivate, and rotate secret.", "ค้นหา เปิด/ปิดการใช้งาน และหมุนรหัสลับ")}
+                  {tr(language, "Search and activate/deactivate devices.", "ค้นหา และเปิด/ปิดการใช้งานอุปกรณ์")}
                 </CardDescription>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => void loadDevices({ silent: true, showErrorToast: true })}
-                className="h-11 px-4 text-base"
-                disabled={refreshing}
-              >
-                <RefreshCw className={cn("mr-2 size-4", refreshing && "animate-spin")} />
-                {tr(language, "Refresh", "รีเฟรช")}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant={autoRefreshEnabled ? "default" : "outline"}
+                  onClick={() => setAutoRefreshEnabled((prev) => !prev)}
+                  className="h-11 px-4 text-base"
+                >
+                  <RefreshCw className={cn("mr-2 size-4", autoRefreshEnabled && "animate-spin")} />
+                  {autoRefreshEnabled
+                    ? tr(language, "Auto refresh on", "รีเฟรชอัตโนมัติ: เปิด")
+                    : tr(language, "Auto refresh off", "รีเฟรชอัตโนมัติ: ปิด")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void loadDevices({ silent: true, showErrorToast: true })}
+                  className="h-11 px-4 text-base"
+                  disabled={refreshing}
+                >
+                  <RefreshCw className={cn("mr-2 size-4", refreshing && "animate-spin")} />
+                  {tr(language, "Refresh", "รีเฟรช")}
+                </Button>
+              </div>
             </div>
             <div className="grid gap-3 md:grid-cols-[1fr_auto]">
               <div className="relative">
@@ -598,16 +561,12 @@ export function DeviceRegistryContent() {
                             <Button
                               type="button"
                               variant="outline"
-                              onClick={() => requestRotateSecret(device)}
+                              onClick={() => requestDeleteDevice(device)}
                               disabled={savingId === device.id}
-                              className="h-10 text-sm"
+                              className="h-10 text-sm text-destructive hover:text-destructive"
                             >
-                              {savingId === device.id ? (
-                                <RefreshCw className="mr-2 size-4 animate-spin" />
-                              ) : (
-                                <KeyRound className="mr-2 size-4" />
-                              )}
-                              {tr(language, "Rotate", "หมุนรหัส")}
+                              <Trash2 className="mr-2 size-4" />
+                              {tr(language, "Delete", "ลบ")}
                             </Button>
                             <Button
                               type="button"
@@ -626,6 +585,7 @@ export function DeviceRegistryContent() {
                             <DropdownMenu>
                               <DropdownMenuTrigger
                                 disabled={savingId === device.id}
+                                aria-label={tr(language, "More actions", "การทำงานเพิ่มเติม")}
                                 className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-input bg-background text-foreground shadow-sm hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                               >
                                 {savingId === device.id ? (
@@ -636,11 +596,12 @@ export function DeviceRegistryContent() {
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" className="w-40">
                                 <DropdownMenuItem
-                                  onClick={() => requestRotateSecret(device)}
+                                  onClick={() => requestDeleteDevice(device)}
                                   disabled={savingId === device.id}
+                                  variant="destructive"
                                 >
-                                  <KeyRound className="size-4" />
-                                  {tr(language, "Rotate", "หมุนรหัส")}
+                                  <Trash2 className="size-4" />
+                                  {tr(language, "Delete", "ลบ")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={() => requestToggleActive(device)}
@@ -695,8 +656,8 @@ export function DeviceRegistryContent() {
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>
-                {pendingAction?.kind === "rotate"
-                  ? tr(language, "Rotate device secret?", "ยืนยันหมุนรหัสลับอุปกรณ์?")
+                {pendingAction?.kind === "delete"
+                  ? tr(language, "Delete this device?", "ยืนยันลบอุปกรณ์นี้?")
                   : tr(language, "Change device status?", "ยืนยันเปลี่ยนสถานะอุปกรณ์?")}
               </AlertDialogTitle>
               <AlertDialogDescription>
@@ -709,11 +670,11 @@ export function DeviceRegistryContent() {
                   </>
                 ) : null}
                 {" — "}
-                {pendingAction?.kind === "rotate"
+                {pendingAction?.kind === "delete"
                   ? tr(
                       language,
-                      "A new secret will be issued and old device configuration will stop working.",
-                      "ระบบจะออกรหัสลับใหม่ และการตั้งค่าเดิมของอุปกรณ์จะใช้งานไม่ได้",
+                      "This action will permanently remove the device registration from this list.",
+                      "การกระทำนี้จะลบการลงทะเบียนอุปกรณ์ออกจากรายการถาวร",
                     )
                   : pendingAction?.device?.is_active
                     ? tr(language, "This device will stop sending data until re-enabled.", "อุปกรณ์นี้จะหยุดส่งข้อมูลจนกว่าจะเปิดใช้งานอีกครั้ง")
@@ -730,7 +691,7 @@ export function DeviceRegistryContent() {
                 }}
                 disabled={Boolean(pendingAction?.device && savingId === pendingAction.device.id)}
                 className={cn(
-                  pendingAction?.kind === "toggle" && pendingAction?.device?.is_active
+                  pendingAction?.kind === "delete" || pendingAction?.device?.is_active
                     ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     : "",
                 )}
@@ -738,8 +699,8 @@ export function DeviceRegistryContent() {
                 {pendingAction?.device && savingId === pendingAction.device.id ? (
                   <RefreshCw className="mr-2 size-4 animate-spin" />
                 ) : null}
-                {pendingAction?.kind === "rotate"
-                  ? tr(language, "Rotate secret", "หมุนรหัสลับ")
+                {pendingAction?.kind === "delete"
+                  ? tr(language, "Delete", "ลบ")
                   : pendingAction?.device?.is_active
                     ? tr(language, "Disable", "ปิดใช้งาน")
                     : tr(language, "Enable", "เปิดใช้งาน")}
