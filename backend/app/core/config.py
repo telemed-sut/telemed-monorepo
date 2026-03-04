@@ -1,4 +1,5 @@
 import json
+import re
 from functools import lru_cache
 from typing import Dict, List, Literal, Union
 
@@ -47,7 +48,7 @@ class Settings(BaseSettings):
     security_whitelisted_ips: str = "127.0.0.1,::1"
     trusted_proxy_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
     security_403_spike_threshold_1h: int = 25
-    
+
     # Device API Security
     device_api_secret: str | None = None
     device_api_secrets: Dict[str, str] = {}
@@ -66,6 +67,14 @@ class Settings(BaseSettings):
     # Rate Limiting
     redis_url: str | None = None
     rate_limit_whitelist: Union[List[str], str] = ["127.0.0.1", "::1"]
+    # Video meeting integration
+    meeting_video_provider: Literal["disabled", "mock", "zego"] = "disabled"
+    zego_app_id: int | None = None
+    zego_server_secret: str | None = None
+    meeting_video_token_ttl_seconds: int = 900
+    meeting_patient_invite_ttl_seconds: int = 86_400
+    meeting_patient_join_base_url: str | None = None
+    meeting_video_room_prefix: str = "telemed"
 
     @field_validator(
         "cors_origins",
@@ -175,6 +184,48 @@ class Settings(BaseSettings):
             raise ValueError("DEVICE_API_MAX_BODY_BYTES must be <= 10485760.")
         return v
 
+    @field_validator("meeting_video_token_ttl_seconds")
+    @classmethod
+    def validate_meeting_video_token_ttl_seconds(cls, v: int) -> int:
+        if v < 60:
+            raise ValueError("MEETING_VIDEO_TOKEN_TTL_SECONDS must be at least 60.")
+        if v > 7_200:
+            raise ValueError("MEETING_VIDEO_TOKEN_TTL_SECONDS must be <= 7200.")
+        return v
+
+    @field_validator("meeting_patient_invite_ttl_seconds")
+    @classmethod
+    def validate_meeting_patient_invite_ttl_seconds(cls, v: int) -> int:
+        if v < 300:
+            raise ValueError("MEETING_PATIENT_INVITE_TTL_SECONDS must be at least 300.")
+        if v > 604_800:
+            raise ValueError("MEETING_PATIENT_INVITE_TTL_SECONDS must be <= 604800.")
+        return v
+
+    @field_validator("meeting_video_room_prefix")
+    @classmethod
+    def validate_meeting_video_room_prefix(cls, v: str) -> str:
+        value = (v or "").strip().lower()
+        if not value:
+            raise ValueError("MEETING_VIDEO_ROOM_PREFIX must not be empty.")
+        if not re.fullmatch(r"[a-z0-9-]{2,32}", value):
+            raise ValueError(
+                "MEETING_VIDEO_ROOM_PREFIX must match [a-z0-9-]{2,32}."
+            )
+        return value
+
+    @field_validator("meeting_patient_join_base_url")
+    @classmethod
+    def validate_meeting_patient_join_base_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        if not value:
+            return None
+        if not (value.startswith("http://") or value.startswith("https://")):
+            raise ValueError("MEETING_PATIENT_JOIN_BASE_URL must start with http:// or https://.")
+        return value.rstrip("/")
+
     @model_validator(mode="after")
     def apply_device_api_secret_fallback(self):
         if self.device_api_allow_jwt_secret_fallback:
@@ -196,6 +247,18 @@ class Settings(BaseSettings):
 
         if self.frontend_base_url.startswith("https://") and not self.auth_cookie_secure:
             raise ValueError("AUTH_COOKIE_SECURE must be true when FRONTEND_BASE_URL is HTTPS.")
+
+        if self.meeting_video_provider == "zego":
+            if self.zego_app_id is None:
+                raise ValueError("ZEGO_APP_ID is required when MEETING_VIDEO_PROVIDER=zego.")
+            if self.zego_app_id <= 0:
+                raise ValueError("ZEGO_APP_ID must be > 0.")
+            secret = (self.zego_server_secret or "").strip()
+            if len(secret) < 16:
+                raise ValueError(
+                    "ZEGO_SERVER_SECRET must be at least 16 characters when MEETING_VIDEO_PROVIDER=zego."
+                )
+            self.zego_server_secret = secret
 
         return self
 

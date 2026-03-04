@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useTokenRefresh } from "@/hooks/use-token-refresh";
 import { useAuthStore } from "@/store/auth-store";
@@ -13,9 +13,13 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const token = useAuthStore((state) => state.token);
   const hydrate = useAuthStore((state) => state.hydrate);
   const hydrated = useAuthStore((state) => state.hydrated);
+  const isCallPopupWindow =
+    pathname.startsWith("/meetings/call/") && searchParams.get("popup") === "1";
 
   useTokenRefresh();
 
@@ -31,6 +35,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   if (!hydrated || !token) {
     return <main className="min-h-screen bg-background" aria-busy="true" />;
+  }
+
+  if (isCallPopupWindow) {
+    return <main className="h-svh w-full bg-background">{children}</main>;
   }
 
   return (

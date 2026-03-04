@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.api import alerts, audit, auth, dense_mode, meetings, patients, stats, users, pressure, device_monitor
+from app.api import patient_app as patient_app_api
 from app.api import security as security_api
 from app.core.config import get_settings
 from app.core.limiter import limiter
@@ -132,6 +133,7 @@ app.include_router(stats.router)
 app.include_router(pressure.router)
 app.include_router(device_monitor.router)
 app.include_router(security_api.router)
+app.include_router(patient_app_api.router)
 
 
 @app.get("/health")

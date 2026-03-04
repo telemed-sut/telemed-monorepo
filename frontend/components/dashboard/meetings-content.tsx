@@ -2114,6 +2114,16 @@ export function MeetingsContent() {
     loadMeetings();
   }, [loadMeetings]);
 
+  useEffect(() => {
+    if (!token) return;
+    const interval = window.setInterval(() => {
+      void loadMeetings(true);
+    }, 15000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [token, loadMeetings]);
+
   // Load patients & doctors for form
   useEffect(() => {
     if (!token) return;

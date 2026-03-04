@@ -110,6 +110,7 @@ PostgreSQL (:5432)              /device/v1/* endpoints
 telemed-monorepo/
 ├── frontend/                     # Next.js web application
 ├── backend/                      # FastAPI service + migrations + tests
+├── mobile/patient_flutter_app/   # Flutter patient app starter (ZEGO)
 ├── Telemed Device API/           # Bruno collection for device API testing
 ├── scripts/                      # Utility scripts
 ├── docker-compose.yml            # Local full-stack orchestration
@@ -156,6 +157,24 @@ cd frontend
 cp .env.example .env.local
 npm install
 npm run dev
+```
+
+### 3) Patient Mobile (Flutter)
+
+```bash
+./scripts/bootstrap-patient-flutter.sh
+cd mobile/patient_flutter_app
+flutter run \
+  --dart-define=ZEGO_APP_ID=<APP_ID> \
+  --dart-define=ZEGO_APP_SIGN=<APP_SIGN> \
+  --dart-define=TELEMED_API_BASE_URL=http://<YOUR_LAN_IP>:8000
+```
+
+Windows (Android) shortcut:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\bootstrap-patient-flutter.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\run-patient-flutter.ps1
 ```
 
 ## Required Environment Variables

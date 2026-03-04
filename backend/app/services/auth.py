@@ -235,13 +235,28 @@ def _validate_cookie_csrf(request: Request) -> None:
     if request.method.upper() in safe_methods:
         return
 
-    expected_origin = settings.frontend_base_url.rstrip("/")
-    if not expected_origin:
+    allowed_origins: set[str] = set()
+    frontend_origin = settings.frontend_base_url.rstrip("/")
+    if frontend_origin:
+        allowed_origins.add(frontend_origin)
+
+    raw_cors_origins = settings.cors_origins
+    if isinstance(raw_cors_origins, str):
+        cors_origins = [origin.strip() for origin in raw_cors_origins.split(",") if origin.strip()]
+    else:
+        cors_origins = [origin.strip() for origin in raw_cors_origins if origin and origin.strip()]
+
+    for origin in cors_origins:
+        normalized = origin.rstrip("/")
+        if normalized.startswith("http://") or normalized.startswith("https://"):
+            allowed_origins.add(normalized)
+
+    if not allowed_origins:
         return
 
     origin = request.headers.get("origin")
     if origin:
-        if origin.rstrip("/") != expected_origin:
+        if origin.rstrip("/") not in allowed_origins:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="CSRF validation failed.",
@@ -251,8 +266,9 @@ def _validate_cookie_csrf(request: Request) -> None:
     referer = request.headers.get("referer")
     if referer:
         normalized_referer = referer.rstrip("/")
-        if normalized_referer == expected_origin or normalized_referer.startswith(f"{expected_origin}/"):
-            return
+        for allowed_origin in allowed_origins:
+            if normalized_referer == allowed_origin or normalized_referer.startswith(f"{allowed_origin}/"):
+                return
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="CSRF validation failed.",

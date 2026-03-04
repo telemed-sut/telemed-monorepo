@@ -29,6 +29,10 @@ class Patient(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    # Patient app authentication
+    pin_hash = Column(String(255), nullable=True)
+    app_registered_at = Column(DateTime(timezone=True), nullable=True)
+
     # Dense mode clinical columns
     allergies = Column(Text, nullable=True)
     blood_group = Column(String(10), nullable=True)
