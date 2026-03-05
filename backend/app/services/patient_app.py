@@ -16,7 +16,6 @@ from app.models.meeting import Meeting
 from app.models.meeting_patient_invite_code import MeetingPatientInviteCode
 from app.models.patient import Patient
 from app.models.patient_app_registration import PatientAppRegistration
-from app.services import meeting_presence as meeting_presence_service
 from app.services import meeting_video as meeting_video_service
 
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -261,8 +260,6 @@ def get_patient_meetings(
         pid = _uuid.UUID(patient_id)
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid patient ID.") from exc
-
-    meeting_presence_service.prune_stale_waiting_meetings(db)
 
     meetings = db.scalars(
         select(Meeting)

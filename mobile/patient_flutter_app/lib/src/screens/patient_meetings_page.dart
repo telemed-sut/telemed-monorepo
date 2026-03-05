@@ -428,6 +428,7 @@ bool _isPatientReadyToJoin(PatientMeeting meeting) {
   return meeting.status == 'scheduled' ||
       meeting.status == 'in_progress' ||
       presence.state == 'patient_waiting' ||
+      presence.state == 'doctor_left_patient_waiting' ||
       presence.state == 'doctor_only' ||
       presence.state == 'both_in_room';
 }
@@ -435,7 +436,8 @@ bool _isPatientReadyToJoin(PatientMeeting meeting) {
 bool _isPatientWaitingLive(PatientMeeting meeting) {
   final presence = meeting.roomPresence;
   if (presence == null) return meeting.status == 'waiting';
-  return presence.state == 'patient_waiting';
+  return presence.state == 'patient_waiting' ||
+      presence.state == 'doctor_left_patient_waiting';
 }
 
 String _patientStatusLabel(PatientMeeting meeting) {
@@ -443,6 +445,9 @@ String _patientStatusLabel(PatientMeeting meeting) {
   if (presence?.state == 'both_in_room') return 'แพทย์อยู่ในห้อง';
   if (presence?.state == 'doctor_only') return 'แพทย์กำลังรอ';
   if (presence?.state == 'patient_waiting') return 'คุณกำลังรอแพทย์';
+  if (presence?.state == 'doctor_left_patient_waiting') {
+    return 'แพทย์ออกจากห้องชั่วคราว';
+  }
 
   return switch (meeting.status) {
     'scheduled' => 'นัดหมาย',
@@ -459,6 +464,9 @@ Color _patientStatusColor(PatientMeeting meeting) {
   if (presence?.state == 'both_in_room') return const Color(0xFF16A34A);
   if (presence?.state == 'doctor_only') return const Color(0xFF0F766E);
   if (presence?.state == 'patient_waiting') return const Color(0xFFD97706);
+  if (presence?.state == 'doctor_left_patient_waiting') {
+    return const Color(0xFFEA580C);
+  }
 
   return switch (meeting.status) {
     'scheduled' => const Color(0xFF2563EB),
@@ -477,6 +485,9 @@ String _patientActionLabel(PatientMeeting meeting, bool isJoining) {
   if (presence?.state == 'both_in_room') return 'เข้าพบแพทย์';
   if (presence?.state == 'doctor_only') return 'เข้าหาแพทย์';
   if (presence?.state == 'patient_waiting') return 'กลับเข้าห้องรอ';
+  if (presence?.state == 'doctor_left_patient_waiting') {
+    return 'กลับเข้าห้องอีกครั้ง';
+  }
 
   return switch (meeting.status) {
     'waiting' => 'เข้าร่วมห้อง',
@@ -495,6 +506,9 @@ String? _patientWaitingHint(PatientMeeting meeting) {
   }
   if (presence?.state == 'patient_waiting') {
     return 'คุณอยู่ในห้องรอแล้ว สามารถกลับเข้าร่วมได้ทันที';
+  }
+  if (presence?.state == 'doctor_left_patient_waiting') {
+    return 'แพทย์ออกจากห้องชั่วคราว คุณยังสามารถกลับเข้าห้องและรอแพทย์ได้';
   }
   if (meeting.status == 'waiting') {
     return 'ห้องพร้อมแล้ว สามารถกดเข้าร่วมได้ทันที';

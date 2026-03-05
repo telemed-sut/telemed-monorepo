@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.security import create_access_token, get_password_hash
+from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
 from app.models.meeting_room_presence import MeetingRoomPresence
 from app.models.meeting_patient_invite_code import MeetingPatientInviteCode
@@ -194,5 +195,44 @@ def test_patient_meetings_include_room_presence(
     assert room_presence["state"] == "both_in_room"
     assert room_presence["doctor_online"] is True
     assert room_presence["patient_online"] is True
+
+    get_settings.cache_clear()
+
+
+def test_patient_meetings_does_not_prune_stale_waiting_status(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    monkeypatch.setenv("MEETING_PATIENT_JOIN_BASE_URL", "https://demo.trycloudflare.com")
+    get_settings.cache_clear()
+
+    doctor = _create_user(db, "doctor-patient-stale@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Stale", "Waiting")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+    meeting.status = MeetingStatus.waiting
+    db.add(meeting)
+    db.add(
+        MeetingRoomPresence(
+            meeting_id=meeting.id,
+            patient_last_seen_at=datetime.now(timezone.utc) - timedelta(minutes=2),
+            refreshed_at=datetime.now(timezone.utc) - timedelta(minutes=2),
+        )
+    )
+    db.commit()
+
+    response = client.get(
+        "/patient-app/me/meetings",
+        headers=_patient_auth_headers(patient),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["status"] == "waiting"
+    assert payload["items"][0]["room_presence"]["patient_online"] is False
+
+    db.refresh(meeting)
+    assert meeting.status == MeetingStatus.waiting
 
     get_settings.cache_clear()
