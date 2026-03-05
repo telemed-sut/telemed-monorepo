@@ -226,6 +226,15 @@ class Settings(BaseSettings):
             raise ValueError("MEETING_PATIENT_JOIN_BASE_URL must start with http:// or https://.")
         return value.rstrip("/")
 
+    @field_validator("zego_app_id", mode="before")
+    @classmethod
+    def parse_optional_zego_app_id(cls, v: object) -> object:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     @model_validator(mode="after")
     def apply_device_api_secret_fallback(self):
         if self.device_api_allow_jwt_secret_fallback:

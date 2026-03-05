@@ -118,10 +118,25 @@ telemed-monorepo/
 └── README.md
 ```
 
-## Quick Start (Docker, Recommended)
+## Quick Start (Docker + Infisical, Primary)
+
+Primary command:
 
 ```bash
-docker compose up --build
+./scripts/compose-up-infisical.sh
+```
+
+Optional (if your Infisical CLI needs explicit runtime args):
+
+```bash
+INFISICAL_RUN_ARGS="--projectId <project_id> --env <environment> --path /" ./scripts/compose-up-infisical.sh
+```
+
+Fallback (only if Infisical is unavailable):
+
+```bash
+cp .env.example .env
+USE_INFISICAL=false ./scripts/compose-up-infisical.sh
 ```
 
 Services:
@@ -144,9 +159,15 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
 alembic upgrade head
 python -m scripts.seed
+infisical run -- uvicorn app.main:app --reload
+```
+
+Fallback only:
+
+```bash
+cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
@@ -154,8 +175,14 @@ uvicorn app.main:app --reload
 
 ```bash
 cd frontend
-cp .env.example .env.local
 npm install
+infisical run -- npm run dev
+```
+
+Fallback only:
+
+```bash
+cp .env.example .env.local
 npm run dev
 ```
 
@@ -179,7 +206,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\run-patient-flutter.p
 
 ## Required Environment Variables
 
-### Backend (`backend/.env`)
+Primary secret source: Infisical project/environment.
+
+Fallback files:
+
+- Root Compose fallback: `.env` (from `.env.example`)
+- Backend local fallback: `backend/.env` (from `backend/.env.example`)
+- Frontend local fallback: `frontend/.env.local` (from `frontend/.env.example`)
+
+### Backend (Infisical)
 
 Minimum required:
 
@@ -198,7 +233,7 @@ Important for production hardening:
 
 Reference file: `backend/.env.example`
 
-### Frontend (`frontend/.env.local`)
+### Frontend (Infisical)
 
 - `NEXT_PUBLIC_API_BASE_URL` (default local value is `http://localhost:8000`)
 

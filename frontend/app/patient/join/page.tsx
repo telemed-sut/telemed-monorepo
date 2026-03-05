@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -305,7 +305,7 @@ function loadZegoUIKitScript(): Promise<ZegoUIKitPrebuiltStatic> {
   return zegoScriptPromise;
 }
 
-export default function PatientJoinPage() {
+function PatientJoinPageContent() {
   const searchParams = useSearchParams();
   const meetingId = (searchParams.get("meeting_id") || "").trim();
   const shortCode = (
@@ -617,5 +617,19 @@ export default function PatientJoinPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function PatientJoinPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-slate-950 p-3 text-slate-100 md:p-4">
+          <div className="mx-auto max-w-6xl text-sm text-slate-300">Loading call page...</div>
+        </main>
+      }
+    >
+      <PatientJoinPageContent />
+    </Suspense>
   );
 }

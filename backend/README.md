@@ -33,7 +33,8 @@ FastAPI backend with JWT auth, PostgreSQL (Neon/Supabase), patient CRUD, Alembic
 - DEVICE_API_NONCE_TTL_SECONDS: nonce replay window retention
 - DEVICE_API_MAX_BODY_BYTES: max accepted request payload size in bytes
 
-See [.env.example](.env.example) for a starter file.
+Primary source should be Infisical secrets at runtime.  
+Fallback local file: copy [.env.example](.env.example) to `.env`.
 
 ### Frontend Integration
 - Backend URL: `http://localhost:8000`
@@ -44,14 +45,15 @@ See [.env.example](.env.example) for a starter file.
 ### Running locally (without Docker)
 1) Create and activate a Python 3.11+ venv.
 2) Install dependencies: `pip install -r requirements.txt`.
-3) Set env vars (DATABASE_URL, JWT_SECRET, JWT_EXPIRES_IN, CORS_ORIGINS).
+3) Load env vars via Infisical (`infisical run -- ...`) or fallback `.env`.
 4) Run migrations: `alembic upgrade head`.
 5) Seed demo data: `python -m scripts.seed`.
-6) Start API: `uvicorn app.main:app --reload` (defaults to 8000).
+6) Start API: `infisical run -- uvicorn app.main:app --reload` (defaults to 8000).
 
 ### Running with Docker Compose
-1) Copy .env.example to .env and fill values (use sslmode=require for Supabase URLs).
-2) `docker-compose up --build` (backend on port 8000). Migrations and seed run automatically before uvicorn starts.
+1) Preferred: run Compose through Infisical from repo root (`./scripts/compose-up-infisical.sh`).
+2) Fallback: copy `.env.example` to `.env` and run `docker compose up --build`.
+3) Backend runs on port 8000; migrations and seed run automatically before uvicorn starts.
 
 ### Auth and demo users
 - Login endpoint: POST /auth/login with {"email", "password"}.
