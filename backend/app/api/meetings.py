@@ -11,12 +11,15 @@ from app.schemas.meeting import MeetingCreate, MeetingListResponse, MeetingOut, 
 from app.schemas.meeting_video import (
     MeetingPatientInviteRequest,
     MeetingPatientInviteResponse,
+    MeetingPatientPresenceRequest,
+    MeetingRoomPresenceResponse,
     MeetingPatientTokenRequest,
     MeetingVideoTokenRequest,
     MeetingVideoTokenResponse,
 )
 from app.services import auth as auth_service
 from app.services import meeting as meeting_service
+from app.services import meeting_presence as meeting_presence_service
 from app.services import meeting_video as meeting_video_service
 
 router = APIRouter(prefix="/meetings", tags=["meetings"])
@@ -24,6 +27,20 @@ settings = get_settings()
 
 get_current_user = auth_service.get_current_user
 get_admin_user = auth_service.get_admin_user
+
+
+def _presence_response(meeting, presence) -> MeetingRoomPresenceResponse:
+    return MeetingRoomPresenceResponse(
+        meeting_id=str(meeting.id),
+        state=presence.state,
+        doctor_online=presence.doctor_online,
+        patient_online=presence.patient_online,
+        doctor_last_seen_at=presence.doctor_last_seen_at,
+        patient_last_seen_at=presence.patient_last_seen_at,
+        doctor_left_at=presence.doctor_left_at,
+        patient_left_at=presence.patient_left_at,
+        updated_at=presence.updated_at,
+    )
 
 
 @router.post("", response_model=MeetingOut, status_code=status.HTTP_201_CREATED)
@@ -135,6 +152,7 @@ def issue_meeting_video_token(
         current_user=current_user,
         expires_in_seconds=payload.expires_in_seconds,
     )
+    meeting_presence_service.touch_doctor_presence(db, meeting)
     if meeting.status in (MeetingStatus.scheduled, MeetingStatus.waiting):
         meeting.status = MeetingStatus.in_progress
         db.add(meeting)
@@ -229,11 +247,156 @@ def issue_patient_video_token(
             invite_token=payload.invite_token or "",
             expires_in_seconds=payload.expires_in_seconds,
         )
+    meeting_presence_service.touch_patient_presence(db, meeting)
     if meeting.status == MeetingStatus.scheduled:
         meeting.status = MeetingStatus.waiting
         db.add(meeting)
         db.commit()
     return response
+
+
+@router.post("/{meeting_id}/video/presence/heartbeat", response_model=MeetingRoomPresenceResponse)
+@limiter.limit("120/minute")
+def doctor_presence_heartbeat(
+    request: Request,
+    meeting_id: str,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    meeting = meeting_service.get_meeting(db, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    if current_user.role == UserRole.doctor and not meeting_service.can_doctor_view_meeting(
+        db=db,
+        doctor_id=current_user.id,
+        meeting=meeting,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only access meetings you own or assigned patients.",
+        )
+
+    presence = meeting_presence_service.touch_doctor_presence(db, meeting)
+    return _presence_response(meeting, presence)
+
+
+@router.post("/{meeting_id}/video/presence/leave", response_model=MeetingRoomPresenceResponse)
+@limiter.limit("120/minute")
+def doctor_presence_leave(
+    request: Request,
+    meeting_id: str,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    meeting = meeting_service.get_meeting(db, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    if current_user.role == UserRole.doctor and not meeting_service.can_doctor_view_meeting(
+        db=db,
+        doctor_id=current_user.id,
+        meeting=meeting,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only access meetings you own or assigned patients.",
+        )
+
+    presence = meeting_presence_service.mark_doctor_left(db, meeting)
+    if presence.patient_online and meeting.status == MeetingStatus.in_progress:
+        meeting.status = MeetingStatus.waiting
+        db.add(meeting)
+        db.commit()
+    return _presence_response(meeting, presence)
+
+
+@router.post("/video/patient/presence/heartbeat", response_model=MeetingRoomPresenceResponse)
+@limiter.limit("120/minute")
+def patient_presence_heartbeat(
+    request: Request,
+    payload: MeetingPatientPresenceRequest,
+    db: Session = Depends(auth_service.get_db),
+):
+    resolved_meeting_id = ""
+    normalized_requested_meeting_id = (
+        meeting_video_service.normalize_meeting_id_text(payload.meeting_id or "")
+        if payload.meeting_id
+        else ""
+    )
+    if payload.short_code:
+        resolved_meeting_id = meeting_video_service.extract_meeting_id_from_patient_short_code(
+            db,
+            payload.short_code,
+        )
+        if (
+            normalized_requested_meeting_id
+            and normalized_requested_meeting_id != resolved_meeting_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Patient short code does not match meeting_id.",
+            )
+    else:
+        resolved_meeting_id = payload.meeting_id or meeting_video_service.extract_meeting_id_from_patient_invite_token(
+            payload.invite_token or ""
+        )
+
+    meeting = meeting_service.get_meeting(db, resolved_meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    presence = meeting_presence_service.touch_patient_presence(db, meeting)
+    if meeting.status == MeetingStatus.scheduled:
+        meeting.status = MeetingStatus.waiting
+        db.add(meeting)
+        db.commit()
+    return _presence_response(meeting, presence)
+
+
+@router.post("/video/patient/presence/leave", response_model=MeetingRoomPresenceResponse)
+@limiter.limit("120/minute")
+def patient_presence_leave(
+    request: Request,
+    payload: MeetingPatientPresenceRequest,
+    db: Session = Depends(auth_service.get_db),
+):
+    resolved_meeting_id = ""
+    normalized_requested_meeting_id = (
+        meeting_video_service.normalize_meeting_id_text(payload.meeting_id or "")
+        if payload.meeting_id
+        else ""
+    )
+    if payload.short_code:
+        resolved_meeting_id = meeting_video_service.extract_meeting_id_from_patient_short_code(
+            db,
+            payload.short_code,
+        )
+        if (
+            normalized_requested_meeting_id
+            and normalized_requested_meeting_id != resolved_meeting_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Patient short code does not match meeting_id.",
+            )
+    else:
+        resolved_meeting_id = payload.meeting_id or meeting_video_service.extract_meeting_id_from_patient_invite_token(
+            payload.invite_token or ""
+        )
+
+    meeting = meeting_service.get_meeting(db, resolved_meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    presence = meeting_presence_service.mark_patient_left(db, meeting)
+    return _presence_response(meeting, presence)
 
 
 @router.put("/{meeting_id}", response_model=MeetingOut)

@@ -5,7 +5,11 @@ import { useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { issuePatientMeetingVideoToken } from "@/lib/api";
+import {
+  heartbeatPatientMeetingPresence,
+  issuePatientMeetingVideoToken,
+  leavePatientMeetingPresence,
+} from "@/lib/api";
 
 type ZegoJoinOptions = {
   container: HTMLElement;
@@ -41,6 +45,7 @@ declare global {
 
 const ZEGO_WEB_UIKIT_SCRIPT =
   "https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js";
+const PATIENT_PRESENCE_HEARTBEAT_INTERVAL_MS = 10_000;
 
 let zegoScriptPromise: Promise<ZegoUIKitPrebuiltStatic> | null = null;
 
@@ -464,6 +469,47 @@ function PatientJoinPageContent() {
       zegoInstanceRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!joined || (!inviteToken && !shortCode)) {
+      return;
+    }
+
+    let disposed = false;
+    const payload = {
+      meetingId: meetingId || undefined,
+      inviteToken: inviteToken || undefined,
+      shortCode: shortCode || undefined,
+    };
+
+    const sendHeartbeat = () => {
+      if (disposed) return;
+      void heartbeatPatientMeetingPresence(payload).catch(() => {
+        // Best-effort heartbeat.
+      });
+    };
+
+    const sendLeave = () => {
+      if (disposed) return;
+      void leavePatientMeetingPresence(payload).catch(() => {
+        // Best-effort leave marker.
+      });
+    };
+
+    sendHeartbeat();
+    const interval = window.setInterval(
+      sendHeartbeat,
+      PATIENT_PRESENCE_HEARTBEAT_INTERVAL_MS
+    );
+    window.addEventListener("pagehide", sendLeave);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("pagehide", sendLeave);
+      sendLeave();
+      disposed = true;
+    };
+  }, [joined, meetingId, inviteToken, shortCode]);
 
   useEffect(() => {
     if (!joined) {

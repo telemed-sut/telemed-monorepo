@@ -6,7 +6,9 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   createMeetingPatientInvite,
+  heartbeatDoctorMeetingPresence,
   issueMeetingVideoToken,
+  leaveDoctorMeetingPresence,
   type MeetingPatientInviteResponse,
   type MeetingVideoTokenResponse,
 } from "@/lib/api";
@@ -300,6 +302,7 @@ declare global {
 
 const ZEGO_WEB_UIKIT_SCRIPT =
   "https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js";
+const DOCTOR_PRESENCE_HEARTBEAT_INTERVAL_MS = 10_000;
 
 let zegoScriptPromise: Promise<ZegoUIKitPrebuiltStatic> | null = null;
 
@@ -652,6 +655,43 @@ export default function MeetingCallPage() {
       zegoInstanceRef.current = null;
     };
   }, [meetingId, token, role, language]);
+
+  useEffect(() => {
+    if (!session || !token || !meetingId || role !== "doctor") {
+      return;
+    }
+
+    let disposed = false;
+
+    const sendHeartbeat = () => {
+      if (disposed) return;
+      void heartbeatDoctorMeetingPresence(meetingId, token).catch(() => {
+        // Presence heartbeat is best-effort and must not break call UX.
+      });
+    };
+
+    const sendLeave = () => {
+      if (disposed) return;
+      void leaveDoctorMeetingPresence(meetingId, token).catch(() => {
+        // Best-effort leave marker.
+      });
+    };
+
+    sendHeartbeat();
+    const interval = window.setInterval(
+      sendHeartbeat,
+      DOCTOR_PRESENCE_HEARTBEAT_INTERVAL_MS
+    );
+
+    window.addEventListener("pagehide", sendLeave);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("pagehide", sendLeave);
+      sendLeave();
+      disposed = true;
+    };
+  }, [session, token, meetingId, role]);
 
   const hasLinkPanel = !isPopupWindow && Boolean(meetingUrl || patientInvite?.invite_url);
   const hasMetaAlerts = Boolean(patientInviteError || callNotice || error);

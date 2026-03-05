@@ -15,6 +15,7 @@ class MeetingVideoTokenRequest(BaseModel):
 
 class MeetingVideoTokenResponse(BaseModel):
     provider: Literal["mock", "zego"]
+    meeting_id: str
     app_id: int | None = None
     room_id: str
     user_id: str
@@ -58,3 +59,27 @@ class MeetingPatientTokenRequest(BaseModel):
         if (self.invite_token or "").strip() or (self.short_code or "").strip():
             return self
         raise ValueError("Either invite_token or short_code is required.")
+
+
+class MeetingPatientPresenceRequest(BaseModel):
+    meeting_id: str | None = Field(default=None, min_length=1, max_length=64)
+    invite_token: str | None = Field(default=None, min_length=32, max_length=4096)
+    short_code: str | None = Field(default=None, min_length=6, max_length=24)
+
+    @model_validator(mode="after")
+    def validate_join_proof(self):
+        if (self.invite_token or "").strip() or (self.short_code or "").strip():
+            return self
+        raise ValueError("Either invite_token or short_code is required.")
+
+
+class MeetingRoomPresenceResponse(BaseModel):
+    meeting_id: str
+    state: str
+    doctor_online: bool
+    patient_online: bool
+    doctor_last_seen_at: datetime | None = None
+    patient_last_seen_at: datetime | None = None
+    doctor_left_at: datetime | None = None
+    patient_left_at: datetime | None = None
+    updated_at: datetime | None = None

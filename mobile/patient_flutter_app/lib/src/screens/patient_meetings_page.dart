@@ -190,6 +190,8 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
             displayName: patientName,
             startWithCamera: true,
             startWithMicrophone: true,
+            inviteToken: invite.inviteToken,
+            shortCode: invite.shortCode,
           ),
         ),
       );

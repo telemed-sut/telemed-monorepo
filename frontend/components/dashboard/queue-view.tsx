@@ -142,6 +142,18 @@ function getInitial(name: string | null | undefined): string {
   return name?.charAt(0)?.toUpperCase() || "?";
 }
 
+function isPatientWaitingLive(meeting: Meeting): boolean {
+  const state = meeting.room_presence?.state;
+  if (state === "patient_waiting" || state === "doctor_left_patient_waiting") {
+    return true;
+  }
+  return meeting.status === "waiting";
+}
+
+function isDoctorLeftWhilePatientWaiting(meeting: Meeting): boolean {
+  return meeting.room_presence?.state === "doctor_left_patient_waiting";
+}
+
 /* ── Status Badge ── */
 function StatusBadge({
   status,
@@ -257,11 +269,14 @@ function QueueCard({
   canDelete: boolean;
   language: AppLanguage;
 }) {
-  const config = getStatusConfig(meeting.status, language);
   const nextStatuses = STATUS_TRANSITIONS[meeting.status] || [];
   const undoTarget = UNDO_TRANSITIONS[meeting.status];
   const isTerminal =
     meeting.status === "completed" || meeting.status === "cancelled";
+  const isWaitingLive = isPatientWaitingLive(meeting);
+  const isDoctorLeftWaiting = isDoctorLeftWhilePatientWaiting(meeting);
+  const statusForBadge: MeetingStatus = isWaitingLive ? "waiting" : meeting.status;
+  const config = getStatusConfig(statusForBadge, language);
 
   const patientName = meeting.patient
     ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
@@ -276,7 +291,7 @@ function QueueCard({
         "group flex flex-col gap-3 p-4 rounded-xl border border-border bg-card transition-all cursor-pointer h-full",
         "hover:shadow-md hover:border-border/80",
         isTerminal && "opacity-60",
-        meeting.status === "waiting" &&
+        isWaitingLive &&
           "border-amber-300/60 bg-gradient-to-br from-amber-50/70 to-card ring-1 ring-amber-300/40"
       )}
       onClick={() => onClick(meeting)}
@@ -361,7 +376,7 @@ function QueueCard({
               <HugeiconsIcon icon={Delete01Icon} className="size-3.5" />
             </Button>
           )}
-          <StatusBadge status={meeting.status} language={language} />
+          <StatusBadge status={statusForBadge} language={language} />
         </div>
       </div>
 
@@ -391,16 +406,22 @@ function QueueCard({
         </div>
       )}
 
-      {meeting.status === "waiting" && (
+      {isWaitingLive && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
           <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300">
             <HugeiconsIcon icon={Clock01Icon} className="size-3.5 mt-0.5 shrink-0" />
             <span>
-              {tr(
-                language,
-                "Patient is already in the waiting room. You can start call now.",
-                "คนไข้เข้าห้องรอแล้ว กดเริ่มคอลได้ทันที"
-              )}
+              {isDoctorLeftWaiting
+                ? tr(
+                    language,
+                    "Doctor left room while patient is still waiting. Rejoin now.",
+                    "หมอออกจากห้องแล้ว แต่คนไข้ยังรออยู่ กดกลับเข้าห้องได้ทันที"
+                  )
+                : tr(
+                    language,
+                    "Patient is already in the waiting room. You can start call now.",
+                    "คนไข้เข้าห้องรอแล้ว กดเริ่มคอลได้ทันที"
+                  )}
             </span>
           </div>
           <Button
@@ -493,7 +514,10 @@ function StatusSummary({
     const c: Record<string, number> = { all: meetings.length };
     for (const s of MEETING_STATUSES) c[s] = 0;
     meetings.forEach((m) => {
-      c[m.status] = (c[m.status] || 0) + 1;
+      const effectiveStatus: MeetingStatus = isPatientWaitingLive(m)
+        ? "waiting"
+        : m.status;
+      c[effectiveStatus] = (c[effectiveStatus] || 0) + 1;
     });
     return c;
   }, [meetings]);
@@ -602,20 +626,28 @@ export function QueueView({
 
     // Status filter
     if (statusFilter !== "all") {
-      filtered = filtered.filter((m) => m.status === statusFilter);
+      filtered = filtered.filter((m) => {
+        const effectiveStatus: MeetingStatus = isPatientWaitingLive(m)
+          ? "waiting"
+          : m.status;
+        return effectiveStatus === statusFilter;
+      });
     }
 
     // Sort: active statuses first, then by time
     const statusOrder: Record<MeetingStatus, number> = {
-      waiting: 0,
       in_progress: 1,
       overtime: 2,
       scheduled: 3,
       completed: 4,
       cancelled: 5,
+      waiting: 6,
     };
 
     filtered.sort((a, b) => {
+      const waitingA = isPatientWaitingLive(a) ? -1 : 0;
+      const waitingB = isPatientWaitingLive(b) ? -1 : 0;
+      if (waitingA !== waitingB) return waitingA - waitingB;
       const oa = statusOrder[a.status] ?? 3;
       const ob = statusOrder[b.status] ?? 3;
       if (oa !== ob) return oa - ob;
@@ -643,7 +675,12 @@ export function QueueView({
       }
 
       const todayCount = dateScopedMeetings.filter(
-        (meeting) => meeting.status === resolvedFilter
+        (meeting) => {
+          const effectiveStatus: MeetingStatus = isPatientWaitingLive(meeting)
+            ? "waiting"
+            : meeting.status;
+          return effectiveStatus === resolvedFilter;
+        }
       ).length;
 
       if (todayCount > 0) {
@@ -651,7 +688,12 @@ export function QueueView({
       }
 
       const allDatesCount = meetings.filter(
-        (meeting) => meeting.status === resolvedFilter
+        (meeting) => {
+          const effectiveStatus: MeetingStatus = isPatientWaitingLive(meeting)
+            ? "waiting"
+            : meeting.status;
+          return effectiveStatus === resolvedFilter;
+        }
       ).length;
 
       if (allDatesCount > 0) {

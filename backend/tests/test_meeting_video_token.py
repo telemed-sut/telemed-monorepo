@@ -91,6 +91,7 @@ def test_doctor_can_issue_video_token_for_visible_meeting(
     assert response.status_code == 200
     body = response.json()
     assert body["provider"] == "mock"
+    assert body["meeting_id"] == str(meeting.id)
     assert body["app_id"] is None
     assert body["room_id"].startswith("telemed_")
     assert body["user_id"] == meeting_video_service.derive_staff_participant_id(str(doctor.id))
@@ -244,6 +245,7 @@ def test_doctor_can_create_patient_invite_and_exchange_video_token(
     assert token_response.status_code == 200
     token_body = token_response.json()
     assert token_body["provider"] == "mock"
+    assert token_body["meeting_id"] == str(meeting.id)
     assert token_body["app_id"] is None
     assert token_body["room_id"] == meeting_video_service.derive_room_id(meeting)
     assert token_body["user_id"] == meeting_video_service.derive_patient_participant_id(str(patient.id))
@@ -304,6 +306,7 @@ def test_patient_can_exchange_video_token_via_short_code(
     assert token_response.status_code == 200
     token_body = token_response.json()
     assert token_body["provider"] == "mock"
+    assert token_body["meeting_id"] == str(meeting.id)
     assert token_body["room_id"] == meeting_video_service.derive_room_id(meeting)
     assert token_body["user_id"] == meeting_video_service.derive_patient_participant_id(str(patient.id))
     db.refresh(meeting)
@@ -360,3 +363,50 @@ def test_staff_cannot_create_patient_invite(
         headers=_auth_headers(staff),
     )
     assert response.status_code == 403
+
+
+def test_doctor_leave_presence_marks_patient_waiting_again(
+    client: TestClient,
+    db: Session,
+    use_mock_video_provider,
+):
+    doctor = _create_user(db, "doctor-presence-leave@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Presence", "Leave")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+
+    invite_response = client.post(
+        f"/meetings/{meeting.id}/video/patient-invite",
+        json={},
+        headers=_auth_headers(doctor),
+    )
+    assert invite_response.status_code == 200
+    invite_payload = invite_response.json()
+
+    patient_token_response = client.post(
+        "/meetings/video/patient/token",
+        json={"invite_token": invite_payload["invite_token"]},
+    )
+    assert patient_token_response.status_code == 200
+
+    doctor_token_response = client.post(
+        f"/meetings/{meeting.id}/video/token",
+        json={},
+        headers=_auth_headers(doctor),
+    )
+    assert doctor_token_response.status_code == 200
+    db.refresh(meeting)
+    assert meeting.status == MeetingStatus.in_progress
+
+    leave_response = client.post(
+        f"/meetings/{meeting.id}/video/presence/leave",
+        json={},
+        headers=_auth_headers(doctor),
+    )
+    assert leave_response.status_code == 200
+    leave_body = leave_response.json()
+    assert leave_body["state"] == "doctor_left_patient_waiting"
+    assert leave_body["doctor_online"] is False
+    assert leave_body["patient_online"] is True
+
+    db.refresh(meeting)
+    assert meeting.status == MeetingStatus.waiting

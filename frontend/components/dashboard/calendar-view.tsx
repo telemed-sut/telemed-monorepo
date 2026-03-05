@@ -124,6 +124,18 @@ function getInitial(name: string | null | undefined): string {
   return name?.charAt(0)?.toUpperCase() || "?";
 }
 
+function isPatientWaitingLive(meeting: Meeting): boolean {
+  const state = meeting.room_presence?.state;
+  if (state === "patient_waiting" || state === "doctor_left_patient_waiting") {
+    return true;
+  }
+  return meeting.status === "waiting";
+}
+
+function isDoctorLeftWhilePatientWaiting(meeting: Meeting): boolean {
+  return meeting.room_presence?.state === "doctor_left_patient_waiting";
+}
+
 function normalizeRoomTarget(room?: string | null): string | null {
   const value = room?.trim();
   if (!value) return null;
@@ -214,9 +226,10 @@ function EventCard({
     (meeting.patient
       ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
       : tr(language, "Appointment", "นัดหมาย"));
+  const isWaiting = isPatientWaitingLive(meeting);
+  const effectiveStatus: MeetingStatus = isWaiting ? "waiting" : meeting.status;
   const timeStr = getTimeRange(meeting.date_time, language, duration);
-  const statusColor = getStatusColor(meeting.status);
-  const isWaiting = meeting.status === "waiting";
+  const statusColor = getStatusColor(effectiveStatus);
   const waitingText = tr(language, "Patient waiting", "คนไข้รออยู่");
 
   const participants = [
@@ -338,7 +351,7 @@ function EventCard({
             <span className={cn("text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0", statusColor.text, "bg-current/10")}
               style={{ backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)" }}
             >
-              {getMeetingStatusLabel(meeting.status, language)}
+              {getMeetingStatusLabel(effectiveStatus, language)}
             </span>
           </div>
           {isWaiting && (
@@ -526,14 +539,16 @@ export function EventDetailSheet({
   const title = meeting.description || tr(language, "Appointment", "นัดหมาย");
   const roomTarget = normalizeRoomTarget(meeting.room);
   const canOpenRoom = Boolean(roomTarget);
-  const statusColor = getStatusColor(meeting.status);
+  const isPatientWaiting = isPatientWaitingLive(meeting);
+  const isDoctorLeftWaiting = isDoctorLeftWhilePatientWaiting(meeting);
+  const effectiveStatus: MeetingStatus = isPatientWaiting ? "waiting" : meeting.status;
+  const statusColor = getStatusColor(effectiveStatus);
   const isAdmin = role === "admin";
   const isOwnerDoctor =
     role === "doctor" && Boolean(currentUserId) && meeting.doctor_id === currentUserId;
   const canWrite = isAdmin || isOwnerDoctor;
   const canDelete = isAdmin;
   const canStartCall = isOwnerDoctor && !["cancelled", "completed"].includes(meeting.status);
-  const isPatientWaiting = meeting.status === "waiting";
 
   const sheetParticipants = [
     {
@@ -828,14 +843,26 @@ export function EventDetailSheet({
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-amber-800">
-                        {tr(language, "Patient is in waiting room now", "คนไข้อยู่ในห้องรอแล้ว")}
+                        {isDoctorLeftWaiting
+                          ? tr(
+                              language,
+                              "Doctor left room while patient is still waiting",
+                              "หมอออกจากห้องแล้ว แต่คนไข้ยังรออยู่"
+                            )
+                          : tr(language, "Patient is in waiting room now", "คนไข้อยู่ในห้องรอแล้ว")}
                       </p>
                       <p className="text-xs text-amber-700/90 mt-0.5">
-                        {tr(
-                          language,
-                          "Start call now to avoid patient drop-off.",
-                          "แนะนำให้กดเริ่มคอลทันที เพื่อลดโอกาสคนไข้หลุดจากห้องรอ"
-                        )}
+                        {isDoctorLeftWaiting
+                          ? tr(
+                              language,
+                              "Rejoin now so patient does not stay alone in room.",
+                              "แนะนำให้กลับเข้าห้องทันที เพื่อไม่ให้คนไข้รออยู่คนเดียว"
+                            )
+                          : tr(
+                              language,
+                              "Start call now to avoid patient drop-off.",
+                              "แนะนำให้กดเริ่มคอลทันที เพื่อลดโอกาสคนไข้หลุดจากห้องรอ"
+                            )}
                       </p>
                     </div>
                     <Button
@@ -861,7 +888,7 @@ export function EventDetailSheet({
                     className={cn("text-[11px] font-medium px-2 py-0.5 rounded-full", statusColor.text)}
                     style={{ backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)" }}
                   >
-                    {getMeetingStatusLabel(meeting.status, language)}
+                    {getMeetingStatusLabel(effectiveStatus, language)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-[13px] font-medium text-muted-foreground">

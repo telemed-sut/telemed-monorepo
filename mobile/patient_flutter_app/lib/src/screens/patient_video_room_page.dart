@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:zego_uikit_prebuilt_video_conference/zego_uikit_prebuilt_video_conference.dart';
 
 import '../config/app_config.dart';
 import '../models/patient_video_session.dart';
+import '../services/patient_video_api_client.dart';
 
 class PatientVideoRoomPage extends StatefulWidget {
   const PatientVideoRoomPage({
@@ -12,12 +15,16 @@ class PatientVideoRoomPage extends StatefulWidget {
     required this.displayName,
     required this.startWithCamera,
     required this.startWithMicrophone,
+    required this.inviteToken,
+    required this.shortCode,
   });
 
   final PatientVideoSession session;
   final String displayName;
   final bool startWithCamera;
   final bool startWithMicrophone;
+  final String? inviteToken;
+  final String? shortCode;
 
   @override
   State<PatientVideoRoomPage> createState() => _PatientVideoRoomPageState();
@@ -25,17 +32,25 @@ class PatientVideoRoomPage extends StatefulWidget {
 
 class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
     with WidgetsBindingObserver {
+  static const _presenceHeartbeatInterval = Duration(seconds: 10);
+
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
+  Timer? _presenceTimer;
+  late final PatientVideoApiClient _videoApiClient;
 
   @override
   void initState() {
     super.initState();
+    _videoApiClient = PatientVideoApiClient(baseUrl: AppConfig.telemedApiBaseUrl);
     WidgetsBinding.instance.addObserver(this);
     _enableImmersiveMode();
+    _startPresenceHeartbeat();
   }
 
   @override
   void dispose() {
+    _stopPresenceHeartbeat();
+    _sendPresenceLeave();
     _restoreSystemUiMode();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -49,6 +64,54 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
     });
     if (state == AppLifecycleState.resumed) {
       _enableImmersiveMode();
+      _startPresenceHeartbeat();
+    } else if (state == AppLifecycleState.paused) {
+      _stopPresenceHeartbeat();
+    }
+  }
+
+  void _startPresenceHeartbeat() {
+    _presenceTimer?.cancel();
+    _sendPresenceHeartbeat();
+    _presenceTimer = Timer.periodic(_presenceHeartbeatInterval, (_) {
+      _sendPresenceHeartbeat();
+    });
+  }
+
+  void _stopPresenceHeartbeat() {
+    _presenceTimer?.cancel();
+    _presenceTimer = null;
+  }
+
+  Future<void> _sendPresenceHeartbeat() async {
+    if ((widget.inviteToken ?? '').trim().isEmpty &&
+        (widget.shortCode ?? '').trim().isEmpty) {
+      return;
+    }
+    try {
+      await _videoApiClient.sendPatientPresenceHeartbeat(
+        meetingId: widget.session.meetingId,
+        inviteToken: widget.inviteToken,
+        shortCode: widget.shortCode,
+      );
+    } catch (_) {
+      // best-effort
+    }
+  }
+
+  Future<void> _sendPresenceLeave() async {
+    if ((widget.inviteToken ?? '').trim().isEmpty &&
+        (widget.shortCode ?? '').trim().isEmpty) {
+      return;
+    }
+    try {
+      await _videoApiClient.sendPatientPresenceLeave(
+        meetingId: widget.session.meetingId,
+        inviteToken: widget.inviteToken,
+        shortCode: widget.shortCode,
+      );
+    } catch (_) {
+      // best-effort
     }
   }
 

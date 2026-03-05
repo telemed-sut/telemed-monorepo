@@ -896,6 +896,25 @@ export interface PatientBrief {
   people_id?: string | null;
 }
 
+export type MeetingRoomPresenceState =
+  | "none"
+  | "patient_waiting"
+  | "both_in_room"
+  | "doctor_only"
+  | "doctor_left_patient_waiting";
+
+export interface MeetingRoomPresence {
+  meeting_id: string;
+  state: MeetingRoomPresenceState;
+  doctor_online: boolean;
+  patient_online: boolean;
+  doctor_last_seen_at?: string | null;
+  patient_last_seen_at?: string | null;
+  doctor_left_at?: string | null;
+  patient_left_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface Meeting {
   id: string;
   date_time: string;
@@ -912,10 +931,12 @@ export interface Meeting {
   updated_at?: string;
   doctor?: DoctorBrief | null;
   patient?: PatientBrief | null;
+  room_presence?: MeetingRoomPresence | null;
 }
 
 export interface MeetingVideoTokenResponse {
   provider: "mock" | "zego";
+  meeting_id: string;
   app_id?: number | null;
   room_id: string;
   user_id: string;
@@ -932,6 +953,12 @@ export interface MeetingPatientInviteResponse {
   invite_url: string;
   issued_at: string;
   expires_at: string;
+}
+
+export interface MeetingPatientPresencePayload {
+  meetingId?: string;
+  inviteToken?: string;
+  shortCode?: string;
 }
 
 export interface MeetingListResponse {
@@ -1100,6 +1127,60 @@ export async function issuePatientMeetingVideoToken(params: {
     {
       method: "POST",
       body: JSON.stringify(body),
+    }
+  );
+}
+
+export async function heartbeatDoctorMeetingPresence(
+  meetingId: string,
+  token: string
+) {
+  return apiFetch<MeetingRoomPresence>(
+    `/meetings/${meetingId}/video/presence/heartbeat`,
+    { method: "POST", body: JSON.stringify({}) },
+    token
+  );
+}
+
+export async function leaveDoctorMeetingPresence(
+  meetingId: string,
+  token: string
+) {
+  return apiFetch<MeetingRoomPresence>(
+    `/meetings/${meetingId}/video/presence/leave`,
+    { method: "POST", body: JSON.stringify({}) },
+    token
+  );
+}
+
+function buildPatientPresenceBody(params: MeetingPatientPresencePayload) {
+  const body: Record<string, unknown> = {};
+  if (params.meetingId) body.meeting_id = params.meetingId;
+  if (params.inviteToken) body.invite_token = params.inviteToken;
+  if (params.shortCode) body.short_code = params.shortCode;
+  return body;
+}
+
+export async function heartbeatPatientMeetingPresence(
+  params: MeetingPatientPresencePayload
+) {
+  return apiFetch<MeetingRoomPresence>(
+    "/meetings/video/patient/presence/heartbeat",
+    {
+      method: "POST",
+      body: JSON.stringify(buildPatientPresenceBody(params)),
+    }
+  );
+}
+
+export async function leavePatientMeetingPresence(
+  params: MeetingPatientPresencePayload
+) {
+  return apiFetch<MeetingRoomPresence>(
+    "/meetings/video/patient/presence/leave",
+    {
+      method: "POST",
+      body: JSON.stringify(buildPatientPresenceBody(params)),
     }
   );
 }

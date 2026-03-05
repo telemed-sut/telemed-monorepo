@@ -270,6 +270,7 @@ def _issue_video_token_for_participant(
         )
         return {
             "provider": "mock",
+            "meeting_id": str(meeting.id),
             "app_id": None,
             "room_id": room_id,
             "user_id": participant_id,
@@ -284,6 +285,7 @@ def _issue_video_token_for_participant(
     )
     return {
         "provider": "zego",
+        "meeting_id": str(meeting.id),
         "app_id": settings.zego_app_id,
         "room_id": room_id,
         "user_id": participant_id,
