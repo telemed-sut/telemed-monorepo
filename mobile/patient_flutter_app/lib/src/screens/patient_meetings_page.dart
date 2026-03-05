@@ -387,13 +387,9 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
     }
 
     final waitingCount =
-        meetings.where((meeting) => meeting.status == 'waiting').length;
-    final activeCount = meetings
-        .where((meeting) =>
-            meeting.status == 'scheduled' ||
-            meeting.status == 'waiting' ||
-            meeting.status == 'in_progress')
-        .length;
+        meetings.where((meeting) => _isPatientWaitingLive(meeting)).length;
+    final activeCount =
+        meetings.where((meeting) => _isPatientReadyToJoin(meeting)).length;
 
     return RefreshIndicator(
       onRefresh: _loadData,
@@ -419,6 +415,91 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
       ),
     );
   }
+}
+
+bool _isPatientReadyToJoin(PatientMeeting meeting) {
+  final presence = meeting.roomPresence;
+  if (presence == null) {
+    return meeting.status == 'scheduled' ||
+        meeting.status == 'waiting' ||
+        meeting.status == 'in_progress';
+  }
+
+  return meeting.status == 'scheduled' ||
+      meeting.status == 'in_progress' ||
+      presence.state == 'patient_waiting' ||
+      presence.state == 'doctor_only' ||
+      presence.state == 'both_in_room';
+}
+
+bool _isPatientWaitingLive(PatientMeeting meeting) {
+  final presence = meeting.roomPresence;
+  if (presence == null) return meeting.status == 'waiting';
+  return presence.state == 'patient_waiting';
+}
+
+String _patientStatusLabel(PatientMeeting meeting) {
+  final presence = meeting.roomPresence;
+  if (presence?.state == 'both_in_room') return 'แพทย์อยู่ในห้อง';
+  if (presence?.state == 'doctor_only') return 'แพทย์กำลังรอ';
+  if (presence?.state == 'patient_waiting') return 'คุณกำลังรอแพทย์';
+
+  return switch (meeting.status) {
+    'scheduled' => 'นัดหมาย',
+    'waiting' => 'ห้องพร้อมแล้ว',
+    'in_progress' => 'กำลังดำเนินการ',
+    'completed' => 'เสร็จสิ้น',
+    'cancelled' => 'ยกเลิก',
+    _ => meeting.status,
+  };
+}
+
+Color _patientStatusColor(PatientMeeting meeting) {
+  final presence = meeting.roomPresence;
+  if (presence?.state == 'both_in_room') return const Color(0xFF16A34A);
+  if (presence?.state == 'doctor_only') return const Color(0xFF0F766E);
+  if (presence?.state == 'patient_waiting') return const Color(0xFFD97706);
+
+  return switch (meeting.status) {
+    'scheduled' => const Color(0xFF2563EB),
+    'waiting' => const Color(0xFFD97706),
+    'in_progress' => const Color(0xFF16A34A),
+    'completed' => const Color(0xFF6B7280),
+    'cancelled' => const Color(0xFFDC2626),
+    _ => const Color(0xFF6B7280),
+  };
+}
+
+String _patientActionLabel(PatientMeeting meeting, bool isJoining) {
+  if (isJoining) return 'กำลังเข้า...';
+
+  final presence = meeting.roomPresence;
+  if (presence?.state == 'both_in_room') return 'เข้าพบแพทย์';
+  if (presence?.state == 'doctor_only') return 'เข้าหาแพทย์';
+  if (presence?.state == 'patient_waiting') return 'กลับเข้าห้องรอ';
+
+  return switch (meeting.status) {
+    'waiting' => 'เข้าร่วมห้อง',
+    'in_progress' => 'เข้าพบแพทย์',
+    _ => 'เข้าห้อง',
+  };
+}
+
+String? _patientWaitingHint(PatientMeeting meeting) {
+  final presence = meeting.roomPresence;
+  if (presence?.state == 'both_in_room') {
+    return 'แพทย์อยู่ในห้องแล้ว สามารถเข้าร่วมได้ทันที';
+  }
+  if (presence?.state == 'doctor_only') {
+    return 'แพทย์กำลังรออยู่ในห้อง สามารถเข้าร่วมได้ทันที';
+  }
+  if (presence?.state == 'patient_waiting') {
+    return 'คุณอยู่ในห้องรอแล้ว สามารถกลับเข้าร่วมได้ทันที';
+  }
+  if (meeting.status == 'waiting') {
+    return 'ห้องพร้อมแล้ว สามารถกดเข้าร่วมได้ทันที';
+  }
+  return null;
 }
 
 class _MeetingsSummaryCard extends StatelessWidget {
@@ -559,9 +640,7 @@ class _MeetingCard extends StatelessWidget {
     final theme = Theme.of(context);
     final hasInvite =
         meeting.patientInviteUrl != null && meeting.patientInviteUrl!.isNotEmpty;
-    final isJoinable = meeting.status == 'scheduled' ||
-        meeting.status == 'waiting' ||
-        meeting.status == 'in_progress';
+    final isJoinable = _isPatientReadyToJoin(meeting);
     final canJoin = hasInvite && isJoinable;
 
     // Parse date
@@ -574,35 +653,11 @@ class _MeetingCard extends StatelessWidget {
       formattedDate = meeting.dateTime;
     }
 
-    final statusColor = switch (meeting.status) {
-      'scheduled' => const Color(0xFF2563EB),
-      'waiting' => const Color(0xFFD97706),
-      'in_progress' => const Color(0xFF16A34A),
-      'completed' => const Color(0xFF6B7280),
-      'cancelled' => const Color(0xFFDC2626),
-      _ => const Color(0xFF6B7280),
-    };
-
-    final statusLabel = switch (meeting.status) {
-      'scheduled' => 'นัดหมาย',
-      'waiting' => 'รอหมอเข้าห้อง',
-      'in_progress' => 'กำลังดำเนินการ',
-      'completed' => 'เสร็จสิ้น',
-      'cancelled' => 'ยกเลิก',
-      _ => meeting.status,
-    };
-
-    final actionLabel = canJoin
-        ? switch (meeting.status) {
-            'waiting' => (isJoining ? 'กำลังเข้า...' : 'เข้าห้องรอ'),
-            'in_progress' => (isJoining ? 'กำลังเข้า...' : 'เข้าพบแพทย์'),
-            _ => (isJoining ? 'กำลังเข้า...' : 'เข้าห้อง'),
-          }
-        : (!hasInvite ? 'กำลังเตรียมห้อง' : statusLabel);
-
-    final waitingHint = meeting.status == 'waiting'
-        ? 'คนไข้อยู่ในห้องรอแล้ว สามารถเข้าร่วมได้ทันที'
-        : null;
+    final statusColor = _patientStatusColor(meeting);
+    final statusLabel = _patientStatusLabel(meeting);
+    final actionLabel =
+        canJoin ? _patientActionLabel(meeting, isJoining) : (!hasInvite ? 'กำลังเตรียมห้อง' : statusLabel);
+    final waitingHint = _patientWaitingHint(meeting);
 
     return Card(
       clipBehavior: Clip.antiAlias,

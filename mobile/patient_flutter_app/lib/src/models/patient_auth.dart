@@ -40,6 +40,26 @@ class PatientLoginResponse {
   }
 }
 
+class PatientMeetingPresence {
+  const PatientMeetingPresence({
+    required this.state,
+    required this.doctorOnline,
+    required this.patientOnline,
+  });
+
+  final String state;
+  final bool doctorOnline;
+  final bool patientOnline;
+
+  factory PatientMeetingPresence.fromJson(Map<String, dynamic> json) {
+    return PatientMeetingPresence(
+      state: (json['state'] as String?) ?? 'none',
+      doctorOnline: json['doctor_online'] as bool? ?? false,
+      patientOnline: json['patient_online'] as bool? ?? false,
+    );
+  }
+}
+
 class PatientMeeting {
   const PatientMeeting({
     required this.meetingId,
@@ -47,6 +67,7 @@ class PatientMeeting {
     required this.doctorName,
     required this.status,
     this.patientInviteUrl,
+    this.roomPresence,
   });
 
   final String meetingId;
@@ -54,6 +75,7 @@ class PatientMeeting {
   final String doctorName;
   final String status;
   final String? patientInviteUrl;
+  final PatientMeetingPresence? roomPresence;
 
   factory PatientMeeting.fromJson(Map<String, dynamic> json) {
     // Backend sends "id" (not "meeting_id") and "doctor" as an object.
@@ -68,6 +90,11 @@ class PatientMeeting {
       doctorName: doctorName.isNotEmpty ? doctorName : 'แพทย์',
       status: (json['status'] as String?) ?? 'scheduled',
       patientInviteUrl: json['patient_invite_url'] as String?,
+      roomPresence: json['room_presence'] is Map<String, dynamic>
+          ? PatientMeetingPresence.fromJson(
+              json['room_presence'] as Map<String, dynamic>,
+            )
+          : null,
     );
   }
 }

@@ -8,11 +8,6 @@ from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
 from app.models.meeting_room_presence import MeetingRoomPresence
 
-PRESENCE_PRUNE_INTERVAL_SECONDS = 15
-
-_last_waiting_prune_at: datetime | None = None
-
-
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -79,12 +74,6 @@ def mark_patient_left(db: Session, meeting: Meeting) -> MeetingRoomPresence:
     return presence
 
 
-def _should_skip_waiting_prune(now: datetime) -> bool:
-    if _last_waiting_prune_at is None:
-        return False
-    return (now - _last_waiting_prune_at).total_seconds() < PRESENCE_PRUNE_INTERVAL_SECONDS
-
-
 def normalize_waiting_status(db: Session, meeting: Meeting, presence: MeetingRoomPresence) -> bool:
     if meeting.status != MeetingStatus.waiting:
         return False
@@ -96,11 +85,6 @@ def normalize_waiting_status(db: Session, meeting: Meeting, presence: MeetingRoo
 
 
 def prune_stale_waiting_meetings(db: Session, *, force: bool = False) -> int:
-    global _last_waiting_prune_at
-    now = _now_utc()
-    if not force and _should_skip_waiting_prune(now):
-        return 0
-
     stmt = (
         select(MeetingRoomPresence)
         .join(Meeting, Meeting.id == MeetingRoomPresence.meeting_id)
@@ -119,6 +103,4 @@ def prune_stale_waiting_meetings(db: Session, *, force: bool = False) -> int:
 
     if changed:
         db.commit()
-
-    _last_waiting_prune_at = now
     return changed

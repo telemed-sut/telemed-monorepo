@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.security import create_access_token, get_password_hash
 from app.models.meeting import Meeting
+from app.models.meeting_room_presence import MeetingRoomPresence
 from app.models.meeting_patient_invite_code import MeetingPatientInviteCode
 from app.models.patient import Patient
 from app.models.user import User, UserRole
@@ -155,5 +156,43 @@ def test_patient_meetings_regenerates_invite_when_latest_code_expired(
         code.code != old_code and _as_utc(code.expires_at) > datetime.now(timezone.utc)
         for code in invite_codes
     )
+
+    get_settings.cache_clear()
+
+
+def test_patient_meetings_include_room_presence(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    monkeypatch.setenv("MEETING_PATIENT_JOIN_BASE_URL", "https://demo.trycloudflare.com")
+    get_settings.cache_clear()
+
+    doctor = _create_user(db, "doctor-patient-presence@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Presence", "Visible")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+    db.add(
+        MeetingRoomPresence(
+            meeting_id=meeting.id,
+            doctor_last_seen_at=datetime.now(timezone.utc),
+            patient_last_seen_at=datetime.now(timezone.utc),
+            refreshed_at=datetime.now(timezone.utc),
+        )
+    )
+    db.commit()
+
+    response = client.get(
+        "/patient-app/me/meetings",
+        headers=_patient_auth_headers(patient),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    room_presence = payload["items"][0]["room_presence"]
+    assert room_presence is not None
+    assert room_presence["state"] == "both_in_room"
+    assert room_presence["doctor_online"] is True
+    assert room_presence["patient_online"] is True
 
     get_settings.cache_clear()

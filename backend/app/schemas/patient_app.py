@@ -57,6 +57,19 @@ class PatientMeetingDoctorBrief(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PatientMeetingPresenceOut(BaseModel):
+    state: str
+    doctor_online: bool
+    patient_online: bool
+    doctor_last_seen_at: Optional[datetime] = None
+    patient_last_seen_at: Optional[datetime] = None
+    doctor_left_at: Optional[datetime] = None
+    patient_left_at: Optional[datetime] = None
+    refreshed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class PatientMeetingOut(BaseModel):
     id: UUID
     date_time: Optional[datetime] = None
@@ -65,6 +78,7 @@ class PatientMeetingOut(BaseModel):
     note: Optional[str] = None
     patient_invite_url: Optional[str] = None
     doctor: Optional[PatientMeetingDoctorBrief] = None
+    room_presence: Optional[PatientMeetingPresenceOut] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

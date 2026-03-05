@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
 from app.core.security import create_access_token, get_password_hash, verify_password
@@ -16,6 +16,7 @@ from app.models.meeting import Meeting
 from app.models.meeting_patient_invite_code import MeetingPatientInviteCode
 from app.models.patient import Patient
 from app.models.patient_app_registration import PatientAppRegistration
+from app.services import meeting_presence as meeting_presence_service
 from app.services import meeting_video as meeting_video_service
 
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -261,8 +262,14 @@ def get_patient_meetings(
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid patient ID.") from exc
 
+    meeting_presence_service.prune_stale_waiting_meetings(db)
+
     meetings = db.scalars(
         select(Meeting)
+        .options(
+            joinedload(Meeting.doctor),
+            joinedload(Meeting.room_presence),
+        )
         .where(Meeting.user_id == pid)
         .order_by(Meeting.date_time.desc().nullslast())
     ).all()
@@ -309,6 +316,7 @@ def get_patient_meetings(
             "note": m.note,
             "patient_invite_url": invite_url,
             "doctor": m.doctor,
+            "room_presence": m.room_presence,
             "created_at": m.created_at,
         })
 
