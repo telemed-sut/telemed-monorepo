@@ -105,11 +105,11 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
     return WillPopScope(
       onWillPop: _confirmLeaveCall,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF3F6FB),
+        backgroundColor: const Color(0xFFF1F5F9),
         appBar: AppBar(
           elevation: 0,
           backgroundColor: Colors.transparent,
-          title: const Text('Patient Video Room'),
+          title: const Text('ห้องตรวจออนไลน์'),
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () async {
@@ -123,12 +123,19 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
           children: [
             Container(
               width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
               padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: const Color(0xFFD7E1F2)),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x0F0F172A),
+                    blurRadius: 14,
+                    offset: Offset(0, 4),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -179,15 +186,15 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Room: ${widget.session.roomId}  |  AppID: $backendAppId',
+                    'Room: ${widget.session.roomId}',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: const Color(0xFF475569),
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 1),
                   Text(
-                    'Tip: You can switch apps and come back. Avoid closing this page while consultation is active.',
+                    'กดกลับได้เมื่อจบการพบแพทย์ • AppID $backendAppId',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: const Color(0xFF64748B),
                     ),
@@ -199,8 +206,15 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
               child: Container(
                 margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(20),
                   border: Border.all(color: const Color(0xFFD7E1F2)),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x140F172A),
+                      blurRadius: 18,
+                      offset: Offset(0, 8),
+                    ),
+                  ],
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: ZegoUIKitPrebuiltVideoConference(

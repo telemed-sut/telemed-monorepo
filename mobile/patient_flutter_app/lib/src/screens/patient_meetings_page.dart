@@ -28,7 +28,7 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
   String? _joiningMeetingId;
 
   /// Polling interval for silent background refresh.
-  static const _pollInterval = Duration(seconds: 1);
+  static const _pollInterval = Duration(seconds: 5);
   Timer? _pollTimer;
 
   @override
@@ -152,7 +152,7 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
   Future<void> _handleJoinMeeting(PatientMeeting meeting) async {
     final inviteUrl = meeting.patientInviteUrl;
     if (inviteUrl == null || inviteUrl.isEmpty) {
-      _showSnackBar('ลิงก์เข้าห้องยังไม่พร้อม กรุณารอแพทย์สร้างลิงก์');
+      _showSnackBar('ลิงก์ห้องยังไม่พร้อม ระบบกำลังเตรียมห้องให้');
       return;
     }
 
@@ -325,20 +325,152 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
       );
     }
 
+    final waitingCount =
+        meetings.where((meeting) => meeting.status == 'waiting').length;
+    final activeCount = meetings
+        .where((meeting) =>
+            meeting.status == 'scheduled' ||
+            meeting.status == 'waiting' ||
+            meeting.status == 'in_progress')
+        .length;
+
     return RefreshIndicator(
       onRefresh: _loadData,
       child: ListView.separated(
         padding: const EdgeInsets.all(16),
-        itemCount: meetings.length,
+        itemCount: meetings.length + 1,
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
-          final meeting = meetings[index];
+          if (index == 0) {
+            return _MeetingsSummaryCard(
+              totalCount: meetings.length,
+              activeCount: activeCount,
+              waitingCount: waitingCount,
+            );
+          }
+          final meeting = meetings[index - 1];
           return _MeetingCard(
             meeting: meeting,
             isJoining: _joiningMeetingId == meeting.meetingId,
             onJoin: () => _handleJoinMeeting(meeting),
           );
         },
+      ),
+    );
+  }
+}
+
+class _MeetingsSummaryCard extends StatelessWidget {
+  const _MeetingsSummaryCard({
+    required this.totalCount,
+    required this.activeCount,
+    required this.waitingCount,
+  });
+
+  final int totalCount;
+  final int activeCount;
+  final int waitingCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: const LinearGradient(
+          colors: [Color(0xFFEEF4FF), Color(0xFFF8FAFF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: const Color(0xFFDCE7FF)),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Row(
+        children: [
+          _SummaryPill(
+            icon: Icons.calendar_today_outlined,
+            label: 'นัดทั้งหมด',
+            value: '$totalCount',
+            color: const Color(0xFF2563EB),
+          ),
+          const SizedBox(width: 10),
+          _SummaryPill(
+            icon: Icons.event_available_outlined,
+            label: 'นัดที่เข้าร่วมได้',
+            value: '$activeCount',
+            color: const Color(0xFF16A34A),
+          ),
+          const SizedBox(width: 10),
+          _SummaryPill(
+            icon: Icons.access_time_rounded,
+            label: 'รอหมอเข้าห้อง',
+            value: '$waitingCount',
+            color: const Color(0xFFD97706),
+          ),
+          const Spacer(),
+          Icon(Icons.touch_app_rounded,
+              size: 18, color: theme.colorScheme.primary),
+        ],
+      ),
+    );
+  }
+}
+
+class _SummaryPill extends StatelessWidget {
+  const _SummaryPill({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 13, color: color),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: color.withValues(alpha: 0.9),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -360,7 +492,9 @@ class _MeetingCard extends StatelessWidget {
     final theme = Theme.of(context);
     final hasInvite =
         meeting.patientInviteUrl != null && meeting.patientInviteUrl!.isNotEmpty;
-    final isJoinable = meeting.status == 'scheduled' || meeting.status == 'in_progress';
+    final isJoinable = meeting.status == 'scheduled' ||
+        meeting.status == 'waiting' ||
+        meeting.status == 'in_progress';
     final canJoin = hasInvite && isJoinable;
 
     // Parse date
@@ -375,6 +509,7 @@ class _MeetingCard extends StatelessWidget {
 
     final statusColor = switch (meeting.status) {
       'scheduled' => const Color(0xFF2563EB),
+      'waiting' => const Color(0xFFD97706),
       'in_progress' => const Color(0xFF16A34A),
       'completed' => const Color(0xFF6B7280),
       'cancelled' => const Color(0xFFDC2626),
@@ -383,11 +518,24 @@ class _MeetingCard extends StatelessWidget {
 
     final statusLabel = switch (meeting.status) {
       'scheduled' => 'นัดหมาย',
+      'waiting' => 'รอหมอเข้าห้อง',
       'in_progress' => 'กำลังดำเนินการ',
       'completed' => 'เสร็จสิ้น',
       'cancelled' => 'ยกเลิก',
       _ => meeting.status,
     };
+
+    final actionLabel = canJoin
+        ? switch (meeting.status) {
+            'waiting' => (isJoining ? 'กำลังเข้า...' : 'เข้าห้องรอ'),
+            'in_progress' => (isJoining ? 'กำลังเข้า...' : 'เข้าพบแพทย์'),
+            _ => (isJoining ? 'กำลังเข้า...' : 'เข้าห้อง'),
+          }
+        : (!hasInvite ? 'กำลังเตรียมห้อง' : statusLabel);
+
+    final waitingHint = meeting.status == 'waiting'
+        ? 'คนไข้อยู่ในห้องรอแล้ว สามารถเข้าร่วมได้ทันที'
+        : null;
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -458,6 +606,37 @@ class _MeetingCard extends StatelessWidget {
 
             const SizedBox(height: 14),
 
+            if (waitingHint != null) ...[
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF7ED),
+                  border: Border.all(color: const Color(0xFFFED7AA)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.access_time_rounded,
+                        size: 16, color: Color(0xFFD97706)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        waitingHint,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF9A3412),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
             // Join button
             SizedBox(
               width: double.infinity,
@@ -472,14 +651,8 @@ class _MeetingCard extends StatelessWidget {
                             strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.videocam_rounded, size: 20),
-                label: Text(
-                  canJoin
-                      ? (isJoining ? 'กำลังเข้า...' : 'เข้าห้อง')
-                      : (!hasInvite
-                          ? 'รอแพทย์สร้างลิงก์'
-                          : (!isJoinable ? statusLabel : 'เข้าห้อง')),
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
+                label:
+                    Text(actionLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
                 style: FilledButton.styleFrom(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),

@@ -2118,7 +2118,7 @@ export function MeetingsContent() {
     if (!token) return;
     const interval = window.setInterval(() => {
       void loadMeetings(true);
-    }, 15000);
+    }, 5000);
     return () => {
       window.clearInterval(interval);
     };

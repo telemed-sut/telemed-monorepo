@@ -875,7 +875,7 @@ export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
 
 export const MEETING_STATUS_LABELS_TH: Record<MeetingStatus, string> = {
   scheduled: "นัดหมายแล้ว",
-  waiting: "รอพบแพทย์",
+  waiting: "รอหมอเข้าห้อง",
   in_progress: "กำลังตรวจ",
   overtime: "เกินเวลา",
   completed: "เสร็จแล้ว",

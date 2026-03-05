@@ -62,7 +62,7 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
 const TH_MEETING_STATUS_LABELS: Partial<Record<MeetingStatus, string>> = {
   scheduled: "กำหนดการ",
-  waiting: "รอพบแพทย์",
+  waiting: "รอหมอเข้าห้อง",
   in_progress: "กำลังตรวจ",
   completed: "เสร็จสิ้น",
   cancelled: "ยกเลิก",
@@ -800,6 +800,18 @@ export function EventDetailSheet({
                   <span className="size-1 rounded-full bg-muted-foreground" />
                   <span>{tr(language, "ICT", "เวลา ICT")}</span>
                 </div>
+                {meeting.status === "waiting" && (
+                  <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                    <HugeiconsIcon icon={Clock01Icon} className="size-3.5 shrink-0" />
+                    <span>
+                      {tr(
+                        language,
+                        "Patient is waiting in room now. Start call when ready.",
+                        "คนไข้รออยู่ในห้องแล้ว กดเริ่มคอลได้เลย"
+                      )}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Propose new time */}

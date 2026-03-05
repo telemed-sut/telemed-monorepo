@@ -44,7 +44,7 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 
 const MEETING_STATUS_LABELS_TH: Record<MeetingStatus, string> = {
   scheduled: "กำหนดการ",
-  waiting: "รอพบแพทย์",
+  waiting: "รอหมอเข้าห้อง",
   in_progress: "กำลังตรวจ",
   overtime: "เกินเวลา",
   completed: "เสร็จสิ้น",
@@ -60,7 +60,7 @@ function getStatusConfig(status: MeetingStatus, language: AppLanguage) {
         bg: "bg-amber-500/10",
         text: "text-amber-600 dark:text-amber-400",
         border: "border-amber-500/30",
-        label: tr(language, "Waiting", "รอพบแพทย์"),
+        label: tr(language, "Patient Waiting", "คนไข้อยู่ในห้องรอ"),
         icon: Clock01Icon,
       };
     case "in_progress":
@@ -383,6 +383,19 @@ function QueueCard({
         </div>
       )}
 
+      {meeting.status === "waiting" && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <HugeiconsIcon icon={Clock01Icon} className="size-3.5 mt-0.5 shrink-0" />
+          <span>
+            {tr(
+              language,
+              "Patient is already in the waiting room. You can start call now.",
+              "คนไข้เข้าห้องรอแล้ว กดเริ่มคอลได้ทันที"
+            )}
+          </span>
+        </div>
+      )}
+
       {/* Action buttons */}
       <div
         className="flex items-center gap-2 pt-1 mt-auto border-t border-border/50"
@@ -466,7 +479,7 @@ function StatusSummary({
   const items: { key: MeetingStatus | "all"; label: string; count: number }[] = [
     { key: "all", label: tr(language, "All", "ทั้งหมด"), count: counts.all },
     { key: "scheduled", label: tr(language, "Scheduled", "กำหนดการ"), count: counts.scheduled || 0 },
-    { key: "waiting", label: tr(language, "Waiting", "รอพบแพทย์"), count: counts.waiting || 0 },
+    { key: "waiting", label: tr(language, "Patient Waiting", "รอหมอเข้าห้อง"), count: counts.waiting || 0 },
     { key: "in_progress", label: tr(language, "In Progress", "กำลังตรวจ"), count: counts.in_progress || 0 },
     { key: "overtime", label: tr(language, "Overtime", "เกินเวลา"), count: counts.overtime || 0 },
     { key: "completed", label: tr(language, "Completed", "เสร็จสิ้น"), count: counts.completed || 0 },
