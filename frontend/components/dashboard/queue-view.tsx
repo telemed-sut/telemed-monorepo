@@ -143,15 +143,65 @@ function getInitial(name: string | null | undefined): string {
 }
 
 function isPatientWaitingLive(meeting: Meeting): boolean {
-  const state = meeting.room_presence?.state;
-  if (state === "patient_waiting" || state === "doctor_left_patient_waiting") {
-    return true;
-  }
-  return meeting.status === "waiting";
+  const presence = meeting.room_presence;
+  if (!presence?.patient_online) return false;
+  return (
+    presence.state === "patient_waiting" ||
+    presence.state === "doctor_left_patient_waiting"
+  );
 }
 
 function isDoctorLeftWhilePatientWaiting(meeting: Meeting): boolean {
-  return meeting.room_presence?.state === "doctor_left_patient_waiting";
+  const presence = meeting.room_presence;
+  if (!presence?.patient_online) return false;
+  return presence.state === "doctor_left_patient_waiting";
+}
+
+function getPresenceAwareStatus(meeting: Meeting): MeetingStatus {
+  const presence = meeting.room_presence;
+  if (!presence) return meeting.status;
+  if (isPatientWaitingLive(meeting)) return "waiting";
+  if (meeting.status === "waiting" && !presence.patient_online) return "scheduled";
+  return meeting.status;
+}
+
+type LivePresenceTone = "waiting" | "active" | "offline";
+
+function getLivePresenceInfo(
+  meeting: Meeting,
+  language: AppLanguage
+): { tone: LivePresenceTone; label: string } | null {
+  const presence = meeting.room_presence;
+  if (!presence) return null;
+
+  if (
+    presence.state === "patient_waiting" ||
+    presence.state === "doctor_left_patient_waiting"
+  ) {
+    return {
+      tone: "waiting",
+      label: tr(language, "Patient waiting for doctor", "คนไข้กำลังรอหมอ"),
+    };
+  }
+
+  if (presence.state === "both_in_room") {
+    return {
+      tone: "active",
+      label: tr(language, "Doctor and patient in room", "หมอและคนไข้อยู่ในห้อง"),
+    };
+  }
+
+  const patientWasInRoom = Boolean(
+    presence.patient_joined_at || presence.patient_last_seen_at || presence.patient_left_at
+  );
+  if (presence.state === "doctor_only" || (patientWasInRoom && !presence.patient_online)) {
+    return {
+      tone: "offline",
+      label: tr(language, "Patient offline/disconnected", "คนไข้ออฟไลน์หรือหลุดการเชื่อมต่อ"),
+    };
+  }
+
+  return null;
 }
 
 /* ── Status Badge ── */
@@ -275,7 +325,8 @@ function QueueCard({
     meeting.status === "completed" || meeting.status === "cancelled";
   const isWaitingLive = isPatientWaitingLive(meeting);
   const isDoctorLeftWaiting = isDoctorLeftWhilePatientWaiting(meeting);
-  const statusForBadge: MeetingStatus = isWaitingLive ? "waiting" : meeting.status;
+  const statusForBadge = getPresenceAwareStatus(meeting);
+  const livePresenceInfo = getLivePresenceInfo(meeting, language);
   const config = getStatusConfig(statusForBadge, language);
 
   const patientName = meeting.patient
@@ -329,6 +380,22 @@ function QueueCard({
             <p className="text-xs text-muted-foreground truncate">
               {meeting.description || tr(language, "General consultation", "ปรึกษาทั่วไป")}
             </p>
+            {livePresenceInfo && (
+              <span
+                className={cn(
+                  "mt-1 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                  livePresenceInfo.tone === "waiting" &&
+                    "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+                  livePresenceInfo.tone === "active" &&
+                    "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+                  livePresenceInfo.tone === "offline" &&
+                    "bg-slate-500/15 text-slate-700 dark:text-slate-300"
+                )}
+                title={livePresenceInfo.label}
+              >
+                {livePresenceInfo.label}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -439,6 +506,21 @@ function QueueCard({
         </div>
       )}
 
+      {livePresenceInfo?.tone === "offline" && !isWaitingLive && (
+        <div className="rounded-lg border border-slate-400/30 bg-slate-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-300">
+            <HugeiconsIcon icon={AlertCircleIcon} className="size-3.5 mt-0.5 shrink-0" />
+            <span>
+              {tr(
+                language,
+                "Patient is currently offline. Ask patient to re-open the room link.",
+                "ตอนนี้คนไข้ออฟไลน์ แนะนำให้คนไข้กดลิงก์เข้าห้องใหม่อีกครั้ง"
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Action buttons */}
       <div
         className="flex items-center gap-2 pt-1 mt-auto border-t border-border/50"
@@ -514,9 +596,7 @@ function StatusSummary({
     const c: Record<string, number> = { all: meetings.length };
     for (const s of MEETING_STATUSES) c[s] = 0;
     meetings.forEach((m) => {
-      const effectiveStatus: MeetingStatus = isPatientWaitingLive(m)
-        ? "waiting"
-        : m.status;
+      const effectiveStatus = getPresenceAwareStatus(m);
       c[effectiveStatus] = (c[effectiveStatus] || 0) + 1;
     });
     return c;
@@ -627,9 +707,7 @@ export function QueueView({
     // Status filter
     if (statusFilter !== "all") {
       filtered = filtered.filter((m) => {
-        const effectiveStatus: MeetingStatus = isPatientWaitingLive(m)
-          ? "waiting"
-          : m.status;
+        const effectiveStatus = getPresenceAwareStatus(m);
         return effectiveStatus === statusFilter;
       });
     }
@@ -648,8 +726,8 @@ export function QueueView({
       const waitingA = isPatientWaitingLive(a) ? -1 : 0;
       const waitingB = isPatientWaitingLive(b) ? -1 : 0;
       if (waitingA !== waitingB) return waitingA - waitingB;
-      const oa = statusOrder[a.status] ?? 3;
-      const ob = statusOrder[b.status] ?? 3;
+      const oa = statusOrder[getPresenceAwareStatus(a)] ?? 3;
+      const ob = statusOrder[getPresenceAwareStatus(b)] ?? 3;
       if (oa !== ob) return oa - ob;
       return new Date(a.date_time).getTime() - new Date(b.date_time).getTime();
     });
@@ -676,9 +754,7 @@ export function QueueView({
 
       const todayCount = dateScopedMeetings.filter(
         (meeting) => {
-          const effectiveStatus: MeetingStatus = isPatientWaitingLive(meeting)
-            ? "waiting"
-            : meeting.status;
+          const effectiveStatus = getPresenceAwareStatus(meeting);
           return effectiveStatus === resolvedFilter;
         }
       ).length;
@@ -689,9 +765,7 @@ export function QueueView({
 
       const allDatesCount = meetings.filter(
         (meeting) => {
-          const effectiveStatus: MeetingStatus = isPatientWaitingLive(meeting)
-            ? "waiting"
-            : meeting.status;
+          const effectiveStatus = getPresenceAwareStatus(meeting);
           return effectiveStatus === resolvedFilter;
         }
       ).length;

@@ -908,8 +908,11 @@ export interface MeetingRoomPresence {
   state: MeetingRoomPresenceState;
   doctor_online: boolean;
   patient_online: boolean;
+  refreshed_at?: string | null;
+  doctor_joined_at?: string | null;
   doctor_last_seen_at?: string | null;
   patient_last_seen_at?: string | null;
+  patient_joined_at?: string | null;
   doctor_left_at?: string | null;
   patient_left_at?: string | null;
   updated_at?: string | null;

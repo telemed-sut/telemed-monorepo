@@ -57,6 +57,7 @@ class MeetingRoomPresenceOut(BaseModel):
     state: str
     doctor_online: bool
     patient_online: bool
+    refreshed_at: Optional[datetime] = None
     doctor_joined_at: Optional[datetime] = None
     doctor_last_seen_at: Optional[datetime] = None
     doctor_left_at: Optional[datetime] = None

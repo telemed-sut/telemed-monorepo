@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -410,3 +410,85 @@ def test_doctor_leave_presence_marks_patient_waiting_again(
 
     db.refresh(meeting)
     assert meeting.status == MeetingStatus.waiting
+
+
+def test_patient_leave_presence_resets_waiting_status_when_doctor_not_online(
+    client: TestClient,
+    db: Session,
+    use_mock_video_provider,
+):
+    doctor = _create_user(db, "doctor-patient-leave-reset@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Patient", "LeaveReset")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+
+    invite_response = client.post(
+        f"/meetings/{meeting.id}/video/patient-invite",
+        json={},
+        headers=_auth_headers(doctor),
+    )
+    assert invite_response.status_code == 200
+    invite_payload = invite_response.json()
+
+    patient_token_response = client.post(
+        "/meetings/video/patient/token",
+        json={"invite_token": invite_payload["invite_token"]},
+    )
+    assert patient_token_response.status_code == 200
+    db.refresh(meeting)
+    assert meeting.status == MeetingStatus.waiting
+
+    leave_response = client.post(
+        "/meetings/video/patient/presence/leave",
+        json={"invite_token": invite_payload["invite_token"]},
+    )
+    assert leave_response.status_code == 200
+    leave_body = leave_response.json()
+    assert leave_body["state"] == "none"
+    assert leave_body["patient_online"] is False
+    assert leave_body["refreshed_at"] is not None
+
+    db.refresh(meeting)
+    assert meeting.status == MeetingStatus.scheduled
+
+
+def test_list_meetings_prunes_stale_waiting_presence(
+    client: TestClient,
+    db: Session,
+    use_mock_video_provider,
+):
+    doctor = _create_user(db, "doctor-presence-prune@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Presence", "Prune")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+
+    invite_response = client.post(
+        f"/meetings/{meeting.id}/video/patient-invite",
+        json={},
+        headers=_auth_headers(doctor),
+    )
+    assert invite_response.status_code == 200
+    invite_payload = invite_response.json()
+
+    patient_token_response = client.post(
+        "/meetings/video/patient/token",
+        json={"invite_token": invite_payload["invite_token"]},
+    )
+    assert patient_token_response.status_code == 200
+
+    db.refresh(meeting)
+    presence = meeting.room_presence
+    assert presence is not None
+    stale_time = datetime.now(timezone.utc) - timedelta(minutes=2)
+    presence.patient_last_seen_at = stale_time
+    presence.patient_left_at = None
+    presence.refreshed_at = stale_time
+    db.add(presence)
+    db.commit()
+
+    list_response = client.get(
+        "/meetings?page=1&limit=20",
+        headers=_auth_headers(doctor),
+    )
+    assert list_response.status_code == 200
+
+    db.refresh(meeting)
+    assert meeting.status == MeetingStatus.scheduled

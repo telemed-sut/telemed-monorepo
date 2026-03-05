@@ -32,6 +32,7 @@ class MeetingRoomPresence(Base):
         onupdate=func.now(),
         nullable=False,
     )
+    refreshed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     meeting = relationship("Meeting", back_populates="room_presence")
 

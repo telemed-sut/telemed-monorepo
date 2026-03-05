@@ -1,9 +1,16 @@
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
+
+from app.models.enums import MeetingStatus
 
 from app.models.meeting import Meeting
 from app.models.meeting_room_presence import MeetingRoomPresence
+
+PRESENCE_PRUNE_INTERVAL_SECONDS = 15
+
+_last_waiting_prune_at: datetime | None = None
 
 
 def _now_utc() -> datetime:
@@ -29,6 +36,7 @@ def touch_doctor_presence(db: Session, meeting: Meeting) -> MeetingRoomPresence:
         presence.doctor_joined_at = now
     presence.doctor_last_seen_at = now
     presence.doctor_left_at = None
+    presence.refreshed_at = now
     db.add(presence)
     db.commit()
     db.refresh(presence)
@@ -42,6 +50,7 @@ def touch_patient_presence(db: Session, meeting: Meeting) -> MeetingRoomPresence
         presence.patient_joined_at = now
     presence.patient_last_seen_at = now
     presence.patient_left_at = None
+    presence.refreshed_at = now
     db.add(presence)
     db.commit()
     db.refresh(presence)
@@ -52,6 +61,7 @@ def mark_doctor_left(db: Session, meeting: Meeting) -> MeetingRoomPresence:
     now = _now_utc()
     presence = get_or_create_presence(db, meeting)
     presence.doctor_left_at = now
+    presence.refreshed_at = now
     db.add(presence)
     db.commit()
     db.refresh(presence)
@@ -62,7 +72,53 @@ def mark_patient_left(db: Session, meeting: Meeting) -> MeetingRoomPresence:
     now = _now_utc()
     presence = get_or_create_presence(db, meeting)
     presence.patient_left_at = now
+    presence.refreshed_at = now
     db.add(presence)
     db.commit()
     db.refresh(presence)
     return presence
+
+
+def _should_skip_waiting_prune(now: datetime) -> bool:
+    if _last_waiting_prune_at is None:
+        return False
+    return (now - _last_waiting_prune_at).total_seconds() < PRESENCE_PRUNE_INTERVAL_SECONDS
+
+
+def normalize_waiting_status(db: Session, meeting: Meeting, presence: MeetingRoomPresence) -> bool:
+    if meeting.status != MeetingStatus.waiting:
+        return False
+    if presence.patient_online:
+        return False
+    meeting.status = MeetingStatus.in_progress if presence.doctor_online else MeetingStatus.scheduled
+    db.add(meeting)
+    return True
+
+
+def prune_stale_waiting_meetings(db: Session, *, force: bool = False) -> int:
+    global _last_waiting_prune_at
+    now = _now_utc()
+    if not force and _should_skip_waiting_prune(now):
+        return 0
+
+    stmt = (
+        select(MeetingRoomPresence)
+        .join(Meeting, Meeting.id == MeetingRoomPresence.meeting_id)
+        .where(Meeting.status == MeetingStatus.waiting)
+        .options(joinedload(MeetingRoomPresence.meeting))
+    )
+    presences = db.scalars(stmt).all()
+
+    changed = 0
+    for presence in presences:
+        meeting = presence.meeting
+        if not meeting:
+            continue
+        if normalize_waiting_status(db, meeting, presence):
+            changed += 1
+
+    if changed:
+        db.commit()
+
+    _last_waiting_prune_at = now
+    return changed

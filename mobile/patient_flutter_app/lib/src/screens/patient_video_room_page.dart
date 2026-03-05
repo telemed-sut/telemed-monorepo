@@ -36,6 +36,7 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
 
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
   Timer? _presenceTimer;
+  bool _leaveSent = false;
   late final PatientVideoApiClient _videoApiClient;
 
   @override
@@ -65,13 +66,17 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
     if (state == AppLifecycleState.resumed) {
       _enableImmersiveMode();
       _startPresenceHeartbeat();
-    } else if (state == AppLifecycleState.paused) {
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
       _stopPresenceHeartbeat();
+      _sendPresenceLeave();
     }
   }
 
   void _startPresenceHeartbeat() {
     _presenceTimer?.cancel();
+    _leaveSent = false;
     _sendPresenceHeartbeat();
     _presenceTimer = Timer.periodic(_presenceHeartbeatInterval, (_) {
       _sendPresenceHeartbeat();
@@ -94,12 +99,14 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
         inviteToken: widget.inviteToken,
         shortCode: widget.shortCode,
       );
+      _leaveSent = false;
     } catch (_) {
       // best-effort
     }
   }
 
   Future<void> _sendPresenceLeave() async {
+    if (_leaveSent) return;
     if ((widget.inviteToken ?? '').trim().isEmpty &&
         (widget.shortCode ?? '').trim().isEmpty) {
       return;
@@ -110,6 +117,7 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
         inviteToken: widget.inviteToken,
         shortCode: widget.shortCode,
       );
+      _leaveSent = true;
     } catch (_) {
       // best-effort
     }
@@ -145,7 +153,11 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
         );
       },
     );
-    return shouldLeave ?? false;
+    final leaveNow = shouldLeave ?? false;
+    if (leaveNow) {
+      await _sendPresenceLeave();
+    }
+    return leaveNow;
   }
 
   @override
@@ -174,10 +186,22 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
       turnOnMicrophoneWhenJoining: widget.startWithMicrophone,
       useFrontFacingCamera: true,
       useSpeakerWhenJoining: true,
+      onLeaveConfirmation: (BuildContext _) async {
+        return _confirmLeaveCall();
+      },
+      onLeave: () {
+        _stopPresenceHeartbeat();
+        unawaited(_sendPresenceLeave());
+        if (!mounted) return;
+        final navigator = Navigator.of(context);
+        if (navigator.canPop()) {
+          navigator.pop();
+        }
+      },
     );
 
     final isActive = _lifecycleState == AppLifecycleState.resumed;
-    final lifecycleLabel = isActive ? 'Call active' : 'Call in background';
+    final lifecycleLabel = isActive ? 'เชื่อมต่ออยู่' : 'อยู่เบื้องหลัง';
     final roomLabel =
         widget.session.roomId.length > 18 ? '${widget.session.roomId.substring(0, 18)}...' : widget.session.roomId;
 
@@ -203,7 +227,7 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
               right: 0,
               child: IgnorePointer(
                 child: Container(
-                  height: 130,
+                  height: 110,
                   decoration: const BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
@@ -237,7 +261,7 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
                           decoration: BoxDecoration(
                             color: const Color(0xCC0F172A),
                             borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
+                          border: Border.all(
                               color: isActive ? const Color(0x5A4ADE80) : const Color(0x52F59E0B),
                             ),
                           ),
@@ -263,32 +287,32 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
                         ),
                       ],
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     Container(
-                      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
                       decoration: BoxDecoration(
-                        color: const Color(0xB30F172A),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0x33475569)),
+                        color: const Color(0xA00F172A),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: const Color(0x2A94A3B8)),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
                         children: [
-                          const Text(
-                            'Secure consultation',
-                            style: TextStyle(
-                              color: Color(0xFFE2E8F0),
-                              fontWeight: FontWeight.w700,
-                              fontSize: 12,
-                            ),
+                          const Icon(
+                            Icons.verified_user_outlined,
+                            size: 14,
+                            color: Color(0xFFBFDBFE),
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Room $roomLabel • AppID $backendAppId',
-                            style: const TextStyle(
-                              color: Color(0xFFCBD5E1),
-                              fontWeight: FontWeight.w500,
-                              fontSize: 11,
+                          const SizedBox(width: 7),
+                          Expanded(
+                            child: Text(
+                              'Secure consultation • Room $roomLabel',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Color(0xFFDCE7F7),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 11,
+                              ),
                             ),
                           ),
                         ],

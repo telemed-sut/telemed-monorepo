@@ -125,15 +125,65 @@ function getInitial(name: string | null | undefined): string {
 }
 
 function isPatientWaitingLive(meeting: Meeting): boolean {
-  const state = meeting.room_presence?.state;
-  if (state === "patient_waiting" || state === "doctor_left_patient_waiting") {
-    return true;
-  }
-  return meeting.status === "waiting";
+  const presence = meeting.room_presence;
+  if (!presence?.patient_online) return false;
+  return (
+    presence.state === "patient_waiting" ||
+    presence.state === "doctor_left_patient_waiting"
+  );
 }
 
 function isDoctorLeftWhilePatientWaiting(meeting: Meeting): boolean {
-  return meeting.room_presence?.state === "doctor_left_patient_waiting";
+  const presence = meeting.room_presence;
+  if (!presence?.patient_online) return false;
+  return presence.state === "doctor_left_patient_waiting";
+}
+
+function getPresenceAwareStatus(meeting: Meeting): MeetingStatus {
+  const presence = meeting.room_presence;
+  if (!presence) return meeting.status;
+  if (isPatientWaitingLive(meeting)) return "waiting";
+  if (meeting.status === "waiting" && !presence.patient_online) return "scheduled";
+  return meeting.status;
+}
+
+type LivePresenceTone = "waiting" | "active" | "offline";
+
+function getLivePresenceInfo(
+  meeting: Meeting,
+  language: AppLanguage
+): { tone: LivePresenceTone; label: string } | null {
+  const presence = meeting.room_presence;
+  if (!presence) return null;
+
+  if (
+    presence.state === "patient_waiting" ||
+    presence.state === "doctor_left_patient_waiting"
+  ) {
+    return {
+      tone: "waiting",
+      label: tr(language, "Patient waiting for doctor", "คนไข้กำลังรอหมอ"),
+    };
+  }
+
+  if (presence.state === "both_in_room") {
+    return {
+      tone: "active",
+      label: tr(language, "Doctor and patient in room", "หมอและคนไข้อยู่ในห้อง"),
+    };
+  }
+
+  const patientWasInRoom = Boolean(
+    presence.patient_joined_at || presence.patient_last_seen_at || presence.patient_left_at
+  );
+  if (presence.state === "doctor_only" || (patientWasInRoom && !presence.patient_online)) {
+    return {
+      tone: "offline",
+      label: tr(language, "Patient offline/disconnected", "คนไข้ออฟไลน์หรือหลุดการเชื่อมต่อ"),
+    };
+  }
+
+  return null;
 }
 
 function normalizeRoomTarget(room?: string | null): string | null {
@@ -227,7 +277,8 @@ function EventCard({
       ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
       : tr(language, "Appointment", "นัดหมาย"));
   const isWaiting = isPatientWaitingLive(meeting);
-  const effectiveStatus: MeetingStatus = isWaiting ? "waiting" : meeting.status;
+  const effectiveStatus = getPresenceAwareStatus(meeting);
+  const livePresenceInfo = getLivePresenceInfo(meeting, language);
   const timeStr = getTimeRange(meeting.date_time, language, duration);
   const statusColor = getStatusColor(effectiveStatus);
   const waitingText = tr(language, "Patient waiting", "คนไข้รออยู่");
@@ -275,6 +326,11 @@ function EventCard({
             {tr(language, "Waiting", "รอหมอ")}
           </span>
         )}
+        {livePresenceInfo?.tone === "offline" && (
+          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
+            {tr(language, "Offline", "ออฟไลน์")}
+          </span>
+        )}
         <span className="text-[9px] text-muted-foreground shrink-0">
           {formatTime12(meeting.date_time, language)}
         </span>
@@ -310,6 +366,11 @@ function EventCard({
             {isWaiting && (
               <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-amber-500/15 text-amber-700">
                 {tr(language, "Waiting", "รอหมอ")}
+              </span>
+            )}
+            {livePresenceInfo?.tone === "offline" && (
+              <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
+                {tr(language, "Offline", "ออฟไลน์")}
               </span>
             )}
           </div>
@@ -361,6 +422,18 @@ function EventCard({
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
               </span>
               {waitingText}
+            </div>
+          )}
+          {livePresenceInfo?.tone === "active" && (
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold text-emerald-700">
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {tr(language, "Doctor + patient in room", "หมอและคนไข้อยู่ในห้อง")}
+            </div>
+          )}
+          {livePresenceInfo?.tone === "offline" && (
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[9px] font-semibold text-slate-700 dark:text-slate-300">
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-slate-500" />
+              {tr(language, "Patient offline", "คนไข้ออฟไลน์")}
             </div>
           )}
           <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-2">
@@ -541,7 +614,8 @@ export function EventDetailSheet({
   const canOpenRoom = Boolean(roomTarget);
   const isPatientWaiting = isPatientWaitingLive(meeting);
   const isDoctorLeftWaiting = isDoctorLeftWhilePatientWaiting(meeting);
-  const effectiveStatus: MeetingStatus = isPatientWaiting ? "waiting" : meeting.status;
+  const effectiveStatus = getPresenceAwareStatus(meeting);
+  const livePresenceInfo = getLivePresenceInfo(meeting, language);
   const statusColor = getStatusColor(effectiveStatus);
   const isAdmin = role === "admin";
   const isOwnerDoctor =
@@ -874,6 +948,28 @@ export function EventDetailSheet({
                       <HugeiconsIcon icon={CallIcon} className="size-3.5" />
                       <span>{tr(language, "Start now", "เริ่มเลย")}</span>
                     </Button>
+                  </div>
+                </div>
+              )}
+
+              {livePresenceInfo?.tone === "offline" && (
+                <div className="mb-4 rounded-xl border border-slate-500/35 bg-slate-500/10 p-3">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-slate-500/20 text-slate-700 dark:text-slate-300">
+                      <HugeiconsIcon icon={Clock01Icon} className="size-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        {tr(language, "Patient is offline now", "ตอนนี้คนไข้ออฟไลน์")}
+                      </p>
+                      <p className="text-xs text-slate-700/90 dark:text-slate-300/90 mt-0.5">
+                        {tr(
+                          language,
+                          "Ask patient to reopen the room link and wait in room.",
+                          "แนะนำให้คนไข้เปิดลิงก์เข้าห้องใหม่และรอในห้องอีกครั้ง"
+                        )}
+                      </p>
+                    </div>
                   </div>
                 </div>
               )}
