@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:zego_uikit_prebuilt_video_conference/zego_uikit_prebuilt_video_conference.dart';
 
 import '../config/app_config.dart';
@@ -30,10 +31,12 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _enableImmersiveMode();
   }
 
   @override
   void dispose() {
+    _restoreSystemUiMode();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -44,6 +47,17 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
     setState(() {
       _lifecycleState = state;
     });
+    if (state == AppLifecycleState.resumed) {
+      _enableImmersiveMode();
+    }
+  }
+
+  Future<void> _enableImmersiveMode() async {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
+  Future<void> _restoreSystemUiMode() async {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   Future<bool> _confirmLeaveCall() async {
@@ -73,7 +87,6 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final configError = AppConfig.validate();
     if (configError != null) {
       return _ConfigurationErrorScreen(errorMessage: configError);
@@ -101,133 +114,200 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
     );
 
     final isActive = _lifecycleState == AppLifecycleState.resumed;
+    final lifecycleLabel = isActive ? 'Call active' : 'Call in background';
+    final roomLabel =
+        widget.session.roomId.length > 18 ? '${widget.session.roomId.substring(0, 18)}...' : widget.session.roomId;
 
     return WillPopScope(
       onWillPop: _confirmLeaveCall,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF1F5F9),
-        appBar: AppBar(
-          elevation: 0,
-          backgroundColor: Colors.transparent,
-          title: const Text('ห้องตรวจออนไลน์'),
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () async {
-              final shouldLeave = await _confirmLeaveCall();
-              if (!context.mounted || !shouldLeave) return;
-              Navigator.of(context).pop();
-            },
-          ),
-        ),
-        body: Column(
+        backgroundColor: const Color(0xFF050B1A),
+        body: Stack(
           children: [
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFFD7E1F2)),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x0F0F172A),
-                    blurRadius: 14,
-                    offset: Offset(0, 4),
-                  ),
-                ],
+            Positioned.fill(
+              child: ZegoUIKitPrebuiltVideoConference(
+                appID: backendAppId,
+                appSign: AppConfig.zegoAppSign,
+                userID: widget.session.userId,
+                userName: widget.displayName.trim(),
+                conferenceID: widget.session.roomId,
+                config: conferenceConfig,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 8,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.shield_moon_outlined,
-                            color: theme.colorScheme.primary,
-                            size: 18,
+            ),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                child: Container(
+                  height: 130,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xB3000000), Color(0x22000000), Color(0x00000000)],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        _TopGlassActionButton(
+                          icon: Icons.arrow_back_rounded,
+                          label: 'กลับ',
+                          onPressed: () async {
+                            final shouldLeave = await _confirmLeaveCall();
+                            if (!context.mounted || !shouldLeave) return;
+                            Navigator.of(context).pop();
+                          },
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xCC0F172A),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: isActive ? const Color(0x5A4ADE80) : const Color(0x52F59E0B),
+                            ),
                           ),
-                          const SizedBox(width: 6),
-                          Text(
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.shield_moon_outlined,
+                                size: 14,
+                                color: isActive ? const Color(0xFF86EFAC) : const Color(0xFFFDE68A),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                lifecycleLabel,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isActive ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+                      decoration: BoxDecoration(
+                        color: const Color(0xB30F172A),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0x33475569)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
                             'Secure consultation',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFF1E293B),
+                            style: TextStyle(
+                              color: Color(0xFFE2E8F0),
+                              fontWeight: FontWeight.w700,
+                              fontSize: 12,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Room $roomLabel • AppID $backendAppId',
+                            style: const TextStyle(
+                              color: Color(0xFFCBD5E1),
+                              fontWeight: FontWeight.w500,
+                              fontSize: 11,
                             ),
                           ),
                         ],
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(999),
-                          color: isActive
-                              ? const Color(0xFFDCFCE7)
-                              : const Color(0xFFFEF3C7),
-                        ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (!isActive)
+              Positioned(
+                left: 14,
+                right: 14,
+                bottom: 110,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xCC78350F),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0x66FBBF24)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Color(0xFFFEF3C7), size: 16),
+                      SizedBox(width: 8),
+                      Expanded(
                         child: Text(
-                          isActive ? 'Call active' : 'Call in background',
+                          'แอปทำงานเบื้องหลังอยู่ สามารถกลับเข้าหน้านี้ได้ทุกเมื่อ',
                           style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: isActive
-                                ? const Color(0xFF166534)
-                                : const Color(0xFF92400E),
+                            color: Color(0xFFFFFBEB),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Room: ${widget.session.roomId}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF475569),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 1),
-                  Text(
-                    'กดกลับได้เมื่อจบการพบแพทย์ • AppID $backendAppId',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF64748B),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFD7E1F2)),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x140F172A),
-                      blurRadius: 18,
-                      offset: Offset(0, 8),
-                    ),
-                  ],
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: ZegoUIKitPrebuiltVideoConference(
-                  appID: backendAppId,
-                  appSign: AppConfig.zegoAppSign,
-                  userID: widget.session.userId,
-                  userName: widget.displayName.trim(),
-                  conferenceID: widget.session.roomId,
-                  config: conferenceConfig,
                 ),
               ),
-            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TopGlassActionButton extends StatelessWidget {
+  const _TopGlassActionButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xB30F172A),
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 16, color: Colors.white),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFFE2E8F0),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -242,13 +322,14 @@ class _ConfigurationErrorScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Patient Video Room')),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Text(
-            errorMessage,
-            style: const TextStyle(fontSize: 15),
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              errorMessage,
+              style: const TextStyle(fontSize: 15),
+            ),
           ),
         ),
       ),

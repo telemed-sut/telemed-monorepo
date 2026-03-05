@@ -213,51 +213,110 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'นัดหมายของฉัน',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            if (_patientName.isNotEmpty)
-              Text(
-                _patientName,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
-              ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _isLoading ? null : _loadData,
-            tooltip: 'รีเฟรช',
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFF6F9FF), Color(0xFFF2F6FD), Color(0xFFEFF4FB)],
           ),
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'logout') _handleLogout();
-            },
-            itemBuilder: (_) => [
-              const PopupMenuItem(
-                value: 'logout',
-                child: Row(
-                  children: [
-                    Icon(Icons.logout, size: 20),
-                    SizedBox(width: 8),
-                    Text('ออกจากระบบ'),
-                  ],
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xF8FFFFFF),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFD8E4F5)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x0D0F172A),
+                        blurRadius: 16,
+                        offset: Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'นัดหมายของฉัน',
+                              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              _patientName.isNotEmpty
+                                  ? _patientName
+                                  : 'ตรวจสอบนัดหมายและเข้าห้องจากรายการด้านล่าง',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFF475569),
+                                fontWeight: _patientName.isNotEmpty
+                                    ? FontWeight.w600
+                                    : FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: _isLoading ? null : _loadData,
+                        tooltip: 'รีเฟรช',
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF1E3A8A),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: const BorderSide(color: Color(0xFFD5E1F2)),
+                          ),
+                        ),
+                        icon: const Icon(Icons.refresh_rounded),
+                      ),
+                      const SizedBox(width: 8),
+                      PopupMenuButton<String>(
+                        tooltip: 'ตัวเลือก',
+                        onSelected: (value) {
+                          if (value == 'logout') _handleLogout();
+                        },
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                            value: 'logout',
+                            child: Row(
+                              children: [
+                                Icon(Icons.logout, size: 20),
+                                SizedBox(width: 8),
+                                Text('ออกจากระบบ'),
+                              ],
+                            ),
+                          ),
+                        ],
+                        child: Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFD5E1F2)),
+                          ),
+                          child: const Icon(Icons.more_horiz_rounded, color: Color(0xFF1E3A8A)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
+              Expanded(child: _buildBody(theme)),
             ],
           ),
-        ],
+        ),
       ),
-      body: _buildBody(theme),
     );
   }
 
@@ -337,7 +396,7 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
     return RefreshIndicator(
       onRefresh: _loadData,
       child: ListView.separated(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         itemCount: meetings.length + 1,
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
@@ -378,11 +437,18 @@ class _MeetingsSummaryCard extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         gradient: const LinearGradient(
-          colors: [Color(0xFFEEF4FF), Color(0xFFF8FAFF)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+          colors: [Color(0xFFE8F0FF), Color(0xFFF4F7FF), Color(0xFFF9FBFF)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
         ),
-        border: Border.all(color: const Color(0xFFDCE7FF)),
+        border: Border.all(color: const Color(0xFFD2E0F7)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x100F172A),
+            blurRadius: 14,
+            offset: Offset(0, 6),
+          ),
+        ],
       ),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Row(
@@ -408,8 +474,7 @@ class _MeetingsSummaryCard extends StatelessWidget {
             color: const Color(0xFFD97706),
           ),
           const Spacer(),
-          Icon(Icons.touch_app_rounded,
-              size: 18, color: theme.colorScheme.primary),
+          Icon(Icons.touch_app_rounded, size: 18, color: theme.colorScheme.primary),
         ],
       ),
     );
@@ -539,7 +604,11 @@ class _MeetingCard extends StatelessWidget {
 
     return Card(
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: Color(0xFFD9E4F4)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
