@@ -5,6 +5,13 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import {
   createMeetingPatientInvite,
   issueMeetingVideoToken,
   type MeetingPatientInviteResponse,
@@ -370,6 +377,7 @@ export default function MeetingCallPage() {
   const [patientInviteError, setPatientInviteError] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<"meeting" | "patient" | null>(null);
   const [showLinkDetails, setShowLinkDetails] = useState(false);
+  const [showMetaPanel, setShowMetaPanel] = useState(false);
   const [callNotice, setCallNotice] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const zegoInstanceRef = useRef<ZegoUIKitPrebuiltInstance | null>(null);
@@ -653,155 +661,215 @@ export default function MeetingCallPage() {
   }, [meetingId, token, role, language]);
 
   const hasLinkPanel = !isPopupWindow && Boolean(meetingUrl || patientInvite?.invite_url);
+  const hasMetaAlerts = Boolean(patientInviteError || callNotice || error);
+  const hasMetaContent = hasLinkPanel || hasMetaAlerts;
+  const roomSummary = session
+    ? `${tr(language, "Room", "ห้อง")}: ${session.room_id}`
+    : tr(language, "Preparing your call room...", "กำลังเตรียมห้องวิดีโอ...");
+  const modeSummary = isPopupWindow
+    ? tr(
+        language,
+        "Mini window mode",
+        "โหมดหน้าต่างเล็ก"
+      )
+    : tr(
+        language,
+        "Main dashboard mode",
+        "โหมดหน้าหลัก"
+      );
 
   return (
-    <main className="flex h-full w-full flex-col gap-2 p-2 md:p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-foreground">
-            {tr(language, "Doctor Video Call", "ห้องวิดีโอแพทย์")}
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            {session
-              ? `${tr(language, "Room", "ห้อง")}: ${session.room_id}`
-              : tr(language, "Preparing your call room...", "กำลังเตรียมห้องวิดีโอ...")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {!isPopupWindow ? (
-            <Button variant="secondary" onClick={openMiniWindowAndSwitch}>
-              {tr(language, "Mini Window", "เปิดหน้าต่างเล็ก")}
-            </Button>
-          ) : null}
-          <Button variant="outline" onClick={isPopupWindow ? handleClosePopupWindow : handleBackToMeetings}>
-            {isPopupWindow
-              ? tr(language, "Close Mini Window", "ปิดหน้าต่างเล็ก")
-              : tr(language, "Back to Meetings", "กลับไปหน้านัดหมาย")}
-          </Button>
-        </div>
-      </div>
+    <>
+      <main className="flex h-full w-full flex-col p-2 md:p-3">
+        <div
+          className={`relative flex-1 overflow-hidden rounded-2xl border border-border bg-black ${
+            isPopupWindow ? "min-h-[86vh]" : "min-h-[80vh]"
+          }`}
+        >
+          <div ref={containerRef} className="h-full w-full" />
 
-      {!isPopupWindow ? (
-        <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
-          {tr(
-            language,
-            "Need to browse other pages? Use Mini Window to keep this call active while you work in the main dashboard.",
-            "หากต้องสลับไปหน้าอื่น ให้กด 'เปิดหน้าต่างเล็ก' เพื่อให้คอลนี้ทำงานต่อเนื่องระหว่างใช้งานหน้าอื่น"
-          )}
-        </div>
-      ) : (
-        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-          {tr(
-            language,
-            "Mini window mode is active. Keep this window open to continue the doctor call.",
-            "กำลังใช้งานโหมดหน้าต่างเล็ก กรุณาเปิดหน้าต่างนี้ไว้เพื่อคงการคอลของแพทย์"
-          )}
-        </div>
-      )}
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/55 via-black/10 to-black/35" />
 
-      {hasLinkPanel ? (
-        <div className="w-full rounded-md border border-border bg-card/80 px-3 py-2 text-xs text-muted-foreground md:max-w-3xl">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-medium">
-              {tr(language, "Share Links", "ลิงก์สำหรับแชร์")}
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              {meetingUrl ? (
+          <div className="absolute left-3 right-3 top-3 z-20 flex items-start justify-between gap-2">
+            <div className="pointer-events-auto max-w-[65%] rounded-xl border border-white/20 bg-black/45 px-3 py-2 text-white backdrop-blur-md">
+              <p className="truncate text-sm font-semibold">
+                {tr(language, "Doctor Video Call", "ห้องวิดีโอแพทย์")}
+              </p>
+              <p className="truncate text-[11px] text-white/80">{roomSummary}</p>
+              <div className="mt-1 inline-flex items-center rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/90">
+                {modeSummary}
+              </div>
+            </div>
+
+            <div className="pointer-events-auto flex flex-col gap-2 sm:flex-row sm:items-center">
+              {!isPopupWindow ? (
                 <Button
                   size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-[11px]"
-                  onClick={() => {
-                    void copyLink("meeting", meetingUrl);
-                  }}
+                  variant="secondary"
+                  className="h-8 border-white/20 bg-white/90 px-2.5 text-xs text-black hover:bg-white"
+                  onClick={openMiniWindowAndSwitch}
                 >
-                  {copiedLink === "meeting"
-                    ? tr(language, "Meeting copied", "คัดลอกลิงก์หมอแล้ว")
-                    : tr(language, "Copy doctor link", "คัดลอกลิงก์หมอ")}
-                </Button>
-              ) : null}
-              {patientInvite?.invite_url ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-[11px]"
-                  onClick={() => {
-                    void copyLink("patient", patientInvite.invite_url);
-                  }}
-                >
-                  {copiedLink === "patient"
-                    ? tr(language, "Patient copied", "คัดลอกลิงก์คนไข้แล้ว")
-                    : tr(language, "Copy patient link", "คัดลอกลิงก์คนไข้")}
+                  {tr(language, "Mini Window", "เปิดหน้าต่างเล็ก")}
                 </Button>
               ) : null}
               <Button
                 size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-[11px]"
-                onClick={() => {
-                  setShowLinkDetails((prev) => !prev);
-                }}
+                variant="outline"
+                className="h-8 border-white/30 bg-black/30 px-2.5 text-xs text-white hover:bg-black/50"
+                onClick={isPopupWindow ? handleClosePopupWindow : handleBackToMeetings}
               >
-                {showLinkDetails
-                  ? tr(language, "Hide details", "ซ่อนรายละเอียด")
-                  : tr(language, "Show details", "แสดงรายละเอียด")}
+                {isPopupWindow
+                  ? tr(language, "Close Mini", "ปิดหน้าต่างเล็ก")
+                  : tr(language, "Back", "กลับหน้านัดหมาย")}
               </Button>
+              {hasMetaContent ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 border-white/30 bg-black/30 px-2.5 text-xs text-white hover:bg-black/50"
+                  onClick={() => {
+                    setShowMetaPanel(true);
+                  }}
+                >
+                  {tr(language, "Control Panel", "แผงควบคุม")}
+                </Button>
+              ) : null}
             </div>
           </div>
 
-          {showLinkDetails ? (
-            <div className="mt-2 space-y-1 font-mono text-[11px] leading-relaxed">
-              {meetingUrl ? (
-                <div title={meetingUrl}>
-                  <span className="font-sans text-muted-foreground/80">
-                    {tr(language, "Doctor:", "หมอ:")}{" "}
-                  </span>
-                  {shortenUrl(meetingUrl, 110)}
-                </div>
-              ) : null}
-              {patientInvite?.invite_url ? (
-                <div title={patientInvite.invite_url}>
-                  <span className="font-sans text-muted-foreground/80">
-                    {tr(language, "Patient:", "คนไข้:")}{" "}
-                  </span>
-                  {shortenUrl(patientInvite.invite_url, 110)}
-                </div>
-              ) : null}
+          {hasMetaAlerts ? (
+            <button
+              type="button"
+              className="absolute bottom-3 left-3 z-20 inline-flex items-center rounded-full border border-amber-300/40 bg-amber-500/20 px-2.5 py-1 text-[11px] font-medium text-amber-100 backdrop-blur-sm transition hover:bg-amber-500/30"
+              onClick={() => {
+                setShowMetaPanel(true);
+              }}
+            >
+              {tr(language, "New call notice", "มีการแจ้งเตือนคอล")}
+            </button>
+          ) : null}
+
+          {loading ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-white/85">
+              {tr(language, "Starting video room...", "กำลังเริ่มห้องวิดีโอ...")}
             </div>
           ) : null}
         </div>
-      ) : null}
+      </main>
 
-      {!isPopupWindow && patientInviteError ? (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
-          {patientInviteError}
-        </div>
-      ) : null}
+      <Sheet open={showMetaPanel} onOpenChange={setShowMetaPanel}>
+        <SheetContent side="right" className="w-[360px] overflow-y-auto sm:w-[430px]">
+          <SheetHeader>
+            <SheetTitle>{tr(language, "Call Control Panel", "แผงควบคุมการคอล")}</SheetTitle>
+            <SheetDescription>
+              {tr(
+                language,
+                "Manage links and view notices without blocking the video area.",
+                "จัดการลิงก์และดูการแจ้งเตือนโดยไม่บังพื้นที่วิดีโอ"
+              )}
+            </SheetDescription>
+          </SheetHeader>
 
-      {callNotice ? (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-          {callNotice}
-        </div>
-      ) : null}
+          <div className="mt-4 space-y-3">
+            {hasLinkPanel ? (
+              <div className="rounded-md border border-border bg-card/80 px-3 py-3 text-xs text-muted-foreground">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium">
+                    {tr(language, "Share Links", "ลิงก์สำหรับแชร์")}
+                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {meetingUrl ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={() => {
+                          void copyLink("meeting", meetingUrl);
+                        }}
+                      >
+                        {copiedLink === "meeting"
+                          ? tr(language, "Meeting copied", "คัดลอกลิงก์หมอแล้ว")
+                          : tr(language, "Copy doctor link", "คัดลอกลิงก์หมอ")}
+                      </Button>
+                    ) : null}
+                    {patientInvite?.invite_url ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-[11px]"
+                        onClick={() => {
+                          void copyLink("patient", patientInvite.invite_url);
+                        }}
+                      >
+                        {copiedLink === "patient"
+                          ? tr(language, "Patient copied", "คัดลอกลิงก์คนไข้แล้ว")
+                          : tr(language, "Copy patient link", "คัดลอกลิงก์คนไข้")}
+                      </Button>
+                    ) : null}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={() => {
+                        setShowLinkDetails((prev) => !prev);
+                      }}
+                    >
+                      {showLinkDetails
+                        ? tr(language, "Hide links", "ซ่อนลิงก์")
+                        : tr(language, "Show links", "แสดงลิงก์")}
+                    </Button>
+                  </div>
+                </div>
 
-      {error ? (
-        <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-400">
-          {error}
-        </div>
-      ) : null}
+                {showLinkDetails ? (
+                  <div className="mt-2 space-y-1 font-mono text-[11px] leading-relaxed">
+                    {meetingUrl ? (
+                      <div title={meetingUrl}>
+                        <span className="font-sans text-muted-foreground/80">
+                          {tr(language, "Doctor:", "หมอ:")}{" "}
+                        </span>
+                        {shortenUrl(meetingUrl, 110)}
+                      </div>
+                    ) : null}
+                    {patientInvite?.invite_url ? (
+                      <div title={patientInvite.invite_url}>
+                        <span className="font-sans text-muted-foreground/80">
+                          {tr(language, "Patient:", "คนไข้:")}{" "}
+                        </span>
+                        {shortenUrl(patientInvite.invite_url, 110)}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
-      <div
-        className={`relative flex-1 overflow-hidden rounded-xl border border-border bg-black/5 ${
-          isPopupWindow ? "min-h-[82vh]" : "min-h-[72vh]"
-        }`}
-      >
-        {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-            {tr(language, "Starting video room...", "กำลังเริ่มห้องวิดีโอ...")}
+            {!isPopupWindow && patientInviteError ? (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                {patientInviteError}
+              </div>
+            ) : null}
+
+            {callNotice ? (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                {callNotice}
+              </div>
+            ) : null}
+
+            {error ? (
+              <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-400">
+                {error}
+              </div>
+            ) : null}
+
+            {!hasMetaContent ? (
+              <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                {tr(language, "No extra details right now.", "ขณะนี้ยังไม่มีข้อมูลเพิ่มเติม")}
+              </div>
+            ) : null}
           </div>
-        ) : null}
-        <div ref={containerRef} className="h-full w-full" />
-      </div>
-    </main>
+        </SheetContent>
+      </Sheet>
+    </>
   );
 }
