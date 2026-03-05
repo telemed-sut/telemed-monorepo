@@ -51,7 +51,9 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
     if (state == AppLifecycleState.resumed) {
       _silentRefresh();
       _startPolling();
-    } else if (state == AppLifecycleState.paused) {
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
       _stopPolling();
     }
   }
@@ -418,6 +420,10 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
 }
 
 bool _isPatientReadyToJoin(PatientMeeting meeting) {
+  if (meeting.status == 'completed' || meeting.status == 'cancelled') {
+    return false;
+  }
+
   final presence = meeting.roomPresence;
   if (presence == null) {
     return meeting.status == 'scheduled' ||
@@ -441,6 +447,9 @@ bool _isPatientWaitingLive(PatientMeeting meeting) {
 }
 
 String _patientStatusLabel(PatientMeeting meeting) {
+  if (meeting.status == 'completed') return 'เสร็จสิ้น';
+  if (meeting.status == 'cancelled') return 'ยกเลิก';
+
   final presence = meeting.roomPresence;
   if (presence?.state == 'both_in_room') return 'แพทย์อยู่ในห้อง';
   if (presence?.state == 'doctor_only') return 'แพทย์กำลังรอ';
@@ -460,6 +469,9 @@ String _patientStatusLabel(PatientMeeting meeting) {
 }
 
 Color _patientStatusColor(PatientMeeting meeting) {
+  if (meeting.status == 'completed') return const Color(0xFF6B7280);
+  if (meeting.status == 'cancelled') return const Color(0xFFDC2626);
+
   final presence = meeting.roomPresence;
   if (presence?.state == 'both_in_room') return const Color(0xFF16A34A);
   if (presence?.state == 'doctor_only') return const Color(0xFF0F766E);
@@ -480,6 +492,8 @@ Color _patientStatusColor(PatientMeeting meeting) {
 
 String _patientActionLabel(PatientMeeting meeting, bool isJoining) {
   if (isJoining) return 'กำลังเข้า...';
+  if (meeting.status == 'completed') return 'เสร็จสิ้น';
+  if (meeting.status == 'cancelled') return 'ยกเลิก';
 
   final presence = meeting.roomPresence;
   if (presence?.state == 'both_in_room') return 'เข้าพบแพทย์';
@@ -497,6 +511,10 @@ String _patientActionLabel(PatientMeeting meeting, bool isJoining) {
 }
 
 String? _patientWaitingHint(PatientMeeting meeting) {
+  if (meeting.status == 'completed' || meeting.status == 'cancelled') {
+    return null;
+  }
+
   final presence = meeting.roomPresence;
   if (presence?.state == 'both_in_room') {
     return 'แพทย์อยู่ในห้องแล้ว สามารถเข้าร่วมได้ทันที';
@@ -566,7 +584,7 @@ class _MeetingsSummaryCard extends StatelessWidget {
           const SizedBox(width: 10),
           _SummaryPill(
             icon: Icons.access_time_rounded,
-            label: 'รอหมอเข้าห้อง',
+            label: 'รอสถานะห้อง',
             value: '$waitingCount',
             color: const Color(0xFFD97706),
           ),
