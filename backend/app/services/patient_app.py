@@ -11,10 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.security import create_access_token, get_password_hash, verify_password
+from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
 from app.models.meeting_patient_invite_code import MeetingPatientInviteCode
 from app.models.patient import Patient
 from app.models.patient_app_registration import PatientAppRegistration
+from app.services import meeting_video as meeting_video_service
 
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _CODE_LENGTH = 6
@@ -267,25 +269,37 @@ def get_patient_meetings(
 
     items = []
     for m in meetings:
-        # Try to get the latest invite URL if not stored on the meeting.
-        invite_url = m.patient_invite_url
+        # Return an active invite URL whenever meeting is joinable.
+        invite_url = None
+        invite_code = db.scalar(
+            select(MeetingPatientInviteCode)
+            .where(MeetingPatientInviteCode.meeting_id == m.id)
+            .order_by(MeetingPatientInviteCode.created_at.desc())
+        )
+        if invite_code:
+            now = datetime.now(timezone.utc)
+            code_expires = invite_code.expires_at
+            if code_expires.tzinfo is None:
+                code_expires = code_expires.replace(tzinfo=timezone.utc)
+            if code_expires > now:
+                settings = get_settings()
+                base_url = (
+                    settings.meeting_patient_join_base_url or settings.frontend_base_url
+                ).rstrip("/")
+                invite_url = f"{base_url}/p/{invite_code.code}"
+
+        if not invite_url and m.status not in (MeetingStatus.cancelled, MeetingStatus.completed):
+            try:
+                invite_payload = meeting_video_service.create_patient_join_invite(
+                    db=db,
+                    meeting=m,
+                )
+                invite_url = invite_payload.get("invite_url")
+            except HTTPException:
+                invite_url = None
+
         if not invite_url:
-            invite_code = db.scalar(
-                select(MeetingPatientInviteCode)
-                .where(MeetingPatientInviteCode.meeting_id == m.id)
-                .order_by(MeetingPatientInviteCode.created_at.desc())
-            )
-            if invite_code:
-                now = datetime.now(timezone.utc)
-                code_expires = invite_code.expires_at
-                if code_expires.tzinfo is None:
-                    code_expires = code_expires.replace(tzinfo=timezone.utc)
-                if code_expires > now:
-                    settings = get_settings()
-                    base_url = (
-                        settings.meeting_patient_join_base_url or settings.frontend_base_url
-                    ).rstrip("/")
-                    invite_url = f"{base_url}/p/{invite_code.code}"
+            invite_url = m.patient_invite_url
 
         items.append({
             "id": str(m.id),
