@@ -272,7 +272,6 @@ class Settings(BaseSettings):
         return self
 
     model_config = {
-        "env_file": ".env",
         "env_prefix": "",
         "case_sensitive": False,
     }

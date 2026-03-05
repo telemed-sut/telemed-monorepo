@@ -23,8 +23,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: "${DATABASE_URL:-replace_with_postgresql_connection_string}"
-      JWT_SECRET: "${JWT_SECRET:-change_this_jwt_secret_for_local_dev_only_32_chars_minimum}"
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required. Use Infisical or export it before running docker compose.}"
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required. Use Infisical or export it before running docker compose.}"
       JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-3600}"
       PASSWORD_RESET_EXPIRES_IN: "${PASSWORD_RESET_EXPIRES_IN:-900}"
       PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE: "${PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE:-false}"

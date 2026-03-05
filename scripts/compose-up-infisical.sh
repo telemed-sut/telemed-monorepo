@@ -16,7 +16,7 @@ main() {
   # If required env has already been injected (e.g. outer `infisical run`),
   # skip calling infisical again to avoid nested-run failures.
   if [[ -n "${DATABASE_URL:-}" && -n "${JWT_SECRET:-}" ]]; then
-    exec docker compose up --build "$@"
+    exec env COMPOSE_DISABLE_ENV_FILE=1 docker compose up --build "$@"
   fi
 
   if is_enabled "${USE_INFISICAL:-true}"; then
@@ -33,13 +33,13 @@ main() {
     fi
 
     if (( ${#infisical_args[@]} > 0 )); then
-      exec infisical run "${infisical_args[@]}" -- docker compose up --build "$@"
+      exec infisical run "${infisical_args[@]}" -- env COMPOSE_DISABLE_ENV_FILE=1 docker compose up --build "$@"
     fi
 
-    exec infisical run -- docker compose up --build "$@"
+    exec infisical run -- env COMPOSE_DISABLE_ENV_FILE=1 docker compose up --build "$@"
   fi
 
-  exec docker compose up --build "$@"
+  exec env COMPOSE_DISABLE_ENV_FILE=1 docker compose up --build "$@"
 }
 
 main "$@"

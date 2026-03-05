@@ -2,7 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKEND_ENV_FILE="$ROOT_DIR/backend/.env"
 TMP_ROOT="${TMPDIR:-/tmp}"
 TUNNEL_LOG_FILE="$TMP_ROOT/telemed-cloudflared.log"
 TUNNEL_PID_FILE="$TMP_ROOT/telemed-cloudflared.pid"
@@ -25,19 +24,6 @@ require_command() {
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Missing required command: $cmd" >&2
     exit 1
-  fi
-}
-
-upsert_env_value() {
-  local key="$1"
-  local value="$2"
-  local escaped_value
-  escaped_value="$(printf "%s" "$value" | sed -e 's/[&|]/\\&/g')"
-
-  if grep -q "^${key}=" "$BACKEND_ENV_FILE"; then
-    sed -i '' "s|^${key}=.*|${key}=${escaped_value}|" "$BACKEND_ENV_FILE"
-  else
-    printf "\n%s=%s\n" "$key" "$value" >>"$BACKEND_ENV_FILE"
   fi
 }
 
@@ -90,29 +76,31 @@ upsert_infisical_value() {
 apply_backend_env_changes() {
   echo "Applying backend config..."
 
-  echo "- Updating backend/.env fallback file..."
-  upsert_env_value "FRONTEND_BASE_URL" "http://localhost:3000"
-  upsert_env_value "MEETING_PATIENT_JOIN_BASE_URL" "$1"
-  upsert_env_value "CORS_ORIGINS" "$2"
-
   if is_enabled "$SYNC_INFISICAL"; then
     require_command infisical
     echo "- Updating Infisical secrets..."
     upsert_infisical_value "FRONTEND_BASE_URL" "http://localhost:3000"
     upsert_infisical_value "MEETING_PATIENT_JOIN_BASE_URL" "$1"
     upsert_infisical_value "CORS_ORIGINS" "$2"
+  else
+    echo "- Using runtime-only compose overrides (Infisical sync disabled)"
   fi
 }
 
 restart_backend_to_apply_changes() {
+  local meeting_patient_join_base_url="$1"
+  local cors_origins="$2"
   echo "Restarting backend to apply env..."
   (
     cd "$ROOT_DIR"
     if is_enabled "$SYNC_INFISICAL"; then
       build_infisical_flags
-      infisical run "${INFISICAL_FLAGS[@]}" -- docker compose up -d backend >/dev/null
+      infisical run "${INFISICAL_FLAGS[@]}" -- env COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d backend >/dev/null
     else
-      docker compose restart backend >/dev/null
+      FRONTEND_BASE_URL="http://localhost:3000" \
+      MEETING_PATIENT_JOIN_BASE_URL="$meeting_patient_join_base_url" \
+      CORS_ORIGINS="$cors_origins" \
+      COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d backend >/dev/null
     fi
   )
 }
@@ -182,14 +170,8 @@ verify_backend_tunnel_env() {
 main() {
   require_command cloudflared
   require_command docker
-  require_command sed
   require_command grep
   require_command curl
-
-  if [[ ! -f "$BACKEND_ENV_FILE" ]]; then
-    echo "Missing backend env file: $BACKEND_ENV_FILE" >&2
-    exit 1
-  fi
 
   echo "Starting backend containers (with backend rebuild)..."
   (
@@ -197,9 +179,9 @@ main() {
     if is_enabled "$SYNC_INFISICAL"; then
       require_command infisical
       build_infisical_flags
-      infisical run "${INFISICAL_FLAGS[@]}" -- docker compose up -d --build db backend >/dev/null
+      infisical run "${INFISICAL_FLAGS[@]}" -- env COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d --build db backend >/dev/null
     else
-      docker compose up -d --build db backend >/dev/null
+      COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d --build db backend >/dev/null
     fi
   )
 
@@ -239,7 +221,7 @@ main() {
   cors_origins="${cors_origins},${tunnel_url}"
 
   apply_backend_env_changes "$tunnel_url" "$cors_origins"
-  restart_backend_to_apply_changes
+  restart_backend_to_apply_changes "$tunnel_url" "$cors_origins"
   verify_backend_tunnel_env "$tunnel_url"
   verify_tunnel_url "$tunnel_url"
 

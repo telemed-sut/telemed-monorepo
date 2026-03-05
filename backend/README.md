@@ -34,25 +34,25 @@ FastAPI backend with JWT auth, PostgreSQL (Neon/Supabase), patient CRUD, Alembic
 - DEVICE_API_MAX_BODY_BYTES: max accepted request payload size in bytes
 
 Primary source should be Infisical secrets at runtime.  
-Fallback local file: copy [.env.example](.env.example) to `.env`.
+`.env.example` documents required keys only. `backend/.env` is not an official runtime source anymore.
 
 ### Frontend Integration
 - Backend URL: `http://localhost:8000`
 - Frontend Env: `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`
 - Allowed Origins: Frontend must run on port **3000** or **8080** (e.g. `http://localhost:3000`).
-  - Note: Other ports (like 3001) will fail CORS checks unless added to `.env`.
+  - Note: Other ports (like 3001) will fail CORS checks unless added to runtime config / Infisical secrets.
 
 ### Running locally (without Docker)
 1) Create and activate a Python 3.11+ venv.
 2) Install dependencies: `pip install -r requirements.txt`.
-3) Load env vars via Infisical (`infisical run -- ...`) or fallback `.env`.
+3) Load env vars via Infisical (`infisical run -- ...`) or by exporting env vars in your shell.
 4) Run migrations: `alembic upgrade head`.
 5) Seed demo data: `python -m scripts.seed`.
 6) Start API: `infisical run -- uvicorn app.main:app --reload` (defaults to 8000).
 
 ### Running with Docker Compose
-1) Preferred: run Compose through Infisical from repo root (`./scripts/compose-up-infisical.sh`).
-2) Fallback: copy `.env.example` to `.env` and run `docker compose up --build`.
+1) Preferred: run the team script from repo root (`./scripts/dev-backend.sh`).
+2) Alternative: export the required env vars in your shell, then run `docker compose up --build`.
 3) Backend runs on port 8000; migrations and seed run automatically before uvicorn starts.
 
 ### Auth and demo users

@@ -142,9 +142,9 @@ start_backend_containers() {
     if is_enabled "$SYNC_INFISICAL"; then
       require_command infisical
       build_infisical_flags
-      infisical run "${INFISICAL_FLAGS[@]}" -- docker compose up -d --build db backend >/dev/null
+      infisical run "${INFISICAL_FLAGS[@]}" -- env COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d --build db backend >/dev/null
     else
-      docker compose up -d --build db backend >/dev/null
+      COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d --build db backend >/dev/null
     fi
   )
 }

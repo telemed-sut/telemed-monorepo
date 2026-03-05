@@ -120,23 +120,22 @@ telemed-monorepo/
 
 ## Quick Start (Docker + Infisical, Primary)
 
-Primary command:
+Primary backend command:
 
 ```bash
-./scripts/compose-up-infisical.sh
+./scripts/dev-backend.sh
+```
+
+Primary share-link command:
+
+```bash
+./scripts/dev-share-link.sh
 ```
 
 Optional (if your Infisical CLI needs explicit runtime args):
 
 ```bash
-INFISICAL_RUN_ARGS="--projectId <project_id> --env <environment> --path /" ./scripts/compose-up-infisical.sh
-```
-
-Fallback (only if Infisical is unavailable):
-
-```bash
-cp .env.example .env
-USE_INFISICAL=false ./scripts/compose-up-infisical.sh
+INFISICAL_RUN_ARGS="--projectId <project_id> --env <environment> --path /" ./scripts/dev-backend.sh
 ```
 
 Services:
@@ -147,6 +146,7 @@ Services:
 
 Notes:
 
+- Official scripts ignore root `.env`; the source of truth is Infisical runtime env.
 - Backend container runs migrations and seed step on startup via `backend/entrypoint.sh`.
 - Compose includes a local PostgreSQL service.
 
@@ -167,7 +167,8 @@ infisical run -- uvicorn app.main:app --reload
 Fallback only:
 
 ```bash
-cp .env.example .env
+export DATABASE_URL=...
+export JWT_SECRET=...
 uvicorn app.main:app --reload
 ```
 
@@ -175,15 +176,14 @@ uvicorn app.main:app --reload
 
 ```bash
 cd frontend
-npm install
-infisical run -- npm run dev
+bun install
+bun run dev
 ```
 
-Fallback only:
+Local config:
 
 ```bash
 cp .env.example .env.local
-npm run dev
 ```
 
 ### 3) Patient Mobile (Flutter)
@@ -208,11 +208,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\run-patient-flutter.p
 
 Primary secret source: Infisical project/environment.
 
-Fallback files:
+Reference files:
 
-- Root Compose fallback: `.env` (from `.env.example`)
-- Backend local fallback: `backend/.env` (from `backend/.env.example`)
-- Frontend local fallback: `frontend/.env.local` (from `frontend/.env.example`)
+- Root `.env.example`: optional compose/env reference only
+- Backend `backend/.env.example`: required backend keys reference
+- Frontend `frontend/.env.local` (from `frontend/.env.example`): local frontend convenience config
 
 ### Backend (Infisical)
 
@@ -233,7 +233,7 @@ Important for production hardening:
 
 Reference file: `backend/.env.example`
 
-### Frontend (Infisical)
+### Frontend (Local Dev)
 
 - `NEXT_PUBLIC_API_BASE_URL` (default local value is `http://localhost:8000`)
 
