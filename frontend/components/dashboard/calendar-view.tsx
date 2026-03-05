@@ -8,6 +8,7 @@ import {
   Layers01Icon,
   Delete01Icon,
   Cancel01Icon,
+  Clock01Icon,
   ArrowUpRight01Icon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
@@ -215,6 +216,8 @@ function EventCard({
       : tr(language, "Appointment", "นัดหมาย"));
   const timeStr = getTimeRange(meeting.date_time, language, duration);
   const statusColor = getStatusColor(meeting.status);
+  const isWaiting = meeting.status === "waiting";
+  const waitingText = tr(language, "Patient waiting", "คนไข้รออยู่");
 
   const participants = [
     meeting.doctor
@@ -236,17 +239,29 @@ function EventCard({
     return (
       <button
         type="button"
-        className={cn("absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg px-2 py-1 z-10 flex items-center gap-1.5 cursor-pointer hover:bg-muted transition-colors", statusColor.border)}
+        className={cn(
+          "absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg px-2 py-1 z-10 flex items-center gap-1.5 cursor-pointer hover:bg-muted transition-colors",
+          statusColor.border,
+          isWaiting && "border-amber-300/70 bg-amber-50/50 ring-1 ring-amber-300/40"
+        )}
         style={{ top, height }}
         onClick={(event) => {
           event.stopPropagation();
           onClick();
         }}
       >
-        <div className={cn("size-1.5 rounded-full shrink-0", statusColor.dot)} />
+        <div className="relative shrink-0">
+          {isWaiting && <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-60" />}
+          <div className={cn("size-1.5 rounded-full relative", statusColor.dot)} />
+        </div>
         <h4 className="text-[10px] font-semibold text-foreground truncate flex-1">
           {title}
         </h4>
+        {isWaiting && (
+          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-amber-500/15 text-amber-700">
+            {tr(language, "Waiting", "รอหมอ")}
+          </span>
+        )}
         <span className="text-[9px] text-muted-foreground shrink-0">
           {formatTime12(meeting.date_time, language)}
         </span>
@@ -259,7 +274,11 @@ function EventCard({
     return (
       <button
         type="button"
-        className={cn("absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg px-2.5 py-2 z-10 cursor-pointer hover:bg-muted transition-colors", statusColor.border)}
+        className={cn(
+          "absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg px-2.5 py-2 z-10 cursor-pointer hover:bg-muted transition-colors",
+          statusColor.border,
+          isWaiting && "border-amber-300/70 bg-amber-50/50 ring-1 ring-amber-300/40"
+        )}
         style={{ top, height }}
         onClick={(event) => {
           event.stopPropagation();
@@ -268,10 +287,18 @@ function EventCard({
       >
         <div className="flex flex-col gap-1 h-full">
           <div className="flex items-center gap-1.5">
-            <div className={cn("size-1.5 rounded-full shrink-0", statusColor.dot)} />
+            <div className="relative shrink-0">
+              {isWaiting && <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-60" />}
+              <div className={cn("size-1.5 rounded-full relative", statusColor.dot)} />
+            </div>
             <h4 className="text-[10px] font-semibold text-foreground truncate flex-1">
               {title}
             </h4>
+            {isWaiting && (
+              <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-amber-500/15 text-amber-700">
+                {tr(language, "Waiting", "รอหมอ")}
+              </span>
+            )}
           </div>
           <p className="text-[9px] text-muted-foreground uppercase tracking-wide">
             {timeStr}
@@ -285,7 +312,12 @@ function EventCard({
   return (
     <button
       type="button"
-      className={cn("absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg p-3 z-10 cursor-pointer hover:bg-muted transition-colors", statusColor.border, meeting.status === "cancelled" && "opacity-60")}
+      className={cn(
+        "absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg p-3 z-10 cursor-pointer hover:bg-muted transition-colors",
+        statusColor.border,
+        meeting.status === "cancelled" && "opacity-60",
+        isWaiting && "border-amber-300/70 bg-amber-50/60 ring-1 ring-amber-300/50 shadow-sm shadow-amber-500/20"
+      )}
       style={{ top, height }}
       onClick={(event) => {
         event.stopPropagation();
@@ -309,6 +341,15 @@ function EventCard({
               {getMeetingStatusLabel(meeting.status, language)}
             </span>
           </div>
+          {isWaiting && (
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold text-amber-700">
+              <span className="relative inline-flex size-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
+              </span>
+              {waitingText}
+            </div>
+          )}
           <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-2">
             {timeStr}
           </p>
@@ -492,6 +533,7 @@ export function EventDetailSheet({
   const canWrite = isAdmin || isOwnerDoctor;
   const canDelete = isAdmin;
   const canStartCall = isOwnerDoctor && !["cancelled", "completed"].includes(meeting.status);
+  const isPatientWaiting = meeting.status === "waiting";
 
   const sheetParticipants = [
     {
@@ -778,6 +820,37 @@ export function EventDetailSheet({
                 />
               </div>
 
+              {isPatientWaiting && (
+                <div className="mb-4 rounded-xl border border-amber-500/35 bg-gradient-to-r from-amber-500/15 to-orange-500/10 p-3">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-amber-500/20 text-amber-700">
+                      <HugeiconsIcon icon={Clock01Icon} className="size-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-amber-800">
+                        {tr(language, "Patient is in waiting room now", "คนไข้อยู่ในห้องรอแล้ว")}
+                      </p>
+                      <p className="text-xs text-amber-700/90 mt-0.5">
+                        {tr(
+                          language,
+                          "Start call now to avoid patient drop-off.",
+                          "แนะนำให้กดเริ่มคอลทันที เพื่อลดโอกาสคนไข้หลุดจากห้องรอ"
+                        )}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="h-8 bg-amber-600 hover:bg-amber-700 text-white"
+                      onClick={handleStartCall}
+                      disabled={!canStartCall}
+                    >
+                      <HugeiconsIcon icon={CallIcon} className="size-3.5" />
+                      <span>{tr(language, "Start now", "เริ่มเลย")}</span>
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Title & time */}
               <div className="flex flex-col gap-1 mb-4">
                 <div className="flex items-center gap-2">
@@ -800,18 +873,6 @@ export function EventDetailSheet({
                   <span className="size-1 rounded-full bg-muted-foreground" />
                   <span>{tr(language, "ICT", "เวลา ICT")}</span>
                 </div>
-                {meeting.status === "waiting" && (
-                  <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                    <HugeiconsIcon icon={Clock01Icon} className="size-3.5 shrink-0" />
-                    <span>
-                      {tr(
-                        language,
-                        "Patient is waiting in room now. Start call when ready.",
-                        "คนไข้รออยู่ในห้องแล้ว กดเริ่มคอลได้เลย"
-                      )}
-                    </span>
-                  </div>
-                )}
               </div>
 
               {/* Propose new time */}

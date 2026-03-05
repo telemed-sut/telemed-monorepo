@@ -151,6 +151,7 @@ function StatusBadge({
   language: AppLanguage;
 }) {
   const config = getStatusConfig(status, language);
+  const isWaiting = status === "waiting";
   return (
     <span
       className={cn(
@@ -161,7 +162,12 @@ function StatusBadge({
         backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)",
       }}
     >
-      <span className={cn("size-1.5 rounded-full", config.dot)} />
+      <span className="relative inline-flex size-1.5">
+        {isWaiting && (
+          <span className="absolute inset-0 rounded-full bg-amber-500 animate-ping opacity-60" />
+        )}
+        <span className={cn("relative size-1.5 rounded-full", config.dot)} />
+      </span>
       {config.label}
     </span>
   );
@@ -269,7 +275,9 @@ function QueueCard({
       className={cn(
         "group flex flex-col gap-3 p-4 rounded-xl border border-border bg-card transition-all cursor-pointer h-full",
         "hover:shadow-md hover:border-border/80",
-        isTerminal && "opacity-60"
+        isTerminal && "opacity-60",
+        meeting.status === "waiting" &&
+          "border-amber-300/60 bg-gradient-to-br from-amber-50/70 to-card ring-1 ring-amber-300/40"
       )}
       onClick={() => onClick(meeting)}
       role="button"
@@ -384,15 +392,29 @@ function QueueCard({
       )}
 
       {meeting.status === "waiting" && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-          <HugeiconsIcon icon={Clock01Icon} className="size-3.5 mt-0.5 shrink-0" />
-          <span>
-            {tr(
-              language,
-              "Patient is already in the waiting room. You can start call now.",
-              "คนไข้เข้าห้องรอแล้ว กดเริ่มคอลได้ทันที"
-            )}
-          </span>
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300">
+            <HugeiconsIcon icon={Clock01Icon} className="size-3.5 mt-0.5 shrink-0" />
+            <span>
+              {tr(
+                language,
+                "Patient is already in the waiting room. You can start call now.",
+                "คนไข้เข้าห้องรอแล้ว กดเริ่มคอลได้ทันที"
+              )}
+            </span>
+          </div>
+          <Button
+            size="sm"
+            className="mt-2 h-7 text-xs gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+            onClick={(e) => {
+              e.stopPropagation();
+              onStartCall(meeting);
+            }}
+            disabled={loading || isTerminal}
+          >
+            <HugeiconsIcon icon={CallIcon} className="size-3.5" />
+            {tr(language, "Start call now", "เริ่มคอลตอนนี้")}
+          </Button>
         </div>
       )}
 
@@ -585,9 +607,9 @@ export function QueueView({
 
     // Sort: active statuses first, then by time
     const statusOrder: Record<MeetingStatus, number> = {
-      overtime: 0,
+      waiting: 0,
       in_progress: 1,
-      waiting: 2,
+      overtime: 2,
       scheduled: 3,
       completed: 4,
       cancelled: 5,
