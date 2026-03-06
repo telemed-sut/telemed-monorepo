@@ -68,6 +68,7 @@ import {
 } from "@/lib/api";
 import { getMeetingLinkMode, resolveMeetingRoomValue } from "./meeting-link";
 import { toast } from "@/components/ui/toast";
+import { includesSearchQuery, normalizeSearchText } from "@/lib/search";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
@@ -80,7 +81,6 @@ const formatDateLabel = (
   language: AppLanguage,
   options: Intl.DateTimeFormatOptions
 ) => date.toLocaleDateString(localeOf(language), options);
-const INVISIBLE_SEARCH_CHAR_PATTERN = /[\u00AD\u200B-\u200D\u2060\uFEFF]/g;
 
 /* ── Time picker helpers ── */
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -104,21 +104,6 @@ function formatDoctorDisplayName(doctor: Pick<User, "first_name" | "last_name" |
 function formatPatientDisplayName(patient: Pick<Patient, "first_name" | "last_name" | "email" | "id">): string {
   const fullName = `${patient.first_name || ""} ${patient.last_name || ""}`.trim();
   return fullName || patient.email || patient.id;
-}
-
-function normalizeSearchText(value: string): string {
-  return value
-    .normalize("NFKC")
-    .replace(INVISIBLE_SEARCH_CHAR_PATTERN, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
-
-function includesQuery(value: string, query: string): boolean {
-  const normalizedQuery = normalizeSearchText(query);
-  if (!normalizedQuery) return true;
-  return normalizeSearchText(value).includes(normalizedQuery);
 }
 
 function resolveDoctorRoleType(value: string): DoctorPickerItem["roleType"] {
@@ -276,9 +261,9 @@ function PatientDirectoryDialog({
       if (!normalizedQuery) return items;
       return items.filter(
         (patient) =>
-          includesQuery(patient.label, normalizedQuery) ||
-          includesQuery(patient.status, normalizedQuery) ||
-          includesQuery(patient.description || "", normalizedQuery)
+          includesSearchQuery(patient.label, normalizedQuery) ||
+          includesSearchQuery(patient.status, normalizedQuery) ||
+          includesSearchQuery(patient.description || "", normalizedQuery)
       );
     },
     [items, query]
@@ -766,9 +751,9 @@ function DoctorDirectoryDialog({
       if (!normalizedQuery) return items;
       return items.filter(
         (doctor) =>
-          includesQuery(doctor.label, normalizedQuery) ||
-          includesQuery(doctor.role, normalizedQuery) ||
-          includesQuery(doctor.description || "", normalizedQuery)
+          includesSearchQuery(doctor.label, normalizedQuery) ||
+          includesSearchQuery(doctor.role, normalizedQuery) ||
+          includesSearchQuery(doctor.description || "", normalizedQuery)
       );
     },
     [items, query]
@@ -1269,8 +1254,8 @@ function CreateEventDialog({
       return doctors.filter((doctor) => {
         const display = formatDoctorDisplayName(doctor);
         return (
-          includesQuery(display, query) ||
-          includesQuery(doctor.email || "", query)
+          includesSearchQuery(display, query) ||
+          includesSearchQuery(doctor.email || "", query)
         );
       });
     }
@@ -1284,8 +1269,8 @@ function CreateEventDialog({
       return patients.filter((patient) => {
         const display = formatPatientDisplayName(patient);
         return (
-          includesQuery(display, query) ||
-          includesQuery(patient.email || "", query)
+          includesSearchQuery(display, query) ||
+          includesSearchQuery(patient.email || "", query)
         );
       });
     }
