@@ -5,8 +5,9 @@ useDefault = true
 
 [allowlist]
 description = "Allow test-only backend dummy secrets used in config parsing specs"
+regexTarget = "match"
 paths = [
-  '''backend/tests/test_settings_config.py''',
+  '''(^|/)backend/tests/test_settings_config\.py$''',
 ]
 regexes = [
   '''jwt_secret_1234567890abcdef1234567890''',
