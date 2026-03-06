@@ -53,6 +53,24 @@ jobs:
         head: ${{ github.sha }}
         extra_args: --results=verified,unknown
 
+  backend-env-bootstrap:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+        cache: 'pip'
+        cache-dependency-path: backend/requirements.txt
+
+    - name: Bootstrap backend virtual environment
+      working-directory: ./backend
+      run: |
+        ./scripts/bootstrap_backend_env.sh
+
   backend-test:
     runs-on: ubuntu-latest
     env:
