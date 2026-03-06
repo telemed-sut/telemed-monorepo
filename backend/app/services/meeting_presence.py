@@ -74,21 +74,44 @@ def mark_patient_left(db: Session, meeting: Meeting) -> MeetingRoomPresence:
     return presence
 
 
-def normalize_waiting_status(db: Session, meeting: Meeting, presence: MeetingRoomPresence) -> bool:
-    if meeting.status != MeetingStatus.waiting:
-        return False
+def _derive_active_meeting_status(presence: MeetingRoomPresence) -> MeetingStatus:
+    if presence.patient_online and presence.doctor_online:
+        return MeetingStatus.in_progress
     if presence.patient_online:
+        return MeetingStatus.waiting
+    return MeetingStatus.scheduled
+
+
+def reconcile_active_meeting_status(
+    db: Session,
+    meeting: Meeting,
+    presence: MeetingRoomPresence,
+) -> bool:
+    if meeting.status not in (
+        MeetingStatus.scheduled,
+        MeetingStatus.waiting,
+        MeetingStatus.in_progress,
+    ):
         return False
-    meeting.status = MeetingStatus.in_progress if presence.doctor_online else MeetingStatus.scheduled
+
+    next_status = _derive_active_meeting_status(presence)
+    if meeting.status == next_status:
+        return False
+
+    meeting.status = next_status
     db.add(meeting)
     return True
 
 
-def prune_stale_waiting_meetings(db: Session, *, force: bool = False) -> int:
+def reconcile_active_meetings(db: Session, *, force: bool = False) -> int:
     stmt = (
         select(MeetingRoomPresence)
         .join(Meeting, Meeting.id == MeetingRoomPresence.meeting_id)
-        .where(Meeting.status == MeetingStatus.waiting)
+        .where(Meeting.status.in_([
+            MeetingStatus.scheduled,
+            MeetingStatus.waiting,
+            MeetingStatus.in_progress,
+        ]))
         .options(joinedload(MeetingRoomPresence.meeting))
     )
     presences = db.scalars(stmt).all()
@@ -98,7 +121,7 @@ def prune_stale_waiting_meetings(db: Session, *, force: bool = False) -> int:
         meeting = presence.meeting
         if not meeting:
             continue
-        if normalize_waiting_status(db, meeting, presence):
+        if reconcile_active_meeting_status(db, meeting, presence):
             changed += 1
 
     if changed:

@@ -83,7 +83,7 @@ def list_meetings(
     if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    meeting_presence_service.prune_stale_waiting_meetings(db)
+    meeting_presence_service.reconcile_active_meetings(db)
 
     visible_doctor_id = current_user.id if current_user.role == UserRole.doctor else None
 
@@ -120,7 +120,7 @@ def get_meeting(
             detail="You can only access meetings you own or assigned patients.",
         )
 
-    if meeting.room_presence and meeting_presence_service.normalize_waiting_status(
+    if meeting.room_presence and meeting_presence_service.reconcile_active_meeting_status(
         db,
         meeting,
         meeting.room_presence,
@@ -325,7 +325,7 @@ def doctor_presence_leave(
         meeting.status = MeetingStatus.waiting
         db.add(meeting)
         db.commit()
-    elif meeting_presence_service.normalize_waiting_status(db, meeting, presence):
+    elif meeting_presence_service.reconcile_active_meeting_status(db, meeting, presence):
         db.commit()
     return _presence_response(meeting, presence)
 
@@ -409,7 +409,7 @@ def patient_presence_leave(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
 
     presence = meeting_presence_service.mark_patient_left(db, meeting)
-    if meeting_presence_service.normalize_waiting_status(db, meeting, presence):
+    if meeting_presence_service.reconcile_active_meeting_status(db, meeting, presence):
         db.commit()
     return _presence_response(meeting, presence)
 

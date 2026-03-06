@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -161,6 +162,7 @@ def test_patient_meetings_regenerates_invite_when_latest_code_expired(
     get_settings.cache_clear()
 
 
+@pytest.mark.meeting_presence_regression
 def test_patient_meetings_include_room_presence(
     client: TestClient,
     db: Session,
@@ -199,6 +201,7 @@ def test_patient_meetings_include_room_presence(
     get_settings.cache_clear()
 
 
+@pytest.mark.meeting_presence_regression
 def test_patient_meetings_does_not_prune_stale_waiting_status(
     client: TestClient,
     db: Session,

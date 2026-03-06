@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { isToday } from "date-fns";
+import { isToday, isTomorrow } from "date-fns";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Clock01Icon,
@@ -37,10 +37,17 @@ import {
   MEETING_STATUS_LABELS,
   MEETING_STATUSES,
 } from "@/lib/api";
-import type { AppLanguage } from "@/store/language-config";
+import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
+import {
+  getLivePresenceInfo,
+  getPresenceAwareStatus,
+  isDoctorLeftWhilePatientWaiting,
+  isPatientWaitingLive,
+} from "./meeting-presence";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
+const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
 
 const MEETING_STATUS_LABELS_TH: Record<MeetingStatus, string> = {
   scheduled: "กำหนดการ",
@@ -138,70 +145,31 @@ function formatTime12(dateTime: string): string {
   return `${displayHour}:${minute.toString().padStart(2, "0")} ${period}`;
 }
 
+function formatAppointmentDate(dateTime: string, language: AppLanguage): string {
+  const value = new Date(dateTime);
+
+  if (Number.isNaN(value.getTime())) {
+    return "";
+  }
+
+  if (isToday(value)) {
+    return tr(language, "Today", "วันนี้");
+  }
+
+  if (isTomorrow(value)) {
+    return tr(language, "Tomorrow", "พรุ่งนี้");
+  }
+
+  return value.toLocaleDateString(localeOf(language), {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 function getInitial(name: string | null | undefined): string {
   return name?.charAt(0)?.toUpperCase() || "?";
-}
-
-function isPatientWaitingLive(meeting: Meeting): boolean {
-  const presence = meeting.room_presence;
-  if (!presence?.patient_online) return false;
-  return (
-    presence.state === "patient_waiting" ||
-    presence.state === "doctor_left_patient_waiting"
-  );
-}
-
-function isDoctorLeftWhilePatientWaiting(meeting: Meeting): boolean {
-  const presence = meeting.room_presence;
-  if (!presence?.patient_online) return false;
-  return presence.state === "doctor_left_patient_waiting";
-}
-
-function getPresenceAwareStatus(meeting: Meeting): MeetingStatus {
-  const presence = meeting.room_presence;
-  if (!presence) return meeting.status;
-  if (isPatientWaitingLive(meeting)) return "waiting";
-  if (meeting.status === "waiting" && !presence.patient_online) return "scheduled";
-  return meeting.status;
-}
-
-type LivePresenceTone = "waiting" | "active" | "offline";
-
-function getLivePresenceInfo(
-  meeting: Meeting,
-  language: AppLanguage
-): { tone: LivePresenceTone; label: string } | null {
-  const presence = meeting.room_presence;
-  if (!presence) return null;
-
-  if (
-    presence.state === "patient_waiting" ||
-    presence.state === "doctor_left_patient_waiting"
-  ) {
-    return {
-      tone: "waiting",
-      label: tr(language, "Patient waiting for doctor", "คนไข้กำลังรอหมอ"),
-    };
-  }
-
-  if (presence.state === "both_in_room") {
-    return {
-      tone: "active",
-      label: tr(language, "Doctor and patient in room", "หมอและคนไข้อยู่ในห้อง"),
-    };
-  }
-
-  const patientWasInRoom = Boolean(
-    presence.patient_joined_at || presence.patient_last_seen_at || presence.patient_left_at
-  );
-  if (presence.state === "doctor_only" || (patientWasInRoom && !presence.patient_online)) {
-    return {
-      tone: "offline",
-      label: tr(language, "Patient offline/disconnected", "คนไข้ออฟไลน์หรือหลุดการเชื่อมต่อ"),
-    };
-  }
-
-  return null;
 }
 
 /* ── Status Badge ── */
@@ -328,6 +296,8 @@ function QueueCard({
   const statusForBadge = getPresenceAwareStatus(meeting);
   const livePresenceInfo = getLivePresenceInfo(meeting, language);
   const config = getStatusConfig(statusForBadge, language);
+  const appointmentDateLabel = formatAppointmentDate(meeting.date_time, language);
+  const appointmentTimeLabel = formatTime12(meeting.date_time);
 
   const patientName = meeting.patient
     ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
@@ -388,6 +358,8 @@ function QueueCard({
                     "bg-amber-500/15 text-amber-700 dark:text-amber-300",
                   livePresenceInfo.tone === "active" &&
                     "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+                  livePresenceInfo.tone === "left" &&
+                    "bg-slate-500/15 text-slate-700 dark:text-slate-300",
                   livePresenceInfo.tone === "offline" &&
                     "bg-slate-500/15 text-slate-700 dark:text-slate-300"
                 )}
@@ -448,21 +420,32 @@ function QueueCard({
       </div>
 
       {/* Info row */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <HugeiconsIcon icon={Clock01Icon} className="size-3.5" />
-          {formatTime12(meeting.date_time)}
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <HugeiconsIcon icon={Stethoscope02Icon} className="size-3.5" />
-          {doctorName}
-        </span>
-        {meeting.room && (
-          <span className="inline-flex items-center gap-1.5">
-            <HugeiconsIcon icon={DoorIcon} className="size-3.5" />
-            {meeting.room}
+      <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="inline-flex items-center gap-1.5 font-medium text-foreground/85">
+            <HugeiconsIcon icon={Calendar01Icon} className="size-3.5" />
+            <span>{appointmentDateLabel}</span>
           </span>
-        )}
+          <span className="text-muted-foreground/50" aria-hidden="true">
+            •
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <HugeiconsIcon icon={Clock01Icon} className="size-3.5" />
+            {appointmentTimeLabel}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="inline-flex items-center gap-1.5">
+            <HugeiconsIcon icon={Stethoscope02Icon} className="size-3.5" />
+            {doctorName}
+          </span>
+          {meeting.room && (
+            <span className="inline-flex items-center gap-1.5">
+              <HugeiconsIcon icon={DoorIcon} className="size-3.5" />
+              {meeting.room}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Cancel reason */}
@@ -515,6 +498,21 @@ function QueueCard({
                 language,
                 "Patient is currently offline. Ask patient to re-open the room link.",
                 "ตอนนี้คนไข้ออฟไลน์ แนะนำให้คนไข้กดลิงก์เข้าห้องใหม่อีกครั้ง"
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {livePresenceInfo?.tone === "left" && !isWaitingLive && (
+        <div className="rounded-lg border border-slate-400/30 bg-slate-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-300">
+            <HugeiconsIcon icon={AlertCircleIcon} className="size-3.5 mt-0.5 shrink-0" />
+            <span>
+              {tr(
+                language,
+                "Patient left the room. If the visit should continue, ask patient to re-open the room link.",
+                "คนไข้ออกจากห้องแล้ว หากต้องการตรวจต่อ ให้คนไข้กดลิงก์เข้าห้องใหม่อีกครั้ง"
               )}
             </span>
           </div>

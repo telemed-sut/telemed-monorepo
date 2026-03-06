@@ -42,13 +42,37 @@ Primary source should be Infisical secrets at runtime.
 - Allowed Origins: Frontend must run on port **3000** or **8080** (e.g. `http://localhost:3000`).
   - Note: Other ports (like 3001) will fail CORS checks unless added to runtime config / Infisical secrets.
 
+### Backend environment bootstrap
+Use the bootstrap script to create or refresh the backend virtual environment
+before you run tests or start the API. It installs `requirements.txt`, checks
+package integrity, and verifies that the local pytest plugins are present.
+
+From `backend/`:
+
+```bash
+./scripts/bootstrap_backend_env.sh
+```
+
+If you prefer `make`, run:
+
+```bash
+make backend-test-env
+```
+
+Optional environment overrides:
+- `PYTHON_BIN=/path/to/python3.12` picks a specific interpreter.
+- `VENV_DIR=/custom/path/to/venv` installs into a different virtual environment.
+- `UPGRADE_PIP=1` upgrades `pip` before syncing dependencies.
+
 ### Running locally (without Docker)
-1) Create and activate a Python 3.11+ venv.
-2) Install dependencies: `pip install -r requirements.txt`.
-3) Load env vars via Infisical (`infisical run -- ...`) or by exporting env vars in your shell.
+1) Bootstrap the environment with `./scripts/bootstrap_backend_env.sh`.
+2) Activate the virtual environment: `source venv/bin/activate`.
+3) Load env vars via Infisical (`infisical run -- ...`) or by exporting env vars
+   in your shell.
 4) Run migrations: `alembic upgrade head`.
 5) Seed demo data: `python -m scripts.seed`.
-6) Start API: `infisical run -- uvicorn app.main:app --reload` (defaults to 8000).
+6) Start API: `infisical run -- uvicorn app.main:app --reload` (defaults to
+   8000).
 
 ### Running with Docker Compose
 1) Preferred: run the team script from repo root (`./scripts/dev-backend.sh`).
@@ -123,13 +147,14 @@ Validation highlights:
 - `a` and `b` must be equal length when both provided.
 
 ### Testing
-- Unit tests: `python -m pytest` (requires test dependencies)
+- Unit tests: `python -m pytest`
 - API tests: Import `Patient_Management_API.postman_collection.json` into Postman
 - Test coverage includes auth, patients CRUD, role-based access, and error handling
 - Test matrix profiles:
   - compat profile (full suite): `./scripts/run_test_matrix.sh compat`
   - strict profile (device security smoke test): `./scripts/run_test_matrix.sh strict`
   - both profiles: `./scripts/run_test_matrix.sh all`
+- Bootstrap test env first when setting up a fresh machine: `make backend-test-env`
 
 ### Real device style simulation (HTTP ingest)
 Use this when you want to simulate an actual machine sending signed payloads to `/device/v1/pressure`.

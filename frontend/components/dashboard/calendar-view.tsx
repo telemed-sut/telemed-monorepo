@@ -14,6 +14,7 @@ import {
   ArrowRight01Icon,
   Tick02Icon,
   Notification01Icon,
+  AlertCircleIcon,
   Calendar01Icon,
   CallIcon,
   UserGroupIcon,
@@ -49,6 +50,12 @@ import type { MeetingCreatePayload } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
+import {
+  getLivePresenceInfo,
+  getPresenceAwareStatus,
+  isDoctorLeftWhilePatientWaiting,
+  isPatientWaitingLive,
+} from "./meeting-presence";
 
 /* ── Helpers ── */
 
@@ -122,68 +129,6 @@ function getStatusColor(status?: MeetingStatus): { dot: string; border: string; 
 
 function getInitial(name: string | null | undefined): string {
   return name?.charAt(0)?.toUpperCase() || "?";
-}
-
-function isPatientWaitingLive(meeting: Meeting): boolean {
-  const presence = meeting.room_presence;
-  if (!presence?.patient_online) return false;
-  return (
-    presence.state === "patient_waiting" ||
-    presence.state === "doctor_left_patient_waiting"
-  );
-}
-
-function isDoctorLeftWhilePatientWaiting(meeting: Meeting): boolean {
-  const presence = meeting.room_presence;
-  if (!presence?.patient_online) return false;
-  return presence.state === "doctor_left_patient_waiting";
-}
-
-function getPresenceAwareStatus(meeting: Meeting): MeetingStatus {
-  const presence = meeting.room_presence;
-  if (!presence) return meeting.status;
-  if (isPatientWaitingLive(meeting)) return "waiting";
-  if (meeting.status === "waiting" && !presence.patient_online) return "scheduled";
-  return meeting.status;
-}
-
-type LivePresenceTone = "waiting" | "active" | "offline";
-
-function getLivePresenceInfo(
-  meeting: Meeting,
-  language: AppLanguage
-): { tone: LivePresenceTone; label: string } | null {
-  const presence = meeting.room_presence;
-  if (!presence) return null;
-
-  if (
-    presence.state === "patient_waiting" ||
-    presence.state === "doctor_left_patient_waiting"
-  ) {
-    return {
-      tone: "waiting",
-      label: tr(language, "Patient waiting for doctor", "คนไข้กำลังรอหมอ"),
-    };
-  }
-
-  if (presence.state === "both_in_room") {
-    return {
-      tone: "active",
-      label: tr(language, "Doctor and patient in room", "หมอและคนไข้อยู่ในห้อง"),
-    };
-  }
-
-  const patientWasInRoom = Boolean(
-    presence.patient_joined_at || presence.patient_last_seen_at || presence.patient_left_at
-  );
-  if (presence.state === "doctor_only" || (patientWasInRoom && !presence.patient_online)) {
-    return {
-      tone: "offline",
-      label: tr(language, "Patient offline/disconnected", "คนไข้ออฟไลน์หรือหลุดการเชื่อมต่อ"),
-    };
-  }
-
-  return null;
 }
 
 function normalizeRoomTarget(room?: string | null): string | null {
@@ -331,6 +276,11 @@ function EventCard({
             {tr(language, "Offline", "ออฟไลน์")}
           </span>
         )}
+        {livePresenceInfo?.tone === "left" && (
+          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
+            {tr(language, "Left", "ออกแล้ว")}
+          </span>
+        )}
         <span className="text-[9px] text-muted-foreground shrink-0">
           {formatTime12(meeting.date_time, language)}
         </span>
@@ -371,6 +321,11 @@ function EventCard({
             {livePresenceInfo?.tone === "offline" && (
               <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
                 {tr(language, "Offline", "ออฟไลน์")}
+              </span>
+            )}
+            {livePresenceInfo?.tone === "left" && (
+              <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
+                {tr(language, "Left", "ออกแล้ว")}
               </span>
             )}
           </div>
@@ -434,6 +389,12 @@ function EventCard({
             <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[9px] font-semibold text-slate-700 dark:text-slate-300">
               <span className="inline-flex h-1.5 w-1.5 rounded-full bg-slate-500" />
               {tr(language, "Patient offline", "คนไข้ออฟไลน์")}
+            </div>
+          )}
+          {livePresenceInfo?.tone === "left" && (
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[9px] font-semibold text-slate-700 dark:text-slate-300">
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-slate-500" />
+              {tr(language, "Patient left room", "คนไข้ออกจากห้องแล้ว")}
             </div>
           )}
           <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-2">
@@ -967,6 +928,28 @@ export function EventDetailSheet({
                           language,
                           "Ask patient to reopen the room link and wait in room.",
                           "แนะนำให้คนไข้เปิดลิงก์เข้าห้องใหม่และรอในห้องอีกครั้ง"
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {livePresenceInfo?.tone === "left" && (
+                <div className="mb-4 rounded-xl border border-slate-500/35 bg-slate-500/10 p-3">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-slate-500/20 text-slate-700 dark:text-slate-300">
+                      <HugeiconsIcon icon={AlertCircleIcon} className="size-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        {tr(language, "Patient left the room", "คนไข้ออกจากห้องแล้ว")}
+                      </p>
+                      <p className="text-xs text-slate-700/90 dark:text-slate-300/90 mt-0.5">
+                        {tr(
+                          language,
+                          "If the visit should continue, ask patient to reopen the room link.",
+                          "หากต้องการตรวจต่อ ให้คนไข้เปิดลิงก์เข้าห้องอีกครั้ง"
                         )}
                       </p>
                     </div>

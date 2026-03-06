@@ -9,6 +9,7 @@ from app.core.security import get_password_hash
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
+from app.models.meeting_room_presence import MeetingRoomPresence
 from app.models.patient import Patient
 from app.models.user import User, UserRole
 from app.services import meeting_video as meeting_video_service
@@ -73,6 +74,54 @@ def _create_meeting(
     return meeting
 
 
+def _set_room_presence(
+    db: Session,
+    meeting: Meeting,
+    *,
+    mode: str,
+) -> MeetingRoomPresence:
+    now = datetime.now(timezone.utc)
+    stale = now - timedelta(minutes=2)
+
+    presence = db.get(MeetingRoomPresence, meeting.id)
+    if presence is None:
+        presence = MeetingRoomPresence(meeting_id=meeting.id)
+
+    if mode == "both_online":
+        presence.doctor_last_seen_at = now
+        presence.doctor_left_at = None
+        presence.patient_last_seen_at = now
+        presence.patient_left_at = None
+    elif mode == "patient_only":
+        presence.doctor_last_seen_at = stale
+        presence.doctor_left_at = now
+        presence.patient_last_seen_at = now
+        presence.patient_left_at = None
+    elif mode == "doctor_only":
+        presence.doctor_last_seen_at = now
+        presence.doctor_left_at = None
+        presence.patient_last_seen_at = stale
+        presence.patient_left_at = now
+    elif mode == "none_online":
+        presence.doctor_last_seen_at = stale
+        presence.doctor_left_at = now
+        presence.patient_last_seen_at = stale
+        presence.patient_left_at = now
+    else:
+        raise ValueError(f"Unsupported presence mode: {mode}")
+
+    if presence.doctor_last_seen_at and presence.doctor_joined_at is None:
+        presence.doctor_joined_at = presence.doctor_last_seen_at
+    if presence.patient_last_seen_at and presence.patient_joined_at is None:
+        presence.patient_joined_at = presence.patient_last_seen_at
+
+    presence.refreshed_at = now
+    db.add(presence)
+    db.commit()
+    db.refresh(presence)
+    return presence
+
+
 def test_doctor_can_issue_video_token_for_visible_meeting(
     client: TestClient,
     db: Session,
@@ -96,6 +145,107 @@ def test_doctor_can_issue_video_token_for_visible_meeting(
     assert body["room_id"].startswith("telemed_")
     assert body["user_id"] == meeting_video_service.derive_staff_participant_id(str(doctor.id))
     assert body["token"].startswith("mock.")
+
+
+@pytest.mark.meeting_presence_regression
+@pytest.mark.parametrize(
+    ("initial_status", "presence_mode", "expected_status", "expected_presence_state"),
+    [
+        (MeetingStatus.scheduled, "patient_only", MeetingStatus.waiting, "doctor_left_patient_waiting"),
+        (MeetingStatus.scheduled, "both_online", MeetingStatus.in_progress, "both_in_room"),
+        (MeetingStatus.waiting, "none_online", MeetingStatus.scheduled, "none"),
+        (MeetingStatus.waiting, "both_online", MeetingStatus.in_progress, "both_in_room"),
+        (MeetingStatus.in_progress, "patient_only", MeetingStatus.waiting, "doctor_left_patient_waiting"),
+        (MeetingStatus.in_progress, "doctor_only", MeetingStatus.scheduled, "doctor_only"),
+        (MeetingStatus.in_progress, "none_online", MeetingStatus.scheduled, "none"),
+    ],
+)
+def test_get_meeting_reconciles_active_status_from_presence(
+    client: TestClient,
+    db: Session,
+    use_mock_video_provider,
+    initial_status: MeetingStatus,
+    presence_mode: str,
+    expected_status: MeetingStatus,
+    expected_presence_state: str,
+):
+    doctor = _create_user(
+        db,
+        f"doctor-detail-{initial_status.value}-{presence_mode}@example.com",
+        UserRole.doctor,
+    )
+    patient = _create_patient(db, "Detail", f"{initial_status.value}-{presence_mode}")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+    meeting.status = initial_status
+    db.add(meeting)
+    db.commit()
+    db.refresh(meeting)
+
+    _set_room_presence(db, meeting, mode=presence_mode)
+
+    response = client.get(
+        f"/meetings/{meeting.id}",
+        headers=_auth_headers(doctor),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == expected_status.value
+    assert body["room_presence"]["state"] == expected_presence_state
+
+    db.refresh(meeting)
+    assert meeting.status == expected_status
+
+
+@pytest.mark.meeting_presence_regression
+@pytest.mark.parametrize(
+    ("initial_status", "presence_mode", "expected_status", "expected_presence_state"),
+    [
+        (MeetingStatus.scheduled, "patient_only", MeetingStatus.waiting, "doctor_left_patient_waiting"),
+        (MeetingStatus.scheduled, "both_online", MeetingStatus.in_progress, "both_in_room"),
+        (MeetingStatus.waiting, "none_online", MeetingStatus.scheduled, "none"),
+        (MeetingStatus.waiting, "both_online", MeetingStatus.in_progress, "both_in_room"),
+        (MeetingStatus.in_progress, "patient_only", MeetingStatus.waiting, "doctor_left_patient_waiting"),
+        (MeetingStatus.in_progress, "doctor_only", MeetingStatus.scheduled, "doctor_only"),
+        (MeetingStatus.in_progress, "none_online", MeetingStatus.scheduled, "none"),
+    ],
+)
+def test_list_meetings_reconciles_active_status_from_presence(
+    client: TestClient,
+    db: Session,
+    use_mock_video_provider,
+    initial_status: MeetingStatus,
+    presence_mode: str,
+    expected_status: MeetingStatus,
+    expected_presence_state: str,
+):
+    doctor = _create_user(
+        db,
+        f"doctor-list-{initial_status.value}-{presence_mode}@example.com",
+        UserRole.doctor,
+    )
+    patient = _create_patient(db, "List", f"{initial_status.value}-{presence_mode}")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+    meeting.status = initial_status
+    db.add(meeting)
+    db.commit()
+    db.refresh(meeting)
+
+    _set_room_presence(db, meeting, mode=presence_mode)
+
+    response = client.get(
+        "/meetings?page=1&limit=20",
+        headers=_auth_headers(doctor),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    target = next(item for item in body["items"] if item["id"] == str(meeting.id))
+    assert target["status"] == expected_status.value
+    assert target["room_presence"]["state"] == expected_presence_state
+
+    db.refresh(meeting)
+    assert meeting.status == expected_status
 
 
 def test_doctor_cannot_issue_video_token_for_hidden_meeting(
@@ -365,6 +515,7 @@ def test_staff_cannot_create_patient_invite(
     assert response.status_code == 403
 
 
+@pytest.mark.meeting_presence_regression
 def test_doctor_leave_presence_marks_patient_waiting_again(
     client: TestClient,
     db: Session,
@@ -412,6 +563,7 @@ def test_doctor_leave_presence_marks_patient_waiting_again(
     assert meeting.status == MeetingStatus.waiting
 
 
+@pytest.mark.meeting_presence_regression
 def test_patient_leave_presence_resets_waiting_status_when_doctor_not_online(
     client: TestClient,
     db: Session,
@@ -451,6 +603,54 @@ def test_patient_leave_presence_resets_waiting_status_when_doctor_not_online(
     assert meeting.status == MeetingStatus.scheduled
 
 
+@pytest.mark.meeting_presence_regression
+def test_patient_leave_presence_resets_in_progress_status_when_doctor_stays_online(
+    client: TestClient,
+    db: Session,
+    use_mock_video_provider,
+):
+    doctor = _create_user(db, "doctor-patient-leave-in-progress@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Patient", "LeaveInProgress")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+
+    invite_response = client.post(
+        f"/meetings/{meeting.id}/video/patient-invite",
+        json={},
+        headers=_auth_headers(doctor),
+    )
+    assert invite_response.status_code == 200
+    invite_payload = invite_response.json()
+
+    patient_token_response = client.post(
+        "/meetings/video/patient/token",
+        json={"invite_token": invite_payload["invite_token"]},
+    )
+    assert patient_token_response.status_code == 200
+
+    doctor_token_response = client.post(
+        f"/meetings/{meeting.id}/video/token",
+        json={},
+        headers=_auth_headers(doctor),
+    )
+    assert doctor_token_response.status_code == 200
+    db.refresh(meeting)
+    assert meeting.status == MeetingStatus.in_progress
+
+    leave_response = client.post(
+        "/meetings/video/patient/presence/leave",
+        json={"invite_token": invite_payload["invite_token"]},
+    )
+    assert leave_response.status_code == 200
+    leave_body = leave_response.json()
+    assert leave_body["state"] == "doctor_only"
+    assert leave_body["patient_online"] is False
+    assert leave_body["doctor_online"] is True
+
+    db.refresh(meeting)
+    assert meeting.status == MeetingStatus.scheduled
+
+
+@pytest.mark.meeting_presence_regression
 def test_list_meetings_prunes_stale_waiting_presence(
     client: TestClient,
     db: Session,
@@ -482,6 +682,41 @@ def test_list_meetings_prunes_stale_waiting_presence(
     presence.patient_left_at = None
     presence.refreshed_at = stale_time
     db.add(presence)
+    db.commit()
+
+    list_response = client.get(
+        "/meetings?page=1&limit=20",
+        headers=_auth_headers(doctor),
+    )
+    assert list_response.status_code == 200
+
+    db.refresh(meeting)
+    assert meeting.status == MeetingStatus.scheduled
+
+
+@pytest.mark.meeting_presence_regression
+def test_list_meetings_reconciles_stale_in_progress_presence(
+    client: TestClient,
+    db: Session,
+    use_mock_video_provider,
+):
+    doctor = _create_user(db, "doctor-presence-stale-in-progress@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Presence", "StaleInProgress")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+    meeting.status = MeetingStatus.in_progress
+    db.add(meeting)
+
+    stale_time = datetime.now(timezone.utc) - timedelta(minutes=2)
+    db.add(
+        MeetingRoomPresence(
+            meeting_id=meeting.id,
+            patient_last_seen_at=stale_time,
+            patient_left_at=None,
+            doctor_last_seen_at=None,
+            doctor_left_at=None,
+            refreshed_at=stale_time,
+        )
+    )
     db.commit()
 
     list_response = client.get(
