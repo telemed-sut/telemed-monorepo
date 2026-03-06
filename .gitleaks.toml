@@ -3,7 +3,7 @@ title = "telemed-monorepo gitleaks config"
 [extend]
 useDefault = true
 
-[[allowlists]]
+[allowlist]
 description = "Allow test-only backend dummy secrets used in config parsing specs"
 paths = [
   '''backend/tests/test_settings_config.py''',
