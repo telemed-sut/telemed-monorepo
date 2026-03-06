@@ -1,0 +1,17 @@
+title = "telemed-monorepo gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Allow test-only backend dummy secrets used in config parsing specs"
+paths = [
+  '''backend/tests/test_settings_config.py''',
+]
+regexes = [
+  '''jwt_secret_1234567890abcdef1234567890''',
+  '''device_secret_1234567890abcdef1234567890''',
+  '''device_secret_json_1234567890abcdef1234567890''',
+  '''device_secret_a_1234567890abcdef1234567890''',
+  '''device_secret_b_1234567890abcdef1234567890''',
+]
