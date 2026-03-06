@@ -1,10 +1,11 @@
 import logging
+import re
 from datetime import datetime, timezone
 from typing import List, Literal, Optional, Tuple
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, literal, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
@@ -19,6 +20,12 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 AssignmentRole = Literal["primary", "consulting"]
 ALLOWED_ASSIGNMENT_ROLES = {"primary", "consulting"}
+INVISIBLE_SEARCH_CHAR_PATTERN = re.compile(r"[\u00AD\u200B-\u200D\u2060\uFEFF]+")
+
+
+def _normalize_search_term(value: str) -> str:
+    collapsed = INVISIBLE_SEARCH_CHAR_PATTERN.sub("", value)
+    return " ".join(collapsed.split())
 
 
 def create_patient(db: Session, payload: PatientCreate, doctor_id: Optional[UUID] = None) -> Patient:
@@ -400,11 +407,21 @@ def list_patients(
         ).where(DoctorPatientAssignment.doctor_id == doctor_id).distinct()
 
     if q:
-        pattern = f"%{q}%"
+        normalized_query = _normalize_search_term(q)
+        if not normalized_query:
+            normalized_query = ""
+        pattern = f"%{normalized_query}%"
+        full_name = func.trim(
+            func.coalesce(Patient.first_name, "")
+            + literal(" ")
+            + func.coalesce(Patient.last_name, "")
+        )
         stmt = stmt.where(
             or_(
                 Patient.first_name.ilike(pattern),
                 Patient.last_name.ilike(pattern),
+                Patient.name.ilike(pattern),
+                full_name.ilike(pattern),
                 Patient.email.ilike(pattern),
                 Patient.phone.ilike(pattern),
             )

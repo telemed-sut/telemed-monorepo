@@ -80,6 +80,7 @@ const formatDateLabel = (
   language: AppLanguage,
   options: Intl.DateTimeFormatOptions
 ) => date.toLocaleDateString(localeOf(language), options);
+const INVISIBLE_SEARCH_CHAR_PATTERN = /[\u00AD\u200B-\u200D\u2060\uFEFF]/g;
 
 /* ── Time picker helpers ── */
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
@@ -105,8 +106,19 @@ function formatPatientDisplayName(patient: Pick<Patient, "first_name" | "last_na
   return fullName || patient.email || patient.id;
 }
 
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(INVISIBLE_SEARCH_CHAR_PATTERN, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
 function includesQuery(value: string, query: string): boolean {
-  return value.toLowerCase().includes(query.toLowerCase());
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return true;
+  return normalizeSearchText(value).includes(normalizedQuery);
 }
 
 function resolveDoctorRoleType(value: string): DoctorPickerItem["roleType"] {
@@ -259,13 +271,16 @@ function PatientDirectoryDialog({
 }) {
   const [expanded, setExpanded] = useState(false);
   const filteredAllPatients = useMemo(
-    () =>
-      items.filter(
+    () => {
+      const normalizedQuery = normalizeSearchText(query);
+      if (!normalizedQuery) return items;
+      return items.filter(
         (patient) =>
-          patient.label.toLowerCase().includes(query.toLowerCase()) ||
-          patient.status.toLowerCase().includes(query.toLowerCase()) ||
-          (patient.description || "").toLowerCase().includes(query.toLowerCase())
-      ),
+          includesQuery(patient.label, normalizedQuery) ||
+          includesQuery(patient.status, normalizedQuery) ||
+          includesQuery(patient.description || "", normalizedQuery)
+      );
+    },
     [items, query]
   );
   const activeItems = useMemo(
@@ -746,13 +761,16 @@ function DoctorDirectoryDialog({
 }) {
   const [expanded, setExpanded] = useState(false);
   const filteredAllDoctors = useMemo(
-    () =>
-      items.filter(
+    () => {
+      const normalizedQuery = normalizeSearchText(query);
+      if (!normalizedQuery) return items;
+      return items.filter(
         (doctor) =>
-          doctor.label.toLowerCase().includes(query.toLowerCase()) ||
-          doctor.role.toLowerCase().includes(query.toLowerCase()) ||
-          (doctor.description || "").toLowerCase().includes(query.toLowerCase())
-      ),
+          includesQuery(doctor.label, normalizedQuery) ||
+          includesQuery(doctor.role, normalizedQuery) ||
+          includesQuery(doctor.description || "", normalizedQuery)
+      );
+    },
     [items, query]
   );
   const activeItems = useMemo(
@@ -1245,7 +1263,7 @@ function CreateEventDialog({
   );
 
   const visibleDoctors = useMemo(() => {
-    const query = doctorQuery.trim();
+    const query = normalizeSearchText(doctorQuery);
     if (!query) return doctors;
     if (query.length < 2) {
       return doctors.filter((doctor) => {
@@ -1260,7 +1278,7 @@ function CreateEventDialog({
   }, [doctorQuery, doctors, doctorSearchResults]);
 
   const visiblePatients = useMemo(() => {
-    const query = patientQuery.trim();
+    const query = normalizeSearchText(patientQuery);
     if (!query) return patients;
     if (query.length < 2) {
       return patients.filter((patient) => {
@@ -1456,7 +1474,7 @@ function CreateEventDialog({
 
   useEffect(() => {
     if (!open || !doctorPickerOpen || isDoctorUser) return;
-    const query = doctorQuery.trim();
+    const query = normalizeSearchText(doctorQuery);
     if (query.length < 2) {
       setDoctorSearchResults([]);
       setDoctorSearchLoading(false);
@@ -1501,7 +1519,7 @@ function CreateEventDialog({
 
   useEffect(() => {
     if (!open || !patientPickerOpen) return;
-    const query = patientQuery.trim();
+    const query = normalizeSearchText(patientQuery);
     if (query.length < 2) {
       setPatientSearchResults([]);
       setPatientSearchLoading(false);
