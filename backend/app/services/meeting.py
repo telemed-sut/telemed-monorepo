@@ -104,7 +104,11 @@ def get_meeting(db: Session, meeting_id: str) -> Optional[Meeting]:
         uuid_id = UUID(meeting_id)
         stmt = (
             select(Meeting)
-            .options(joinedload(Meeting.doctor), joinedload(Meeting.patient))
+            .options(
+                joinedload(Meeting.doctor),
+                joinedload(Meeting.patient),
+                joinedload(Meeting.room_presence),
+            )
             .where(Meeting.id == uuid_id)
         )
         return db.scalar(stmt)
@@ -155,6 +159,7 @@ def list_meetings(
     stmt = select(Meeting).options(
         joinedload(Meeting.doctor),
         joinedload(Meeting.patient),
+        joinedload(Meeting.room_presence),
     )
 
     if visible_doctor_id:

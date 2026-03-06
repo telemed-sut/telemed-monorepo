@@ -41,7 +41,7 @@ bun install
 ```
 
 ### 3. Environment Setup
-Create a `.env.local` file in the root directory:
+Primary mode (recommended): create a `.env.local` file in the root directory:
 ```bash
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
@@ -63,9 +63,9 @@ The application is fully containerized. To run the frontend in a container:
     ```
 
 2.  **Using Docker Compose** (Full Stack)
-    If you have a `docker-compose.yml` at the project root:
+    From the repository root:
     ```bash
-    docker compose up --build
+    ./scripts/dev-backend.sh
     ```
 
 ## 🔐 Demo Credentials

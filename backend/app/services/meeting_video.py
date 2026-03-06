@@ -270,6 +270,7 @@ def _issue_video_token_for_participant(
         )
         return {
             "provider": "mock",
+            "meeting_id": str(meeting.id),
             "app_id": None,
             "room_id": room_id,
             "user_id": participant_id,
@@ -284,6 +285,7 @@ def _issue_video_token_for_participant(
     )
     return {
         "provider": "zego",
+        "meeting_id": str(meeting.id),
         "app_id": settings.zego_app_id,
         "room_id": room_id,
         "user_id": participant_id,
@@ -477,22 +479,49 @@ def _decode_patient_invite_token(invite_token: str) -> dict[str, Any]:
     }
 
 
-def _validate_patient_invite_claims(*, meeting: Meeting, claims: dict[str, Any]) -> None:
-    expected_meeting_id = _normalize_uuid_text(str(meeting.id))
-    expected_patient_id = _normalize_uuid_text(str(meeting.user_id)) if meeting.user_id else ""
-
+def _validate_patient_invite_claim_shape(claims: dict[str, Any]) -> None:
     token_type = claims.get("typ")
     meeting_id = _normalize_uuid_text(str(claims.get("mid") or ""))
-    patient_id_raw = str(claims.get("pid") or "")
-    patient_id = _normalize_uuid_text(patient_id_raw) if patient_id_raw else ""
-    room_id = str(claims.get("rid") or "")
-    expires_at = claims.get("exp")
 
     if token_type != PATIENT_INVITE_TOKEN_TYPE:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid patient invite token type.",
         )
+
+    if not meeting_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid patient invite token payload.",
+        )
+
+
+def _validate_patient_invite_expiry(claims: dict[str, Any]) -> None:
+    expires_at = claims.get("exp")
+    try:
+        exp = int(expires_at)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid patient invite token expiry.",
+        ) from exc
+
+    if exp <= int(time.time()):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Patient invite token expired.",
+        )
+
+
+def _validate_patient_invite_claims(*, meeting: Meeting, claims: dict[str, Any]) -> None:
+    expected_meeting_id = _normalize_uuid_text(str(meeting.id))
+    expected_patient_id = _normalize_uuid_text(str(meeting.user_id)) if meeting.user_id else ""
+
+    meeting_id = _normalize_uuid_text(str(claims.get("mid") or ""))
+    patient_id_raw = str(claims.get("pid") or "")
+    patient_id = _normalize_uuid_text(patient_id_raw) if patient_id_raw else ""
+    room_id = str(claims.get("rid") or "")
+    _validate_patient_invite_claim_shape(claims)
 
     if meeting_id != expected_meeting_id:
         raise HTTPException(
@@ -517,30 +546,14 @@ def _validate_patient_invite_claims(*, meeting: Meeting, claims: dict[str, Any])
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Patient invite token room mismatch.",
         )
-
-    try:
-        exp = int(expires_at)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid patient invite token expiry.",
-        ) from exc
-
-    if exp <= int(time.time()):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Patient invite token expired.",
-        )
+    _validate_patient_invite_expiry(claims)
 
 
 def extract_meeting_id_from_patient_invite_token(invite_token: str) -> str:
     claims = _decode_patient_invite_token(invite_token)
+    _validate_patient_invite_claim_shape(claims)
+    _validate_patient_invite_expiry(claims)
     meeting_id = _normalize_uuid_text(str(claims.get("mid") or ""))
-    if not meeting_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid patient invite token payload.",
-        )
     return meeting_id
 
 

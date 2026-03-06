@@ -129,6 +129,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
             displayName: displayName,
             startWithCamera: _startWithCamera,
             startWithMicrophone: _startWithMicrophone,
+            inviteToken: invite.inviteToken,
+            shortCode: invite.shortCode,
           ),
         ),
       );

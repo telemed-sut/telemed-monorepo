@@ -118,10 +118,24 @@ telemed-monorepo/
 └── README.md
 ```
 
-## Quick Start (Docker, Recommended)
+## Quick Start (Docker + Infisical, Primary)
+
+Primary backend command:
 
 ```bash
-docker compose up --build
+./scripts/dev-backend.sh
+```
+
+Primary share-link command:
+
+```bash
+./scripts/dev-share-link.sh
+```
+
+Optional (if your Infisical CLI needs explicit runtime args):
+
+```bash
+INFISICAL_RUN_ARGS="--projectId <project_id> --env <environment> --path /" ./scripts/dev-backend.sh
 ```
 
 Services:
@@ -132,6 +146,7 @@ Services:
 
 Notes:
 
+- Official scripts ignore root `.env`; the source of truth is Infisical runtime env.
 - Backend container runs migrations and seed step on startup via `backend/entrypoint.sh`.
 - Compose includes a local PostgreSQL service.
 
@@ -144,9 +159,16 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
 alembic upgrade head
 python -m scripts.seed
+infisical run -- uvicorn app.main:app --reload
+```
+
+Fallback only:
+
+```bash
+export DATABASE_URL=...
+export JWT_SECRET=...
 uvicorn app.main:app --reload
 ```
 
@@ -154,9 +176,14 @@ uvicorn app.main:app --reload
 
 ```bash
 cd frontend
+bun install
+bun run dev
+```
+
+Local config:
+
+```bash
 cp .env.example .env.local
-npm install
-npm run dev
 ```
 
 ### 3) Patient Mobile (Flutter)
@@ -179,7 +206,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\run-patient-flutter.p
 
 ## Required Environment Variables
 
-### Backend (`backend/.env`)
+Primary secret source: Infisical project/environment.
+
+Reference files:
+
+- Root `.env.example`: optional compose/env reference only
+- Backend `backend/.env.example`: required backend keys reference
+- Frontend `frontend/.env.local` (from `frontend/.env.example`): local frontend convenience config
+
+### Backend (Infisical)
 
 Minimum required:
 
@@ -198,7 +233,7 @@ Important for production hardening:
 
 Reference file: `backend/.env.example`
 
-### Frontend (`frontend/.env.local`)
+### Frontend (Local Dev)
 
 - `NEXT_PUBLIC_API_BASE_URL` (default local value is `http://localhost:8000`)
 

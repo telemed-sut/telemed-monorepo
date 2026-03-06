@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { isToday } from "date-fns";
+import { isToday, isTomorrow } from "date-fns";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Clock01Icon,
@@ -37,14 +37,21 @@ import {
   MEETING_STATUS_LABELS,
   MEETING_STATUSES,
 } from "@/lib/api";
-import type { AppLanguage } from "@/store/language-config";
+import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
+import {
+  getLivePresenceInfo,
+  getPresenceAwareStatus,
+  isDoctorLeftWhilePatientWaiting,
+  isPatientWaitingLive,
+} from "./meeting-presence";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
+const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
 
 const MEETING_STATUS_LABELS_TH: Record<MeetingStatus, string> = {
   scheduled: "กำหนดการ",
-  waiting: "รอพบแพทย์",
+  waiting: "รอหมอเข้าห้อง",
   in_progress: "กำลังตรวจ",
   overtime: "เกินเวลา",
   completed: "เสร็จสิ้น",
@@ -60,7 +67,7 @@ function getStatusConfig(status: MeetingStatus, language: AppLanguage) {
         bg: "bg-amber-500/10",
         text: "text-amber-600 dark:text-amber-400",
         border: "border-amber-500/30",
-        label: tr(language, "Waiting", "รอพบแพทย์"),
+        label: tr(language, "Patient Waiting", "คนไข้อยู่ในห้องรอ"),
         icon: Clock01Icon,
       };
     case "in_progress":
@@ -138,6 +145,29 @@ function formatTime12(dateTime: string): string {
   return `${displayHour}:${minute.toString().padStart(2, "0")} ${period}`;
 }
 
+function formatAppointmentDate(dateTime: string, language: AppLanguage): string {
+  const value = new Date(dateTime);
+
+  if (Number.isNaN(value.getTime())) {
+    return "";
+  }
+
+  if (isToday(value)) {
+    return tr(language, "Today", "วันนี้");
+  }
+
+  if (isTomorrow(value)) {
+    return tr(language, "Tomorrow", "พรุ่งนี้");
+  }
+
+  return value.toLocaleDateString(localeOf(language), {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 function getInitial(name: string | null | undefined): string {
   return name?.charAt(0)?.toUpperCase() || "?";
 }
@@ -151,6 +181,7 @@ function StatusBadge({
   language: AppLanguage;
 }) {
   const config = getStatusConfig(status, language);
+  const isWaiting = status === "waiting";
   return (
     <span
       className={cn(
@@ -161,7 +192,12 @@ function StatusBadge({
         backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)",
       }}
     >
-      <span className={cn("size-1.5 rounded-full", config.dot)} />
+      <span className="relative inline-flex size-1.5">
+        {isWaiting && (
+          <span className="absolute inset-0 rounded-full bg-amber-500 animate-ping opacity-60" />
+        )}
+        <span className={cn("relative size-1.5 rounded-full", config.dot)} />
+      </span>
       {config.label}
     </span>
   );
@@ -251,11 +287,17 @@ function QueueCard({
   canDelete: boolean;
   language: AppLanguage;
 }) {
-  const config = getStatusConfig(meeting.status, language);
   const nextStatuses = STATUS_TRANSITIONS[meeting.status] || [];
   const undoTarget = UNDO_TRANSITIONS[meeting.status];
   const isTerminal =
     meeting.status === "completed" || meeting.status === "cancelled";
+  const isWaitingLive = isPatientWaitingLive(meeting);
+  const isDoctorLeftWaiting = isDoctorLeftWhilePatientWaiting(meeting);
+  const statusForBadge = getPresenceAwareStatus(meeting);
+  const livePresenceInfo = getLivePresenceInfo(meeting, language);
+  const config = getStatusConfig(statusForBadge, language);
+  const appointmentDateLabel = formatAppointmentDate(meeting.date_time, language);
+  const appointmentTimeLabel = formatTime12(meeting.date_time);
 
   const patientName = meeting.patient
     ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
@@ -269,7 +311,9 @@ function QueueCard({
       className={cn(
         "group flex flex-col gap-3 p-4 rounded-xl border border-border bg-card transition-all cursor-pointer h-full",
         "hover:shadow-md hover:border-border/80",
-        isTerminal && "opacity-60"
+        isTerminal && "opacity-60",
+        isWaitingLive &&
+          "border-amber-300/60 bg-gradient-to-br from-amber-50/70 to-card ring-1 ring-amber-300/40"
       )}
       onClick={() => onClick(meeting)}
       role="button"
@@ -306,6 +350,24 @@ function QueueCard({
             <p className="text-xs text-muted-foreground truncate">
               {meeting.description || tr(language, "General consultation", "ปรึกษาทั่วไป")}
             </p>
+            {livePresenceInfo && (
+              <span
+                className={cn(
+                  "mt-1 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                  livePresenceInfo.tone === "waiting" &&
+                    "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+                  livePresenceInfo.tone === "active" &&
+                    "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+                  livePresenceInfo.tone === "left" &&
+                    "bg-slate-500/15 text-slate-700 dark:text-slate-300",
+                  livePresenceInfo.tone === "offline" &&
+                    "bg-slate-500/15 text-slate-700 dark:text-slate-300"
+                )}
+                title={livePresenceInfo.label}
+              >
+                {livePresenceInfo.label}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -353,26 +415,37 @@ function QueueCard({
               <HugeiconsIcon icon={Delete01Icon} className="size-3.5" />
             </Button>
           )}
-          <StatusBadge status={meeting.status} language={language} />
+          <StatusBadge status={statusForBadge} language={language} />
         </div>
       </div>
 
       {/* Info row */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span className="inline-flex items-center gap-1.5">
-          <HugeiconsIcon icon={Clock01Icon} className="size-3.5" />
-          {formatTime12(meeting.date_time)}
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <HugeiconsIcon icon={Stethoscope02Icon} className="size-3.5" />
-          {doctorName}
-        </span>
-        {meeting.room && (
-          <span className="inline-flex items-center gap-1.5">
-            <HugeiconsIcon icon={DoorIcon} className="size-3.5" />
-            {meeting.room}
+      <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="inline-flex items-center gap-1.5 font-medium text-foreground/85">
+            <HugeiconsIcon icon={Calendar01Icon} className="size-3.5" />
+            <span>{appointmentDateLabel}</span>
           </span>
-        )}
+          <span className="text-muted-foreground/50" aria-hidden="true">
+            •
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <HugeiconsIcon icon={Clock01Icon} className="size-3.5" />
+            {appointmentTimeLabel}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="inline-flex items-center gap-1.5">
+            <HugeiconsIcon icon={Stethoscope02Icon} className="size-3.5" />
+            {doctorName}
+          </span>
+          {meeting.room && (
+            <span className="inline-flex items-center gap-1.5">
+              <HugeiconsIcon icon={DoorIcon} className="size-3.5" />
+              {meeting.room}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Cancel reason */}
@@ -380,6 +453,69 @@ function QueueCard({
         <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
           <HugeiconsIcon icon={NoteIcon} className="size-3.5 mt-0.5 shrink-0" />
           <span>{meeting.reason}</span>
+        </div>
+      )}
+
+      {isWaitingLive && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300">
+            <HugeiconsIcon icon={Clock01Icon} className="size-3.5 mt-0.5 shrink-0" />
+            <span>
+              {isDoctorLeftWaiting
+                ? tr(
+                    language,
+                    "Doctor left room while patient is still waiting. Rejoin now.",
+                    "หมอออกจากห้องแล้ว แต่คนไข้ยังรออยู่ กดกลับเข้าห้องได้ทันที"
+                  )
+                : tr(
+                    language,
+                    "Patient is already in the waiting room. You can start call now.",
+                    "คนไข้เข้าห้องรอแล้ว กดเริ่มคอลได้ทันที"
+                  )}
+            </span>
+          </div>
+          <Button
+            size="sm"
+            className="mt-2 h-7 text-xs gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+            onClick={(e) => {
+              e.stopPropagation();
+              onStartCall(meeting);
+            }}
+            disabled={loading || isTerminal}
+          >
+            <HugeiconsIcon icon={CallIcon} className="size-3.5" />
+            {tr(language, "Start call now", "เริ่มคอลตอนนี้")}
+          </Button>
+        </div>
+      )}
+
+      {livePresenceInfo?.tone === "offline" && !isWaitingLive && (
+        <div className="rounded-lg border border-slate-400/30 bg-slate-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-300">
+            <HugeiconsIcon icon={AlertCircleIcon} className="size-3.5 mt-0.5 shrink-0" />
+            <span>
+              {tr(
+                language,
+                "Patient is currently offline. Ask patient to re-open the room link.",
+                "ตอนนี้คนไข้ออฟไลน์ แนะนำให้คนไข้กดลิงก์เข้าห้องใหม่อีกครั้ง"
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {livePresenceInfo?.tone === "left" && !isWaitingLive && (
+        <div className="rounded-lg border border-slate-400/30 bg-slate-500/10 px-3 py-2">
+          <div className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-300">
+            <HugeiconsIcon icon={AlertCircleIcon} className="size-3.5 mt-0.5 shrink-0" />
+            <span>
+              {tr(
+                language,
+                "Patient left the room. If the visit should continue, ask patient to re-open the room link.",
+                "คนไข้ออกจากห้องแล้ว หากต้องการตรวจต่อ ให้คนไข้กดลิงก์เข้าห้องใหม่อีกครั้ง"
+              )}
+            </span>
+          </div>
         </div>
       )}
 
@@ -458,7 +594,8 @@ function StatusSummary({
     const c: Record<string, number> = { all: meetings.length };
     for (const s of MEETING_STATUSES) c[s] = 0;
     meetings.forEach((m) => {
-      c[m.status] = (c[m.status] || 0) + 1;
+      const effectiveStatus = getPresenceAwareStatus(m);
+      c[effectiveStatus] = (c[effectiveStatus] || 0) + 1;
     });
     return c;
   }, [meetings]);
@@ -466,7 +603,7 @@ function StatusSummary({
   const items: { key: MeetingStatus | "all"; label: string; count: number }[] = [
     { key: "all", label: tr(language, "All", "ทั้งหมด"), count: counts.all },
     { key: "scheduled", label: tr(language, "Scheduled", "กำหนดการ"), count: counts.scheduled || 0 },
-    { key: "waiting", label: tr(language, "Waiting", "รอพบแพทย์"), count: counts.waiting || 0 },
+    { key: "waiting", label: tr(language, "Patient Waiting", "รอหมอเข้าห้อง"), count: counts.waiting || 0 },
     { key: "in_progress", label: tr(language, "In Progress", "กำลังตรวจ"), count: counts.in_progress || 0 },
     { key: "overtime", label: tr(language, "Overtime", "เกินเวลา"), count: counts.overtime || 0 },
     { key: "completed", label: tr(language, "Completed", "เสร็จสิ้น"), count: counts.completed || 0 },
@@ -567,22 +704,28 @@ export function QueueView({
 
     // Status filter
     if (statusFilter !== "all") {
-      filtered = filtered.filter((m) => m.status === statusFilter);
+      filtered = filtered.filter((m) => {
+        const effectiveStatus = getPresenceAwareStatus(m);
+        return effectiveStatus === statusFilter;
+      });
     }
 
     // Sort: active statuses first, then by time
     const statusOrder: Record<MeetingStatus, number> = {
-      overtime: 0,
       in_progress: 1,
-      waiting: 2,
+      overtime: 2,
       scheduled: 3,
       completed: 4,
       cancelled: 5,
+      waiting: 6,
     };
 
     filtered.sort((a, b) => {
-      const oa = statusOrder[a.status] ?? 3;
-      const ob = statusOrder[b.status] ?? 3;
+      const waitingA = isPatientWaitingLive(a) ? -1 : 0;
+      const waitingB = isPatientWaitingLive(b) ? -1 : 0;
+      if (waitingA !== waitingB) return waitingA - waitingB;
+      const oa = statusOrder[getPresenceAwareStatus(a)] ?? 3;
+      const ob = statusOrder[getPresenceAwareStatus(b)] ?? 3;
       if (oa !== ob) return oa - ob;
       return new Date(a.date_time).getTime() - new Date(b.date_time).getTime();
     });
@@ -608,7 +751,10 @@ export function QueueView({
       }
 
       const todayCount = dateScopedMeetings.filter(
-        (meeting) => meeting.status === resolvedFilter
+        (meeting) => {
+          const effectiveStatus = getPresenceAwareStatus(meeting);
+          return effectiveStatus === resolvedFilter;
+        }
       ).length;
 
       if (todayCount > 0) {
@@ -616,7 +762,10 @@ export function QueueView({
       }
 
       const allDatesCount = meetings.filter(
-        (meeting) => meeting.status === resolvedFilter
+        (meeting) => {
+          const effectiveStatus = getPresenceAwareStatus(meeting);
+          return effectiveStatus === resolvedFilter;
+        }
       ).length;
 
       if (allDatesCount > 0) {

@@ -8,11 +8,13 @@ import {
   Layers01Icon,
   Delete01Icon,
   Cancel01Icon,
+  Clock01Icon,
   ArrowUpRight01Icon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
   Tick02Icon,
   Notification01Icon,
+  AlertCircleIcon,
   Calendar01Icon,
   CallIcon,
   UserGroupIcon,
@@ -48,6 +50,12 @@ import type { MeetingCreatePayload } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
+import {
+  getLivePresenceInfo,
+  getPresenceAwareStatus,
+  isDoctorLeftWhilePatientWaiting,
+  isPatientWaitingLive,
+} from "./meeting-presence";
 
 /* ── Helpers ── */
 
@@ -62,7 +70,7 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
 const TH_MEETING_STATUS_LABELS: Partial<Record<MeetingStatus, string>> = {
   scheduled: "กำหนดการ",
-  waiting: "รอพบแพทย์",
+  waiting: "รอหมอเข้าห้อง",
   in_progress: "กำลังตรวจ",
   completed: "เสร็จสิ้น",
   cancelled: "ยกเลิก",
@@ -213,8 +221,12 @@ function EventCard({
     (meeting.patient
       ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
       : tr(language, "Appointment", "นัดหมาย"));
+  const isWaiting = isPatientWaitingLive(meeting);
+  const effectiveStatus = getPresenceAwareStatus(meeting);
+  const livePresenceInfo = getLivePresenceInfo(meeting, language);
   const timeStr = getTimeRange(meeting.date_time, language, duration);
-  const statusColor = getStatusColor(meeting.status);
+  const statusColor = getStatusColor(effectiveStatus);
+  const waitingText = tr(language, "Patient waiting", "คนไข้รออยู่");
 
   const participants = [
     meeting.doctor
@@ -236,17 +248,39 @@ function EventCard({
     return (
       <button
         type="button"
-        className={cn("absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg px-2 py-1 z-10 flex items-center gap-1.5 cursor-pointer hover:bg-muted transition-colors", statusColor.border)}
+        className={cn(
+          "absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg px-2 py-1 z-10 flex items-center gap-1.5 cursor-pointer hover:bg-muted transition-colors",
+          statusColor.border,
+          isWaiting && "border-amber-300/70 bg-amber-50/50 ring-1 ring-amber-300/40"
+        )}
         style={{ top, height }}
         onClick={(event) => {
           event.stopPropagation();
           onClick();
         }}
       >
-        <div className={cn("size-1.5 rounded-full shrink-0", statusColor.dot)} />
+        <div className="relative shrink-0">
+          {isWaiting && <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-60" />}
+          <div className={cn("size-1.5 rounded-full relative", statusColor.dot)} />
+        </div>
         <h4 className="text-[10px] font-semibold text-foreground truncate flex-1">
           {title}
         </h4>
+        {isWaiting && (
+          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-amber-500/15 text-amber-700">
+            {tr(language, "Waiting", "รอหมอ")}
+          </span>
+        )}
+        {livePresenceInfo?.tone === "offline" && (
+          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
+            {tr(language, "Offline", "ออฟไลน์")}
+          </span>
+        )}
+        {livePresenceInfo?.tone === "left" && (
+          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
+            {tr(language, "Left", "ออกแล้ว")}
+          </span>
+        )}
         <span className="text-[9px] text-muted-foreground shrink-0">
           {formatTime12(meeting.date_time, language)}
         </span>
@@ -259,7 +293,11 @@ function EventCard({
     return (
       <button
         type="button"
-        className={cn("absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg px-2.5 py-2 z-10 cursor-pointer hover:bg-muted transition-colors", statusColor.border)}
+        className={cn(
+          "absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg px-2.5 py-2 z-10 cursor-pointer hover:bg-muted transition-colors",
+          statusColor.border,
+          isWaiting && "border-amber-300/70 bg-amber-50/50 ring-1 ring-amber-300/40"
+        )}
         style={{ top, height }}
         onClick={(event) => {
           event.stopPropagation();
@@ -268,10 +306,28 @@ function EventCard({
       >
         <div className="flex flex-col gap-1 h-full">
           <div className="flex items-center gap-1.5">
-            <div className={cn("size-1.5 rounded-full shrink-0", statusColor.dot)} />
+            <div className="relative shrink-0">
+              {isWaiting && <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-60" />}
+              <div className={cn("size-1.5 rounded-full relative", statusColor.dot)} />
+            </div>
             <h4 className="text-[10px] font-semibold text-foreground truncate flex-1">
               {title}
             </h4>
+            {isWaiting && (
+              <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-amber-500/15 text-amber-700">
+                {tr(language, "Waiting", "รอหมอ")}
+              </span>
+            )}
+            {livePresenceInfo?.tone === "offline" && (
+              <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
+                {tr(language, "Offline", "ออฟไลน์")}
+              </span>
+            )}
+            {livePresenceInfo?.tone === "left" && (
+              <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
+                {tr(language, "Left", "ออกแล้ว")}
+              </span>
+            )}
           </div>
           <p className="text-[9px] text-muted-foreground uppercase tracking-wide">
             {timeStr}
@@ -285,7 +341,12 @@ function EventCard({
   return (
     <button
       type="button"
-      className={cn("absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg p-3 z-10 cursor-pointer hover:bg-muted transition-colors", statusColor.border, meeting.status === "cancelled" && "opacity-60")}
+      className={cn(
+        "absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg p-3 z-10 cursor-pointer hover:bg-muted transition-colors",
+        statusColor.border,
+        meeting.status === "cancelled" && "opacity-60",
+        isWaiting && "border-amber-300/70 bg-amber-50/60 ring-1 ring-amber-300/50 shadow-sm shadow-amber-500/20"
+      )}
       style={{ top, height }}
       onClick={(event) => {
         event.stopPropagation();
@@ -306,9 +367,36 @@ function EventCard({
             <span className={cn("text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0", statusColor.text, "bg-current/10")}
               style={{ backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)" }}
             >
-              {getMeetingStatusLabel(meeting.status, language)}
+              {getMeetingStatusLabel(effectiveStatus, language)}
             </span>
           </div>
+          {isWaiting && (
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold text-amber-700">
+              <span className="relative inline-flex size-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
+              </span>
+              {waitingText}
+            </div>
+          )}
+          {livePresenceInfo?.tone === "active" && (
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold text-emerald-700">
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {tr(language, "Doctor + patient in room", "หมอและคนไข้อยู่ในห้อง")}
+            </div>
+          )}
+          {livePresenceInfo?.tone === "offline" && (
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[9px] font-semibold text-slate-700 dark:text-slate-300">
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-slate-500" />
+              {tr(language, "Patient offline", "คนไข้ออฟไลน์")}
+            </div>
+          )}
+          {livePresenceInfo?.tone === "left" && (
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[9px] font-semibold text-slate-700 dark:text-slate-300">
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-slate-500" />
+              {tr(language, "Patient left room", "คนไข้ออกจากห้องแล้ว")}
+            </div>
+          )}
           <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-2">
             {timeStr}
           </p>
@@ -485,7 +573,11 @@ export function EventDetailSheet({
   const title = meeting.description || tr(language, "Appointment", "นัดหมาย");
   const roomTarget = normalizeRoomTarget(meeting.room);
   const canOpenRoom = Boolean(roomTarget);
-  const statusColor = getStatusColor(meeting.status);
+  const isPatientWaiting = isPatientWaitingLive(meeting);
+  const isDoctorLeftWaiting = isDoctorLeftWhilePatientWaiting(meeting);
+  const effectiveStatus = getPresenceAwareStatus(meeting);
+  const livePresenceInfo = getLivePresenceInfo(meeting, language);
+  const statusColor = getStatusColor(effectiveStatus);
   const isAdmin = role === "admin";
   const isOwnerDoctor =
     role === "doctor" && Boolean(currentUserId) && meeting.doctor_id === currentUserId;
@@ -778,6 +870,93 @@ export function EventDetailSheet({
                 />
               </div>
 
+              {isPatientWaiting && (
+                <div className="mb-4 rounded-xl border border-amber-500/35 bg-gradient-to-r from-amber-500/15 to-orange-500/10 p-3">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-amber-500/20 text-amber-700">
+                      <HugeiconsIcon icon={Clock01Icon} className="size-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-amber-800">
+                        {isDoctorLeftWaiting
+                          ? tr(
+                              language,
+                              "Doctor left room while patient is still waiting",
+                              "หมอออกจากห้องแล้ว แต่คนไข้ยังรออยู่"
+                            )
+                          : tr(language, "Patient is in waiting room now", "คนไข้อยู่ในห้องรอแล้ว")}
+                      </p>
+                      <p className="text-xs text-amber-700/90 mt-0.5">
+                        {isDoctorLeftWaiting
+                          ? tr(
+                              language,
+                              "Rejoin now so patient does not stay alone in room.",
+                              "แนะนำให้กลับเข้าห้องทันที เพื่อไม่ให้คนไข้รออยู่คนเดียว"
+                            )
+                          : tr(
+                              language,
+                              "Start call now to avoid patient drop-off.",
+                              "แนะนำให้กดเริ่มคอลทันที เพื่อลดโอกาสคนไข้หลุดจากห้องรอ"
+                            )}
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="h-8 bg-amber-600 hover:bg-amber-700 text-white"
+                      onClick={handleStartCall}
+                      disabled={!canStartCall}
+                    >
+                      <HugeiconsIcon icon={CallIcon} className="size-3.5" />
+                      <span>{tr(language, "Start now", "เริ่มเลย")}</span>
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {livePresenceInfo?.tone === "offline" && (
+                <div className="mb-4 rounded-xl border border-slate-500/35 bg-slate-500/10 p-3">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-slate-500/20 text-slate-700 dark:text-slate-300">
+                      <HugeiconsIcon icon={Clock01Icon} className="size-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        {tr(language, "Patient is offline now", "ตอนนี้คนไข้ออฟไลน์")}
+                      </p>
+                      <p className="text-xs text-slate-700/90 dark:text-slate-300/90 mt-0.5">
+                        {tr(
+                          language,
+                          "Ask patient to reopen the room link and wait in room.",
+                          "แนะนำให้คนไข้เปิดลิงก์เข้าห้องใหม่และรอในห้องอีกครั้ง"
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {livePresenceInfo?.tone === "left" && (
+                <div className="mb-4 rounded-xl border border-slate-500/35 bg-slate-500/10 p-3">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-slate-500/20 text-slate-700 dark:text-slate-300">
+                      <HugeiconsIcon icon={AlertCircleIcon} className="size-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                        {tr(language, "Patient left the room", "คนไข้ออกจากห้องแล้ว")}
+                      </p>
+                      <p className="text-xs text-slate-700/90 dark:text-slate-300/90 mt-0.5">
+                        {tr(
+                          language,
+                          "If the visit should continue, ask patient to reopen the room link.",
+                          "หากต้องการตรวจต่อ ให้คนไข้เปิดลิงก์เข้าห้องอีกครั้ง"
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Title & time */}
               <div className="flex flex-col gap-1 mb-4">
                 <div className="flex items-center gap-2">
@@ -788,7 +967,7 @@ export function EventDetailSheet({
                     className={cn("text-[11px] font-medium px-2 py-0.5 rounded-full", statusColor.text)}
                     style={{ backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)" }}
                   >
-                    {getMeetingStatusLabel(meeting.status, language)}
+                    {getMeetingStatusLabel(effectiveStatus, language)}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-[13px] font-medium text-muted-foreground">

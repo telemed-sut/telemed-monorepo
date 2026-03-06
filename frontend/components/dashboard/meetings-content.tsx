@@ -68,6 +68,7 @@ import {
 } from "@/lib/api";
 import { getMeetingLinkMode, resolveMeetingRoomValue } from "./meeting-link";
 import { toast } from "@/components/ui/toast";
+import { includesSearchQuery, normalizeSearchText } from "@/lib/search";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
@@ -103,10 +104,6 @@ function formatDoctorDisplayName(doctor: Pick<User, "first_name" | "last_name" |
 function formatPatientDisplayName(patient: Pick<Patient, "first_name" | "last_name" | "email" | "id">): string {
   const fullName = `${patient.first_name || ""} ${patient.last_name || ""}`.trim();
   return fullName || patient.email || patient.id;
-}
-
-function includesQuery(value: string, query: string): boolean {
-  return value.toLowerCase().includes(query.toLowerCase());
 }
 
 function resolveDoctorRoleType(value: string): DoctorPickerItem["roleType"] {
@@ -259,13 +256,16 @@ function PatientDirectoryDialog({
 }) {
   const [expanded, setExpanded] = useState(false);
   const filteredAllPatients = useMemo(
-    () =>
-      items.filter(
+    () => {
+      const normalizedQuery = normalizeSearchText(query);
+      if (!normalizedQuery) return items;
+      return items.filter(
         (patient) =>
-          patient.label.toLowerCase().includes(query.toLowerCase()) ||
-          patient.status.toLowerCase().includes(query.toLowerCase()) ||
-          (patient.description || "").toLowerCase().includes(query.toLowerCase())
-      ),
+          includesSearchQuery(patient.label, query) ||
+          includesSearchQuery(patient.status, query) ||
+          includesSearchQuery(patient.description || "", query)
+      );
+    },
     [items, query]
   );
   const activeItems = useMemo(
@@ -746,13 +746,16 @@ function DoctorDirectoryDialog({
 }) {
   const [expanded, setExpanded] = useState(false);
   const filteredAllDoctors = useMemo(
-    () =>
-      items.filter(
+    () => {
+      const normalizedQuery = normalizeSearchText(query);
+      if (!normalizedQuery) return items;
+      return items.filter(
         (doctor) =>
-          doctor.label.toLowerCase().includes(query.toLowerCase()) ||
-          doctor.role.toLowerCase().includes(query.toLowerCase()) ||
-          (doctor.description || "").toLowerCase().includes(query.toLowerCase())
-      ),
+          includesSearchQuery(doctor.label, query) ||
+          includesSearchQuery(doctor.role, query) ||
+          includesSearchQuery(doctor.description || "", query)
+      );
+    },
     [items, query]
   );
   const activeItems = useMemo(
@@ -1245,14 +1248,14 @@ function CreateEventDialog({
   );
 
   const visibleDoctors = useMemo(() => {
-    const query = doctorQuery.trim();
+    const query = normalizeSearchText(doctorQuery);
     if (!query) return doctors;
     if (query.length < 2) {
       return doctors.filter((doctor) => {
         const display = formatDoctorDisplayName(doctor);
         return (
-          includesQuery(display, query) ||
-          includesQuery(doctor.email || "", query)
+          includesSearchQuery(display, doctorQuery) ||
+          includesSearchQuery(doctor.email || "", doctorQuery)
         );
       });
     }
@@ -1260,14 +1263,14 @@ function CreateEventDialog({
   }, [doctorQuery, doctors, doctorSearchResults]);
 
   const visiblePatients = useMemo(() => {
-    const query = patientQuery.trim();
+    const query = normalizeSearchText(patientQuery);
     if (!query) return patients;
     if (query.length < 2) {
       return patients.filter((patient) => {
         const display = formatPatientDisplayName(patient);
         return (
-          includesQuery(display, query) ||
-          includesQuery(patient.email || "", query)
+          includesSearchQuery(display, patientQuery) ||
+          includesSearchQuery(patient.email || "", patientQuery)
         );
       });
     }
@@ -1456,7 +1459,7 @@ function CreateEventDialog({
 
   useEffect(() => {
     if (!open || !doctorPickerOpen || isDoctorUser) return;
-    const query = doctorQuery.trim();
+    const query = normalizeSearchText(doctorQuery);
     if (query.length < 2) {
       setDoctorSearchResults([]);
       setDoctorSearchLoading(false);
@@ -1501,7 +1504,7 @@ function CreateEventDialog({
 
   useEffect(() => {
     if (!open || !patientPickerOpen) return;
-    const query = patientQuery.trim();
+    const query = normalizeSearchText(patientQuery);
     if (query.length < 2) {
       setPatientSearchResults([]);
       setPatientSearchLoading(false);
@@ -2118,7 +2121,7 @@ export function MeetingsContent() {
     if (!token) return;
     const interval = window.setInterval(() => {
       void loadMeetings(true);
-    }, 15000);
+    }, 5000);
     return () => {
       window.clearInterval(interval);
     };

@@ -9,11 +9,16 @@ class PatientFlutterApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const brandBlue = Color(0xFF1E40AF);
+    final colorScheme = ColorScheme.fromSeed(
+      seedColor: brandBlue,
+      brightness: Brightness.light,
+      primary: brandBlue,
+      secondary: const Color(0xFF0EA5E9),
+      surface: Colors.white,
+    );
     final base = ThemeData(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xFF1D4ED8),
-        brightness: Brightness.light,
-      ),
+      colorScheme: colorScheme,
       useMaterial3: true,
     );
 
@@ -21,32 +26,60 @@ class PatientFlutterApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Telemed Patient',
       theme: base.copyWith(
-        scaffoldBackgroundColor: const Color(0xFFF3F6FB),
+        scaffoldBackgroundColor: const Color(0xFFF4F7FC),
         textTheme: base.textTheme.apply(
           bodyColor: const Color(0xFF0F172A),
           displayColor: const Color(0xFF0F172A),
+        ),
+        appBarTheme: const AppBarTheme(
+          elevation: 0,
+          centerTitle: false,
+          backgroundColor: Colors.transparent,
+          foregroundColor: Color(0xFF0F172A),
+          surfaceTintColor: Colors.transparent,
+          titleTextStyle: TextStyle(
+            color: Color(0xFF0F172A),
+            fontSize: 19,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            elevation: 0,
+            backgroundColor: brandBlue,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: Colors.white,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0xFFD5DEED)),
+            borderSide: const BorderSide(color: Color(0xFFD5E1F2)),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0xFFD5DEED)),
+            borderSide: const BorderSide(color: Color(0xFFD5E1F2)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
-            borderSide: const BorderSide(color: Color(0xFF1D4ED8), width: 1.6),
+            borderSide: const BorderSide(color: brandBlue, width: 1.8),
+          ),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          labelStyle: const TextStyle(
+            color: Color(0xFF475569),
+            fontWeight: FontWeight.w600,
           ),
         ),
         cardTheme: const CardThemeData(
           color: Colors.white,
-          elevation: 2,
+          elevation: 0,
           margin: EdgeInsets.zero,
-          shadowColor: Color(0x1A0F172A),
+          surfaceTintColor: Colors.white,
+          shadowColor: Color(0x160F172A),
         ),
       ),
       home: const _AuthGate(),

@@ -67,6 +67,65 @@ class PatientVideoApiClient {
     return PatientVideoSession.fromJson(decoded);
   }
 
+  Future<void> sendPatientPresenceHeartbeat({
+    String? meetingId,
+    String? inviteToken,
+    String? shortCode,
+  }) async {
+    await _sendPatientPresence(
+      endpointPath: '/meetings/video/patient/presence/heartbeat',
+      meetingId: meetingId,
+      inviteToken: inviteToken,
+      shortCode: shortCode,
+    );
+  }
+
+  Future<void> sendPatientPresenceLeave({
+    String? meetingId,
+    String? inviteToken,
+    String? shortCode,
+  }) async {
+    await _sendPatientPresence(
+      endpointPath: '/meetings/video/patient/presence/leave',
+      meetingId: meetingId,
+      inviteToken: inviteToken,
+      shortCode: shortCode,
+    );
+  }
+
+  Future<void> _sendPatientPresence({
+    required String endpointPath,
+    String? meetingId,
+    String? inviteToken,
+    String? shortCode,
+  }) async {
+    final endpoint = _baseUri.resolve(endpointPath);
+    final payload = <String, dynamic>{};
+    if (meetingId != null && meetingId.trim().isNotEmpty) {
+      payload['meeting_id'] = meetingId.trim();
+    }
+    if (inviteToken != null && inviteToken.trim().isNotEmpty) {
+      payload['invite_token'] = inviteToken.trim();
+    }
+    if (shortCode != null && shortCode.trim().isNotEmpty) {
+      payload['short_code'] = shortCode.trim();
+    }
+    if (!payload.containsKey('invite_token') && !payload.containsKey('short_code')) {
+      throw const PatientVideoApiException(
+        'Missing invite token or short code for presence update.',
+      );
+    }
+
+    final response = await _postJson(endpoint, payload);
+    if (response.statusCode >= 200 && response.statusCode < 300) return;
+    final decoded = _decodeBody(response.body);
+    final detailMessage = _extractDetail(decoded) ?? response.body;
+    throw PatientVideoApiException(
+      detailMessage.isEmpty ? 'Failed to update room presence.' : detailMessage,
+      statusCode: response.statusCode,
+    );
+  }
+
   Future<http.Response> _postJson(Uri endpoint, Map<String, dynamic> payload) async {
     try {
       return await _httpClient.post(

@@ -6,7 +6,9 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   createMeetingPatientInvite,
+  heartbeatDoctorMeetingPresence,
   issueMeetingVideoToken,
+  leaveDoctorMeetingPresence,
   type MeetingPatientInviteResponse,
   type MeetingVideoTokenResponse,
 } from "@/lib/api";
@@ -46,6 +48,11 @@ function isExpectedZegoConsoleNoise(message: string): boolean {
     normalized.includes("[zegoroommobile]createstream error") ||
     normalized.includes("a user gesture is required") ||
     normalized.includes("notallowederror") ||
+    normalized.includes("notfounderror") ||
+    normalized.includes("requested device not found") ||
+    normalized.includes("createStream or publishLocalStream failed".toLowerCase()) ||
+    normalized.includes("\"errorcode\":1103061") ||
+    normalized.includes("get media fail") ||
     normalized.includes("setsinkid") ||
     normalized.includes("\"code\":1104036")
   );
@@ -84,6 +91,101 @@ function isExpectedMediaPermissionNoise(reason: unknown): boolean {
     normalized.includes("setsinkid") ||
     normalized.includes("zego")
   );
+}
+
+type DoctorMediaWarmupPreference = {
+  allowCamera: boolean;
+  allowMicrophone: boolean;
+  hint: string | null;
+};
+
+function warmupDoctorMediaDevices(
+  language: AppLanguage
+): Promise<DoctorMediaWarmupPreference> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    return Promise.resolve({
+      allowCamera: false,
+      allowMicrophone: false,
+      hint: tr(
+        language,
+        "This browser cannot access camera/microphone APIs. You can still join muted and retry in call controls.",
+        "เบราว์เซอร์นี้ไม่รองรับการเข้าถึงกล้อง/ไมค์ เข้าห้องแบบปิดไมค์ก่อนได้ และค่อยลองเปิดใหม่ในปุ่มควบคุมคอล"
+      ),
+    });
+  }
+
+  return navigator.mediaDevices
+    .getUserMedia({
+      video: {
+        facingMode: "user",
+      },
+      audio: true,
+    })
+    .then((stream) => {
+      stream.getTracks().forEach((track) => {
+        track.stop();
+      });
+      return {
+        allowCamera: true,
+        allowMicrophone: true,
+        hint: null,
+      };
+    })
+    .catch((error: unknown) => {
+      const normalized = stringifyErrorReason(error).toLowerCase();
+      if (
+        normalized.includes("notallowederror") ||
+        normalized.includes("permission denied") ||
+        normalized.includes("permission")
+      ) {
+        return {
+          allowCamera: false,
+          allowMicrophone: false,
+          hint: tr(
+            language,
+            "Camera/Mic permission is not allowed yet. Joined in muted mode; allow permission from browser settings, then enable devices in call controls.",
+            "ยังไม่ได้อนุญาตกล้อง/ไมค์ เข้าห้องแบบปิดอุปกรณ์ก่อน แล้วอนุญาตจากการตั้งค่าเบราว์เซอร์ก่อนกลับมาเปิดที่ปุ่มควบคุมคอล"
+          ),
+        };
+      }
+
+      if (
+        normalized.includes("notfounderror") ||
+        normalized.includes("overconstrainederror")
+      ) {
+        return {
+          allowCamera: false,
+          allowMicrophone: false,
+          hint: tr(
+            language,
+            "No usable camera/mic was found on this device right now. Join muted and retry camera later.",
+            "ไม่พบกล้อง/ไมค์ที่ใช้งานได้ในอุปกรณ์นี้ตอนนี้ เข้าห้องแบบปิดอุปกรณ์ก่อน และลองเปิดใหม่ภายหลัง"
+          ),
+        };
+      }
+
+      if (normalized.includes("user gesture")) {
+        return {
+          allowCamera: false,
+          allowMicrophone: false,
+          hint: tr(
+            language,
+            "Browser requires a user interaction before media can start. Joined muted; tap camera/mic in call controls to retry.",
+            "เบราว์เซอร์ต้องมีการกดจากผู้ใช้ก่อนเริ่มกล้อง/ไมค์ จึงเข้าห้องแบบปิดอุปกรณ์ก่อน แล้วกดปุ่มกล้อง/ไมค์ในคอลเพื่อเริ่มใหม่"
+          ),
+        };
+      }
+
+      return {
+        allowCamera: false,
+        allowMicrophone: false,
+        hint: tr(
+          language,
+          "Camera/Mic is not ready yet on this device. Joined in muted mode; tap camera/mic in call controls to retry.",
+          "กล้อง/ไมค์ยังไม่พร้อมในอุปกรณ์นี้ เข้าห้องแบบปิดอุปกรณ์ก่อน แล้วกดปุ่มกล้อง/ไมค์ในคอลเพื่อลองใหม่"
+        ),
+      };
+    });
 }
 
 let isSetSinkIdPatched = false;
@@ -135,6 +237,10 @@ function toDoctorCallNotice(language: AppLanguage, message: string): string {
   }
   if (
     normalized.includes("createstream") ||
+    normalized.includes("publishlocalstream failed") ||
+    normalized.includes("1103061") ||
+    normalized.includes("notfounderror") ||
+    normalized.includes("requested device not found") ||
     normalized.includes("1104036") ||
     normalized.includes("1004020") ||
     normalized.includes("play stream interrupted") ||
@@ -196,6 +302,7 @@ declare global {
 
 const ZEGO_WEB_UIKIT_SCRIPT =
   "https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js";
+const DOCTOR_PRESENCE_HEARTBEAT_INTERVAL_MS = 10_000;
 
 let zegoScriptPromise: Promise<ZegoUIKitPrebuiltStatic> | null = null;
 
@@ -266,6 +373,7 @@ export default function MeetingCallPage() {
   const [patientInviteError, setPatientInviteError] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<"meeting" | "patient" | null>(null);
   const [showLinkDetails, setShowLinkDetails] = useState(false);
+  const [showMetaPanel, setShowMetaPanel] = useState(false);
   const [callNotice, setCallNotice] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const zegoInstanceRef = useRef<ZegoUIKitPrebuiltInstance | null>(null);
@@ -443,6 +551,22 @@ export default function MeetingCallPage() {
       setPatientInvite(null);
       setPatientInviteError(null);
       try {
+        if (!window.isSecureContext && window.location.hostname !== "localhost") {
+          throw new Error(
+            tr(
+              language,
+              "Camera/microphone access requires HTTPS on this domain. Open this page through HTTPS.",
+              "การเข้าถึงกล้อง/ไมค์บนโดเมนนี้ต้องใช้ HTTPS กรุณาเปิดหน้านี้ผ่าน HTTPS"
+            )
+          );
+        }
+
+        const mediaPreference = await warmupDoctorMediaDevices(language);
+        if (cancelled) return;
+        if (mediaPreference.hint) {
+          setCallNotice(mediaPreference.hint);
+        }
+
         const videoSession = await issueMeetingVideoToken(meetingId, token);
         if (cancelled) return;
 
@@ -491,9 +615,10 @@ export default function MeetingCallPage() {
         zegoInstanceRef.current = mountedInstance;
         mountedInstance.joinRoom({
           container: containerRef.current,
-          showPreJoinView: false,
-          turnOnCameraWhenJoining: true,
-          turnOnMicrophoneWhenJoining: true,
+          // Keep pre-join so browser/device permission can be handled explicitly.
+          showPreJoinView: true,
+          turnOnCameraWhenJoining: mediaPreference.allowCamera,
+          turnOnMicrophoneWhenJoining: mediaPreference.allowMicrophone,
           sharedLinks: [
             {
               name: "Meeting Link",
@@ -531,156 +656,282 @@ export default function MeetingCallPage() {
     };
   }, [meetingId, token, role, language]);
 
+  useEffect(() => {
+    if (!session || !token || !meetingId || role !== "doctor") {
+      return;
+    }
+
+    let disposed = false;
+
+    const sendHeartbeat = () => {
+      if (disposed) return;
+      void heartbeatDoctorMeetingPresence(meetingId, token).catch(() => {
+        // Presence heartbeat is best-effort and must not break call UX.
+      });
+    };
+
+    const sendLeave = () => {
+      if (disposed) return;
+      void leaveDoctorMeetingPresence(meetingId, token).catch(() => {
+        // Best-effort leave marker.
+      });
+    };
+
+    sendHeartbeat();
+    const interval = window.setInterval(
+      sendHeartbeat,
+      DOCTOR_PRESENCE_HEARTBEAT_INTERVAL_MS
+    );
+
+    window.addEventListener("pagehide", sendLeave);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("pagehide", sendLeave);
+      sendLeave();
+      disposed = true;
+    };
+  }, [session, token, meetingId, role]);
+
   const hasLinkPanel = !isPopupWindow && Boolean(meetingUrl || patientInvite?.invite_url);
+  const hasMetaAlerts = Boolean(patientInviteError || callNotice || error);
+  const hasMetaContent = hasLinkPanel || hasMetaAlerts;
+  const roomSummary = session
+    ? `${tr(language, "Room", "ห้อง")}: ${session.room_id}`
+    : tr(language, "Preparing your call room...", "กำลังเตรียมห้องวิดีโอ...");
+  const modeSummary = isPopupWindow
+    ? tr(
+        language,
+        "Mini window mode",
+        "โหมดหน้าต่างเล็ก"
+      )
+    : tr(
+        language,
+        "Main dashboard mode",
+        "โหมดหน้าหลัก"
+      );
 
   return (
-    <main className="flex h-full w-full flex-col gap-2 p-2 md:p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-foreground">
-            {tr(language, "Doctor Video Call", "ห้องวิดีโอแพทย์")}
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            {session
-              ? `${tr(language, "Room", "ห้อง")}: ${session.room_id}`
-              : tr(language, "Preparing your call room...", "กำลังเตรียมห้องวิดีโอ...")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {!isPopupWindow ? (
-            <Button variant="secondary" onClick={openMiniWindowAndSwitch}>
-              {tr(language, "Mini Window", "เปิดหน้าต่างเล็ก")}
-            </Button>
-          ) : null}
-          <Button variant="outline" onClick={isPopupWindow ? handleClosePopupWindow : handleBackToMeetings}>
-            {isPopupWindow
-              ? tr(language, "Close Mini Window", "ปิดหน้าต่างเล็ก")
-              : tr(language, "Back to Meetings", "กลับไปหน้านัดหมาย")}
-          </Button>
-        </div>
-      </div>
+    <>
+      <main className="flex h-full w-full flex-col p-2 md:p-3">
+        <div
+          className={`relative flex-1 overflow-hidden rounded-2xl border border-border bg-black ${
+            isPopupWindow ? "min-h-[86vh]" : "min-h-[80vh]"
+          }`}
+        >
+          <div ref={containerRef} className="h-full w-full" />
 
-      {!isPopupWindow ? (
-        <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-300">
-          {tr(
-            language,
-            "Need to browse other pages? Use Mini Window to keep this call active while you work in the main dashboard.",
-            "หากต้องสลับไปหน้าอื่น ให้กด 'เปิดหน้าต่างเล็ก' เพื่อให้คอลนี้ทำงานต่อเนื่องระหว่างใช้งานหน้าอื่น"
-          )}
-        </div>
-      ) : (
-        <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
-          {tr(
-            language,
-            "Mini window mode is active. Keep this window open to continue the doctor call.",
-            "กำลังใช้งานโหมดหน้าต่างเล็ก กรุณาเปิดหน้าต่างนี้ไว้เพื่อคงการคอลของแพทย์"
-          )}
-        </div>
-      )}
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/55 via-black/10 to-black/35" />
 
-      {hasLinkPanel ? (
-        <div className="w-full rounded-md border border-border bg-card/80 px-3 py-2 text-xs text-muted-foreground md:max-w-3xl">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-medium">
-              {tr(language, "Share Links", "ลิงก์สำหรับแชร์")}
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              {meetingUrl ? (
+          <div className="absolute left-3 right-3 top-3 z-30 flex items-start justify-between gap-2">
+            <div className="pointer-events-auto max-w-[65%] rounded-xl border border-white/20 bg-black/45 px-3 py-2 text-white backdrop-blur-md">
+              <p className="truncate text-sm font-semibold">
+                {tr(language, "Doctor Video Call", "ห้องวิดีโอแพทย์")}
+              </p>
+              <p className="truncate text-[11px] text-white/80">{roomSummary}</p>
+              <div className="mt-1 inline-flex items-center rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/90">
+                {modeSummary}
+              </div>
+            </div>
+
+            <div className="pointer-events-auto flex flex-col gap-2 sm:flex-row sm:items-center">
+              {!isPopupWindow ? (
                 <Button
                   size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-[11px]"
-                  onClick={() => {
-                    void copyLink("meeting", meetingUrl);
-                  }}
+                  variant="secondary"
+                  className="h-8 border-white/25 bg-white/95 px-2.5 text-xs text-slate-900 shadow-sm hover:bg-white focus-visible:ring-white/60"
+                  onClick={openMiniWindowAndSwitch}
                 >
-                  {copiedLink === "meeting"
-                    ? tr(language, "Meeting copied", "คัดลอกลิงก์หมอแล้ว")
-                    : tr(language, "Copy doctor link", "คัดลอกลิงก์หมอ")}
-                </Button>
-              ) : null}
-              {patientInvite?.invite_url ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-[11px]"
-                  onClick={() => {
-                    void copyLink("patient", patientInvite.invite_url);
-                  }}
-                >
-                  {copiedLink === "patient"
-                    ? tr(language, "Patient copied", "คัดลอกลิงก์คนไข้แล้ว")
-                    : tr(language, "Copy patient link", "คัดลอกลิงก์คนไข้")}
+                  {tr(language, "Mini Window", "เปิดหน้าต่างเล็ก")}
                 </Button>
               ) : null}
               <Button
                 size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-[11px]"
-                onClick={() => {
-                  setShowLinkDetails((prev) => !prev);
-                }}
+                variant="outline"
+                className="h-8 border-white/35 bg-white/10 px-2.5 text-xs text-white shadow-sm backdrop-blur-sm hover:bg-white/20 focus-visible:ring-white/60"
+                onClick={isPopupWindow ? handleClosePopupWindow : handleBackToMeetings}
               >
-                {showLinkDetails
-                  ? tr(language, "Hide details", "ซ่อนรายละเอียด")
-                  : tr(language, "Show details", "แสดงรายละเอียด")}
+                {isPopupWindow
+                  ? tr(language, "Close Mini", "ปิดหน้าต่างเล็ก")
+                  : tr(language, "Back", "กลับหน้านัดหมาย")}
               </Button>
+              {hasMetaContent ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 border-white/35 bg-white/10 px-2.5 text-xs text-white shadow-sm backdrop-blur-sm hover:bg-white/20 focus-visible:ring-white/60"
+                  onClick={() => {
+                    setShowMetaPanel((prev) => !prev);
+                  }}
+                >
+                  {showMetaPanel
+                    ? tr(language, "Close Panel", "ปิดแผงควบคุม")
+                    : tr(language, "Control Panel", "แผงควบคุม")}
+                </Button>
+              ) : null}
             </div>
           </div>
 
-          {showLinkDetails ? (
-            <div className="mt-2 space-y-1 font-mono text-[11px] leading-relaxed">
-              {meetingUrl ? (
-                <div title={meetingUrl}>
-                  <span className="font-sans text-muted-foreground/80">
-                    {tr(language, "Doctor:", "หมอ:")}{" "}
-                  </span>
-                  {shortenUrl(meetingUrl, 110)}
+          {hasMetaAlerts ? (
+            <button
+              type="button"
+              className="absolute bottom-3 left-3 z-30 inline-flex items-center rounded-full border border-amber-300/40 bg-amber-500/20 px-2.5 py-1 text-[11px] font-medium text-amber-100 backdrop-blur-sm transition hover:bg-amber-500/30"
+              onClick={() => {
+                setShowMetaPanel(true);
+              }}
+            >
+              {tr(language, "New call notice", "มีการแจ้งเตือนคอล")}
+            </button>
+          ) : null}
+
+          {showMetaPanel ? (
+            <button
+              type="button"
+              aria-label={tr(language, "Close panel", "ปิดแผง")}
+              className="absolute inset-0 z-30 bg-transparent"
+              onClick={() => {
+                setShowMetaPanel(false);
+              }}
+            />
+          ) : null}
+
+          <section
+            className={`absolute right-3 top-14 z-40 w-[min(92vw,420px)] origin-top-right overflow-hidden rounded-2xl border border-white/20 bg-slate-950/75 text-white shadow-2xl backdrop-blur-xl transition duration-200 ${
+              showMetaPanel
+                ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
+                : "pointer-events-none -translate-y-2 scale-95 opacity-0"
+            }`}
+          >
+            <div className="flex items-center justify-between border-b border-white/15 px-4 py-3">
+              <div>
+                <h2 className="text-sm font-semibold">
+                  {tr(language, "Call Control Panel", "แผงควบคุมการคอล")}
+                </h2>
+                <p className="text-[11px] text-white/70">
+                  {tr(
+                    language,
+                    "Links and call notices in one place.",
+                    "รวมลิงก์และการแจ้งเตือนไว้ในที่เดียว"
+                  )}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 border-white/35 bg-white/10 px-2 text-[11px] text-white hover:bg-white/20"
+                onClick={() => {
+                  setShowMetaPanel(false);
+                }}
+              >
+                {tr(language, "Close", "ปิด")}
+              </Button>
+            </div>
+
+            <div className="max-h-[56vh] space-y-3 overflow-y-auto px-4 py-3">
+              {hasLinkPanel ? (
+                <div className="rounded-xl border border-white/15 bg-white/5 px-3 py-3 text-xs text-white/85">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{tr(language, "Share Links", "ลิงก์สำหรับแชร์")}</span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {meetingUrl ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 border-white/30 bg-white/10 px-2 text-[11px] text-white hover:bg-white/20"
+                          onClick={() => {
+                            void copyLink("meeting", meetingUrl);
+                          }}
+                        >
+                          {copiedLink === "meeting"
+                            ? tr(language, "Meeting copied", "คัดลอกลิงก์หมอแล้ว")
+                            : tr(language, "Copy doctor link", "คัดลอกลิงก์หมอ")}
+                        </Button>
+                      ) : null}
+                      {patientInvite?.invite_url ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 border-white/30 bg-white/10 px-2 text-[11px] text-white hover:bg-white/20"
+                          onClick={() => {
+                            void copyLink("patient", patientInvite.invite_url);
+                          }}
+                        >
+                          {copiedLink === "patient"
+                            ? tr(language, "Patient copied", "คัดลอกลิงก์คนไข้แล้ว")
+                            : tr(language, "Copy patient link", "คัดลอกลิงก์คนไข้")}
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 bg-white/5 px-2 text-[11px] text-white hover:bg-white/15"
+                        onClick={() => {
+                          setShowLinkDetails((prev) => !prev);
+                        }}
+                      >
+                        {showLinkDetails
+                          ? tr(language, "Hide links", "ซ่อนลิงก์")
+                          : tr(language, "Show links", "แสดงลิงก์")}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {showLinkDetails ? (
+                    <div className="mt-2 space-y-1 font-mono text-[11px] leading-relaxed text-white/75">
+                      {meetingUrl ? (
+                        <div title={meetingUrl}>
+                          <span className="font-sans text-white/60">
+                            {tr(language, "Doctor:", "หมอ:")}{" "}
+                          </span>
+                          {shortenUrl(meetingUrl, 108)}
+                        </div>
+                      ) : null}
+                      {patientInvite?.invite_url ? (
+                        <div title={patientInvite.invite_url}>
+                          <span className="font-sans text-white/60">
+                            {tr(language, "Patient:", "คนไข้:")}{" "}
+                          </span>
+                          {shortenUrl(patientInvite.invite_url, 108)}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
-              {patientInvite?.invite_url ? (
-                <div title={patientInvite.invite_url}>
-                  <span className="font-sans text-muted-foreground/80">
-                    {tr(language, "Patient:", "คนไข้:")}{" "}
-                  </span>
-                  {shortenUrl(patientInvite.invite_url, 110)}
+
+              {!isPopupWindow && patientInviteError ? (
+                <div className="rounded-xl border border-amber-300/30 bg-amber-500/20 px-3 py-2 text-xs text-amber-100">
+                  {patientInviteError}
                 </div>
               ) : null}
+
+              {callNotice ? (
+                <div className="rounded-xl border border-amber-300/30 bg-amber-500/20 px-3 py-2 text-xs text-amber-100">
+                  {callNotice}
+                </div>
+              ) : null}
+
+              {error ? (
+                <div className="rounded-xl border border-red-300/30 bg-red-500/20 p-3 text-sm text-red-100">
+                  {error}
+                </div>
+              ) : null}
+
+              {!hasMetaContent ? (
+                <div className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs text-white/70">
+                  {tr(language, "No extra details right now.", "ขณะนี้ยังไม่มีข้อมูลเพิ่มเติม")}
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          {loading ? (
+            <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-white/85">
+              {tr(language, "Starting video room...", "กำลังเริ่มห้องวิดีโอ...")}
             </div>
           ) : null}
         </div>
-      ) : null}
-
-      {!isPopupWindow && patientInviteError ? (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
-          {patientInviteError}
-        </div>
-      ) : null}
-
-      {callNotice ? (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-          {callNotice}
-        </div>
-      ) : null}
-
-      {error ? (
-        <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-400">
-          {error}
-        </div>
-      ) : null}
-
-      <div
-        className={`relative flex-1 overflow-hidden rounded-xl border border-border bg-black/5 ${
-          isPopupWindow ? "min-h-[82vh]" : "min-h-[72vh]"
-        }`}
-      >
-        {loading ? (
-          <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-            {tr(language, "Starting video room...", "กำลังเริ่มห้องวิดีโอ...")}
-          </div>
-        ) : null}
-        <div ref={containerRef} className="h-full w-full" />
-      </div>
-    </main>
+      </main>
+    </>
   );
 }
