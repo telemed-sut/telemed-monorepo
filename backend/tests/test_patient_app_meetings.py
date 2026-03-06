@@ -162,6 +162,60 @@ def test_patient_meetings_regenerates_invite_when_latest_code_expired(
     get_settings.cache_clear()
 
 
+def test_patient_meetings_reuses_any_active_invite_without_regenerating(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    monkeypatch.setenv("MEETING_PATIENT_JOIN_BASE_URL", "https://demo.trycloudflare.com")
+    get_settings.cache_clear()
+
+    doctor = _create_user(db, "doctor-reuse-active-invite@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Reuse", "Invite")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+
+    active_code = "active1"
+    expired_code = "expire1"
+    active_url = f"https://demo.trycloudflare.com/p/{active_code}"
+    meeting.patient_invite_url = active_url
+    db.add_all(
+        [
+            MeetingPatientInviteCode(
+                meeting_id=meeting.id,
+                code=active_code,
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=2),
+            ),
+            MeetingPatientInviteCode(
+                meeting_id=meeting.id,
+                code=expired_code,
+                expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+            ),
+        ]
+    )
+    db.add(meeting)
+    db.commit()
+
+    response = client.get(
+        "/patient-app/me/meetings",
+        headers=_patient_auth_headers(patient),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["patient_invite_url"] == active_url
+
+    invite_codes = db.scalars(
+        select(MeetingPatientInviteCode)
+        .where(MeetingPatientInviteCode.meeting_id == meeting.id)
+        .order_by(MeetingPatientInviteCode.created_at.asc())
+    ).all()
+    assert len(invite_codes) == 2
+    assert {code.code for code in invite_codes} == {active_code, expired_code}
+
+    get_settings.cache_clear()
+
+
 @pytest.mark.meeting_presence_regression
 def test_patient_meetings_include_room_presence(
     client: TestClient,

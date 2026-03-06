@@ -33,6 +33,41 @@ def _normalize_phone(phone: str) -> str:
     return re.sub(r"[\s\-().]", "", phone.strip())
 
 
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _build_patient_short_invite_url(code: str) -> str:
+    settings = get_settings()
+    base_url = (
+        settings.meeting_patient_join_base_url or settings.frontend_base_url
+    ).rstrip("/")
+    return f"{base_url}/p/{code}"
+
+
+def _get_active_patient_invite_code(
+    *,
+    db: Session,
+    meeting_id,
+) -> MeetingPatientInviteCode | None:
+    now = datetime.now(timezone.utc)
+    invite_codes = db.scalars(
+        select(MeetingPatientInviteCode)
+        .where(MeetingPatientInviteCode.meeting_id == meeting_id)
+        .order_by(
+            MeetingPatientInviteCode.expires_at.desc(),
+            MeetingPatientInviteCode.created_at.desc(),
+        )
+    ).all()
+
+    for invite_code in invite_codes:
+        if _as_utc(invite_code.expires_at) > now:
+            return invite_code
+    return None
+
+
 # ---------- Staff: generate registration code ----------
 
 def create_registration_code(
@@ -275,22 +310,9 @@ def get_patient_meetings(
     for m in meetings:
         # Return an active invite URL whenever meeting is joinable.
         invite_url = None
-        invite_code = db.scalar(
-            select(MeetingPatientInviteCode)
-            .where(MeetingPatientInviteCode.meeting_id == m.id)
-            .order_by(MeetingPatientInviteCode.created_at.desc())
-        )
+        invite_code = _get_active_patient_invite_code(db=db, meeting_id=m.id)
         if invite_code:
-            now = datetime.now(timezone.utc)
-            code_expires = invite_code.expires_at
-            if code_expires.tzinfo is None:
-                code_expires = code_expires.replace(tzinfo=timezone.utc)
-            if code_expires > now:
-                settings = get_settings()
-                base_url = (
-                    settings.meeting_patient_join_base_url or settings.frontend_base_url
-                ).rstrip("/")
-                invite_url = f"{base_url}/p/{invite_code.code}"
+            invite_url = _build_patient_short_invite_url(invite_code.code)
 
         if not invite_url and m.status not in (MeetingStatus.cancelled, MeetingStatus.completed):
             try:

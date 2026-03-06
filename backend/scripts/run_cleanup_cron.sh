@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR="/Volumes/P1Back/telemed-monorepo/backend"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG_FILE="$ROOT_DIR/logs/cron_cleanup.log"
 
 cd "$ROOT_DIR"

@@ -432,6 +432,60 @@ def test_patient_token_rejects_tampered_invite(
     assert token_response.status_code == 401
 
 
+@pytest.mark.meeting_presence_regression
+def test_patient_presence_heartbeat_rejects_expired_invite_token(
+    client: TestClient,
+    db: Session,
+    use_mock_video_provider,
+):
+    doctor = _create_user(db, "doctor-video-patient-expired-heartbeat@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Expired", "Heartbeat")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+
+    expired_token = meeting_video_service._build_patient_invite_token(
+        meeting_id=str(meeting.id),
+        expires_at_unix=int((datetime.now(timezone.utc) - timedelta(minutes=5)).timestamp()),
+    )
+
+    response = client.post(
+        "/meetings/video/patient/presence/heartbeat",
+        json={"invite_token": expired_token},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Patient invite token expired."
+
+
+@pytest.mark.meeting_presence_regression
+def test_patient_presence_heartbeat_rejects_invite_token_meeting_id_mismatch(
+    client: TestClient,
+    db: Session,
+    use_mock_video_provider,
+):
+    doctor = _create_user(db, "doctor-video-patient-presence-mismatch@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Presence", "Mismatch")
+    primary_meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+    other_meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+
+    invite_response = client.post(
+        f"/meetings/{primary_meeting.id}/video/patient-invite",
+        json={},
+        headers=_auth_headers(doctor),
+    )
+    assert invite_response.status_code == 200
+
+    response = client.post(
+        "/meetings/video/patient/presence/heartbeat",
+        json={
+            "meeting_id": str(other_meeting.id),
+            "invite_token": invite_response.json()["invite_token"],
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Patient invite token does not match meeting_id."
+
+
 def test_patient_can_exchange_video_token_via_short_code(
     client: TestClient,
     db: Session,

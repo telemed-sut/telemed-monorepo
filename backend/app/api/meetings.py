@@ -29,6 +29,48 @@ get_current_user = auth_service.get_current_user
 get_admin_user = auth_service.get_admin_user
 
 
+def _resolve_patient_join_meeting_id(
+    *,
+    db: Session,
+    meeting_id: str | None,
+    invite_token: str | None,
+    short_code: str | None,
+) -> str:
+    normalized_requested_meeting_id = (
+        meeting_video_service.normalize_meeting_id_text(meeting_id or "")
+        if meeting_id
+        else ""
+    )
+
+    if short_code:
+        resolved_meeting_id = meeting_video_service.extract_meeting_id_from_patient_short_code(
+            db,
+            short_code,
+        )
+        if (
+            normalized_requested_meeting_id
+            and normalized_requested_meeting_id != resolved_meeting_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Patient short code does not match meeting_id.",
+            )
+        return resolved_meeting_id
+
+    resolved_meeting_id = meeting_video_service.extract_meeting_id_from_patient_invite_token(
+        invite_token or ""
+    )
+    if (
+        normalized_requested_meeting_id
+        and normalized_requested_meeting_id != resolved_meeting_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Patient invite token does not match meeting_id.",
+        )
+    return resolved_meeting_id
+
+
 def _presence_response(meeting, presence) -> MeetingRoomPresenceResponse:
     return MeetingRoomPresenceResponse(
         meeting_id=str(meeting.id),
@@ -217,29 +259,12 @@ def issue_patient_video_token(
     db: Session = Depends(auth_service.get_db),
 ):
     """Exchange a signed patient invite token for a short-lived meeting video token."""
-    resolved_meeting_id = ""
-    normalized_requested_meeting_id = (
-        meeting_video_service.normalize_meeting_id_text(payload.meeting_id or "")
-        if payload.meeting_id
-        else ""
+    resolved_meeting_id = _resolve_patient_join_meeting_id(
+        db=db,
+        meeting_id=payload.meeting_id,
+        invite_token=payload.invite_token,
+        short_code=payload.short_code,
     )
-    if payload.short_code:
-        resolved_meeting_id = meeting_video_service.extract_meeting_id_from_patient_short_code(
-            db,
-            payload.short_code,
-        )
-        if (
-            normalized_requested_meeting_id
-            and normalized_requested_meeting_id != resolved_meeting_id
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Patient short code does not match meeting_id.",
-            )
-    else:
-        resolved_meeting_id = payload.meeting_id or meeting_video_service.extract_meeting_id_from_patient_invite_token(
-            payload.invite_token or ""
-        )
 
     meeting = meeting_service.get_meeting(db, resolved_meeting_id)
     if not meeting:
@@ -337,29 +362,12 @@ def patient_presence_heartbeat(
     payload: MeetingPatientPresenceRequest,
     db: Session = Depends(auth_service.get_db),
 ):
-    resolved_meeting_id = ""
-    normalized_requested_meeting_id = (
-        meeting_video_service.normalize_meeting_id_text(payload.meeting_id or "")
-        if payload.meeting_id
-        else ""
+    resolved_meeting_id = _resolve_patient_join_meeting_id(
+        db=db,
+        meeting_id=payload.meeting_id,
+        invite_token=payload.invite_token,
+        short_code=payload.short_code,
     )
-    if payload.short_code:
-        resolved_meeting_id = meeting_video_service.extract_meeting_id_from_patient_short_code(
-            db,
-            payload.short_code,
-        )
-        if (
-            normalized_requested_meeting_id
-            and normalized_requested_meeting_id != resolved_meeting_id
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Patient short code does not match meeting_id.",
-            )
-    else:
-        resolved_meeting_id = payload.meeting_id or meeting_video_service.extract_meeting_id_from_patient_invite_token(
-            payload.invite_token or ""
-        )
 
     meeting = meeting_service.get_meeting(db, resolved_meeting_id)
     if not meeting:
@@ -380,29 +388,12 @@ def patient_presence_leave(
     payload: MeetingPatientPresenceRequest,
     db: Session = Depends(auth_service.get_db),
 ):
-    resolved_meeting_id = ""
-    normalized_requested_meeting_id = (
-        meeting_video_service.normalize_meeting_id_text(payload.meeting_id or "")
-        if payload.meeting_id
-        else ""
+    resolved_meeting_id = _resolve_patient_join_meeting_id(
+        db=db,
+        meeting_id=payload.meeting_id,
+        invite_token=payload.invite_token,
+        short_code=payload.short_code,
     )
-    if payload.short_code:
-        resolved_meeting_id = meeting_video_service.extract_meeting_id_from_patient_short_code(
-            db,
-            payload.short_code,
-        )
-        if (
-            normalized_requested_meeting_id
-            and normalized_requested_meeting_id != resolved_meeting_id
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Patient short code does not match meeting_id.",
-            )
-    else:
-        resolved_meeting_id = payload.meeting_id or meeting_video_service.extract_meeting_id_from_patient_invite_token(
-            payload.invite_token or ""
-        )
 
     meeting = meeting_service.get_meeting(db, resolved_meeting_id)
     if not meeting:
