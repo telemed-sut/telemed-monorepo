@@ -58,7 +58,8 @@ verify_tunnel_health() {
   fi
 
   echo "Verifying backend tunnel health..."
-  for _ in $(seq 1 60); do
+  local attempt=0
+  while [ "$attempt" -lt 60 ]; do
     if [[ -f "$TUNNEL_PID_FILE" ]]; then
       local active_pid
       active_pid="$(cat "$TUNNEL_PID_FILE" 2>/dev/null || true)"
@@ -81,6 +82,7 @@ verify_tunnel_health() {
       return 0
     fi
 
+    attempt=$((attempt + 1))
     sleep 1
   done
 

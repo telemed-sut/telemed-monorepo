@@ -115,7 +115,8 @@ verify_tunnel_url() {
   fi
 
   echo "Verifying tunnel URL is reachable..."
-  for _ in $(seq 1 20); do
+  local attempt=0
+  while [ "$attempt" -lt 20 ]; do
     if [[ -f "$TUNNEL_PID_FILE" ]]; then
       local active_pid
       active_pid="$(cat "$TUNNEL_PID_FILE" 2>/dev/null || true)"
@@ -140,6 +141,7 @@ verify_tunnel_url() {
         ;;
     esac
 
+    attempt=$((attempt + 1))
     sleep 1
   done
 

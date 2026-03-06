@@ -346,11 +346,7 @@ def doctor_presence_leave(
         )
 
     presence = meeting_presence_service.mark_doctor_left(db, meeting)
-    if presence.patient_online and meeting.status == MeetingStatus.in_progress:
-        meeting.status = MeetingStatus.waiting
-        db.add(meeting)
-        db.commit()
-    elif meeting_presence_service.reconcile_active_meeting_status(db, meeting, presence):
+    if meeting_presence_service.reconcile_active_meeting_status(db, meeting, presence):
         db.commit()
     return _presence_response(meeting, presence)
 

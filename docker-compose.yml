@@ -23,8 +23,8 @@ services:
     ports:
       - "8000:8000"
     environment:
-      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required. Use Infisical or export it before running docker compose.}"
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required. Use Infisical or export it before running docker compose.}"
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required. Run backend/scripts/bootstrap_backend_env.sh or use Infisical before running docker compose.}"
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required. Run backend/scripts/bootstrap_backend_env.sh or use Infisical before running docker compose.}"
       JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-3600}"
       PASSWORD_RESET_EXPIRES_IN: "${PASSWORD_RESET_EXPIRES_IN:-900}"
       PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE: "${PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE:-false}"

@@ -51,6 +51,7 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
   @override
   void dispose() {
     _stopPresenceHeartbeat();
+    // Dispose cannot await network I/O, so leaving room is best-effort here.
     _sendPresenceLeave();
     _restoreSystemUiMode();
     WidgetsBinding.instance.removeObserver(this);

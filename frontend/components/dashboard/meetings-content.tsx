@@ -261,9 +261,9 @@ function PatientDirectoryDialog({
       if (!normalizedQuery) return items;
       return items.filter(
         (patient) =>
-          includesSearchQuery(patient.label, normalizedQuery) ||
-          includesSearchQuery(patient.status, normalizedQuery) ||
-          includesSearchQuery(patient.description || "", normalizedQuery)
+          includesSearchQuery(patient.label, query) ||
+          includesSearchQuery(patient.status, query) ||
+          includesSearchQuery(patient.description || "", query)
       );
     },
     [items, query]
@@ -751,9 +751,9 @@ function DoctorDirectoryDialog({
       if (!normalizedQuery) return items;
       return items.filter(
         (doctor) =>
-          includesSearchQuery(doctor.label, normalizedQuery) ||
-          includesSearchQuery(doctor.role, normalizedQuery) ||
-          includesSearchQuery(doctor.description || "", normalizedQuery)
+          includesSearchQuery(doctor.label, query) ||
+          includesSearchQuery(doctor.role, query) ||
+          includesSearchQuery(doctor.description || "", query)
       );
     },
     [items, query]
@@ -1254,8 +1254,8 @@ function CreateEventDialog({
       return doctors.filter((doctor) => {
         const display = formatDoctorDisplayName(doctor);
         return (
-          includesSearchQuery(display, query) ||
-          includesSearchQuery(doctor.email || "", query)
+          includesSearchQuery(display, doctorQuery) ||
+          includesSearchQuery(doctor.email || "", doctorQuery)
         );
       });
     }
@@ -1269,8 +1269,8 @@ function CreateEventDialog({
       return patients.filter((patient) => {
         const display = formatPatientDisplayName(patient);
         return (
-          includesSearchQuery(display, query) ||
-          includesSearchQuery(patient.email || "", query)
+          includesSearchQuery(display, patientQuery) ||
+          includesSearchQuery(patient.email || "", patientQuery)
         );
       });
     }

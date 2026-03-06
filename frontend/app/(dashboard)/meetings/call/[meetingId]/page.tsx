@@ -617,7 +617,7 @@ export default function MeetingCallPage() {
           container: containerRef.current,
           // Keep pre-join so browser/device permission can be handled explicitly.
           showPreJoinView: true,
-          turnOnCameraWhenJoining: false,
+          turnOnCameraWhenJoining: mediaPreference.allowCamera,
           turnOnMicrophoneWhenJoining: mediaPreference.allowMicrophone,
           sharedLinks: [
             {
