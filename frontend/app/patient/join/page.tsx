@@ -49,6 +49,14 @@ const PATIENT_PRESENCE_HEARTBEAT_INTERVAL_MS = 10_000;
 
 let zegoScriptPromise: Promise<ZegoUIKitPrebuiltStatic> | null = null;
 
+function PatientJoinLoadingShell() {
+  return (
+    <main className="min-h-screen bg-slate-950 p-3 text-slate-100 md:p-4">
+      <div className="mx-auto max-w-6xl text-sm text-slate-300">Loading call page...</div>
+    </main>
+  );
+}
+
 function stringifyConsoleArgs(args: unknown[]): string {
   return args
     .map((arg) => {
@@ -66,7 +74,6 @@ function stringifyConsoleArgs(args: unknown[]): string {
 function isExpectedZegoConsoleNoise(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
-    normalized.includes("zego") ||
     normalized.includes("\"action\":\"zc.") ||
     normalized.includes("\"appid\":") ||
     normalized.includes("\"roomid\":") ||
@@ -74,9 +81,15 @@ function isExpectedZegoConsoleNoise(message: string): boolean {
     normalized.includes("connect not establish logout") ||
     normalized.includes("a user gesture is required") ||
     normalized.includes("notallowederror") ||
+    normalized.includes("notfounderror") ||
+    normalized.includes("requested device not found") ||
     normalized.includes("setsinkid") ||
     normalized.includes("[zegoroommobile]createstream error") ||
     normalized.includes("session request timeout") ||
+    normalized.includes("play stream interrupted") ||
+    normalized.includes("stream does not exist") ||
+    normalized.includes("get media fail") ||
+    normalized.includes("\"errorcode\":1103061") ||
     normalized.includes("\"code\":1104036")
   );
 }
@@ -327,6 +340,7 @@ function PatientJoinPageContent() {
 
   const [loading, setLoading] = useState(false);
   const [joined, setJoined] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [showResumeButton, setShowResumeButton] = useState(false);
@@ -335,6 +349,10 @@ function PatientJoinPageContent() {
   const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const zegoInstanceRef = useRef<ZegoUIKitPrebuiltInstance | null>(null);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
 
   useEffect(() => {
     if (!displayName && nameFromQuery) {
@@ -547,6 +565,10 @@ function PatientJoinPageContent() {
     };
   }, [joined]);
 
+  if (!isHydrated) {
+    return <PatientJoinLoadingShell />;
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 p-3 text-slate-100 md:p-4">
       <div className="mx-auto flex max-w-6xl flex-col gap-3">
@@ -669,11 +691,7 @@ function PatientJoinPageContent() {
 export default function PatientJoinPage() {
   return (
     <Suspense
-      fallback={
-        <main className="min-h-screen bg-slate-950 p-3 text-slate-100 md:p-4">
-          <div className="mx-auto max-w-6xl text-sm text-slate-300">Loading call page...</div>
-        </main>
-      }
+      fallback={<PatientJoinLoadingShell />}
     >
       <PatientJoinPageContent />
     </Suspense>

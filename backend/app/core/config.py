@@ -4,7 +4,26 @@ from functools import lru_cache
 from typing import Dict, List, Literal, Union
 
 from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    EnvSettingsSource,
+    PydanticBaseSettingsSource,
+)
+
+
+class RawDeviceSecretsEnvSettingsSource(EnvSettingsSource):
+    def prepare_field_value(self, field_name, field, value, value_is_complex):
+        if field_name == "device_api_secrets" and isinstance(value, str):
+            return value
+        return super().prepare_field_value(field_name, field, value, value_is_complex)
+
+
+class RawDeviceSecretsDotEnvSettingsSource(DotEnvSettingsSource):
+    def prepare_field_value(self, field_name, field, value, value_is_complex):
+        if field_name == "device_api_secrets" and isinstance(value, str):
+            return value
+        return super().prepare_field_value(field_name, field, value, value_is_complex)
 
 
 class Settings(BaseSettings):
@@ -275,6 +294,22 @@ class Settings(BaseSettings):
         "env_prefix": "",
         "case_sensitive": False,
     }
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            RawDeviceSecretsEnvSettingsSource(settings_cls),
+            RawDeviceSecretsDotEnvSettingsSource(settings_cls),
+            file_secret_settings,
+        )
 
 
 @lru_cache(maxsize=1)

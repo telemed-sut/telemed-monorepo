@@ -401,9 +401,15 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, token?: stri
 
 async function apiFetch<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   let activeToken = token;
+  const canAttemptRefresh = Boolean(activeToken && isProbablyJwt(activeToken));
 
   // Proactive refresh: if token is about to expire, refresh before making the request
-  if (activeToken && path !== "/auth/refresh" && path !== "/auth/login" && isTokenExpiring(activeToken)) {
+  if (
+    canAttemptRefresh &&
+    path !== "/auth/refresh" &&
+    path !== "/auth/login" &&
+    isTokenExpiring(activeToken!)
+  ) {
     const refreshed = await tryRefreshToken(activeToken);
     if (refreshed) {
       activeToken = refreshed;
@@ -415,7 +421,12 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
   if (result.ok) return result.data as T;
 
   // If 401, try to refresh once (supports both bearer and cookie auth flows)
-  if (result.status === 401 && path !== "/auth/refresh" && path !== "/auth/login") {
+  if (
+    canAttemptRefresh &&
+    result.status === 401 &&
+    path !== "/auth/refresh" &&
+    path !== "/auth/login"
+  ) {
     const newToken = await tryRefreshToken(activeToken);
     if (newToken) {
       // Retry the original request with the new token
