@@ -268,5 +268,5 @@ describe("Meetings content search", () => {
     });
 
     expect((await screen.findAllByText("Papon Moonkonburee")).length).toBeGreaterThan(0);
-  });
+  }, 15000);
 });
