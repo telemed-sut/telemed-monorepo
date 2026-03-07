@@ -231,7 +231,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                     </div>
                     <div className="flex-1">
                         <p className="text-sm font-semibold text-foreground">{tr(language, "Open Clinical View", "เปิดมุมมองคลินิก")}</p>
-                        <p className="text-xs text-muted-foreground">{tr(language, "View full clinical dashboard with timeline, orders & notes", "ดูแดชบอร์ดคลินิกเต็มรูปแบบพร้อมไทม์ไลน์ คำสั่ง และบันทึก")}</p>
+                        <p className="text-sm text-muted-foreground">{tr(language, "View full clinical dashboard with timeline, orders & notes", "ดูแดชบอร์ดคลินิกเต็มรูปแบบพร้อมไทม์ไลน์ คำสั่ง และบันทึก")}</p>
                     </div>
                     <svg className="size-4 text-muted-foreground group-hover:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -256,15 +256,15 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
-                            <span className="text-muted-foreground text-xs">{tr(language, "Date of Birth", "วันเกิด")}</span>
+                            <span className="text-sm text-muted-foreground">{tr(language, "Date of Birth", "วันเกิด")}</span>
                             <p className="font-medium text-foreground">{formatDate(patient.date_of_birth)}</p>
                         </div>
                         <div>
-                            <span className="text-muted-foreground text-xs">{tr(language, "Age", "อายุ")}</span>
+                            <span className="text-sm text-muted-foreground">{tr(language, "Age", "อายุ")}</span>
                             <p className="font-medium text-foreground">{tr(language, `${age} years`, `${age} ปี`)}</p>
                         </div>
                         <div>
-                            <span className="text-muted-foreground text-xs">{tr(language, "Gender", "เพศ")}</span>
+                            <span className="text-sm text-muted-foreground">{tr(language, "Gender", "เพศ")}</span>
                             <p className="font-medium text-foreground capitalize">{getGenderLabel(patient.gender, language)}</p>
                         </div>
                     </div>
@@ -292,7 +292,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                             </div>
                         )}
                         {!hasContact && (
-                            <p className="text-muted-foreground/60 text-xs">{tr(language, "No contact info available", "ไม่มีข้อมูลติดต่อ")}</p>
+                            <p className="text-sm text-muted-foreground/60">{tr(language, "No contact info available", "ไม่มีข้อมูลติดต่อ")}</p>
                         )}
                     </div>
                 </div>
@@ -325,7 +325,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                         {tr(language, "Appointment History", "ประวัติการนัดหมาย")}
                     </div>
                     {meetingsTotal > 0 && (
-                        <Badge variant="secondary" className="text-xs bg-primary/10 text-primary border-transparent">
+                        <Badge variant="secondary" className="border-transparent bg-primary/10 text-sm text-primary">
                             {meetingsTotal}
                         </Badge>
                     )}
@@ -341,7 +341,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                     <div className="flex flex-col items-center justify-center py-8 text-center rounded-xl border border-dashed border-border/60">
                         <HugeiconsIcon icon={CalendarAddIcon} className="size-6 text-muted-foreground/40 mb-2" />
                         <p className="text-sm font-medium text-muted-foreground">{tr(language, "No appointments yet", "ยังไม่มีการนัดหมาย")}</p>
-                        <p className="text-xs text-muted-foreground/60 mt-0.5">
+                        <p className="mt-0.5 text-sm text-muted-foreground/60">
                             {tr(language, "Appointments will appear here", "การนัดหมายจะแสดงที่นี่")}
                         </p>
                     </div>
@@ -374,12 +374,12 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                                             />
                                             <div className="min-w-0 flex-1 space-y-1">
                                                 <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className="font-semibold text-xs text-foreground">
+                                                    <span className="text-sm font-semibold text-foreground">
                                                         {formatDateTime(meeting.date_time)}
                                                     </span>
                                                     <Badge
                                                         variant={isPast ? "secondary" : "default"}
-                                                        className={`text-[10px] px-1.5 py-0 h-4 font-normal ${isPast
+                                                        className={`h-4 px-1.5 py-0 text-xs font-normal ${isPast
                                                                 ? "bg-muted text-muted-foreground"
                                                                 : "bg-primary/10 text-primary border-transparent"
                                                             }`}
@@ -391,12 +391,12 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                                                 </div>
 
                                                 {meeting.description && (
-                                                    <p className="text-xs text-foreground/80 line-clamp-2">
+                                                    <p className="text-sm text-foreground/80 line-clamp-2">
                                                         {meeting.description}
                                                     </p>
                                                 )}
 
-                                                <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                                                <div className="flex items-center gap-3 text-sm text-muted-foreground">
                                                     {doctorName && (
                                                         <span className="flex items-center gap-1">
                                                             <HugeiconsIcon icon={UserIcon} className="size-2.5" />
@@ -412,7 +412,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                                                 </div>
 
                                                 {meeting.note && (
-                                                    <p className="text-[11px] text-muted-foreground/70 italic border-l-2 border-muted-foreground/20 pl-2">
+                                                    <p className="border-l-2 border-muted-foreground/20 pl-2 text-sm italic text-muted-foreground/70">
                                                         {meeting.note}
                                                     </p>
                                                 )}

@@ -573,12 +573,12 @@ function PatientJoinPageContent() {
     <main className="min-h-screen bg-slate-950 p-3 text-slate-100 md:p-4">
       <div className="mx-auto flex max-w-6xl flex-col gap-3">
         <h1 className="text-lg font-semibold">Patient Video Room</h1>
-        <p className="text-xs text-slate-400">
+        <p className="text-sm text-slate-400">
           Meeting: {meetingId || "-"} {shortCode ? `| Code: ${shortCode}` : ""}
         </p>
 
         {!joined ? (
-          <div className="rounded-md border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-300">
+          <div className="rounded-md border border-slate-800 bg-slate-900/60 p-3 text-sm text-slate-300">
             <p>1) Enter your name and choose camera/mic options.</p>
             <p>2) Tap Join Call.</p>
             <p>3) Allow Camera + Microphone when Safari asks.</p>
@@ -588,7 +588,7 @@ function PatientJoinPageContent() {
 
         {!joined ? (
           <div className="space-y-2">
-            <label htmlFor="patient-display-name" className="text-xs text-slate-300">
+            <label htmlFor="patient-display-name" className="text-sm text-slate-300">
               Your name
             </label>
             <Input
@@ -607,7 +607,7 @@ function PatientJoinPageContent() {
 
         {!joined ? (
           <div className="rounded-md border border-slate-800 bg-slate-900/50 p-3">
-            <p className="mb-2 text-xs text-slate-300">Before joining</p>
+            <p className="mb-2 text-sm text-slate-300">Before joining</p>
             <div className="flex flex-wrap items-center gap-4 text-sm text-slate-200">
               <label className="inline-flex items-center gap-2">
                 <input

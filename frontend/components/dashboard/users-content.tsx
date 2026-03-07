@@ -110,7 +110,7 @@ function WelcomeSection({
 
       <div className="flex items-center gap-2 sm:gap-3">
         <DropdownMenu>
-          <DropdownMenuTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground px-3 text-xs sm:text-sm font-medium h-8 sm:h-9 gap-2 sm:gap-3">
+          <DropdownMenuTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground px-3 text-sm font-medium h-9 gap-2 sm:gap-3">
             <span className="hidden xs:inline">{tr(language, "Import/Export", "นำเข้า/ส่งออก")}</span>
             <span className="xs:hidden">
               <Download className="size-4" />
@@ -139,7 +139,7 @@ function WelcomeSection({
 
         <Button
           size="sm"
-          className="gap-2 sm:gap-3 h-8 sm:h-9 text-xs sm:text-sm bg-linear-to-b from-foreground to-foreground/90 text-background"
+          className="h-9 gap-2 sm:gap-3 text-sm bg-linear-to-b from-foreground to-foreground/90 text-background"
         >
           <Plus className="size-3 sm:size-4" />
           <span className="hidden xs:inline">{tr(language, "Create New", "สร้างใหม่")}</span>
@@ -199,14 +199,14 @@ function UserStatsCards({ users, language }: { users: User[]; language: AppLangu
           <div className="flex-1 space-y-2 sm:space-y-4 lg:space-y-6">
             <div className="flex items-center gap-1 sm:gap-1.5 text-muted-foreground">
               <stat.icon className="size-3.5 sm:size-[18px]" />
-              <span className="text-[10px] sm:text-xs lg:text-sm font-medium truncate">
+              <span className="text-xs sm:text-sm font-medium truncate">
                 {stat.title}
               </span>
             </div>
             <p className="text-lg sm:text-xl lg:text-[28px] font-semibold leading-tight tracking-tight">
               {stat.value}
             </p>
-            <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-[10px] sm:text-xs lg:text-sm font-medium">
+            <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-xs sm:text-sm font-medium">
               <span
                 className={
                   stat.isPositive ? "text-emerald-600" : "text-red-600"
@@ -239,7 +239,7 @@ function CustomTooltip({
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-popover border border-border rounded-lg p-2 sm:p-3 shadow-lg">
-      <p className="text-xs sm:text-sm font-medium text-foreground mb-1.5 sm:mb-2">
+      <p className="mb-1.5 text-sm font-medium text-foreground sm:mb-2">
         {label}
       </p>
       <div className="space-y-1 sm:space-y-1.5">
@@ -249,10 +249,10 @@ function CustomTooltip({
               className="size-2 sm:size-2.5 rounded-full"
               style={{ background: entry.color }}
             />
-            <span className="text-[10px] sm:text-sm text-muted-foreground">
+            <span className="text-xs sm:text-sm text-muted-foreground">
               {entry.name}:
             </span>
-            <span className="text-[10px] sm:text-sm font-medium text-foreground">
+            <span className="text-xs sm:text-sm font-medium text-foreground">
               {entry.value} {tr(language, "users", "ผู้ใช้")}
             </span>
           </div>
@@ -359,7 +359,7 @@ function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: 
         <div className="hidden sm:flex items-center gap-3 sm:gap-5">
           <div className="flex items-center gap-1.5">
             <div className="size-2.5 sm:size-3 rounded-full bg-[var(--med-primary-light)]" />
-            <span className="text-[10px] sm:text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground sm:text-sm">
               {tr(language, "This Year", "ปีนี้")}
             </span>
           </div>
@@ -453,16 +453,16 @@ function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: 
             <p className="text-xl sm:text-2xl lg:text-[28px] font-semibold leading-tight tracking-tight">
               {totalUsers}
             </p>
-            <p className="text-xs sm:text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {tr(language, "Total Registrations", "ผู้ลงทะเบียนรวม")} ({periodLabels[period]})
             </p>
           </div>
 
           <div className="bg-muted/50 rounded-lg p-3 sm:p-4 space-y-3 sm:space-y-4">
-            <p className="text-xs sm:text-sm font-semibold">
+            <p className="text-sm font-semibold">
               🏆 {tr(language, "Best Performing Month", "เดือนที่ผลงานดีที่สุด")}
             </p>
-            <p className="text-[10px] sm:text-xs text-muted-foreground leading-relaxed">
+            <p className="text-xs leading-relaxed text-muted-foreground sm:text-sm">
               {insights[currentInsight]}
             </p>
             <div className="flex items-center gap-2.5 sm:gap-3.5">
@@ -808,7 +808,7 @@ function UsersByRoleChart({ users, language }: { users: User[]; language: AppLan
             <span className="text-lg sm:text-xl font-semibold">
               {totalUsers}
             </span>
-            <span className="text-[10px] sm:text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground sm:text-sm">
               {tr(language, "Total Users", "ผู้ใช้ทั้งหมด")}
             </span>
           </div>
@@ -830,10 +830,10 @@ function UsersByRoleChart({ users, language }: { users: User[]; language: AppLan
                 className="w-1 h-4 sm:h-5 rounded-sm shrink-0"
                 style={{ backgroundColor: item.color }}
               />
-              <span className="flex-1 text-xs sm:text-sm text-muted-foreground truncate">
+              <span className="flex-1 truncate text-sm text-muted-foreground">
                 {item.name}
               </span>
-              <span className="text-xs sm:text-sm font-semibold tabular-nums">
+              <span className="text-sm font-semibold tabular-nums">
                 {item.value}
               </span>
             </div>
@@ -841,7 +841,7 @@ function UsersByRoleChart({ users, language }: { users: User[]; language: AppLan
         </div>
       </div>
 
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Settings2 className="size-3" />
         <span>{tr(language, "All registered users", "ผู้ใช้ที่ลงทะเบียนทั้งหมด")}</span>
       </div>

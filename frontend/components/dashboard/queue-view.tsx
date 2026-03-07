@@ -347,13 +347,13 @@ function QueueCard({
             >
               {patientName}
             </h4>
-            <p className="text-xs text-muted-foreground truncate">
+            <p className="text-sm text-muted-foreground truncate">
               {meeting.description || tr(language, "General consultation", "ปรึกษาทั่วไป")}
             </p>
             {livePresenceInfo && (
               <span
                 className={cn(
-                  "mt-1 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                  "mt-1 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
                   livePresenceInfo.tone === "waiting" &&
                     "bg-amber-500/15 text-amber-700 dark:text-amber-300",
                   livePresenceInfo.tone === "active" &&
@@ -420,7 +420,7 @@ function QueueCard({
       </div>
 
       {/* Info row */}
-      <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+      <div className="flex flex-col gap-1.5 text-sm text-muted-foreground">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="inline-flex items-center gap-1.5 font-medium text-foreground/85">
             <HugeiconsIcon icon={Calendar01Icon} className="size-3.5" />
@@ -450,7 +450,7 @@ function QueueCard({
 
       {/* Cancel reason */}
       {meeting.status === "cancelled" && meeting.reason && (
-        <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
+        <div className="flex items-start gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
           <HugeiconsIcon icon={NoteIcon} className="size-3.5 mt-0.5 shrink-0" />
           <span>{meeting.reason}</span>
         </div>
@@ -458,7 +458,7 @@ function QueueCard({
 
       {isWaitingLive && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-          <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300">
+          <div className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-300">
             <HugeiconsIcon icon={Clock01Icon} className="size-3.5 mt-0.5 shrink-0" />
             <span>
               {isDoctorLeftWaiting
@@ -476,7 +476,7 @@ function QueueCard({
           </div>
           <Button
             size="sm"
-            className="mt-2 h-7 text-xs gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+            className="mt-2 h-8 gap-1.5 text-sm bg-amber-600 text-white hover:bg-amber-700"
             onClick={(e) => {
               e.stopPropagation();
               onStartCall(meeting);
@@ -491,7 +491,7 @@ function QueueCard({
 
       {livePresenceInfo?.tone === "offline" && !isWaitingLive && (
         <div className="rounded-lg border border-slate-400/30 bg-slate-500/10 px-3 py-2">
-          <div className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-300">
+          <div className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
             <HugeiconsIcon icon={AlertCircleIcon} className="size-3.5 mt-0.5 shrink-0" />
             <span>
               {tr(
@@ -506,7 +506,7 @@ function QueueCard({
 
       {livePresenceInfo?.tone === "left" && !isWaitingLive && (
         <div className="rounded-lg border border-slate-400/30 bg-slate-500/10 px-3 py-2">
-          <div className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-300">
+          <div className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
             <HugeiconsIcon icon={AlertCircleIcon} className="size-3.5 mt-0.5 shrink-0" />
             <span>
               {tr(
@@ -551,7 +551,7 @@ function QueueCard({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+                className="h-8 gap-1.5 text-sm text-muted-foreground hover:text-foreground"
                 onClick={() => onStatusChange(meeting, undoTarget)}
                 disabled={loading}
               >
@@ -562,7 +562,7 @@ function QueueCard({
             <Button
               variant="outline"
               size="sm"
-              className="h-7 text-xs gap-1.5"
+              className="h-8 gap-1.5 text-sm"
               onClick={() => onStartCall(meeting)}
               disabled={loading || isTerminal}
             >
@@ -571,7 +571,7 @@ function QueueCard({
             </Button>
           </>
         ) : (
-          <span className="text-xs text-muted-foreground">{tr(language, "Read only", "ดูได้อย่างเดียว")}</span>
+          <span className="text-sm text-muted-foreground">{tr(language, "Read only", "ดูได้อย่างเดียว")}</span>
         )}
       </div>
     </div>
@@ -624,7 +624,7 @@ function StatusSummary({
             aria-pressed={active}
             title={`${item.label}: ${item.count}`}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap",
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap",
               "border",
               active
                 ? "bg-foreground text-background border-foreground"
@@ -639,7 +639,7 @@ function StatusSummary({
             {item.label}
             <span
               className={cn(
-                "text-[10px] font-bold px-1.5 py-0 rounded-full",
+                "rounded-full px-1.5 py-0 text-xs font-bold",
                 active
                   ? "bg-background/20 text-background"
                   : "bg-muted text-muted-foreground"
@@ -983,7 +983,7 @@ export function QueueView({
               variant={dateFilter === "today" ? "default" : "outline"}
               size="sm"
               className={cn(
-                "h-7 text-xs",
+                "h-8 text-sm",
                 dateFilter === "today" &&
                   "bg-foreground text-background hover:bg-foreground/90"
               )}
@@ -995,7 +995,7 @@ export function QueueView({
               variant={dateFilter === "all" ? "default" : "outline"}
               size="sm"
               className={cn(
-                "h-7 text-xs",
+                "h-8 text-sm",
                 dateFilter === "all" &&
                   "bg-foreground text-background hover:bg-foreground/90"
               )}
@@ -1004,7 +1004,7 @@ export function QueueView({
               {tr(language, "All Dates", "ทุกช่วงวัน")}
             </Button>
           </div>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             {tr(
               language,
               `${filteredMeetings.length} meeting${filteredMeetings.length !== 1 ? "s" : ""}`,
@@ -1020,7 +1020,7 @@ export function QueueView({
           onFilterChange={handleStatusFilterChange}
           language={language}
         />
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {tr(language, "Tip: click the active status again to clear filter.", "เคล็ดลับ: กดสถานะที่เลือกอีกครั้งเพื่อล้างตัวกรอง")}
         </p>
       </div>
@@ -1031,7 +1031,7 @@ export function QueueView({
           <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
             <HugeiconsIcon icon={Calendar01Icon} className="size-12 opacity-30" />
             <p className="text-sm">{tr(language, "No meetings found", "ไม่พบนัดหมาย")}</p>
-            <p className="text-xs">
+            <p className="text-sm">
               {dateFilter === "today"
                 ? tr(language, "No meetings scheduled for today. Try switching to 'All Dates'.", "ไม่มีนัดหมายสำหรับวันนี้ ลองสลับเป็น 'ทุกช่วงวัน'")
                 : tr(language, "No meetings match the current filter.", "ไม่มีนัดหมายตรงกับตัวกรองปัจจุบัน")}

@@ -99,16 +99,16 @@ export default function InviteRegisterClientPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <Card className="w-full max-w-md mx-4 border-border shadow-xl">
-        <CardHeader className="space-y-1 text-center">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+      <Card className="mx-4 w-full max-w-xl border-border shadow-xl">
+        <CardHeader className="space-y-2 text-center">
           <div className="flex justify-end">
             <div className="inline-flex rounded-md border border-input bg-background p-0.5">
               {APP_LANGUAGE_OPTIONS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
-                  className={`h-7 rounded px-2 text-xs transition-colors ${option.value === language
+                  className={`h-8 rounded px-2.5 text-[0.9rem] transition-colors ${option.value === language
                     ? "bg-foreground text-background"
                     : "text-muted-foreground hover:bg-muted"
                     }`}
@@ -119,18 +119,18 @@ export default function InviteRegisterClientPage() {
               ))}
             </div>
           </div>
-          <h2 className="text-2xl font-semibold">
+          <h2 className="text-3xl font-semibold tracking-tight">
             {tr(language, "Complete your account setup", "ตั้งค่าบัญชีของคุณให้เสร็จ")}
           </h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-[0.98rem] text-muted-foreground">
             {tr(language, "This invitation was created by an administrator.", "คำเชิญนี้ถูกสร้างโดยผู้ดูแลระบบ")}
           </p>
         </CardHeader>
         <CardContent>
           {error && !email ? (
             <div className="space-y-4">
-              <p className="text-sm text-destructive">{error}</p>
-              <Link href="/login" className="text-primary hover:underline text-sm">
+              <p className="text-[0.95rem] text-destructive">{error}</p>
+              <Link href="/login" className="text-[0.95rem] text-primary hover:underline">
                 {tr(language, "Back to sign in", "กลับไปหน้าเข้าสู่ระบบ")}
               </Link>
             </div>
@@ -192,7 +192,7 @@ export default function InviteRegisterClientPage() {
                     onChange={(e) => setLicenseNo(e.target.value)}
                     placeholder={tr(language, "e.g., MD-12345", "เช่น MD-12345")}
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[0.88rem] text-muted-foreground">
                     {tr(language, "Required for clinical roles.", "จำเป็นสำหรับตำแหน่งสายคลินิก")}
                   </p>
                 </div>
@@ -225,7 +225,7 @@ export default function InviteRegisterClientPage() {
               </div>
 
               {error && (
-                <p className="text-sm text-destructive" role="alert">
+                <p className="text-[0.95rem] text-destructive" role="alert">
                   {error}
                 </p>
               )}

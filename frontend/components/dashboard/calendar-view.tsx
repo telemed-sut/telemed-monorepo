@@ -3,6 +3,7 @@
 import { useRef, useEffect, useState } from "react";
 import { isToday, addMinutes } from "date-fns";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { MoreHorizontal } from "lucide-react";
 import {
   PencilEdit01Icon,
   Layers01Icon,
@@ -12,7 +13,6 @@ import {
   ArrowUpRight01Icon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
-  Tick02Icon,
   Notification01Icon,
   AlertCircleIcon,
   Calendar01Icon,
@@ -44,6 +44,13 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
 import { createMeetingPatientInvite, deleteMeeting, createMeeting } from "@/lib/api";
 import type { MeetingCreatePayload } from "@/lib/api";
@@ -89,6 +96,24 @@ function formatTime12(dateTime: string, language: AppLanguage): string {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
+  });
+}
+
+function formatCompactDate(dateTime: string, language: AppLanguage): string {
+  const d = new Date(dateTime);
+  return d.toLocaleDateString(localeOf(language), {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatCompactTime(dateTime: string, language: AppLanguage): string {
+  const d = new Date(dateTime);
+  return d.toLocaleTimeString(localeOf(language), {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   });
 }
 
@@ -164,7 +189,7 @@ function HoursColumn() {
           className="relative"
           style={{ height: HOUR_HEIGHT }}
         >
-          <span className="absolute -top-[0.6em] left-2 md:left-3 text-xs md:text-sm text-muted-foreground bg-background px-0.5 leading-none">
+          <span className="absolute -top-[0.6em] left-2 bg-background px-0.5 text-sm leading-none text-muted-foreground md:left-3 md:text-[0.95rem]">
             {Number(hour) > 0 ? formatHourLabel(Number(hour), language) : ""}
           </span>
         </div>
@@ -263,25 +288,25 @@ function EventCard({
           {isWaiting && <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-60" />}
           <div className={cn("size-1.5 rounded-full relative", statusColor.dot)} />
         </div>
-        <h4 className="text-[10px] font-semibold text-foreground truncate flex-1">
+        <h4 className="flex-1 truncate text-[11px] font-semibold text-foreground">
           {title}
         </h4>
         {isWaiting && (
-          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-amber-500/15 text-amber-700">
+          <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-semibold text-amber-700">
             {tr(language, "Waiting", "รอหมอ")}
           </span>
         )}
         {livePresenceInfo?.tone === "offline" && (
-          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
+          <span className="rounded bg-slate-500/15 px-1 py-0.5 text-[9px] font-semibold text-slate-700">
             {tr(language, "Offline", "ออฟไลน์")}
           </span>
         )}
         {livePresenceInfo?.tone === "left" && (
-          <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
+          <span className="rounded bg-slate-500/15 px-1 py-0.5 text-[9px] font-semibold text-slate-700">
             {tr(language, "Left", "ออกแล้ว")}
           </span>
         )}
-        <span className="text-[9px] text-muted-foreground shrink-0">
+        <span className="shrink-0 text-[10px] text-muted-foreground">
           {formatTime12(meeting.date_time, language)}
         </span>
       </button>
@@ -310,26 +335,26 @@ function EventCard({
               {isWaiting && <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-60" />}
               <div className={cn("size-1.5 rounded-full relative", statusColor.dot)} />
             </div>
-            <h4 className="text-[10px] font-semibold text-foreground truncate flex-1">
+            <h4 className="flex-1 truncate text-[11px] font-semibold text-foreground">
               {title}
             </h4>
             {isWaiting && (
-              <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-amber-500/15 text-amber-700">
+              <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-semibold text-amber-700">
                 {tr(language, "Waiting", "รอหมอ")}
               </span>
             )}
             {livePresenceInfo?.tone === "offline" && (
-              <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
+              <span className="rounded bg-slate-500/15 px-1 py-0.5 text-[9px] font-semibold text-slate-700">
                 {tr(language, "Offline", "ออฟไลน์")}
               </span>
             )}
             {livePresenceInfo?.tone === "left" && (
-              <span className="text-[8px] font-semibold px-1 py-0.5 rounded bg-slate-500/15 text-slate-700">
+              <span className="rounded bg-slate-500/15 px-1 py-0.5 text-[9px] font-semibold text-slate-700">
                 {tr(language, "Left", "ออกแล้ว")}
               </span>
             )}
           </div>
-          <p className="text-[9px] text-muted-foreground uppercase tracking-wide">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
             {timeStr}
           </p>
         </div>
@@ -364,14 +389,14 @@ function EventCard({
             >
               {title}
             </h4>
-            <span className={cn("text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0", statusColor.text, "bg-current/10")}
+            <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium", statusColor.text, "bg-current/10")}
               style={{ backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)" }}
             >
               {getMeetingStatusLabel(effectiveStatus, language)}
             </span>
           </div>
           {isWaiting && (
-            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[9px] font-semibold text-amber-700">
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
               <span className="relative inline-flex size-1.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-60" />
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
@@ -380,24 +405,24 @@ function EventCard({
             </div>
           )}
           {livePresenceInfo?.tone === "active" && (
-            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-semibold text-emerald-700">
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
               <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
               {tr(language, "Doctor + patient in room", "หมอและคนไข้อยู่ในห้อง")}
             </div>
           )}
           {livePresenceInfo?.tone === "offline" && (
-            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[9px] font-semibold text-slate-700 dark:text-slate-300">
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
               <span className="inline-flex h-1.5 w-1.5 rounded-full bg-slate-500" />
               {tr(language, "Patient offline", "คนไข้ออฟไลน์")}
             </div>
           )}
           {livePresenceInfo?.tone === "left" && (
-            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[9px] font-semibold text-slate-700 dark:text-slate-300">
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
               <span className="inline-flex h-1.5 w-1.5 rounded-full bg-slate-500" />
               {tr(language, "Patient left room", "คนไข้ออกจากห้องแล้ว")}
             </div>
           )}
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide mb-2">
+          <p className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">
             {timeStr}
           </p>
 
@@ -409,14 +434,14 @@ function EventCard({
                     key={p.id}
                     className="size-5 border-2 border-background"
                   >
-                    <AvatarFallback className="text-[8px] font-bold bg-[var(--med-primary-light)]/15 text-[var(--med-primary-light)]">
+                    <AvatarFallback className="bg-[var(--med-primary-light)]/15 text-[9px] font-bold text-[var(--med-primary-light)]">
                       {getInitial(p.name)}
                     </AvatarFallback>
                   </Avatar>
                 ))}
               </div>
               {participants.length > 3 && (
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-[11px] text-muted-foreground">
                   +{participants.length - 3}
                 </span>
               )}
@@ -425,7 +450,7 @@ function EventCard({
         </div>
 
         {meeting.room && (
-          <div className="flex items-center gap-1.5 text-[10px] text-cyan-500 mt-auto">
+          <div className="mt-auto flex items-center gap-1.5 text-[11px] text-cyan-500">
             <div className="size-4 rounded bg-cyan-500/10 flex items-center justify-center shrink-0">
               <svg className="size-2.5" viewBox="0 0 24 24" fill="none">
                 <path
@@ -563,14 +588,22 @@ export function EventDetailSheet({
     ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
     : tr(language, "Unassigned Patient", "ยังไม่ระบุผู้ป่วย");
   const meetingDate = new Date(meeting.date_time);
+  const meetingDuration = getMeetingDuration(meeting);
   const dateStr = meetingDate.toLocaleDateString(localeOf(language), {
     weekday: "long",
     month: "long",
     day: "numeric",
   });
+  const compactDateStr = formatCompactDate(meeting.date_time, language);
   const startTimeStr = formatTime12(meeting.date_time, language);
-  const endTimeStr = formatTime12(addMinutes(meetingDate, 60).toISOString(), language);
-  const title = meeting.description || tr(language, "Appointment", "นัดหมาย");
+  const endTimeStr = formatTime12(addMinutes(meetingDate, meetingDuration).toISOString(), language);
+  const compactTimeRange = `${formatCompactTime(meeting.date_time, language)}-${formatCompactTime(
+    addMinutes(meetingDate, meetingDuration).toISOString(),
+    language
+  )}`;
+  const rawTitle = meeting.description?.trim();
+  const title = rawTitle || patientName;
+  const appointmentLabel = tr(language, "Appointment", "นัดหมาย");
   const roomTarget = normalizeRoomTarget(meeting.room);
   const canOpenRoom = Boolean(roomTarget);
   const isPatientWaiting = isPatientWaitingLive(meeting);
@@ -602,7 +635,27 @@ export function EventDetailSheet({
     },
   ];
 
-  const yesCount = sheetParticipants.length;
+  const secondaryActionsVisible = canWrite || Boolean(onGoToCalendar);
+  const summaryItems = [
+    {
+      icon: Calendar01Icon,
+      label: tr(language, "Date", "วันที่"),
+      value: compactDateStr,
+      detail: dateStr,
+    },
+    {
+      icon: Clock01Icon,
+      label: tr(language, "Time", "เวลา"),
+      value: compactTimeRange,
+      detail: tr(language, "ICT", "เวลา ICT"),
+    },
+    {
+      icon: UserGroupIcon,
+      label: tr(language, "Participants", "ผู้เข้าร่วม"),
+      value: tr(language, `${sheetParticipants.length} people`, `${sheetParticipants.length} คน`),
+      detail: tr(language, "Doctor + patient", "แพทย์ + ผู้ป่วย"),
+    },
+  ];
 
   const handleDelete = async () => {
     if (!token || deleting) return;
@@ -761,122 +814,110 @@ export function EventDetailSheet({
         <SheetContent
           side="right"
           showCloseButton={false}
-          className="w-full sm:max-w-[560px] overflow-y-auto p-0 border-l border-r border-t [&>button]:hidden"
+          className="w-full sm:max-w-[580px] overflow-y-auto border-l border-r border-t bg-background p-0 [&>button]:hidden"
         >
-          <div className="flex flex-col h-full">
-            {/* ── Sheet Header ── */}
-            <SheetHeader className="px-4 pt-4 pb-4 border-b border-border">
-              {/* Top action row */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  {canWrite && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 hover:bg-muted"
-                      onClick={handleEdit}
-                      title={tr(language, "Edit appointment", "แก้ไขนัดหมาย")}
+          <div className="flex h-full flex-col">
+            <SheetHeader className="border-b border-border bg-[linear-gradient(180deg,rgba(189,232,245,0.18)_0%,rgba(255,255,255,0)_100%)] px-4 pt-4 pb-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-semibold uppercase tracking-[0.14em]",
+                        statusColor.text
+                      )}
+                      style={{ backgroundColor: "color-mix(in srgb, currentColor 10%, white)" }}
                     >
-                      <HugeiconsIcon
-                        icon={PencilEdit01Icon}
-                        className="size-4 text-muted-foreground"
-                      />
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 hover:bg-muted"
-                    onClick={handleCopy}
-                    title={tr(language, "Copy appointment details", "คัดลอกรายละเอียดนัดหมาย")}
-                  >
-                    <HugeiconsIcon
-                      icon={Copy01Icon}
-                      className="size-4 text-muted-foreground"
-                    />
-                  </Button>
-                  {canWrite && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 hover:bg-muted"
-                      onClick={handleDuplicate}
-                      disabled={duplicating}
-                      title={tr(language, "Duplicate appointment", "ทำซ้ำนัดหมาย")}
-                    >
-                      <HugeiconsIcon
-                        icon={Layers01Icon}
-                        className="size-4 text-muted-foreground"
-                      />
-                    </Button>
-                  )}
-                  {canDelete && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 hover:bg-muted"
-                      onClick={handleDeleteAction}
-                      disabled={deleting}
-                      title={tr(language, "Delete appointment", "ลบนัดหมาย")}
-                    >
-                      <HugeiconsIcon
-                        icon={Delete01Icon}
-                        className="size-4 text-muted-foreground"
-                      />
-                    </Button>
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 hover:bg-muted"
-                    onClick={handleStartCall}
-                    disabled={!canStartCall}
-                    title={tr(language, "Start video call", "เริ่มวิดีโอคอล")}
-                  >
-                    <HugeiconsIcon
-                      icon={CallIcon}
-                      className="size-4 text-muted-foreground"
-                    />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-8 hover:bg-muted"
-                    onClick={() => {
-                      void handleCopyPatientJoinLink();
-                    }}
-                    disabled={!canWrite || copyingPatientLink}
-                    title={tr(language, "Copy patient join link", "คัดลอกลิงก์เข้าห้องของคนไข้")}
-                  >
-                    <HugeiconsIcon
-                      icon={LinkSquare01Icon}
-                      className="size-4 text-muted-foreground"
-                    />
-                  </Button>
+                      <span className={cn("size-2 rounded-full", statusColor.dot)} />
+                      {getMeetingStatusLabel(effectiveStatus, language)}
+                    </span>
+                    {meeting.room && (
+                      <span className="inline-flex items-center rounded-full border border-border/80 bg-background/80 px-3 py-1 text-sm font-medium text-muted-foreground">
+                        {tr(language, "Room", "ห้อง")} {meeting.room}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mb-1 text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    {appointmentLabel}
+                  </p>
+                  <SheetTitle className="text-[22px] font-semibold leading-tight tracking-[-0.02em] text-foreground">
+                    {title}
+                  </SheetTitle>
+                  <div className="mt-2 flex flex-col gap-1 text-sm text-muted-foreground">
+                    <p className="truncate">{doctorName}</p>
+                    {rawTitle && <p className="truncate">{patientName}</p>}
+                  </div>
                 </div>
-                <SheetClose
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-6 rounded-full bg-muted hover:bg-muted"
-                    >
-                      <HugeiconsIcon
-                        icon={Cancel01Icon}
-                        className="size-4 text-muted-foreground"
-                      />
-                    </Button>
-                  }
-                />
+
+                <div className="flex items-center gap-2">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-2 border-border/80 bg-background/90"
+                          title={tr(language, "More actions", "การกระทำเพิ่มเติม")}
+                        >
+                          <MoreHorizontal className="size-4" />
+                          <span>{tr(language, "More", "เพิ่มเติม")}</span>
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end" className="w-52">
+                      <DropdownMenuItem onClick={handleCopy}>
+                        <HugeiconsIcon icon={Copy01Icon} className="size-4" />
+                        {tr(language, "Copy appointment details", "คัดลอกรายละเอียดนัดหมาย")}
+                      </DropdownMenuItem>
+                      {canWrite && (
+                        <DropdownMenuItem
+                          onClick={() => {
+                            void handleDuplicate();
+                          }}
+                          disabled={duplicating}
+                        >
+                          <HugeiconsIcon icon={Layers01Icon} className="size-4" />
+                          {tr(language, "Duplicate appointment", "ทำซ้ำนัดหมาย")}
+                        </DropdownMenuItem>
+                      )}
+                      {canDelete && <DropdownMenuSeparator />}
+                      {canDelete && (
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={handleDeleteAction}
+                          disabled={deleting}
+                        >
+                          <HugeiconsIcon icon={Delete01Icon} className="size-4" />
+                          {tr(language, "Delete appointment", "ลบนัดหมาย")}
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+
+                  <SheetClose
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="rounded-full bg-background/80 hover:bg-muted"
+                      >
+                        <HugeiconsIcon
+                          icon={Cancel01Icon}
+                          className="size-4 text-muted-foreground"
+                        />
+                      </Button>
+                    }
+                  />
+                </div>
               </div>
 
               {isPatientWaiting && (
-                <div className="mb-4 rounded-xl border border-amber-500/35 bg-gradient-to-r from-amber-500/15 to-orange-500/10 p-3">
+                <div className="mt-4 rounded-2xl border border-amber-500/35 bg-gradient-to-r from-amber-500/15 to-orange-500/10 p-3">
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-amber-500/20 text-amber-700">
                       <HugeiconsIcon icon={Clock01Icon} className="size-4" />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-amber-800">
                         {isDoctorLeftWaiting
                           ? tr(
@@ -886,7 +927,7 @@ export function EventDetailSheet({
                             )
                           : tr(language, "Patient is in waiting room now", "คนไข้อยู่ในห้องรอแล้ว")}
                       </p>
-                      <p className="text-xs text-amber-700/90 mt-0.5">
+                      <p className="mt-0.5 text-sm text-amber-700/90">
                         {isDoctorLeftWaiting
                           ? tr(
                               language,
@@ -902,7 +943,7 @@ export function EventDetailSheet({
                     </div>
                     <Button
                       size="sm"
-                      className="h-8 bg-amber-600 hover:bg-amber-700 text-white"
+                      className="h-9 bg-amber-600 text-white hover:bg-amber-700"
                       onClick={handleStartCall}
                       disabled={!canStartCall}
                     >
@@ -914,16 +955,16 @@ export function EventDetailSheet({
               )}
 
               {livePresenceInfo?.tone === "offline" && (
-                <div className="mb-4 rounded-xl border border-slate-500/35 bg-slate-500/10 p-3">
+                <div className="mt-4 rounded-2xl border border-slate-500/35 bg-slate-500/10 p-3">
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-slate-500/20 text-slate-700 dark:text-slate-300">
                       <HugeiconsIcon icon={Clock01Icon} className="size-4" />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
                         {tr(language, "Patient is offline now", "ตอนนี้คนไข้ออฟไลน์")}
                       </p>
-                      <p className="text-xs text-slate-700/90 dark:text-slate-300/90 mt-0.5">
+                      <p className="mt-0.5 text-sm text-slate-700/90 dark:text-slate-300/90">
                         {tr(
                           language,
                           "Ask patient to reopen the room link and wait in room.",
@@ -936,16 +977,16 @@ export function EventDetailSheet({
               )}
 
               {livePresenceInfo?.tone === "left" && (
-                <div className="mb-4 rounded-xl border border-slate-500/35 bg-slate-500/10 p-3">
+                <div className="mt-4 rounded-2xl border border-slate-500/35 bg-slate-500/10 p-3">
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-slate-500/20 text-slate-700 dark:text-slate-300">
                       <HugeiconsIcon icon={AlertCircleIcon} className="size-4" />
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
                         {tr(language, "Patient left the room", "คนไข้ออกจากห้องแล้ว")}
                       </p>
-                      <p className="text-xs text-slate-700/90 dark:text-slate-300/90 mt-0.5">
+                      <p className="mt-0.5 text-sm text-slate-700/90 dark:text-slate-300/90">
                         {tr(
                           language,
                           "If the visit should continue, ask patient to reopen the room link.",
@@ -957,34 +998,22 @@ export function EventDetailSheet({
                 </div>
               )}
 
-              {/* Title & time */}
-              <div className="flex flex-col gap-1 mb-4">
-                <div className="flex items-center gap-2">
-                  <SheetTitle className="text-xl font-semibold text-foreground leading-normal">
-                    {title}
-                  </SheetTitle>
-                  <span
-                    className={cn("text-[11px] font-medium px-2 py-0.5 rounded-full", statusColor.text)}
-                    style={{ backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)" }}
-                  >
-                    {getMeetingStatusLabel(effectiveStatus, language)}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-[13px] font-medium text-muted-foreground">
-                  <span>{dateStr}</span>
-                  <span className="size-1 rounded-full bg-muted-foreground" />
-                  <span>
-                    {startTimeStr} - {endTimeStr}
-                  </span>
-                  <span className="size-1 rounded-full bg-muted-foreground" />
-                  <span>{tr(language, "ICT", "เวลา ICT")}</span>
-                </div>
+              <div className="mt-4 grid gap-2 rounded-2xl border border-border/80 bg-background/90 p-3 shadow-[0_1px_2px_rgba(15,40,84,0.05)] sm:grid-cols-3">
+                {summaryItems.map((item) => (
+                  <div key={item.label} className="min-w-0 rounded-xl bg-muted/35 px-3 py-2.5">
+                    <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      <HugeiconsIcon icon={item.icon} className="size-3.5" />
+                      <span>{item.label}</span>
+                    </div>
+                    <p className="truncate text-sm font-semibold text-foreground">{item.value}</p>
+                    <p className="truncate text-sm text-muted-foreground">{item.detail}</p>
+                  </div>
+                ))}
               </div>
 
-              {/* Propose new time */}
-              <div className="flex flex-wrap gap-2">
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
                 <Button
-                  className="flex-1"
+                  className="h-11 justify-center gap-2 text-sm shadow-sm"
                   onClick={handleStartCall}
                   disabled={!canStartCall}
                 >
@@ -993,7 +1022,7 @@ export function EventDetailSheet({
                 </Button>
                 <Button
                   variant="outline"
-                  className="flex-1"
+                  className="h-11 justify-center gap-2 border-border bg-background px-3 text-sm"
                   onClick={() => {
                     void handleCopyPatientJoinLink();
                   }}
@@ -1006,91 +1035,105 @@ export function EventDetailSheet({
                       : tr(language, "Copy patient link", "คัดลอกลิงก์คนไข้")}
                   </span>
                 </Button>
-                <Button variant="outline" className="flex-1" disabled={!canWrite}>
-                  <span>{tr(language, "Propose new time", "เสนอเวลาใหม่")}</span>
-                  <HugeiconsIcon
-                    icon={ArrowUpRight01Icon}
-                    className="size-4"
-                  />
-                </Button>
-                {onGoToCalendar && (
-                  <Button
-                    variant="outline"
-                    className="gap-2"
-                    onClick={() => {
-                      onGoToCalendar(meeting);
-                      onOpenChange(false);
-                    }}
-                  >
-                    <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
-                    <span>{tr(language, "View in Calendar", "ดูในปฏิทิน")}</span>
-                  </Button>
-                )}
               </div>
+
+              {secondaryActionsVisible && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {canWrite && (
+                    <Button
+                      variant="outline"
+                      className="min-h-9 flex-1 justify-center gap-2 border-border bg-background text-sm"
+                      onClick={handleEdit}
+                    >
+                      <HugeiconsIcon icon={PencilEdit01Icon} className="size-4" />
+                      <span>{tr(language, "Edit appointment", "แก้ไขนัดหมาย")}</span>
+                    </Button>
+                  )}
+                  {onGoToCalendar && (
+                    <Button
+                      variant="outline"
+                      className="min-h-9 flex-1 justify-center gap-2 border-border bg-background text-sm"
+                      onClick={() => {
+                        onGoToCalendar(meeting);
+                        onOpenChange(false);
+                      }}
+                    >
+                      <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
+                      <span>{tr(language, "View in Calendar", "ดูในปฏิทิน")}</span>
+                    </Button>
+                  )}
+                </div>
+              )}
             </SheetHeader>
 
-            {/* ── Sheet Body ── */}
             <div className="flex-1 overflow-y-auto px-4 py-4">
-              <div className="flex flex-col gap-4 max-w-[512px] mx-auto">
-                {/* Participants */}
-                <div className="flex flex-col gap-4">
-                  {sheetParticipants.map((participant) => (
-                    <div
-                      key={participant.id}
-                      className="flex items-start gap-3 relative"
-                    >
-                      <Avatar className="size-7 border-[1.4px] border-background shrink-0">
-                        <AvatarFallback
-                          className={cn(
-                            "text-[10px] font-bold",
-                            participant.isOrganizer
-                              ? "bg-cyan-500/20 text-cyan-500"
-                              : "bg-emerald-500/20 text-emerald-500"
-                          )}
-                        >
-                          {getInitial(participant.name)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start gap-2 relative">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 mb-1 relative">
-                              <p className="text-[13px] font-medium text-foreground leading-[18px]">
-                                {participant.name}
-                              </p>
-                              {participant.isOrganizer && (
-                                <span className="text-[10px] font-medium text-cyan-500 px-0.5 py-0.5 rounded-full">
-                                  {tr(language, "Organizer", "ผู้จัด")}
-                                </span>
-                              )}
-                              {participant.isYou && (
-                                <span className="text-[10px] font-medium text-foreground px-0.5 py-0.5 rounded-full">
-                                  {tr(language, "You", "คุณ")}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-xs text-muted-foreground leading-none">
-                              {participant.email ||
-                                `${participant.name.toLowerCase().replace(/[^a-z]/g, "")}@hospital.com`}
+              <div className="mx-auto flex max-w-[540px] flex-col gap-3">
+                <section className="rounded-2xl border border-border bg-card p-3 shadow-[0_1px_2px_rgba(15,40,84,0.05)]">
+                  <div className="mb-2.5 flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        {tr(language, "Participants", "ผู้เข้าร่วม")}
+                      </h3>
+                    </div>
+                    <span className="rounded-full bg-muted px-2.5 py-1 text-sm font-medium text-muted-foreground">
+                      {tr(language, `${sheetParticipants.length} people`, `${sheetParticipants.length} คน`)}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-col gap-2.5">
+                    {sheetParticipants.map((participant) => (
+                      <div
+                        key={participant.id}
+                        className="flex items-start gap-2.5"
+                      >
+                        <Avatar className="size-8 shrink-0 border border-background shadow-sm">
+                          <AvatarFallback
+                            className={cn(
+                              "text-xs font-bold",
+                              participant.isOrganizer
+                                ? "bg-cyan-500/20 text-cyan-500"
+                                : "bg-emerald-500/20 text-emerald-500"
+                            )}
+                          >
+                            {getInitial(participant.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
+                            <p className="truncate text-sm font-medium leading-5 text-foreground">
+                              {participant.name}
                             </p>
+                            {participant.isOrganizer && (
+                              <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-xs font-medium text-cyan-600">
+                                {tr(language, "Organizer", "ผู้จัด")}
+                              </span>
+                            )}
+                            {participant.isYou && (
+                              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
+                                {tr(language, "You", "คุณ")}
+                              </span>
+                            )}
                           </div>
-                          <HugeiconsIcon
-                            icon={Tick02Icon}
-                            className="size-3 text-green-500 shrink-0 absolute right-0 top-[17px]"
-                          />
+                          <p className="truncate text-sm leading-5 text-muted-foreground">
+                            {participant.email || tr(language, "No contact email", "ไม่มีอีเมลติดต่อ")}
+                          </p>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </section>
 
-                {/* Room section */}
                 {meeting.room && (
-                  <div className="flex flex-col gap-2 pt-4 border-t border-border">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="size-6 shrink-0 rounded bg-[var(--med-primary-light)]/10 flex items-center justify-center">
+                  <section className="rounded-2xl border border-border bg-card p-3.5 shadow-[0_1px_2px_rgba(15,40,84,0.05)]">
+                    <div className="mb-2.5 flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-foreground">
+                          {tr(language, "Room access", "ทางเข้าห้องตรวจ")}
+                        </h3>
+                      </div>
+                      <div className="inline-flex size-9 shrink-0 items-center justify-center rounded-2xl bg-[var(--med-primary-light)]/12">
                         <svg
-                          className="size-3.5"
+                          className="size-4"
                           viewBox="0 0 24 24"
                           fill="none"
                         >
@@ -1111,16 +1154,15 @@ export function EventDetailSheet({
                           />
                         </svg>
                       </div>
-                      <p className="text-xs font-medium text-muted-foreground flex-1">
-                        {tr(language, "Room Assignment", "ห้องที่มอบหมาย")}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {meeting.room}
-                      </p>
                     </div>
-                    <div className="flex gap-2">
+
+                    <div className="rounded-xl border border-border/70 bg-muted/35 px-3 py-2 text-sm font-medium text-foreground">
+                      {meeting.room}
+                    </div>
+
+                    <div className="mt-2.5 flex flex-wrap gap-2">
                       <Button
-                        className="flex-1 h-8 bg-foreground text-background hover:bg-foreground/90 text-xs font-medium gap-2 shadow-sm disabled:opacity-60"
+                        className="min-h-9 flex-1 gap-2 shadow-sm disabled:opacity-60"
                         onClick={handleOpenRoom}
                         disabled={!canOpenRoom}
                       >
@@ -1132,8 +1174,7 @@ export function EventDetailSheet({
                       </Button>
                       <Button
                         variant="outline"
-                        size="sm"
-                        className="h-8 gap-2 text-xs border-border"
+                        className="min-h-9 flex-1 gap-2 border-border bg-background"
                         onClick={() => {
                           navigator.clipboard.writeText(meeting.room || "");
                           toast.success(tr(language, "Room copied", "คัดลอกห้องแล้ว"));
@@ -1146,77 +1187,105 @@ export function EventDetailSheet({
                         <span>{tr(language, "Copy", "คัดลอก")}</span>
                       </Button>
                     </div>
-                  </div>
+                  </section>
                 )}
 
-                {/* Info rows */}
-                <div className="flex flex-col gap-2 pt-4 border-t border-border">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <div className="p-1">
-                      <HugeiconsIcon
-                        icon={Notification01Icon}
-                        className="size-4"
-                      />
-                    </div>
-                    <span>{tr(language, "Reminder: 30min before", "แจ้งเตือน: ก่อนเวลา 30 นาที")}</span>
+                <section className="rounded-2xl border border-border bg-card p-3 shadow-[0_1px_2px_rgba(15,40,84,0.05)]">
+                  <div className="mb-2.5">
+                    <h3 className="text-sm font-semibold text-foreground">
+                      {tr(language, "Appointment details", "รายละเอียดนัดหมาย")}
+                    </h3>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <div className="p-1">
-                      <HugeiconsIcon
-                        icon={Calendar01Icon}
-                        className="size-4"
-                      />
-                    </div>
-                    <span>
-                      {tr(language, "Doctor", "แพทย์")}: {meeting.doctor?.email || doctorName}
-                    </span>
-                  </div>
-                  {meeting.room && (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <div className="p-1">
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-muted/35 px-3 py-2.5 text-sm text-foreground">
+                      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                         <HugeiconsIcon
-                          icon={CallIcon}
-                          className="size-4"
+                          icon={Clock01Icon}
+                          className="size-3.5"
                         />
+                        <span>{tr(language, "Schedule", "กำหนดเวลา")}</span>
                       </div>
-                      <span>{tr(language, "Room", "ห้อง")}: {meeting.room}</span>
+                      <p className="truncate text-sm leading-5 text-muted-foreground">{compactDateStr}</p>
+                      <p className="truncate text-sm font-medium">{compactTimeRange} ICT</p>
                     </div>
-                  )}
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <div className="p-1">
-                      <HugeiconsIcon
-                        icon={UserGroupIcon}
-                        className="size-4"
-                      />
+                    <div className="rounded-xl bg-muted/35 px-3 py-2.5 text-sm text-foreground">
+                      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        <HugeiconsIcon
+                          icon={Notification01Icon}
+                          className="size-3.5"
+                        />
+                        <span>{tr(language, "Reminder", "แจ้งเตือน")}</span>
+                      </div>
+                      <p className="text-sm font-medium">
+                        {tr(language, "30 min before", "30 นาทีก่อน")}
+                      </p>
                     </div>
-                    <span>
-                      {sheetParticipants.length} {tr(language, "persons", "คน")}
-                      <span className="mx-1">•</span>
-                      {yesCount} {tr(language, "yes", "ตอบรับ")}
-                    </span>
+                    <div className="rounded-xl bg-muted/35 px-3 py-2.5 text-sm text-foreground">
+                      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        <HugeiconsIcon
+                          icon={Calendar01Icon}
+                          className="size-3.5"
+                        />
+                        <span>{tr(language, "Doctor", "แพทย์")}</span>
+                      </div>
+                      <p className="truncate text-sm font-medium">{doctorName}</p>
+                      <p className="truncate text-sm leading-5 text-muted-foreground">
+                        {meeting.doctor?.email || tr(language, "No contact email", "ไม่มีอีเมลติดต่อ")}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-muted/35 px-3 py-2.5 text-sm text-foreground">
+                      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        <HugeiconsIcon
+                          icon={UserGroupIcon}
+                          className="size-3.5"
+                        />
+                        <span>{tr(language, "Participants", "ผู้เข้าร่วม")}</span>
+                      </div>
+                      <p className="text-sm font-medium">
+                        {tr(language, `${sheetParticipants.length} people`, `${sheetParticipants.length} คน`)}
+                      </p>
+                    </div>
+                    {meeting.room && (
+                      <div className="col-span-2 rounded-xl bg-muted/35 px-3 py-2.5 text-sm text-foreground">
+                        <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          <HugeiconsIcon
+                            icon={CallIcon}
+                            className="size-3.5"
+                          />
+                          <span>{tr(language, "Room", "ห้อง")}</span>
+                        </div>
+                        <p className="truncate text-sm font-medium">{meeting.room}</p>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <div className="p-1">
+                </section>
+
+                <section className="rounded-2xl border border-border bg-card p-3 shadow-[0_1px_2px_rgba(15,40,84,0.05)]">
+                  <div className="mb-2.5 flex items-start gap-3">
+                    <div className="rounded-xl bg-muted p-1.5 text-muted-foreground">
                       <HugeiconsIcon icon={NoteIcon} className="size-4" />
                     </div>
-                    <span>{tr(language, "Notes from Doctor", "บันทึกจากแพทย์")}</span>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-semibold text-foreground">
+                        {tr(language, "Notes from doctor", "บันทึกจากแพทย์")}
+                      </h3>
+                      <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                        {meeting.note
+                          ? tr(language, "Clinical note attached to this appointment", "มีบันทึกคลินิกแนบกับนัดหมายนี้")
+                          : tr(language, "No note has been added yet", "ยังไม่มีการเพิ่มบันทึก")}
+                      </p>
+                    </div>
                   </div>
-                </div>
-
-                {/* Notes */}
-                {meeting.note && (
-                  <div className="pt-4 border-t border-border">
-                    <p className="text-xs text-muted-foreground leading-[1.6]">
-                      {meeting.note}
-                    </p>
+                  <div className="rounded-xl border border-dashed border-border bg-muted/25 px-3 py-2.5 text-sm leading-5 text-foreground/80">
+                    {meeting.note || tr(language, "No notes available for this appointment.", "ยังไม่มีบันทึกสำหรับนัดหมายนี้")}
                   </div>
-                )}
+                </section>
               </div>
             </div>
           </div>
         </SheetContent>
       </Sheet>
-
     </>
   );
 }

@@ -58,16 +58,16 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <Card className="w-full max-w-md mx-4 border-border shadow-xl">
-        <CardHeader className="space-y-1 text-center">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+      <Card className="mx-4 w-full max-w-lg border-border shadow-xl">
+        <CardHeader className="space-y-2 text-center">
           <div className="flex justify-end">
             <div className="inline-flex rounded-md border border-input bg-background p-0.5">
               {APP_LANGUAGE_OPTIONS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
-                  className={`h-7 rounded px-2 text-xs transition-colors ${option.value === language
+                  className={`h-8 rounded px-2.5 text-[0.9rem] transition-colors ${option.value === language
                     ? "bg-foreground text-background"
                     : "text-muted-foreground hover:bg-muted"
                     }`}
@@ -78,8 +78,8 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
               ))}
             </div>
           </div>
-          <h2 className="text-2xl font-semibold">{tr(language, "Reset password", "ตั้งรหัสผ่านใหม่")}</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-3xl font-semibold tracking-tight">{tr(language, "Reset password", "ตั้งรหัสผ่านใหม่")}</h2>
+          <p className="text-[0.98rem] text-muted-foreground">
             {tr(language, "Enter your reset token and set a new password.", "กรอกรีเซ็ตโทเคนและตั้งรหัสผ่านใหม่")}
           </p>
         </CardHeader>
@@ -123,7 +123,7 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
             </div>
 
             {error && (
-              <p className="text-sm text-destructive" role="alert">
+              <p className="text-[0.95rem] text-destructive" role="alert">
                 {error}
               </p>
             )}
@@ -135,7 +135,7 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
             </Button>
           </form>
 
-          <div className="mt-4 text-sm text-center">
+          <div className="mt-4 text-center text-[0.95rem]">
             <Link href="/login" className="text-primary hover:underline">
               {tr(language, "Back to sign in", "กลับไปหน้าเข้าสู่ระบบ")}
             </Link>

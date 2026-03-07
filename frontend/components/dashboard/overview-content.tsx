@@ -13,7 +13,7 @@ export function OverviewContent() {
     const showTable = useDashboardStore((s) => s.showTable);
 
     return (
-        <main className="w-full flex-1 overflow-auto p-4 sm:p-6 space-y-6">
+        <main className="flex-1 overflow-auto px-3 py-3 sm:px-4 sm:py-4 space-y-5">
             {showAlertBanner && <AlertBanner />}
             {showStatsCards && <StatsCards />}
             {showChart && <FinancialFlowChart />}

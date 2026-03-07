@@ -31,7 +31,7 @@ export function DataTableViewOptions<TData>({
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger className="ml-auto hidden h-8 lg:flex items-center justify-center whitespace-nowrap rounded-md border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground px-3 text-xs font-medium focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50">
+            <DropdownMenuTrigger className="ml-auto hidden h-9 items-center justify-center whitespace-nowrap rounded-md border border-input bg-transparent px-3 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 lg:flex">
                 <Settings2 className="mr-2 h-4 w-4" />
                 {tr(language, "View", "มุมมอง")}
             </DropdownMenuTrigger>

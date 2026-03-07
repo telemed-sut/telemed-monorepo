@@ -292,7 +292,7 @@ function PatientDirectoryDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[560px] p-0 gap-0 overflow-hidden bg-muted/50" showCloseButton={false}>
-        <div className="flex items-center justify-between border-b border-border/50 px-5 py-3">
+        <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
           <div className="text-sm font-semibold text-foreground">
             {tr(language, "Select Patient", "เลือกผู้ป่วย")}
           </div>
@@ -308,8 +308,8 @@ function PatientDirectoryDialog({
         </div>
 
         <div className="p-4">
-          <div className="relative w-full rounded-[34px] border border-border bg-background pb-6">
-            <div className="px-7 pb-3 pt-7">
+          <div className="relative w-full rounded-[28px] border border-border bg-background pb-5">
+            <div className="px-6 pb-3 pt-6">
               <div className="mb-5 flex items-center justify-between">
                 <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
                   {tr(language, "Active Patients", "ผู้ป่วยที่พร้อมติดต่อ")}
@@ -343,7 +343,7 @@ function PatientDirectoryDialog({
               </div>
             </div>
 
-            <div className="max-h-[280px] overflow-y-auto px-7 pb-24">
+            <div className="max-h-[280px] overflow-y-auto px-6 pb-20">
               <motion.div
                 initial={false}
                 animate="visible"
@@ -463,7 +463,7 @@ function PatientDirectoryDialog({
                       initial={{ opacity: 0, y: -8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
-                      className="px-6 py-4"
+                      className="px-5 py-4"
                     >
                       <div className="relative">
                         <HugeiconsIcon
@@ -482,7 +482,7 @@ function PatientDirectoryDialog({
                   )}
                 </AnimatePresence>
 
-                <div className="flex-1 overflow-y-auto px-6 py-2">
+                <div className="flex-1 overflow-y-auto px-5 py-2">
                   <motion.div
                     initial="hidden"
                     animate={expanded ? "visible" : "hidden"}
@@ -782,7 +782,7 @@ function DoctorDirectoryDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[560px] p-0 gap-0 overflow-hidden bg-muted/50" showCloseButton={false}>
-        <div className="flex items-center justify-between border-b border-border/50 px-5 py-3">
+        <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
           <div className="text-sm font-semibold text-foreground">
             {tr(language, "Select Doctor", "เลือกแพทย์")}
           </div>
@@ -798,8 +798,8 @@ function DoctorDirectoryDialog({
         </div>
 
         <div className="p-4">
-          <div className="relative w-full rounded-[34px] border border-border bg-background pb-6">
-            <div className="px-7 pb-3 pt-7">
+          <div className="relative w-full rounded-[28px] border border-border bg-background pb-5">
+            <div className="px-6 pb-3 pt-6">
               <div className="mb-5 flex items-center justify-between">
                 <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
                   {tr(language, "Active Doctors", "แพทย์ที่พร้อมใช้งาน")}
@@ -833,7 +833,7 @@ function DoctorDirectoryDialog({
               </div>
             </div>
 
-            <div className="max-h-[280px] overflow-y-auto px-7 pb-24">
+            <div className="max-h-[280px] overflow-y-auto px-6 pb-20">
               <motion.div
                 initial={false}
                 animate="visible"
@@ -953,7 +953,7 @@ function DoctorDirectoryDialog({
                       initial={{ opacity: 0, y: -8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
-                      className="px-6 py-4"
+                      className="px-5 py-4"
                     >
                       <div className="relative">
                         <HugeiconsIcon
@@ -972,7 +972,7 @@ function DoctorDirectoryDialog({
                   )}
                 </AnimatePresence>
 
-                <div className="flex-1 overflow-y-auto px-6 py-2">
+                <div className="flex-1 overflow-y-auto px-5 py-2">
                   <motion.div
                     initial="hidden"
                     animate={expanded ? "visible" : "hidden"}
@@ -1043,8 +1043,8 @@ function SchedulePopover({
       <PopoverContent className="w-80 p-4" align="end">
         <div className="space-y-4">
           <div>
-            <h4 className="text-sm font-semibold mb-3">{tr(language, "Schedule Meeting", "นัดหมายการประชุม")}</h4>
-            <p className="text-xs text-muted-foreground mb-4">
+            <h4 className="mb-3 text-base font-semibold">{tr(language, "Schedule Meeting", "นัดหมายการประชุม")}</h4>
+            <p className="mb-4 text-sm text-muted-foreground">
               {tr(language, "Quick schedule a meeting or event", "สร้างนัดหมายหรืออีเวนต์อย่างรวดเร็ว")}
             </p>
           </div>
@@ -1052,7 +1052,7 @@ function SchedulePopover({
           <div className="space-y-3">
             {/* Date */}
             <div className="grid gap-2">
-              <Label className="text-xs">{tr(language, "Date", "วันที่")}</Label>
+              <Label className="text-sm">{tr(language, "Date", "วันที่")}</Label>
               <Popover
                 open={datePickerOpen}
                 onOpenChange={setDatePickerOpen}
@@ -1062,7 +1062,7 @@ function SchedulePopover({
                     <Button
                       variant="outline"
                       className={cn(
-                        "w-full justify-start text-left font-normal h-9",
+                        "h-10 w-full justify-start text-left text-sm font-normal",
                         !date && "text-muted-foreground"
                       )}
                     >
@@ -1099,7 +1099,7 @@ function SchedulePopover({
             {/* Start / End time */}
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-2">
-                <Label className="text-xs">{tr(language, "Start", "เริ่ม")}</Label>
+                <Label className="text-sm">{tr(language, "Start", "เริ่ม")}</Label>
                 <div className="relative">
                   <HugeiconsIcon
                     icon={Clock01Icon}
@@ -1109,13 +1109,13 @@ function SchedulePopover({
                     type="time"
                     value={startTime}
                     onChange={(e) => setStartTime(e.target.value)}
-                    className="pl-8 h-9 text-xs"
+                    className="h-10 pl-8 text-sm"
                     placeholder="09:00"
                   />
                 </div>
               </div>
               <div className="grid gap-2">
-                <Label className="text-xs">{tr(language, "End", "สิ้นสุด")}</Label>
+                <Label className="text-sm">{tr(language, "End", "สิ้นสุด")}</Label>
                 <div className="relative">
                   <HugeiconsIcon
                     icon={Clock01Icon}
@@ -1125,7 +1125,7 @@ function SchedulePopover({
                     type="time"
                     value={endTime}
                     onChange={(e) => setEndTime(e.target.value)}
-                    className="pl-8 h-9 text-xs"
+                    className="h-10 pl-8 text-sm"
                     placeholder="10:00"
                   />
                 </div>
@@ -1139,7 +1139,7 @@ function SchedulePopover({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 justify-start gap-2 text-xs"
+                className="h-9 justify-start gap-2 text-sm"
               >
                 <HugeiconsIcon icon={UserGroupIcon} className="size-3.5" />
                 <span>{tr(language, "Add participants", "เพิ่มผู้เข้าร่วม")}</span>
@@ -1147,7 +1147,7 @@ function SchedulePopover({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 justify-start gap-2 text-xs"
+                className="h-9 justify-start gap-2 text-sm"
               >
                 <HugeiconsIcon icon={Calendar01Icon} className="size-3.5" />
                 <span>{tr(language, "Add video call", "เพิ่มวิดีโอคอล")}</span>
@@ -1159,14 +1159,14 @@ function SchedulePopover({
               <Button
                 variant="outline"
                 size="sm"
-                className="flex-1 h-8 text-xs"
+                className="h-9 flex-1 text-sm"
                 onClick={() => setOpen(false)}
               >
                 {tr(language, "Cancel", "ยกเลิก")}
               </Button>
               <Button
                 size="sm"
-                className="flex-1 h-8 text-xs"
+                className="h-9 flex-1 text-sm"
                 onClick={handleSchedule}
                 disabled={!date || !startTime || !endTime}
               >
@@ -1649,7 +1649,7 @@ function CreateEventDialog({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-[520px] p-0 gap-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-6 pb-4">
+        <DialogHeader className="px-5 pb-3 pt-5">
           <DialogTitle className="text-base">
             {editMeeting
               ? tr(language, "Edit Appointment", "แก้ไขนัดหมาย")
@@ -1662,10 +1662,10 @@ function CreateEventDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-6 pb-2 space-y-5">
+        <div className="space-y-4 px-5 pb-2">
           {/* ── Date & Time Selection ── */}
           <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
               {tr(language, "Date & Time Selection", "เลือกวันและเวลา")}
             </Label>
             <AnimatedCalendar
@@ -1689,7 +1689,7 @@ function CreateEventDialog({
               closeOnSelect
               className="w-full"
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {tr(
                 language,
                 "Select a date, then set start and end time below.",
@@ -1701,7 +1701,7 @@ function CreateEventDialog({
           {/* ── Time Pickers ── */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {tr(language, "Start Time", "เวลาเริ่ม")}
               </Label>
               <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3.5 py-2 text-sm">
@@ -1735,7 +1735,7 @@ function CreateEventDialog({
               </div>
             </div>
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {tr(language, "End Time", "เวลาสิ้นสุด")}
               </Label>
               <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3.5 py-2 text-sm">
@@ -1773,7 +1773,7 @@ function CreateEventDialog({
           {/* ── Doctor & Patient ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {tr(language, "Doctor", "แพทย์")} <span className="text-red-400">*</span>
               </Label>
               <Button
@@ -1797,7 +1797,7 @@ function CreateEventDialog({
                 <HugeiconsIcon icon={Search01Icon} className="size-4 text-muted-foreground" />
               </Button>
               {!isDoctorUser && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {tr(
                     language,
                     "Click to open doctor search panel.",
@@ -1806,13 +1806,13 @@ function CreateEventDialog({
                 </p>
               )}
               {isDoctorUser && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {tr(language, "Doctor is locked to your account.", "แพทย์ถูกล็อกตามบัญชีของคุณ")}
                 </p>
               )}
             </div>
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {tr(language, "Patient", "ผู้ป่วย")} <span className="text-red-400">*</span>
               </Label>
               <Button
@@ -1834,7 +1834,7 @@ function CreateEventDialog({
                 </span>
                 <HugeiconsIcon icon={Search01Icon} className="size-4 text-muted-foreground" />
               </Button>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {tr(
                   language,
                   "Click to open patient search panel.",
@@ -1847,7 +1847,7 @@ function CreateEventDialog({
           {/* ── Description & Room ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {tr(language, "Description", "รายละเอียด")}
               </Label>
               <Textarea
@@ -1860,12 +1860,12 @@ function CreateEventDialog({
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
                   {tr(language, "Room / Meeting Link", "ห้อง / ลิงก์ประชุม")}
                 </Label>
                 <span
                   className={cn(
-                    "inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-2.5 text-[10px] font-medium uppercase tracking-[0.06em]",
+                    "inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-2.5 text-xs font-medium uppercase tracking-[0.06em]",
                     meetingLinkMode === "off"
                       ? "bg-muted text-muted-foreground"
                       : "bg-sky-100 text-sky-700"
@@ -1888,7 +1888,7 @@ function CreateEventDialog({
                   className="bg-transparent outline-none flex-1 placeholder:text-muted-foreground"
                 />
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {meetingLinkHelperText}
               </p>
             </div>
@@ -1896,7 +1896,7 @@ function CreateEventDialog({
 
           {/* ── Notes ── */}
           <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
               {tr(language, "Notes", "บันทึก")}
             </Label>
             <Textarea
@@ -1910,7 +1910,7 @@ function CreateEventDialog({
         </div>
 
         {/* ── Footer ── */}
-        <div className="flex items-center justify-between px-6 py-4 mt-2 border-t bg-muted/30">
+        <div className="mt-2 flex items-center justify-between border-t bg-muted/30 px-5 py-3.5">
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -2148,25 +2148,25 @@ export function MeetingsContent() {
   }, [token, userRole]);
 
   return (
-    <main className="w-full flex-1 overflow-hidden flex flex-col">
+    <main className="flex h-full w-full flex-1 flex-col overflow-hidden">
       <div className="sticky top-0 z-40 bg-background">
         {/* ══════════════════════════════════════════════════
             Calendar Header (Square UI calendar-header.tsx)
             ══════════════════════════════════════════════════ */}
         <div className="border-b border-border bg-background">
-          <div className="px-3 md:px-6 py-2.5 md:py-3">
+          <div className="px-3 py-2 md:px-4 md:py-2.5">
             <div className="flex items-center justify-between gap-2 md:gap-3 flex-nowrap">
               {/* Left: title area */}
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 <div className="flex-1 min-w-0">
-                  <h1 className="text-sm md:text-base lg:text-lg font-semibold text-foreground truncate mb-0 md:mb-1">
+                  <h1 className="mb-0 truncate text-[0.95rem] font-semibold text-foreground md:mb-1 md:text-base lg:text-lg">
                     {formatDateLabel(currentWeekStart, language, {
                       day: "numeric",
                       month: "long",
                       year: "numeric",
                     })}
                   </h1>
-                  <p className="hidden md:block text-xs text-muted-foreground">
+                  <p className="hidden text-sm text-muted-foreground md:block">
                     {language === "th"
                       ? `คุณมีนัดหมาย ${todayMeetingsCount} รายการ และอีเวนต์ ${totalEventsCount} รายการในวันนี้ 🗓️`
                       : `You have ${todayMeetingsCount} meeting${todayMeetingsCount !== 1 ? "s" : ""} and ${totalEventsCount} event${totalEventsCount !== 1 ? "s" : ""} today 🗓️`}
@@ -2183,7 +2183,7 @@ export function MeetingsContent() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="relative size-7 md:size-8 shrink-0"
+                        className="relative size-7 shrink-0 md:size-8"
                       >
                         <HugeiconsIcon
                           icon={Notification01Icon}
@@ -2209,11 +2209,11 @@ export function MeetingsContent() {
                           <span className="text-sm font-medium flex-1">
                             {tr(language, "Meeting confirmed", "ยืนยันนัดหมายแล้ว")}
                           </span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-sm text-muted-foreground">
                             {tr(language, "2m ago", "2 นาทีที่แล้ว")}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground pl-6">
+                        <p className="pl-6 text-sm text-muted-foreground">
                           {tr(
                             language,
                             "Daily checkin has been confirmed for tomorrow at 9:00 AM",
@@ -2230,11 +2230,11 @@ export function MeetingsContent() {
                           <span className="text-sm font-medium flex-1">
                             {tr(language, "Reminder", "การแจ้งเตือน")}
                           </span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-sm text-muted-foreground">
                             {tr(language, "15m ago", "15 นาทีที่แล้ว")}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground pl-6">
+                        <p className="pl-6 text-sm text-muted-foreground">
                           {tr(
                             language,
                             "Team Standup starts in 30 minutes",
@@ -2251,11 +2251,11 @@ export function MeetingsContent() {
                           <span className="text-sm font-medium flex-1">
                             {tr(language, "Event updated", "อัปเดตอีเวนต์แล้ว")}
                           </span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-sm text-muted-foreground">
                             {tr(language, "1h ago", "1 ชั่วโมงที่แล้ว")}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground pl-6">
+                        <p className="pl-6 text-sm text-muted-foreground">
                           {tr(
                             language,
                             "Design Workshop time has been changed to 2:00 PM",
@@ -2265,7 +2265,7 @@ export function MeetingsContent() {
                       </div>
                     </div>
                     <div className="p-2 border-t border-border text-center">
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-sm text-muted-foreground">
                         {tr(language, "View all notifications", "ดูการแจ้งเตือนทั้งหมด")}
                       </span>
                     </div>
@@ -2283,10 +2283,10 @@ export function MeetingsContent() {
                   <Button
                     variant="outline"
                     size="icon"
-                    className="size-7 md:size-8 shrink-0 md:w-auto md:px-2 md:gap-1.5"
+                    className="size-8 shrink-0 md:h-8 md:w-auto md:px-3 md:gap-2"
                   >
                     <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
-                    <span className="hidden lg:inline text-xs">{tr(language, "Schedule", "นัดหมาย")}</span>
+                    <span className="hidden text-sm lg:inline">{tr(language, "Schedule", "นัดหมาย")}</span>
                   </Button>
                 </SchedulePopover>
 
@@ -2308,7 +2308,7 @@ export function MeetingsContent() {
                     variant="ghost"
                     size="icon"
                     className={cn(
-                      "size-7 md:size-8 rounded-md transition-colors",
+                      "size-8 rounded-md transition-colors md:size-9",
                       viewMode === "calendar" && "bg-muted text-foreground"
                     )}
                     onClick={() => setViewMode("calendar")}
@@ -2320,7 +2320,7 @@ export function MeetingsContent() {
                     variant="ghost"
                     size="icon"
                     className={cn(
-                      "size-7 md:size-8 rounded-md transition-colors",
+                      "size-8 rounded-md transition-colors md:size-9",
                       viewMode === "queue" && "bg-muted text-foreground"
                     )}
                     onClick={() => setViewMode("queue")}
@@ -2333,14 +2333,14 @@ export function MeetingsContent() {
                 {/* + Create Event */}
                 <Button
                   size="icon"
-                  className="size-7 md:size-8 shrink-0 md:w-auto md:px-2 md:gap-1.5 bg-foreground text-background hover:bg-foreground/90"
+                  className="size-8 shrink-0 bg-foreground text-background hover:bg-foreground/90 md:h-8 md:w-auto md:px-3 md:gap-2"
                   onClick={() => {
                     setCreateInitialSlot(null);
                     setCreateOpen(true);
                   }}
                 >
                   <HugeiconsIcon icon={Add01Icon} className="size-4" />
-                  <span className="hidden lg:inline text-xs">{tr(language, "Create Event", "สร้างอีเวนต์")}</span>
+                  <span className="hidden text-sm lg:inline">{tr(language, "Create Event", "สร้างอีเวนต์")}</span>
                 </Button>
               </div>
             </div>
@@ -2348,15 +2348,15 @@ export function MeetingsContent() {
         </div>
 
         {userRole === "doctor" && (
-          <div className="px-3 md:px-6 py-3 border-b border-border bg-background">
+          <div className="border-b border-border bg-background px-3 py-2.5 md:px-4">
             <div className="flex items-center gap-2 overflow-x-auto">
-              <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+              <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">
                 {tr(language, "Scope:", "ขอบเขต:")}
               </span>
               <Button
                 variant={doctorScope === "all-visible" ? "default" : "outline"}
                 size="sm"
-                className="h-7 text-xs whitespace-nowrap"
+                className="h-8 text-sm whitespace-nowrap"
                 onClick={() => setDoctorScope("all-visible")}
               >
                 {tr(language, "All Visible", "มองเห็นทั้งหมด")}
@@ -2364,7 +2364,7 @@ export function MeetingsContent() {
               <Button
                 variant={doctorScope === "my-meetings" ? "default" : "outline"}
                 size="sm"
-                className="h-7 text-xs whitespace-nowrap"
+                className="h-8 text-sm whitespace-nowrap"
                 onClick={() => setDoctorScope("my-meetings")}
               >
                 {tr(language, "My Meetings", "นัดหมายของฉัน")}
@@ -2372,7 +2372,7 @@ export function MeetingsContent() {
               <Button
                 variant={doctorScope === "care-team" ? "default" : "outline"}
                 size="sm"
-                className="h-7 text-xs whitespace-nowrap"
+                className="h-8 text-sm whitespace-nowrap"
                 onClick={() => setDoctorScope("care-team")}
               >
                 {tr(language, "Care Team", "ทีมดูแล")}
@@ -2385,10 +2385,10 @@ export function MeetingsContent() {
             Calendar Controls (Square UI calendar-controls.tsx)
             ══════════════════════════════════════════════════ */}
         {viewMode === "calendar" && (
-          <div className="px-3 md:px-6 py-4 border-b border-border bg-background">
+          <div className="border-b border-border bg-background px-3 py-3 md:px-4">
             <div className="flex items-center gap-2 md:gap-3 flex-wrap">
               {/* Search with settings icon */}
-              <div className="relative flex-1 min-w-[200px] max-w-[280px] shrink-0">
+              <div className="relative min-w-[200px] max-w-[248px] shrink-0 flex-1">
                 <HugeiconsIcon
                   icon={Search01Icon}
                   className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
@@ -2397,7 +2397,7 @@ export function MeetingsContent() {
                   placeholder={tr(language, "Search in calendar...", "ค้นหาในปฏิทิน...")}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 pr-9 h-8 bg-background"
+                  className="h-8.5 bg-background pl-9 pr-9 text-sm"
                 />
                 <Button
                   variant="ghost"
@@ -2411,7 +2411,7 @@ export function MeetingsContent() {
               {/* Today button */}
               <Button
                 variant="outline"
-                className="h-8 px-3 shrink-0"
+                className="h-8.5 shrink-0 px-3 text-sm"
                 onClick={goToLatestDay}
               >
                 {tr(language, "Today", "วันนี้")}
@@ -2424,7 +2424,7 @@ export function MeetingsContent() {
                     <Button
                       variant="outline"
                       className={cn(
-                        "h-8 px-3 gap-2 justify-start text-left font-normal shrink-0",
+                        "h-8.5 shrink-0 justify-start gap-2 px-3 text-left text-sm font-normal",
                         "hover:bg-accent"
                       )}
                     >
@@ -2432,7 +2432,7 @@ export function MeetingsContent() {
                         icon={Calendar01Icon}
                         className="size-4 text-muted-foreground"
                       />
-                      <span className="text-xs text-foreground">
+                      <span className="text-sm text-foreground">
                         {weekStartLabel} - {weekEndLabel}
                       </span>
                     </Button>
@@ -2462,12 +2462,12 @@ export function MeetingsContent() {
                     <Button
                       variant="outline"
                       className={cn(
-                        "h-8 px-3 gap-2",
+                        "h-8.5 gap-2 px-3 text-sm",
                         hasActiveFilters && "bg-accent"
                       )}
                     >
                       <HugeiconsIcon icon={FilterIcon} className="size-4" />
-                      <span className="hidden sm:inline text-xs">{tr(language, "Filter", "ตัวกรอง")}</span>
+                      <span className="hidden text-sm sm:inline">{tr(language, "Filter", "ตัวกรอง")}</span>
                       {hasActiveFilters && (
                         <span className="size-1.5 rounded-full bg-primary" />
                       )}
@@ -2475,7 +2475,7 @@ export function MeetingsContent() {
                   }
                 />
                 <PopoverContent
-                  className="p-4 w-[288px]"
+                  className="w-[280px] p-4"
                   align="end"
                 >
                   <div className="space-y-4 w-full">
@@ -2491,7 +2491,7 @@ export function MeetingsContent() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="w-full justify-between h-9 px-3"
+                          className="h-8.5 w-full justify-between px-3"
                           onClick={() => setEventTypeFilter("all")}
                         >
                           <span className="text-sm">{tr(language, "All events", "ทุกอีเวนต์")}</span>
@@ -2505,7 +2505,7 @@ export function MeetingsContent() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="w-full justify-between h-9 px-3"
+                          className="h-8.5 w-full justify-between px-3"
                           onClick={() => setEventTypeFilter("with-room")}
                         >
                           <div className="flex items-center gap-2.5">
@@ -2525,7 +2525,7 @@ export function MeetingsContent() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="w-full justify-between h-9 px-3"
+                          className="h-8.5 w-full justify-between px-3"
                           onClick={() => setEventTypeFilter("without-room")}
                         >
                           <div className="flex items-center gap-2.5">
@@ -2551,7 +2551,7 @@ export function MeetingsContent() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="w-full h-9"
+                          className="h-8.5 w-full"
                           onClick={() => {
                             setEventTypeFilter("all");
                           }}
@@ -2573,9 +2573,9 @@ export function MeetingsContent() {
           ══════════════════════════════════════════════════ */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
-          <div className="space-y-4 w-full max-w-3xl px-6">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-[400px] w-full rounded-xl" />
+          <div className="w-full max-w-3xl space-y-3 px-4">
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-[360px] w-full rounded-xl" />
           </div>
         </div>
       ) : viewMode === "calendar" ? (

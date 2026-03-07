@@ -256,10 +256,10 @@ export function FinancialFlowChart() {
   if (loading) {
     return (
       <div className="rounded-xl border bg-card overflow-hidden">
-        <div className="px-5 py-4">
+        <div className="px-4 py-4">
           <Skeleton className="h-5 w-48" />
         </div>
-        <div className="h-[250px] sm:h-[280px] px-5 pb-4">
+        <div className="h-[220px] px-4 pb-4 sm:h-[250px]">
           <Skeleton className="h-full w-full rounded-lg" />
         </div>
       </div>
@@ -268,40 +268,40 @@ export function FinancialFlowChart() {
 
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-5 py-4">
+      <div className="flex flex-col justify-between gap-3 px-4 py-4 sm:flex-row sm:items-center">
         <div className="flex items-center gap-2">
           <HugeiconsIcon
             icon={Stethoscope02Icon}
-            className="size-5 text-[var(--med-primary-light)]"
+            className="size-4 text-[var(--med-primary-light)]"
           />
-          <span className="font-medium text-muted-foreground">
+          <span className="text-sm font-medium text-muted-foreground">
             {t.trendTitle}
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 sm:gap-6">
-          <div className="hidden sm:flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-5">
+          <div className="hidden items-center gap-4 sm:flex">
             <div className="flex items-center gap-1.5">
               <div className="size-3 rounded-full bg-[var(--med-primary-light)]" />
-                <span className="text-xs font-medium text-muted-foreground">
+                <span className="text-sm font-medium text-muted-foreground">
                 {t.newPatients}
               </span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="size-3 rounded-full bg-[var(--med-primary)]" />
-                <span className="text-xs font-medium text-muted-foreground">
+                <span className="text-sm font-medium text-muted-foreground">
                 {t.consultations}
               </span>
             </div>
           </div>
 
           <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex items-center justify-center size-8 rounded-md hover:bg-muted">
+            <DropdownMenuTrigger className="inline-flex size-8 items-center justify-center rounded-md hover:bg-muted">
               <HugeiconsIcon icon={MoreHorizontalIcon} className="size-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuGroup>
-                <p className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
+                <p className="text-muted-foreground px-2 py-1.5 text-sm font-medium">
                   {t.chartType}
                 </p>
                 <DropdownMenuItem onClick={() => setChartType("bar")}>
@@ -349,7 +349,7 @@ export function FinancialFlowChart() {
               <DropdownMenuSeparator />
 
               <DropdownMenuGroup>
-                <p className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
+                <p className="text-muted-foreground px-2 py-1.5 text-sm font-medium">
                   {t.displayOptions}
                 </p>
                 <DropdownMenuCheckboxItem
@@ -374,7 +374,7 @@ export function FinancialFlowChart() {
               <DropdownMenuSeparator />
 
               <DropdownMenuGroup>
-                <p className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
+                <p className="text-muted-foreground px-2 py-1.5 text-sm font-medium">
                   {t.dataSeries}
                 </p>
                 <DropdownMenuCheckboxItem
@@ -405,7 +405,7 @@ export function FinancialFlowChart() {
         </div>
       </div>
 
-      <div className="h-[250px] sm:h-[280px] px-2 pb-4">
+      <div className="h-[220px] px-2 pb-4 sm:h-[250px]">
         <ResponsiveContainer width="100%" height="100%">
           {chartType === "bar" ? (
             <BarChart data={chartData} barGap={4}>
