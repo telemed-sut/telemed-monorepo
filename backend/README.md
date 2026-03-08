@@ -74,6 +74,21 @@ Optional environment overrides:
 6) Start API: `infisical run -- uvicorn app.main:app --reload` (defaults to
    8000).
 
+From the repo root you can use the Infisical-aware wrappers instead:
+
+```bash
+./scripts/dev-api.sh
+./scripts/test-backend.sh
+./scripts/migrate-backend.sh
+./scripts/seed-backend.sh
+```
+
+If you want to force a specific Infisical environment:
+
+```bash
+INFISICAL_RUN_ARGS="--env=dev" ./scripts/dev-api.sh
+```
+
 ### Running with Docker Compose
 1) Preferred: run the team script from repo root (`./scripts/dev-backend.sh`).
 2) Alternative: export the required env vars in your shell, then run `docker compose up --build`.

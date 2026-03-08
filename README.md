@@ -126,6 +126,12 @@ Primary backend command:
 ./scripts/dev-backend.sh
 ```
 
+Primary frontend command:
+
+```bash
+./scripts/dev-frontend.sh
+```
+
 Primary share-link command:
 
 ```bash
@@ -136,6 +142,27 @@ Optional (if your Infisical CLI needs explicit runtime args):
 
 ```bash
 INFISICAL_RUN_ARGS="--projectId <project_id> --env <environment> --path /" ./scripts/dev-backend.sh
+```
+
+The same pattern works with every Infisical-aware helper under `scripts/`, for example:
+
+```bash
+INFISICAL_RUN_ARGS="--env=dev" ./scripts/dev-frontend.sh
+INFISICAL_RUN_ARGS="--env=dev" ./scripts/test-backend.sh
+INFISICAL_RUN_ARGS="--env=dev" ./scripts/build-frontend.sh
+```
+
+Common local commands:
+
+```bash
+./scripts/dev-backend.sh      # Docker Compose: db + backend
+./scripts/dev-frontend.sh     # Next.js dev server
+./scripts/dev-api.sh          # FastAPI directly from backend/venv
+./scripts/test-backend.sh     # pytest -q with Infisical env
+./scripts/migrate-backend.sh  # alembic upgrade head
+./scripts/seed-backend.sh     # python -m scripts.seed
+./scripts/test-frontend.sh    # vitest run
+./scripts/build-frontend.sh   # next build
 ```
 
 Services:

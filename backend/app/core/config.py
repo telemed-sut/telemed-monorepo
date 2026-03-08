@@ -95,6 +95,19 @@ class Settings(BaseSettings):
     meeting_patient_join_base_url: str | None = None
     meeting_video_room_prefix: str = "telemed"
 
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, v: str) -> str:
+        if not isinstance(v, str):
+            return v
+
+        value = v.strip()
+        if value.startswith("postgres://"):
+            return f"postgresql+psycopg://{value[len('postgres://'):]}"
+        if value.startswith("postgresql://"):
+            return f"postgresql+psycopg://{value[len('postgresql://'):]}"
+        return value
+
     @field_validator(
         "cors_origins",
         "rate_limit_whitelist",

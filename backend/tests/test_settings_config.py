@@ -34,6 +34,39 @@ def test_settings_accepts_json_device_api_secrets(monkeypatch):
     }
 
 
+def test_settings_normalizes_postgresql_database_url_to_psycopg(monkeypatch):
+    _apply_env(
+        monkeypatch,
+        DATABASE_URL="postgresql://user:password@localhost:5432/patient_db",
+    )
+
+    settings = Settings()
+
+    assert settings.database_url == "postgresql+psycopg://user:password@localhost:5432/patient_db"
+
+
+def test_settings_normalizes_postgres_alias_database_url_to_psycopg(monkeypatch):
+    _apply_env(
+        monkeypatch,
+        DATABASE_URL="postgres://user:password@localhost:5432/patient_db",
+    )
+
+    settings = Settings()
+
+    assert settings.database_url == "postgresql+psycopg://user:password@localhost:5432/patient_db"
+
+
+def test_settings_preserves_explicit_database_driver(monkeypatch):
+    _apply_env(
+        monkeypatch,
+        DATABASE_URL="postgresql+psycopg://user:password@localhost:5432/patient_db",
+    )
+
+    settings = Settings()
+
+    assert settings.database_url == "postgresql+psycopg://user:password@localhost:5432/patient_db"
+
+
 def test_settings_accepts_comma_separated_device_api_secrets(monkeypatch):
     _apply_env(
         monkeypatch,

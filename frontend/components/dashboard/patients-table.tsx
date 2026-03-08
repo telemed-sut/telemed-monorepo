@@ -335,7 +335,7 @@ export function PatientsTable() {
       const res = await fetchPatients({ page: 1, limit, q: debouncedSearch, sort, order }, token);
       setPatients(res.items);
       setTotal(res.total);
-    } catch {
+    } catch (err) {
       const status = (err as { status?: number }).status;
       if (status === 401) {
         clearToken();
@@ -385,7 +385,7 @@ export function PatientsTable() {
       if (res.items.length === 0 && page > 1) {
         setPage((p) => Math.max(1, p - 1));
       }
-    } catch {
+    } catch (err) {
       const status = (err as { status?: number }).status;
       if (status === 401) {
         clearToken();
