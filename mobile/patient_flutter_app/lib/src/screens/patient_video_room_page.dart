@@ -206,8 +206,19 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
     final roomLabel =
         widget.session.roomId.length > 18 ? '${widget.session.roomId.substring(0, 18)}...' : widget.session.roomId;
 
-    return WillPopScope(
-      onWillPop: _confirmLeaveCall,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) {
+          return;
+        }
+
+        final shouldLeave = await _confirmLeaveCall();
+        if (!context.mounted || !shouldLeave) {
+          return;
+        }
+        Navigator.of(context).pop();
+      },
       child: Scaffold(
         backgroundColor: const Color(0xFF050B1A),
         body: Stack(

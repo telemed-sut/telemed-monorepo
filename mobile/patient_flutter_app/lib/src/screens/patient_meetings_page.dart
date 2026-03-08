@@ -239,7 +239,7 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
   }
 
   Future<PatientInviteLink> _resolveInviteLink(PatientMeeting meeting) async {
-    final cachedInvite = PatientInviteLink.tryParse(meeting.patientInviteUrl);
+    final cachedInvite = PatientInviteLink.tryParse(meeting.patientInviteUrl ?? '');
     if (cachedInvite != null &&
         cachedInvite.canJoin &&
         !_isInviteExpired(meeting.patientInviteExpiresAt)) {
@@ -373,6 +373,10 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
       }
 
       if (!mounted) return;
+      if (session == null) {
+        _showSnackBar('ไม่สามารถเข้าห้องได้ กรุณาลองใหม่');
+        return;
+      }
       if (session.provider != 'zego') {
         _showSnackBar('ระบบวิดีโอไม่รองรับ');
         return;
@@ -398,10 +402,9 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
       if (mounted) _showSnackBar('ไม่สามารถเข้าห้องได้ กรุณาลองใหม่');
     } finally {
       apiClient.close();
-      if (!mounted) return;
-      setState(() => _joiningMeetingId = null);
-      await _silentRefresh();
       if (mounted) {
+        setState(() => _joiningMeetingId = null);
+        await _silentRefresh();
         _resumeAdaptivePolling();
       }
     }

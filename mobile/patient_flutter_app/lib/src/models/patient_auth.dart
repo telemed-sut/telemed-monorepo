@@ -1,4 +1,4 @@
-/// Data models for patient app authentication.
+// Data models for patient app authentication.
 
 class PatientRegisterResponse {
   const PatientRegisterResponse({
