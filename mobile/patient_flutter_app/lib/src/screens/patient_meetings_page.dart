@@ -377,7 +377,9 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
         _showSnackBar('ไม่สามารถเข้าห้องได้ กรุณาลองใหม่');
         return;
       }
-      if (session.provider != 'zego') {
+      final resolvedSession = session;
+
+      if (resolvedSession.provider != 'zego') {
         _showSnackBar('ระบบวิดีโอไม่รองรับ');
         return;
       }
@@ -387,7 +389,7 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
           builder: (_) => PatientVideoRoomPage(
-            session: session,
+            session: resolvedSession,
             displayName: patientName,
             startWithCamera: true,
             startWithMicrophone: true,
