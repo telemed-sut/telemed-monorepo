@@ -77,9 +77,11 @@ class PatientMeetingOut(BaseModel):
     status: str
     note: Optional[str] = None
     patient_invite_url: Optional[str] = None
+    patient_invite_expires_at: Optional[datetime] = None
     doctor: Optional[PatientMeetingDoctorBrief] = None
     room_presence: Optional[PatientMeetingPresenceOut] = None
     created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 

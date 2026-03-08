@@ -126,6 +126,10 @@ class PatientVideoApiClient {
     );
   }
 
+  void close() {
+    _httpClient.close();
+  }
+
   Future<http.Response> _postJson(Uri endpoint, Map<String, dynamic> payload) async {
     try {
       return await _httpClient.post(

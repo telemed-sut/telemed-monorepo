@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { addWeeks, setHours, setMinutes } from "date-fns";
@@ -104,6 +104,50 @@ function formatDoctorDisplayName(doctor: Pick<User, "first_name" | "last_name" |
 function formatPatientDisplayName(patient: Pick<Patient, "first_name" | "last_name" | "email" | "id">): string {
   const fullName = `${patient.first_name || ""} ${patient.last_name || ""}`.trim();
   return fullName || patient.email || patient.id;
+}
+
+const ACTIVE_MEETING_REFRESH_INTERVAL_MS = 5_000;
+const NEAR_MEETING_REFRESH_INTERVAL_MS = 10_000;
+const IDLE_MEETING_REFRESH_INTERVAL_MS = 30_000;
+const NEAR_MEETING_WINDOW_MS = 15 * 60 * 1_000;
+
+function isJoinableMeetingStatus(status: Meeting["status"]): boolean {
+  return status !== "completed" && status !== "cancelled";
+}
+
+function isActivelyWaitingMeeting(meeting: Meeting): boolean {
+  if (!isJoinableMeetingStatus(meeting.status)) {
+    return false;
+  }
+
+  const presenceState = meeting.room_presence?.state;
+  if (
+    presenceState === "patient_waiting" ||
+    presenceState === "doctor_left_patient_waiting" ||
+    presenceState === "doctor_only" ||
+    presenceState === "both_in_room"
+  ) {
+    return true;
+  }
+
+  return meeting.status === "waiting" || meeting.status === "in_progress";
+}
+
+function isNearMeetingWindow(meeting: Meeting, now: number): boolean {
+  if (!isJoinableMeetingStatus(meeting.status) || isActivelyWaitingMeeting(meeting)) {
+    return false;
+  }
+
+  const meetingTime = new Date(meeting.date_time).getTime();
+  if (Number.isNaN(meetingTime)) {
+    return false;
+  }
+
+  const millisecondsUntilMeeting = meetingTime - now;
+  return (
+    millisecondsUntilMeeting >= -NEAR_MEETING_WINDOW_MS &&
+    millisecondsUntilMeeting <= NEAR_MEETING_WINDOW_MS
+  );
 }
 
 function resolveDoctorRoleType(value: string): DoctorPickerItem["roleType"] {
@@ -2013,6 +2057,8 @@ export function MeetingsContent() {
   const [doctorScope, setDoctorScope] = useState<
     "all-visible" | "my-meetings" | "care-team"
   >("my-meetings");
+  const meetingsRefreshPromiseRef = useRef<Promise<void> | null>(null);
+  const meetingsRefreshTimeoutRef = useRef<number | null>(null);
 
   const weekEnd = addWeeks(currentWeekStart, 1);
   const weekStartLabel = formatDateLabel(currentWeekStart, language, {
@@ -2059,37 +2105,64 @@ export function MeetingsContent() {
   const loadMeetings = useCallback(
     async (background = false) => {
       if (!token) return;
-      if (!background) setLoading(true);
-      try {
-        const doctorFilter =
-          userRole === "doctor" && doctorScope === "my-meetings" && userId
-            ? userId
-            : undefined;
-
-        const allMeetings = await fetchAllMeetings(
-          { doctor_id: doctorFilter },
-          token,
-          { maxItems: 5000 }
-        );
-
-        const scopedItems =
-          userRole === "doctor" && doctorScope === "care-team" && userId
-            ? allMeetings.filter((item) => item.doctor_id !== userId)
-            : allMeetings;
-
-        setMeetings(scopedItems);
-      } catch (err) {
-        const status = (err as { status?: number }).status;
-        if (status === 401) {
-          clearToken();
-          router.replace("/login");
-        }
-      } finally {
-        if (!background) setLoading(false);
+      if (meetingsRefreshPromiseRef.current) {
+        return meetingsRefreshPromiseRef.current;
       }
+
+      if (!background) setLoading(true);
+
+      const refreshPromise = (async () => {
+        try {
+          const doctorFilter =
+            userRole === "doctor" && doctorScope === "my-meetings" && userId
+              ? userId
+              : undefined;
+
+          const allMeetings = await fetchAllMeetings(
+            { doctor_id: doctorFilter },
+            token,
+            { maxItems: 5000 }
+          );
+
+          const scopedItems =
+            userRole === "doctor" && doctorScope === "care-team" && userId
+              ? allMeetings.filter((item) => item.doctor_id !== userId)
+              : allMeetings;
+
+          setMeetings(scopedItems);
+        } catch (err) {
+          const status = (err as { status?: number }).status;
+          if (status === 401) {
+            clearToken();
+            router.replace("/login");
+          }
+        } finally {
+          if (!background) setLoading(false);
+        }
+      })().finally(() => {
+        meetingsRefreshPromiseRef.current = null;
+      });
+
+      meetingsRefreshPromiseRef.current = refreshPromise;
+      return refreshPromise;
     },
     [token, setMeetings, clearToken, router, userRole, userId, doctorScope]
   );
+
+  const resolveMeetingsRefreshInterval = useCallback(() => {
+    if (!meetings.length) {
+      return IDLE_MEETING_REFRESH_INTERVAL_MS;
+    }
+
+    const now = Date.now();
+    if (meetings.some(isActivelyWaitingMeeting)) {
+      return ACTIVE_MEETING_REFRESH_INTERVAL_MS;
+    }
+    if (meetings.some((meeting) => isNearMeetingWindow(meeting, now))) {
+      return NEAR_MEETING_REFRESH_INTERVAL_MS;
+    }
+    return IDLE_MEETING_REFRESH_INTERVAL_MS;
+  }, [meetings]);
 
   const handleMeetingCreated = useCallback(
     async (meeting?: Meeting) => {
@@ -2119,13 +2192,51 @@ export function MeetingsContent() {
 
   useEffect(() => {
     if (!token) return;
-    const interval = window.setInterval(() => {
-      void loadMeetings(true);
-    }, 5000);
-    return () => {
-      window.clearInterval(interval);
+
+    let cancelled = false;
+
+    const clearScheduledRefresh = () => {
+      if (meetingsRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(meetingsRefreshTimeoutRef.current);
+        meetingsRefreshTimeoutRef.current = null;
+      }
     };
-  }, [token, loadMeetings]);
+
+    const scheduleNextRefresh = () => {
+      clearScheduledRefresh();
+      if (cancelled || document.visibilityState !== "visible") {
+        return;
+      }
+      meetingsRefreshTimeoutRef.current = window.setTimeout(() => {
+        void loadMeetings(true).finally(() => {
+          if (!cancelled) {
+            scheduleNextRefresh();
+          }
+        });
+      }, resolveMeetingsRefreshInterval());
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void loadMeetings(true).finally(() => {
+          if (!cancelled) {
+            scheduleNextRefresh();
+          }
+        });
+        return;
+      }
+      clearScheduledRefresh();
+    };
+
+    scheduleNextRefresh();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      clearScheduledRefresh();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [token, loadMeetings, resolveMeetingsRefreshInterval]);
 
   // Load patients & doctors for form
   useEffect(() => {

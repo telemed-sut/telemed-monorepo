@@ -76,7 +76,7 @@ def _as_utc(dt: datetime) -> datetime:
     return dt
 
 
-def test_patient_meetings_auto_generates_invite_when_missing(
+def test_patient_meetings_does_not_generate_invite_when_missing(
     client: TestClient,
     db: Session,
     monkeypatch,
@@ -96,24 +96,24 @@ def test_patient_meetings_auto_generates_invite_when_missing(
     assert response.status_code == 200
     payload = response.json()
     assert payload["total"] == 1
-    invite_url = payload["items"][0]["patient_invite_url"]
-    assert invite_url.startswith("https://demo.trycloudflare.com/p/")
+    assert payload["items"][0]["patient_invite_url"] is None
+    assert payload["items"][0]["patient_invite_expires_at"] is None
+    assert payload["items"][0]["updated_at"] is not None
 
     db.refresh(meeting)
-    assert meeting.patient_invite_url == invite_url
+    assert meeting.patient_invite_url is None
 
     invite_code = db.scalar(
         select(MeetingPatientInviteCode)
         .where(MeetingPatientInviteCode.meeting_id == meeting.id)
         .order_by(MeetingPatientInviteCode.created_at.desc())
     )
-    assert invite_code is not None
-    assert _as_utc(invite_code.expires_at) > datetime.now(timezone.utc)
+    assert invite_code is None
 
     get_settings.cache_clear()
 
 
-def test_patient_meetings_regenerates_invite_when_latest_code_expired(
+def test_patient_meetings_hides_expired_invite_from_list(
     client: TestClient,
     db: Session,
     monkeypatch,
@@ -146,18 +146,14 @@ def test_patient_meetings_regenerates_invite_when_latest_code_expired(
     assert response.status_code == 200
     payload = response.json()
     assert payload["total"] == 1
-    invite_url = payload["items"][0]["patient_invite_url"]
-    assert invite_url.startswith("https://demo.trycloudflare.com/p/")
-    assert invite_url != old_url
+    assert payload["items"][0]["patient_invite_url"] is None
+    assert payload["items"][0]["patient_invite_expires_at"] is None
 
     invite_codes = db.scalars(
         select(MeetingPatientInviteCode).where(MeetingPatientInviteCode.meeting_id == meeting.id)
     ).all()
-    assert len(invite_codes) >= 2
-    assert any(
-        code.code != old_code and _as_utc(code.expires_at) > datetime.now(timezone.utc)
-        for code in invite_codes
-    )
+    assert len(invite_codes) == 1
+    assert invite_codes[0].code == old_code
 
     get_settings.cache_clear()
 
@@ -204,6 +200,7 @@ def test_patient_meetings_reuses_any_active_invite_without_regenerating(
     payload = response.json()
     assert payload["total"] == 1
     assert payload["items"][0]["patient_invite_url"] == active_url
+    assert payload["items"][0]["patient_invite_expires_at"] is not None
 
     invite_codes = db.scalars(
         select(MeetingPatientInviteCode)
@@ -212,6 +209,119 @@ def test_patient_meetings_reuses_any_active_invite_without_regenerating(
     ).all()
     assert len(invite_codes) == 2
     assert {code.code for code in invite_codes} == {active_code, expired_code}
+
+    get_settings.cache_clear()
+
+
+def test_patient_can_issue_invite_explicitly_for_owned_meeting(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    monkeypatch.setenv("MEETING_PATIENT_JOIN_BASE_URL", "https://demo.trycloudflare.com")
+    get_settings.cache_clear()
+
+    doctor = _create_user(db, "doctor-explicit-invite@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Explicit", "Invite")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+
+    response = client.post(
+        f"/patient-app/me/meetings/{meeting.id}/invite",
+        headers=_patient_auth_headers(patient),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["meeting_id"] == str(meeting.id)
+    assert payload["invite_url"].startswith("https://demo.trycloudflare.com/p/")
+    assert payload["short_code"]
+
+    db.refresh(meeting)
+    assert meeting.patient_invite_url == payload["invite_url"]
+
+    invite_code = db.scalar(
+        select(MeetingPatientInviteCode)
+        .where(MeetingPatientInviteCode.meeting_id == meeting.id)
+        .order_by(MeetingPatientInviteCode.created_at.desc())
+    )
+    assert invite_code is not None
+    assert _as_utc(invite_code.expires_at) > datetime.now(timezone.utc)
+
+    get_settings.cache_clear()
+
+
+def test_patient_explicit_invite_reuses_active_code(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    monkeypatch.setenv("MEETING_PATIENT_JOIN_BASE_URL", "https://demo.trycloudflare.com")
+    get_settings.cache_clear()
+
+    doctor = _create_user(db, "doctor-explicit-reuse@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Reuse", "Explicit")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+
+    active_code = "active11"
+    active_url = f"https://demo.trycloudflare.com/p/{active_code}"
+    meeting.patient_invite_url = active_url
+    db.add(
+        MeetingPatientInviteCode(
+            meeting_id=meeting.id,
+            code=active_code,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=2),
+        )
+    )
+    db.add(meeting)
+    db.commit()
+
+    response = client.post(
+        f"/patient-app/me/meetings/{meeting.id}/invite",
+        headers=_patient_auth_headers(patient),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["invite_url"] == active_url
+    assert payload["short_code"] == active_code
+    assert payload["invite_token"].startswith("pjoin.")
+
+    invite_codes = db.scalars(
+        select(MeetingPatientInviteCode).where(MeetingPatientInviteCode.meeting_id == meeting.id)
+    ).all()
+    assert len(invite_codes) == 1
+
+    get_settings.cache_clear()
+
+
+def test_patient_meetings_can_delta_sync_by_updated_after(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    monkeypatch.setenv("MEETING_PATIENT_JOIN_BASE_URL", "https://demo.trycloudflare.com")
+    get_settings.cache_clear()
+
+    doctor = _create_user(db, "doctor-delta-sync@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Delta", "Sync")
+    older_meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+    newer_meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+
+    older_meeting.updated_at = datetime.now(timezone.utc) - timedelta(hours=2)
+    newer_meeting.updated_at = datetime.now(timezone.utc)
+    db.add_all([older_meeting, newer_meeting])
+    db.commit()
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    response = client.get(
+        f"/patient-app/me/meetings?updated_after={cutoff}",
+        headers=_patient_auth_headers(patient),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["id"] == str(newer_meeting.id)
 
     get_settings.cache_clear()
 

@@ -60,20 +60,52 @@ class PatientAuthApiClient {
   /// Get my meetings (requires auth token).
   Future<List<PatientMeeting>> getMyMeetings(String token) async {
     final endpoint = _baseUri.resolve('/patient-app/me/meetings');
-    final response = await _httpClient.get(
-      endpoint,
-      headers: {
-        'Accept': 'application/json',
-        'Authorization': 'Bearer $token',
-      },
-    );
-    final body = _decodeBody(response.body);
-    _assertSuccess(response, body);
-    final data = body as Map<String, dynamic>;
-    final items = data['items'] as List<dynamic>? ?? [];
-    return items
-        .map((m) => PatientMeeting.fromJson(m as Map<String, dynamic>))
-        .toList();
+    try {
+      final response = await _httpClient.get(
+        endpoint,
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+      final body = _decodeBody(response.body);
+      _assertSuccess(response, body);
+      final data = body as Map<String, dynamic>;
+      final items = data['items'] as List<dynamic>? ?? [];
+      return items
+          .map((m) => PatientMeeting.fromJson(m as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      if (e is PatientAuthApiException) rethrow;
+      throw PatientAuthApiException('Network error: $e');
+    }
+  }
+
+  Future<PatientMeetingInviteResponse> issueMeetingInvite({
+    required String token,
+    required String meetingId,
+  }) async {
+    final normalizedMeetingId = meetingId.trim();
+    final endpoint = _baseUri.resolve('/patient-app/me/meetings/$normalizedMeetingId/invite');
+    try {
+      final response = await _httpClient.post(
+        endpoint,
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+      final body = _decodeBody(response.body);
+      _assertSuccess(response, body);
+      return PatientMeetingInviteResponse.fromJson(body as Map<String, dynamic>);
+    } catch (e) {
+      if (e is PatientAuthApiException) rethrow;
+      throw PatientAuthApiException('Network error: $e');
+    }
+  }
+
+  void close() {
+    _httpClient.close();
   }
 
   // ── helpers ──

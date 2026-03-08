@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../config/app_config.dart';
 import '../models/patient_auth.dart';
 import '../models/patient_invite_link.dart';
+import '../models/patient_video_session.dart';
 import '../services/patient_auth_api_client.dart';
 import '../services/patient_video_api_client.dart';
 import '../services/auth_storage.dart';
@@ -21,27 +22,34 @@ class PatientMeetingsPage extends StatefulWidget {
 
 class _PatientMeetingsPageState extends State<PatientMeetingsPage>
     with WidgetsBindingObserver {
+  static const _activeMeetingPollInterval = Duration(seconds: 5);
+  static const _nearMeetingPollInterval = Duration(seconds: 10);
+  static const _idlePollInterval = Duration(seconds: 30);
+  static const _nearMeetingWindow = Duration(minutes: 15);
+
   List<PatientMeeting>? _meetings;
   bool _isLoading = true;
+  bool _isRefreshingMeetings = false;
   String? _errorMessage;
   String _patientName = '';
   String? _joiningMeetingId;
-
-  /// Polling interval for silent background refresh.
-  static const _pollInterval = Duration(seconds: 5);
   Timer? _pollTimer;
+  late final PatientAuthApiClient _authApiClient;
 
   @override
   void initState() {
     super.initState();
+    _authApiClient = PatientAuthApiClient(
+      baseUrl: AppConfig.telemedApiBaseUrl,
+    );
     WidgetsBinding.instance.addObserver(this);
-    _loadData();
-    _startPolling();
+    unawaited(_initializePage());
   }
 
   @override
   void dispose() {
     _stopPolling();
+    _authApiClient.close();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -49,8 +57,8 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _silentRefresh();
-      _startPolling();
+      unawaited(_silentRefresh());
+      _resumeAdaptivePolling();
     } else if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
@@ -58,9 +66,10 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
     }
   }
 
-  void _startPolling() {
+  void _resumeAdaptivePolling() {
+    if (!mounted) return;
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(_pollInterval, (_) => _silentRefresh());
+    _scheduleNextPoll();
   }
 
   void _stopPolling() {
@@ -68,16 +77,87 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
     _pollTimer = null;
   }
 
+  void _scheduleNextPoll() {
+    if (!mounted) return;
+    _pollTimer = Timer(_resolvePollInterval(), () async {
+      await _silentRefresh();
+      if (mounted) {
+        _scheduleNextPoll();
+      }
+    });
+  }
+
+  Duration _resolvePollInterval() {
+    final meetings = _meetings;
+    if (meetings == null || meetings.isEmpty) {
+      return _idlePollInterval;
+    }
+
+    final now = DateTime.now();
+    if (meetings.any(_isActivelyWaitingMeeting)) {
+      return _activeMeetingPollInterval;
+    }
+    if (meetings.any((meeting) => _isNearMeetingWindow(meeting, now))) {
+      return _nearMeetingPollInterval;
+    }
+    return _idlePollInterval;
+  }
+
+  bool _isActivelyWaitingMeeting(PatientMeeting meeting) {
+    if (!_isJoinableMeeting(meeting)) {
+      return false;
+    }
+
+    final presenceState = meeting.roomPresence?.state;
+    if (presenceState == 'patient_waiting' ||
+        presenceState == 'doctor_left_patient_waiting' ||
+        presenceState == 'doctor_only' ||
+        presenceState == 'both_in_room') {
+      return true;
+    }
+
+    return meeting.status == 'waiting' || meeting.status == 'in_progress';
+  }
+
+  bool _isNearMeetingWindow(PatientMeeting meeting, DateTime now) {
+    if (!_isJoinableMeeting(meeting) || _isActivelyWaitingMeeting(meeting)) {
+      return false;
+    }
+
+    final parsedDateTime = DateTime.tryParse(meeting.dateTime);
+    if (parsedDateTime == null) {
+      return false;
+    }
+
+    final scheduledTime = parsedDateTime.toLocal();
+    final secondsUntilMeeting = scheduledTime.difference(now).inSeconds;
+    return secondsUntilMeeting >= -_nearMeetingWindow.inSeconds &&
+        secondsUntilMeeting <= _nearMeetingWindow.inSeconds;
+  }
+
+  bool _isJoinableMeeting(PatientMeeting meeting) {
+    return meeting.status != 'completed' && meeting.status != 'cancelled';
+  }
+
+  Future<void> _initializePage() async {
+    await _loadData();
+    final token = await AuthStorage.getToken();
+    if (!mounted || token == null || token.isEmpty) {
+      return;
+    }
+    _resumeAdaptivePolling();
+  }
+
   /// Refresh meetings in the background without showing a loading spinner.
   Future<void> _silentRefresh() async {
+    if (_isRefreshingMeetings) return;
+
     final token = await AuthStorage.getToken();
     if (token == null || token.isEmpty) return;
 
+    _isRefreshingMeetings = true;
     try {
-      final client = PatientAuthApiClient(
-        baseUrl: AppConfig.telemedApiBaseUrl,
-      );
-      final meetings = await client.getMyMeetings(token);
+      final meetings = await _authApiClient.getMyMeetings(token);
       if (!mounted) return;
       setState(() {
         _meetings = meetings;
@@ -85,20 +165,26 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
       });
     } on PatientAuthApiException catch (e) {
       if (e.statusCode == 401) {
+        _stopPolling();
         await AuthStorage.clearSession();
         if (mounted) _navigateToLogin();
       }
       // Silently ignore other errors during background poll.
     } catch (_) {
       // Silently ignore — don't overwrite the UI with an error on background poll.
+    } finally {
+      _isRefreshingMeetings = false;
     }
   }
 
   Future<void> _loadData() async {
+    if (_isRefreshingMeetings) return;
+
     final token = await AuthStorage.getToken();
     final name = await AuthStorage.getPatientName();
 
     if (token == null || token.isEmpty) {
+      _stopPolling();
       if (mounted) _navigateToLogin();
       return;
     }
@@ -109,11 +195,9 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
       _patientName = name ?? '';
     });
 
+    _isRefreshingMeetings = true;
     try {
-      final client = PatientAuthApiClient(
-        baseUrl: AppConfig.telemedApiBaseUrl,
-      );
-      final meetings = await client.getMyMeetings(token);
+      final meetings = await _authApiClient.getMyMeetings(token);
       if (!mounted) return;
       setState(() {
         _meetings = meetings;
@@ -121,6 +205,7 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
       });
     } on PatientAuthApiException catch (e) {
       if (e.statusCode == 401) {
+        _stopPolling();
         await AuthStorage.clearSession();
         if (mounted) _navigateToLogin();
         return;
@@ -136,6 +221,8 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
         _errorMessage = 'เกิดข้อผิดพลาด: $e';
         _isLoading = false;
       });
+    } finally {
+      _isRefreshingMeetings = false;
     }
   }
 
@@ -151,33 +238,141 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
     if (mounted) _navigateToLogin();
   }
 
+  Future<PatientInviteLink> _resolveInviteLink(PatientMeeting meeting) async {
+    final cachedInvite = PatientInviteLink.tryParse(meeting.patientInviteUrl);
+    if (cachedInvite != null &&
+        cachedInvite.canJoin &&
+        !_isInviteExpired(meeting.patientInviteExpiresAt)) {
+      return cachedInvite;
+    }
+
+    final token = await AuthStorage.getToken();
+    if (token == null || token.isEmpty) {
+      _stopPolling();
+      await AuthStorage.clearSession();
+      if (mounted) _navigateToLogin();
+      throw const PatientAuthApiException('Session expired.', statusCode: 401);
+    }
+
+    final inviteResponse = await _authApiClient.issueMeetingInvite(
+      token: token,
+      meetingId: meeting.meetingId,
+    );
+    final refreshedInvite = PatientInviteLink.tryParse(inviteResponse.inviteUrl);
+    if (refreshedInvite == null || !refreshedInvite.canJoin) {
+      throw const PatientAuthApiException('Invite link is invalid.');
+    }
+
+    if (mounted) {
+      setState(() {
+        _meetings = _meetings
+            ?.map(
+              (item) => item.meetingId == meeting.meetingId
+                  ? PatientMeeting(
+                      meetingId: item.meetingId,
+                      dateTime: item.dateTime,
+                      doctorName: item.doctorName,
+                      status: item.status,
+                      updatedAt: item.updatedAt,
+                      patientInviteUrl: inviteResponse.inviteUrl,
+                      patientInviteExpiresAt: inviteResponse.expiresAt,
+                      roomPresence: item.roomPresence,
+                    )
+                  : item,
+            )
+            .toList();
+      });
+    }
+
+    return refreshedInvite;
+  }
+
+  Future<PatientInviteLink> _refreshInviteLink(PatientMeeting meeting) async {
+    final token = await AuthStorage.getToken();
+    if (token == null || token.isEmpty) {
+      _stopPolling();
+      await AuthStorage.clearSession();
+      if (mounted) _navigateToLogin();
+      throw const PatientAuthApiException('Session expired.', statusCode: 401);
+    }
+
+    final inviteResponse = await _authApiClient.issueMeetingInvite(
+      token: token,
+      meetingId: meeting.meetingId,
+    );
+    final refreshedInvite = PatientInviteLink.tryParse(inviteResponse.inviteUrl);
+    if (refreshedInvite == null || !refreshedInvite.canJoin) {
+      throw const PatientAuthApiException('Invite link is invalid.');
+    }
+
+    if (mounted) {
+      setState(() {
+        _meetings = _meetings
+            ?.map(
+              (item) => item.meetingId == meeting.meetingId
+                  ? PatientMeeting(
+                      meetingId: item.meetingId,
+                      dateTime: item.dateTime,
+                      doctorName: item.doctorName,
+                      status: item.status,
+                      updatedAt: item.updatedAt,
+                      patientInviteUrl: inviteResponse.inviteUrl,
+                      patientInviteExpiresAt: inviteResponse.expiresAt,
+                      roomPresence: item.roomPresence,
+                    )
+                  : item,
+            )
+            .toList();
+      });
+    }
+
+    return refreshedInvite;
+  }
+
+  bool _isInviteExpired(String? expiresAt) {
+    if (expiresAt == null || expiresAt.isEmpty) {
+      return false;
+    }
+
+    final parsedExpiry = DateTime.tryParse(expiresAt);
+    if (parsedExpiry == null) {
+      return false;
+    }
+
+    return !parsedExpiry.toLocal().isAfter(DateTime.now());
+  }
+
   Future<void> _handleJoinMeeting(PatientMeeting meeting) async {
-    final inviteUrl = meeting.patientInviteUrl;
-    if (inviteUrl == null || inviteUrl.isEmpty) {
-      _showSnackBar('ลิงก์ห้องยังไม่พร้อม ระบบกำลังเตรียมห้องให้');
-      return;
-    }
-
-    final invite = PatientInviteLink.tryParse(inviteUrl);
-    if (invite == null || !invite.canJoin) {
-      _showSnackBar('ลิงก์เข้าห้องไม่ถูกต้อง');
-      return;
-    }
-
     setState(() => _joiningMeetingId = meeting.meetingId);
+    _stopPolling();
+    final apiClient = PatientVideoApiClient(
+      baseUrl: AppConfig.telemedApiBaseUrl,
+    );
 
     try {
-      final apiClient = PatientVideoApiClient(
-        baseUrl: AppConfig.telemedApiBaseUrl,
-      );
-      final session = await apiClient.issuePatientVideoToken(
-        meetingId: invite.meetingId,
-        inviteToken: invite.inviteToken,
-        shortCode: invite.shortCode,
-      );
+      var invite = await _resolveInviteLink(meeting);
+      PatientVideoSession? session;
+
+      try {
+        session = await apiClient.issuePatientVideoToken(
+          meetingId: invite.meetingId,
+          inviteToken: invite.inviteToken,
+          shortCode: invite.shortCode,
+        );
+      } on PatientVideoApiException catch (e) {
+        if (e.statusCode == 401 || e.statusCode == 403) {
+          invite = await _refreshInviteLink(meeting);
+          session = await apiClient.issuePatientVideoToken(
+            meetingId: invite.meetingId,
+            inviteToken: invite.inviteToken,
+            shortCode: invite.shortCode,
+          );
+        } else {
+          rethrow;
+        }
+      }
 
       if (!mounted) return;
-
       if (session.provider != 'zego') {
         _showSnackBar('ระบบวิดีโอไม่รองรับ');
         return;
@@ -202,7 +397,13 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
     } catch (_) {
       if (mounted) _showSnackBar('ไม่สามารถเข้าห้องได้ กรุณาลองใหม่');
     } finally {
-      if (mounted) setState(() => _joiningMeetingId = null);
+      apiClient.close();
+      if (!mounted) return;
+      setState(() => _joiningMeetingId = null);
+      await _silentRefresh();
+      if (mounted) {
+        _resumeAdaptivePolling();
+      }
     }
   }
 
