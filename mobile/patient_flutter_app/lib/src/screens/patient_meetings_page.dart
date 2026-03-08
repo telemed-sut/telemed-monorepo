@@ -239,7 +239,8 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
   }
 
   Future<PatientInviteLink> _resolveInviteLink(PatientMeeting meeting) async {
-    final cachedInvite = PatientInviteLink.tryParse(meeting.patientInviteUrl ?? '');
+    final cachedInvite =
+        PatientInviteLink.tryParse(meeting.patientInviteUrl ?? '');
     if (cachedInvite != null &&
         cachedInvite.canJoin &&
         !_isInviteExpired(meeting.patientInviteExpiresAt)) {
@@ -258,7 +259,8 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
       token: token,
       meetingId: meeting.meetingId,
     );
-    final refreshedInvite = PatientInviteLink.tryParse(inviteResponse.inviteUrl);
+    final refreshedInvite =
+        PatientInviteLink.tryParse(inviteResponse.inviteUrl);
     if (refreshedInvite == null || !refreshedInvite.canJoin) {
       throw const PatientAuthApiException('Invite link is invalid.');
     }
@@ -300,7 +302,8 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
       token: token,
       meetingId: meeting.meetingId,
     );
-    final refreshedInvite = PatientInviteLink.tryParse(inviteResponse.inviteUrl);
+    final refreshedInvite =
+        PatientInviteLink.tryParse(inviteResponse.inviteUrl);
     if (refreshedInvite == null || !refreshedInvite.canJoin) {
       throw const PatientAuthApiException('Invite link is invalid.');
     }
@@ -458,7 +461,8 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
                           children: [
                             const Text(
                               'นัดหมายของฉัน',
-                              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20),
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w800, fontSize: 20),
                             ),
                             const SizedBox(height: 3),
                             Text(
@@ -515,7 +519,8 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
                             borderRadius: BorderRadius.circular(12),
                             border: Border.all(color: const Color(0xFFD5E1F2)),
                           ),
-                          child: const Icon(Icons.more_horiz_rounded, color: Color(0xFF1E3A8A)),
+                          child: const Icon(Icons.more_horiz_rounded,
+                              color: Color(0xFF1E3A8A)),
                         ),
                       ),
                     ],
@@ -795,7 +800,8 @@ class _MeetingsSummaryCard extends StatelessWidget {
             color: const Color(0xFFD97706),
           ),
           const Spacer(),
-          Icon(Icons.touch_app_rounded, size: 18, color: theme.colorScheme.primary),
+          Icon(Icons.touch_app_rounded,
+              size: 18, color: theme.colorScheme.primary),
         ],
       ),
     );
@@ -876,8 +882,8 @@ class _MeetingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasInvite =
-        meeting.patientInviteUrl != null && meeting.patientInviteUrl!.isNotEmpty;
+    final hasInvite = meeting.patientInviteUrl != null &&
+        meeting.patientInviteUrl!.isNotEmpty;
     final isJoinable = _isPatientReadyToJoin(meeting);
     final canJoin = hasInvite && isJoinable;
 
@@ -893,8 +899,9 @@ class _MeetingCard extends StatelessWidget {
 
     final statusColor = _patientStatusColor(meeting);
     final statusLabel = _patientStatusLabel(meeting);
-    final actionLabel =
-        canJoin ? _patientActionLabel(meeting, isJoining) : (!hasInvite ? 'กำลังเตรียมห้อง' : statusLabel);
+    final actionLabel = canJoin
+        ? _patientActionLabel(meeting, isJoining)
+        : (!hasInvite ? 'กำลังเตรียมห้อง' : statusLabel);
     final waitingHint = _patientWaitingHint(meeting);
 
     return Card(
@@ -1015,14 +1022,13 @@ class _MeetingCard extends StatelessWidget {
                             strokeWidth: 2, color: Colors.white),
                       )
                     : const Icon(Icons.videocam_rounded, size: 20),
-                label:
-                    Text(actionLabel, style: const TextStyle(fontWeight: FontWeight.w600)),
+                label: Text(actionLabel,
+                    style: const TextStyle(fontWeight: FontWeight.w600)),
                 style: FilledButton.styleFrom(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  backgroundColor:
-                      canJoin ? theme.colorScheme.primary : null,
+                  backgroundColor: canJoin ? theme.colorScheme.primary : null,
                 ),
               ),
             ),

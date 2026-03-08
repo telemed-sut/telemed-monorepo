@@ -41,7 +41,8 @@ class PatientVideoApiClient {
     if (shortCode != null && shortCode.trim().isNotEmpty) {
       payload['short_code'] = shortCode.trim();
     }
-    if (!payload.containsKey('invite_token') && !payload.containsKey('short_code')) {
+    if (!payload.containsKey('invite_token') &&
+        !payload.containsKey('short_code')) {
       throw const PatientVideoApiException(
         'Missing invite token or short code.',
       );
@@ -56,7 +57,9 @@ class PatientVideoApiClient {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final detailMessage = _extractDetail(decoded) ?? response.body;
       throw PatientVideoApiException(
-        detailMessage.isEmpty ? 'Failed to issue patient video token.' : detailMessage,
+        detailMessage.isEmpty
+            ? 'Failed to issue patient video token.'
+            : detailMessage,
         statusCode: response.statusCode,
       );
     }
@@ -110,7 +113,8 @@ class PatientVideoApiClient {
     if (shortCode != null && shortCode.trim().isNotEmpty) {
       payload['short_code'] = shortCode.trim();
     }
-    if (!payload.containsKey('invite_token') && !payload.containsKey('short_code')) {
+    if (!payload.containsKey('invite_token') &&
+        !payload.containsKey('short_code')) {
       throw const PatientVideoApiException(
         'Missing invite token or short code for presence update.',
       );
@@ -130,7 +134,8 @@ class PatientVideoApiClient {
     _httpClient.close();
   }
 
-  Future<http.Response> _postJson(Uri endpoint, Map<String, dynamic> payload) async {
+  Future<http.Response> _postJson(
+      Uri endpoint, Map<String, dynamic> payload) async {
     try {
       return await _httpClient.post(
         endpoint,

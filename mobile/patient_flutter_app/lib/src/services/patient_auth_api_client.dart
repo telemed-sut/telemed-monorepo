@@ -86,7 +86,8 @@ class PatientAuthApiClient {
     required String meetingId,
   }) async {
     final normalizedMeetingId = meetingId.trim();
-    final endpoint = _baseUri.resolve('/patient-app/me/meetings/$normalizedMeetingId/invite');
+    final endpoint = _baseUri
+        .resolve('/patient-app/me/meetings/$normalizedMeetingId/invite');
     try {
       final response = await _httpClient.post(
         endpoint,
@@ -97,7 +98,8 @@ class PatientAuthApiClient {
       );
       final body = _decodeBody(response.body);
       _assertSuccess(response, body);
-      return PatientMeetingInviteResponse.fromJson(body as Map<String, dynamic>);
+      return PatientMeetingInviteResponse.fromJson(
+          body as Map<String, dynamic>);
     } catch (e) {
       if (e is PatientAuthApiException) rethrow;
       throw PatientAuthApiException('Network error: $e');

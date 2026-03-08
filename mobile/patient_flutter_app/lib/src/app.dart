@@ -68,7 +68,8 @@ class PatientFlutterApp extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             borderSide: const BorderSide(color: brandBlue, width: 1.8),
           ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
           labelStyle: const TextStyle(
             color: Color(0xFF475569),
             fontWeight: FontWeight.w600,
@@ -121,8 +122,6 @@ class _AuthGateState extends State<_AuthGate> {
         body: Center(child: CircularProgressIndicator()),
       );
     }
-    return _hasSession
-        ? const PatientMeetingsPage()
-        : const PatientLoginPage();
+    return _hasSession ? const PatientMeetingsPage() : const PatientLoginPage();
   }
 }

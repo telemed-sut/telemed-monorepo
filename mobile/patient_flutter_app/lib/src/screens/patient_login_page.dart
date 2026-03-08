@@ -115,7 +115,8 @@ class _PatientLoginPageState extends State<PatientLoginPage> {
               ),
               Center(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 460),
                     child: Container(
@@ -139,7 +140,8 @@ class _PatientLoginPageState extends State<PatientLoginPage> {
                             width: 70,
                             height: 70,
                             decoration: BoxDecoration(
-                              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                              color: theme.colorScheme.primary
+                                  .withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(18),
                             ),
                             child: Icon(
@@ -167,7 +169,9 @@ class _PatientLoginPageState extends State<PatientLoginPage> {
                           TextField(
                             controller: _phoneController,
                             keyboardType: TextInputType.phone,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly
+                            ],
                             decoration: const InputDecoration(
                               labelText: 'เบอร์โทรศัพท์',
                               prefixIcon: Icon(Icons.phone_outlined),
@@ -180,14 +184,18 @@ class _PatientLoginPageState extends State<PatientLoginPage> {
                             keyboardType: TextInputType.number,
                             maxLength: 6,
                             obscureText: _obscurePin,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly
+                            ],
                             decoration: InputDecoration(
                               labelText: 'PIN',
                               prefixIcon: const Icon(Icons.lock_outline),
                               counterText: '',
                               suffixIcon: IconButton(
                                 icon: Icon(
-                                  _obscurePin ? Icons.visibility_off : Icons.visibility,
+                                  _obscurePin
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
                                 ),
                                 onPressed: () => setState(
                                   () => _obscurePin = !_obscurePin,
@@ -201,7 +209,8 @@ class _PatientLoginPageState extends State<PatientLoginPage> {
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: theme.colorScheme.error.withValues(alpha: 0.08),
+                                color: theme.colorScheme.error
+                                    .withValues(alpha: 0.08),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Row(
@@ -213,7 +222,8 @@ class _PatientLoginPageState extends State<PatientLoginPage> {
                                     child: Text(
                                       _errorMessage!,
                                       style: TextStyle(
-                                          color: theme.colorScheme.error, fontSize: 13),
+                                          color: theme.colorScheme.error,
+                                          fontSize: 13),
                                     ),
                                   ),
                                 ],

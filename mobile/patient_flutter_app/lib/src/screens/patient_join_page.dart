@@ -27,7 +27,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
   @override
   void initState() {
     super.initState();
-    _apiBaseUrlController = TextEditingController(text: AppConfig.telemedApiBaseUrl);
+    _apiBaseUrlController =
+        TextEditingController(text: AppConfig.telemedApiBaseUrl);
     _inviteUrlController = TextEditingController();
     _inviteUrlController.addListener(_refreshInvitePreview);
     _refreshInvitePreview();
@@ -69,7 +70,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
       return;
     }
 
-    final invite = _parsedInvite ?? PatientInviteLink.tryParse(_inviteUrlController.text);
+    final invite =
+        _parsedInvite ?? PatientInviteLink.tryParse(_inviteUrlController.text);
     if (invite == null || !invite.canJoin) {
       setState(() {
         _errorMessage =
@@ -142,7 +144,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Unable to join call. Please check network and try again.';
+        _errorMessage =
+            'Unable to join call. Please check network and try again.';
       });
     } finally {
       if (mounted) {
@@ -173,7 +176,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
         ),
         child: Text(
           'Paste invite link to verify meeting before joining.',
-          style: theme.textTheme.bodySmall?.copyWith(color: const Color(0xFF475569)),
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: const Color(0xFF475569)),
         ),
       );
     }
@@ -199,16 +203,22 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
               Icon(
                 mismatch ? Icons.error_outline : Icons.verified_outlined,
                 size: 16,
-                color: mismatch ? const Color(0xFFB91C1C) : const Color(0xFF166534),
+                color: mismatch
+                    ? const Color(0xFFB91C1C)
+                    : const Color(0xFF166534),
               ),
               const SizedBox(width: 6),
               Text(
                 mismatch
                     ? 'Invite mismatch detected'
-                    : (invite.hasShortCode ? 'Short invite verified' : 'Invite verified'),
+                    : (invite.hasShortCode
+                        ? 'Short invite verified'
+                        : 'Invite verified'),
                 style: theme.textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.w700,
-                  color: mismatch ? const Color(0xFFB91C1C) : const Color(0xFF166534),
+                  color: mismatch
+                      ? const Color(0xFFB91C1C)
+                      : const Color(0xFF166534),
                 ),
               ),
             ],
@@ -218,7 +228,9 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
             Text(
               'Short code: ${invite.shortCode}',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: mismatch ? const Color(0xFF7F1D1D) : const Color(0xFF14532D),
+                color: mismatch
+                    ? const Color(0xFF7F1D1D)
+                    : const Color(0xFF14532D),
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -227,7 +239,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
           Text(
             'Meeting ID: ${effectiveMeetingId ?? 'Unknown'}',
             style: theme.textTheme.bodySmall?.copyWith(
-              color: mismatch ? const Color(0xFF7F1D1D) : const Color(0xFF14532D),
+              color:
+                  mismatch ? const Color(0xFF7F1D1D) : const Color(0xFF14532D),
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -235,7 +248,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
             const SizedBox(height: 4),
             Text(
               'URL meeting_id and token meeting_id are not the same. This can make patient and doctor join different rooms.',
-              style: theme.textTheme.bodySmall?.copyWith(color: const Color(0xFF991B1B)),
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: const Color(0xFF991B1B)),
             ),
           ],
         ],
@@ -297,7 +311,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                             colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
                           ),
                         ),
-                        child: const Icon(Icons.health_and_safety, color: Colors.white),
+                        child: const Icon(Icons.health_and_safety,
+                            color: Colors.white),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -417,7 +432,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(Icons.error_outline, color: Color(0xFFDC2626)),
+                          const Icon(Icons.error_outline,
+                              color: Color(0xFFDC2626)),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
@@ -452,7 +468,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                             )
                           : const Text(
                               'Join Call',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.w600),
                             ),
                     ),
                   ),

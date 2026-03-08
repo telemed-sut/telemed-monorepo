@@ -42,7 +42,8 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
   @override
   void initState() {
     super.initState();
-    _videoApiClient = PatientVideoApiClient(baseUrl: AppConfig.telemedApiBaseUrl);
+    _videoApiClient =
+        PatientVideoApiClient(baseUrl: AppConfig.telemedApiBaseUrl);
     WidgetsBinding.instance.addObserver(this);
     _enableImmersiveMode();
     _startPresenceHeartbeat();
@@ -203,8 +204,9 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
 
     final isActive = _lifecycleState == AppLifecycleState.resumed;
     final lifecycleLabel = isActive ? 'เชื่อมต่ออยู่' : 'อยู่เบื้องหลัง';
-    final roomLabel =
-        widget.session.roomId.length > 18 ? '${widget.session.roomId.substring(0, 18)}...' : widget.session.roomId;
+    final roomLabel = widget.session.roomId.length > 18
+        ? '${widget.session.roomId.substring(0, 18)}...'
+        : widget.session.roomId;
 
     return PopScope(
       canPop: false,
@@ -244,7 +246,11 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
                     gradient: LinearGradient(
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
-                      colors: [Color(0xB3000000), Color(0x22000000), Color(0x00000000)],
+                      colors: [
+                        Color(0xB3000000),
+                        Color(0x22000000),
+                        Color(0x00000000)
+                      ],
                     ),
                   ),
                 ),
@@ -269,12 +275,15 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
                         ),
                         const Spacer(),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
                             color: const Color(0xCC0F172A),
                             borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                              color: isActive ? const Color(0x5A4ADE80) : const Color(0x52F59E0B),
+                            border: Border.all(
+                              color: isActive
+                                  ? const Color(0x5A4ADE80)
+                                  : const Color(0x52F59E0B),
                             ),
                           ),
                           child: Row(
@@ -283,14 +292,18 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
                               Icon(
                                 Icons.shield_moon_outlined,
                                 size: 14,
-                                color: isActive ? const Color(0xFF86EFAC) : const Color(0xFFFDE68A),
+                                color: isActive
+                                    ? const Color(0xFF86EFAC)
+                                    : const Color(0xFFFDE68A),
                               ),
                               const SizedBox(width: 6),
                               Text(
                                 lifecycleLabel,
                                 style: TextStyle(
                                   fontSize: 11,
-                                  color: isActive ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
+                                  color: isActive
+                                      ? const Color(0xFFD1FAE5)
+                                      : const Color(0xFFFEF3C7),
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -340,7 +353,8 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
                 right: 14,
                 bottom: 110,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     color: const Color(0xCC78350F),
                     borderRadius: BorderRadius.circular(12),
@@ -348,7 +362,8 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.info_outline, color: Color(0xFFFEF3C7), size: 16),
+                      Icon(Icons.info_outline,
+                          color: Color(0xFFFEF3C7), size: 16),
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(

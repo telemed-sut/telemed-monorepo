@@ -133,7 +133,8 @@ class _PatientRegisterPageState extends State<PatientRegisterPage> {
               ),
               Center(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 460),
                     child: Container(
@@ -157,7 +158,8 @@ class _PatientRegisterPageState extends State<PatientRegisterPage> {
                             width: 70,
                             height: 70,
                             decoration: BoxDecoration(
-                              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                              color: theme.colorScheme.primary
+                                  .withValues(alpha: 0.1),
                               borderRadius: BorderRadius.circular(18),
                             ),
                             child: Icon(
@@ -185,7 +187,9 @@ class _PatientRegisterPageState extends State<PatientRegisterPage> {
                           TextField(
                             controller: _phoneController,
                             keyboardType: TextInputType.phone,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly
+                            ],
                             decoration: const InputDecoration(
                               labelText: 'เบอร์โทรศัพท์',
                               prefixIcon: Icon(Icons.phone_outlined),
@@ -198,7 +202,8 @@ class _PatientRegisterPageState extends State<PatientRegisterPage> {
                             textCapitalization: TextCapitalization.characters,
                             maxLength: 6,
                             inputFormatters: [
-                              FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
+                              FilteringTextInputFormatter.allow(
+                                  RegExp(r'[A-Za-z0-9]')),
                               UpperCaseTextFormatter(),
                             ],
                             decoration: const InputDecoration(
@@ -214,14 +219,18 @@ class _PatientRegisterPageState extends State<PatientRegisterPage> {
                             keyboardType: TextInputType.number,
                             maxLength: 6,
                             obscureText: _obscurePin,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly
+                            ],
                             decoration: InputDecoration(
                               labelText: 'ตั้ง PIN (4-6 หลัก)',
                               prefixIcon: const Icon(Icons.lock_outline),
                               counterText: '',
                               suffixIcon: IconButton(
                                 icon: Icon(
-                                  _obscurePin ? Icons.visibility_off : Icons.visibility,
+                                  _obscurePin
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
                                 ),
                                 onPressed: () => setState(
                                   () => _obscurePin = !_obscurePin,
@@ -235,7 +244,9 @@ class _PatientRegisterPageState extends State<PatientRegisterPage> {
                             keyboardType: TextInputType.number,
                             maxLength: 6,
                             obscureText: _obscurePinConfirm,
-                            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly
+                            ],
                             decoration: InputDecoration(
                               labelText: 'ยืนยัน PIN',
                               prefixIcon: const Icon(Icons.lock_outline),
@@ -247,7 +258,8 @@ class _PatientRegisterPageState extends State<PatientRegisterPage> {
                                       : Icons.visibility,
                                 ),
                                 onPressed: () => setState(
-                                  () => _obscurePinConfirm = !_obscurePinConfirm,
+                                  () =>
+                                      _obscurePinConfirm = !_obscurePinConfirm,
                                 ),
                               ),
                             ),
@@ -257,7 +269,8 @@ class _PatientRegisterPageState extends State<PatientRegisterPage> {
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: theme.colorScheme.error.withValues(alpha: 0.08),
+                                color: theme.colorScheme.error
+                                    .withValues(alpha: 0.08),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Row(
@@ -269,7 +282,8 @@ class _PatientRegisterPageState extends State<PatientRegisterPage> {
                                     child: Text(
                                       _errorMessage!,
                                       style: TextStyle(
-                                          color: theme.colorScheme.error, fontSize: 13),
+                                          color: theme.colorScheme.error,
+                                          fontSize: 13),
                                     ),
                                   ),
                                 ],

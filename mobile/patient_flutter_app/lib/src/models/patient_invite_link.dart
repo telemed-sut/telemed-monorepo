@@ -22,7 +22,8 @@ class PatientInviteLink {
 
   bool get hasMeetingIdMismatch {
     if (meetingIdFromQuery == null || meetingIdFromToken == null) return false;
-    return _normalizeMeetingId(meetingIdFromQuery!) != _normalizeMeetingId(meetingIdFromToken!);
+    return _normalizeMeetingId(meetingIdFromQuery!) !=
+        _normalizeMeetingId(meetingIdFromToken!);
   }
 
   static PatientInviteLink? tryParse(String rawUrl) {
@@ -48,15 +49,22 @@ class PatientInviteLink {
     final uri = Uri.tryParse(trimmed);
     if (uri == null) return null;
 
-    final meetingIdFromQueryRaw = (uri.queryParameters['meeting_id'] ?? '').trim();
-    final meetingIdFromQuery = meetingIdFromQueryRaw.isEmpty ? null : meetingIdFromQueryRaw;
+    final meetingIdFromQueryRaw =
+        (uri.queryParameters['meeting_id'] ?? '').trim();
+    final meetingIdFromQuery =
+        meetingIdFromQueryRaw.isEmpty ? null : meetingIdFromQueryRaw;
     final inviteTokenRaw =
-        ((uri.queryParameters['invite_token'] ?? uri.queryParameters['t']) ?? '').trim();
+        ((uri.queryParameters['invite_token'] ?? uri.queryParameters['t']) ??
+                '')
+            .trim();
     final inviteToken = inviteTokenRaw.isEmpty ? null : inviteTokenRaw;
 
     final shortCodeFromQueryRaw =
-        ((uri.queryParameters['short_code'] ?? uri.queryParameters['c']) ?? '').trim();
-    String? shortCode = shortCodeFromQueryRaw.isEmpty ? null : shortCodeFromQueryRaw.toLowerCase();
+        ((uri.queryParameters['short_code'] ?? uri.queryParameters['c']) ?? '')
+            .trim();
+    String? shortCode = shortCodeFromQueryRaw.isEmpty
+        ? null
+        : shortCodeFromQueryRaw.toLowerCase();
 
     if (shortCode == null && uri.pathSegments.length >= 2) {
       if (uri.pathSegments[0].toLowerCase() == 'p') {
@@ -71,8 +79,9 @@ class PatientInviteLink {
       return null;
     }
 
-    final meetingIdFromToken =
-        inviteToken == null ? null : _extractMeetingIdFromInviteToken(inviteToken);
+    final meetingIdFromToken = inviteToken == null
+        ? null
+        : _extractMeetingIdFromInviteToken(inviteToken);
 
     return PatientInviteLink(
       meetingIdFromQuery: meetingIdFromQuery,
