@@ -882,10 +882,8 @@ class _MeetingCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final hasInvite = meeting.patientInviteUrl != null &&
-        meeting.patientInviteUrl!.isNotEmpty;
     final isJoinable = _isPatientReadyToJoin(meeting);
-    final canJoin = hasInvite && isJoinable;
+    final canJoin = isJoinable;
 
     // Parse date
     String formattedDate;
@@ -901,7 +899,7 @@ class _MeetingCard extends StatelessWidget {
     final statusLabel = _patientStatusLabel(meeting);
     final actionLabel = canJoin
         ? _patientActionLabel(meeting, isJoining)
-        : (!hasInvite ? 'กำลังเตรียมห้อง' : statusLabel);
+        : statusLabel;
     final waitingHint = _patientWaitingHint(meeting);
 
     return Card(
