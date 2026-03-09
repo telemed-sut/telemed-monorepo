@@ -38,6 +38,7 @@ from app.schemas.auth import (
     TrustedDevicesRevokeAllResponse,
     InviteAcceptRequest,
     InviteInfoResponse,
+    InviteTokenRequest,
     LoginRequest,
     MessageResponse,
     ResetPasswordRequest,
@@ -811,6 +812,20 @@ def reset_password(request: Request, payload: ResetPasswordRequest, db: Session 
 @limiter.limit("60/minute")
 def get_invite_info(request: Request, token: str, db: Session = Depends(auth_service.get_db)):
     invite = auth_service.get_active_invite_by_token(db, token)
+    if not invite:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite link is invalid or expired")
+
+    return InviteInfoResponse(email=invite.email, role=invite.role, expires_at=invite.expires_at)
+
+
+@router.post("/invite/inspect", response_model=InviteInfoResponse)
+@limiter.limit("60/minute")
+def inspect_invite_token(
+    request: Request,
+    payload: InviteTokenRequest,
+    db: Session = Depends(auth_service.get_db),
+):
+    invite = auth_service.get_active_invite_by_token(db, payload.token)
     if not invite:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite link is invalid or expired")
 

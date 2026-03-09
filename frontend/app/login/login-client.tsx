@@ -68,7 +68,7 @@ export default function LoginClientPage() {
   const token = useAuthStore((state) => state.token);
   const hydrate = useAuthStore((state) => state.hydrate);
   const hydrated = useAuthStore((state) => state.hydrated);
-  const setToken = useAuthStore((state) => state.setToken);
+  const setSession = useAuthStore((state) => state.setSession);
   const language = useLanguageStore((state) => state.language);
   const setLanguage = useLanguageStore((state) => state.setLanguage);
 
@@ -128,7 +128,12 @@ export default function LoginClientPage() {
     setLoading(true);
     try {
       const res = await loginRequest(email, password, otpCode, rememberDevice);
-      setToken(res.access_token);
+      if (!res.user) {
+        throw new Error(
+          tr(language, "Unable to establish session. Please try again.", "ไม่สามารถเริ่มต้นเซสชันได้ โปรดลองอีกครั้ง")
+        );
+      }
+      setSession(res);
       router.replace("/patients");
     } catch (err) {
       const apiError = err as ApiError;
@@ -138,8 +143,10 @@ export default function LoginClientPage() {
         setProvisioningUri(detail.provisioning_uri ?? null);
         setTrustedDays(typeof detail.trusted_device_days === "number" ? detail.trusted_device_days : null);
         setError(detail.message ?? tr(language, "Login requires a 2FA code.", "การเข้าสู่ระบบต้องใช้รหัส 2FA"));
+      } else if (apiError instanceof Error) {
+        setError(apiError.detail ? getLoginErrorMessage(language, apiError) : apiError.message);
       } else {
-        setError(getLoginErrorMessage(language, apiError));
+        setError(tr(language, "Unable to sign in. Please try again.", "ไม่สามารถเข้าสู่ระบบได้ โปรดลองอีกครั้ง"));
       }
     } finally {
       setLoading(false);

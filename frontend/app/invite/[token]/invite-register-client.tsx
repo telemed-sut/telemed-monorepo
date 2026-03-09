@@ -16,11 +16,12 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 
 export default function InviteRegisterClientPage() {
   const router = useRouter();
-  const params = useParams<{ token: string }>();
-  const token = params.token;
+  const params = useParams<{ token?: string }>();
+  const routeToken = typeof params?.token === "string" ? params.token : "";
   const language = useLanguageStore((state) => state.language);
   const setLanguage = useLanguageStore((state) => state.setLanguage);
 
+  const [inviteToken, setInviteToken] = useState(routeToken);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -34,10 +35,48 @@ export default function InviteRegisterClientPage() {
   const isClinicalInvite = CLINICAL_ROLES.has(role);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const hash = window.location.hash.startsWith("#")
+      ? window.location.hash.slice(1)
+      : window.location.hash;
+    const hashToken = new URLSearchParams(hash).get("token");
+
+    if (hashToken?.trim()) {
+      setInviteToken(hashToken.trim());
+      if (window.location.pathname !== "/invite") {
+        window.history.replaceState(
+          null,
+          "",
+          `/invite#token=${encodeURIComponent(hashToken.trim())}`
+        );
+      }
+      return;
+    }
+
+    if (routeToken.trim()) {
+      setInviteToken(routeToken.trim());
+      window.history.replaceState(
+        null,
+        "",
+        `/invite#token=${encodeURIComponent(routeToken.trim())}`
+      );
+    }
+  }, [routeToken]);
+
+  useEffect(() => {
+    if (!inviteToken.trim()) {
+      setLoading(false);
+      setError(
+        tr(language, "Invite link is invalid or expired", "ลิงก์คำเชิญไม่ถูกต้องหรือหมดอายุแล้ว")
+      );
+      return;
+    }
+
     const loadInvite = async () => {
       try {
         setLoading(true);
-        const info = await getInviteInfo(token);
+        const info = await getInviteInfo(inviteToken);
         setEmail(info.email);
         setRole(info.role);
       } catch (err) {
@@ -49,8 +88,8 @@ export default function InviteRegisterClientPage() {
         setLoading(false);
       }
     };
-    loadInvite();
-  }, [token, language]);
+    void loadInvite();
+  }, [inviteToken, language]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -71,7 +110,7 @@ export default function InviteRegisterClientPage() {
 
     try {
       setSubmitting(true);
-      await acceptInvite(token, {
+      await acceptInvite(inviteToken, {
         first_name: firstName || undefined,
         last_name: lastName || undefined,
         password,

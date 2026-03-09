@@ -108,7 +108,7 @@ export default function ForgotPasswordClientPage() {
               <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3.5 text-[0.95rem]">
                 <p className="font-medium mb-1">{tr(language, "Development token", "โทเคนสำหรับพัฒนา")}</p>
                 <p className="break-all">{resetToken}</p>
-                <Link className="text-primary hover:underline mt-2 inline-block" href={`/reset-password?token=${encodeURIComponent(resetToken)}`}>
+                <Link className="text-primary hover:underline mt-2 inline-block" href={`/reset-password#token=${encodeURIComponent(resetToken)}`}>
                   {tr(language, "Continue to reset password", "ไปหน้าตั้งรหัสผ่านใหม่")}
                 </Link>
               </div>

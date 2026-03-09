@@ -69,3 +69,5 @@ def test_create_login_response():
     assert response["token_type"] == "bearer"
     assert "expires_in" in response
     assert isinstance(response["expires_in"], int)
+    assert response["user"]["email"] == "test@example.com"
+    assert response["user"]["role"] == "admin"

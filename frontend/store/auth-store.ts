@@ -1,22 +1,18 @@
 import { create } from "zustand";
-import { jwtDecode } from "jwt-decode";
+
+import type { LoginResponse } from "@/lib/api";
 
 /** Refresh token 5 minutes before expiry */
 const REFRESH_BUFFER_SECONDS = 300;
-
-interface AuthPayload {
-  sub?: string; // user ID
-  role?: string;
-  exp?: number;
-  [key: string]: unknown;
-}
+const COOKIE_SESSION_TOKEN = "__cookie_session__";
 
 interface AuthState {
   token: string | null;
   role: string | null;
   userId: string | null;
   hydrated: boolean;
-  setToken: (token: string) => void;
+  sessionExpiresAt: number | null;
+  setSession: (response: LoginResponse) => void;
   clearToken: () => void;
   hydrate: () => Promise<void>;
   /** Returns seconds until token expires, or 0 if expired/missing */
@@ -27,29 +23,29 @@ interface AuthState {
 
 let hydratePromise: Promise<void> | null = null;
 
-const getPayloadFromToken = (
-  token: string | null
-): { role: string | null; userId: string | null } => {
-  if (!token) return { role: null, userId: null };
-  try {
-    const decoded = jwtDecode<AuthPayload>(token);
-    return {
-      role: decoded.role || null,
-      userId: decoded.sub || null,
-    };
-  } catch {
-    return { role: null, userId: null };
-  }
-};
+function getExpiryEpoch(expiresIn?: number): number | null {
+  if (!Number.isFinite(expiresIn)) return null;
+  const normalized = Math.max(0, Math.floor(expiresIn as number));
+  return Date.now() + normalized * 1000;
+}
+
+function getSessionState(response: LoginResponse) {
+  return {
+    token: COOKIE_SESSION_TOKEN,
+    role: response.user?.role ?? null,
+    userId: response.user?.id ?? null,
+    sessionExpiresAt: getExpiryEpoch(response.expires_in),
+  };
+}
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   role: null,
   userId: null,
   hydrated: false,
-  setToken: (token) => {
-    const { role, userId } = getPayloadFromToken(token);
-    set({ token, role, userId, hydrated: true });
+  sessionExpiresAt: null,
+  setSession: (response) => {
+    set({ ...getSessionState(response), hydrated: true });
   },
   clearToken: () => {
     const activeToken = get().token ?? undefined;
@@ -58,7 +54,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .then(({ logout }) => logout(activeToken))
         .catch(() => undefined);
     }
-    set({ token: null, role: null, userId: null, hydrated: true });
+    set({
+      token: null,
+      role: null,
+      userId: null,
+      hydrated: true,
+      sessionExpiresAt: null,
+    });
   },
   hydrate: async () => {
     if (get().hydrated) return;
@@ -68,21 +70,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       try {
         const { refreshToken } = await import("@/lib/api");
         const refreshed = await refreshToken();
-        if (refreshed?.access_token) {
-          const { role, userId } = getPayloadFromToken(refreshed.access_token);
-          set({
-            token: refreshed.access_token,
-            role,
-            userId,
-            hydrated: true,
-          });
+        if (refreshed?.user) {
+          set({ ...getSessionState(refreshed), hydrated: true });
           return;
         }
       } catch {
         // No valid session cookie or refresh failed.
       }
 
-      set({ token: null, role: null, userId: null, hydrated: true });
+      set({
+        token: null,
+        role: null,
+        userId: null,
+        hydrated: true,
+        sessionExpiresAt: null,
+      });
     })().finally(() => {
       hydratePromise = null;
     });
@@ -90,16 +92,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return hydratePromise;
   },
   getTokenTTL: () => {
-    const { token } = get();
-    if (!token) return 0;
-    try {
-      const decoded = jwtDecode<AuthPayload>(token);
-      if (!decoded.exp) return 0;
-      const now = Math.floor(Date.now() / 1000);
-      return Math.max(decoded.exp - now, 0);
-    } catch {
-      return 0;
-    }
+    const { sessionExpiresAt } = get();
+    if (!sessionExpiresAt) return 0;
+    return Math.max(Math.floor((sessionExpiresAt - Date.now()) / 1000), 0);
   },
   isTokenExpiringSoon: () => {
     return get().getTokenTTL() < REFRESH_BUFFER_SECONDS;

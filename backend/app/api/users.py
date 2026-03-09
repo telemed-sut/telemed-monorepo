@@ -396,7 +396,7 @@ def create_user_invite(
         expires_in_hours=settings.invite_expires_in_hours,
         created_by=current_user,
     )
-    invite_url = f"{settings.frontend_base_url.rstrip('/')}/invite/{raw_token}"
+    invite_url = f"{settings.frontend_base_url.rstrip('/')}/invite#token={raw_token}"
 
     log_action(
         db,
@@ -842,7 +842,7 @@ def resend_user_invite(
         expires_in_hours=settings.invite_expires_in_hours,
         created_by=current_user,
     )
-    invite_url = f"{settings.frontend_base_url.rstrip('/')}/invite/{raw_token}"
+    invite_url = f"{settings.frontend_base_url.rstrip('/')}/invite#token={raw_token}"
     log_action(
         db,
         user_id=current_user.id,

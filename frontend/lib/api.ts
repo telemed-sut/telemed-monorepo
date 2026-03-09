@@ -2,6 +2,7 @@ export interface LoginResponse {
   access_token: string;
   token_type: string;
   expires_in: number;
+  user?: UserMe;
 }
 
 export interface ForgotPasswordResponse {
@@ -38,6 +39,10 @@ export interface InviteInfoResponse {
   email: string;
   role: string;
   expires_at: string;
+}
+
+interface InviteTokenRequest {
+  token: string;
 }
 
 export interface UserMe {
@@ -165,6 +170,7 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_QUERY_LIMIT = 200;
 const DEFAULT_ERROR_MESSAGE_TH = "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง";
+const COOKIE_SESSION_TOKEN = "__cookie_session__";
 
 const INTERNAL_ERROR_PATTERN =
   /(traceback|pydantic|validationerror|sqlalchemy|stack trace|line \d+|value_error|type_error)/i;
@@ -401,13 +407,14 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, token?: stri
 
 async function apiFetch<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   let activeToken = token;
-  const canAttemptRefresh = Boolean(activeToken && isProbablyJwt(activeToken));
+  const canAttemptRefresh = Boolean(activeToken);
 
   // Proactive refresh: if token is about to expire, refresh before making the request
   if (
     canAttemptRefresh &&
     path !== "/auth/refresh" &&
     path !== "/auth/login" &&
+    path !== "/auth/logout" &&
     isTokenExpiring(activeToken!)
   ) {
     const refreshed = await tryRefreshToken(activeToken);
@@ -425,7 +432,8 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
     canAttemptRefresh &&
     result.status === 401 &&
     path !== "/auth/refresh" &&
-    path !== "/auth/login"
+    path !== "/auth/login" &&
+    path !== "/auth/logout"
   ) {
     const newToken = await tryRefreshToken(activeToken);
     if (newToken) {
@@ -470,9 +478,9 @@ async function tryRefreshToken(currentToken?: string): Promise<string | null> {
       // Dynamic import to avoid circular dependency
       const { useAuthStore } = await import("@/store/auth-store");
       const res = await rawFetch<LoginResponse>("/auth/refresh", { method: "POST" }, currentToken);
-      if (res.ok && res.data?.access_token) {
-        useAuthStore.getState().setToken(res.data.access_token);
-        return res.data.access_token;
+      if (res.ok && res.data?.user) {
+        useAuthStore.getState().setSession(res.data);
+        return COOKIE_SESSION_TOKEN;
       }
       return null;
     } catch {
@@ -517,8 +525,9 @@ export async function resetPassword(token: string, newPassword: string) {
 }
 
 export async function getInviteInfo(token: string) {
-  return apiFetch<InviteInfoResponse>(`/auth/invite/${token}`, {
-    method: "GET",
+  return apiFetch<InviteInfoResponse>("/auth/invite/inspect", {
+    method: "POST",
+    body: JSON.stringify({ token } satisfies InviteTokenRequest),
   });
 }
 

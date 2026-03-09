@@ -10,44 +10,12 @@ import {
   issuePatientMeetingVideoToken,
   leavePatientMeetingPresence,
 } from "@/lib/api";
+import {
+  loadZegoUIKitPrebuilt,
+  type ZegoUIKitPrebuiltInstance,
+} from "@/lib/zego-uikit";
 
-type ZegoJoinOptions = {
-  container: HTMLElement;
-  sharedLinks?: Array<{ name: string; url: string }>;
-  scenario: { mode: unknown };
-  showPreJoinView?: boolean;
-  turnOnCameraWhenJoining?: boolean;
-  turnOnMicrophoneWhenJoining?: boolean;
-};
-
-type ZegoUIKitPrebuiltInstance = {
-  joinRoom: (options: ZegoJoinOptions) => void;
-  destroy?: () => void;
-};
-
-type ZegoUIKitPrebuiltStatic = {
-  VideoConference: unknown;
-  generateKitTokenForProduction: (
-    appID: number,
-    token: string,
-    roomID: string,
-    userID: string,
-    userName?: string
-  ) => string;
-  create: (kitToken: string) => ZegoUIKitPrebuiltInstance;
-};
-
-declare global {
-  interface Window {
-    ZegoUIKitPrebuilt?: ZegoUIKitPrebuiltStatic;
-  }
-}
-
-const ZEGO_WEB_UIKIT_SCRIPT =
-  "https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js";
 const PATIENT_PRESENCE_HEARTBEAT_INTERVAL_MS = 10_000;
-
-let zegoScriptPromise: Promise<ZegoUIKitPrebuiltStatic> | null = null;
 
 function PatientJoinLoadingShell() {
   return (
@@ -274,55 +242,6 @@ function patchSetSinkIdForMobileSafari(): void {
   isSetSinkIdPatched = true;
 }
 
-function loadZegoUIKitScript(): Promise<ZegoUIKitPrebuiltStatic> {
-  if (typeof window === "undefined") {
-    return Promise.reject(new Error("Browser environment is required."));
-  }
-  if (window.ZegoUIKitPrebuilt) {
-    return Promise.resolve(window.ZegoUIKitPrebuilt);
-  }
-  if (zegoScriptPromise) {
-    return zegoScriptPromise;
-  }
-
-  zegoScriptPromise = new Promise<ZegoUIKitPrebuiltStatic>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(
-      "script[data-zego-uikit='true']"
-    );
-    if (existing) {
-      existing.addEventListener("load", () => {
-        if (window.ZegoUIKitPrebuilt) {
-          resolve(window.ZegoUIKitPrebuilt);
-          return;
-        }
-        reject(new Error("ZEGO UIKit script loaded but global object is missing."));
-      });
-      existing.addEventListener("error", () => {
-        reject(new Error("Unable to load ZEGO UIKit script."));
-      });
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = ZEGO_WEB_UIKIT_SCRIPT;
-    script.async = true;
-    script.dataset.zegoUikit = "true";
-    script.onload = () => {
-      if (window.ZegoUIKitPrebuilt) {
-        resolve(window.ZegoUIKitPrebuilt);
-        return;
-      }
-      reject(new Error("ZEGO UIKit script loaded but global object is missing."));
-    };
-    script.onerror = () => {
-      reject(new Error("Unable to load ZEGO UIKit script."));
-    };
-    document.body.appendChild(script);
-  });
-
-  return zegoScriptPromise;
-}
-
 function PatientJoinPageContent() {
   const searchParams = useSearchParams();
   const meetingId = (searchParams.get("meeting_id") || "").trim();
@@ -449,7 +368,7 @@ function PatientJoinPageContent() {
         throw new Error("Call container is not ready.");
       }
 
-      const zego = await loadZegoUIKitScript();
+      const zego = await loadZegoUIKitPrebuilt();
       const kitToken = zego.generateKitTokenForProduction(
         videoSession.app_id,
         videoSession.token,

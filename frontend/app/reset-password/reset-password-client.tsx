@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -19,16 +19,35 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
   const language = useLanguageStore((state) => state.language);
   const setLanguage = useLanguageStore((state) => state.setLanguage);
 
-  const tokenInputRef = useRef<HTMLInputElement>(null);
+  const [tokenValue, setTokenValue] = useState(initialToken);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const hash = window.location.hash.startsWith("#")
+      ? window.location.hash.slice(1)
+      : window.location.hash;
+    const hashToken = new URLSearchParams(hash).get("token");
+
+    if (hashToken?.trim()) {
+      setTokenValue(hashToken.trim());
+      return;
+    }
+
+    if (initialToken.trim()) {
+      setTokenValue(initialToken.trim());
+      window.history.replaceState(null, "", "/reset-password");
+    }
+  }, [initialToken]);
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    const token = tokenInputRef.current?.value.trim() ?? "";
+    const token = tokenValue.trim();
 
     if (!token) {
       setError(tr(language, "Reset token is required", "ต้องระบุรีเซ็ตโทเคน"));
@@ -89,9 +108,9 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
               <Label htmlFor="token">{tr(language, "Reset token", "รีเซ็ตโทเคน")}</Label>
               <Input
                 id="token"
-                ref={tokenInputRef}
                 required
-                defaultValue={initialToken}
+                value={tokenValue}
+                onChange={(event) => setTokenValue(event.target.value)}
                 placeholder={tr(language, "Paste reset token", "วางรีเซ็ตโทเคน")}
               />
             </div>

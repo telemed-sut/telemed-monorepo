@@ -603,7 +603,7 @@ class TestInviteLifecycle:
 
         resend_resp = client.post(f"/users/invites/{first_invite.id}/resend", headers=_auth(token))
         assert resend_resp.status_code == 200
-        assert "/invite/" in resend_resp.json()["invite_url"]
+        assert "/invite#token=" in resend_resp.json()["invite_url"]
 
         active_list = client.get(
             "/users/invites?status_filter=active&q=doctor-invite-resend@example.com",

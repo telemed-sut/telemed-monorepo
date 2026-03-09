@@ -26,7 +26,9 @@ from app.schemas.patient_app import (
 )
 from app.schemas.meeting_video import MeetingPatientInviteResponse
 from app.services import patient_app as patient_app_service
+from app.services import patient as patient_service
 from app.services.auth import get_current_user, get_db, oauth2_scheme
+from app.core.request_utils import get_client_ip
 
 router = APIRouter(prefix="/patient-app", tags=["patient-app"])
 
@@ -68,6 +70,17 @@ def generate_registration_code(
     """Staff/doctor generates a 6-char registration code for a patient."""
     if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    if current_user.role == UserRole.doctor:
+        patient = patient_service.get_patient(db, patient_id)
+        if not patient:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+        patient_service.verify_doctor_patient_access(
+            db,
+            current_user=current_user,
+            patient_id=patient.id,
+            ip_address=get_client_ip(request),
+        )
 
     return patient_app_service.create_registration_code(
         db=db,
