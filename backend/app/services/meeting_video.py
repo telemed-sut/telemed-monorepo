@@ -37,6 +37,12 @@ PATIENT_INVITE_SHORT_CODE_LENGTH = 8
 PATIENT_INVITE_SHORT_CODE_MAX_RETRIES = 16
 
 
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _normalize_zego_identifier(raw_value: str, *, max_length: int) -> str:
     normalized = ZEGO_IDENTIFIER_SANITIZE_PATTERN.sub("_", raw_value.strip())
     normalized = ZEGO_DUPLICATE_UNDERSCORE_PATTERN.sub("_", normalized).strip("_")
@@ -143,6 +149,14 @@ def _generate_patient_short_code() -> str:
         secrets.choice(PATIENT_INVITE_SHORT_CODE_ALPHABET)
         for _ in range(PATIENT_INVITE_SHORT_CODE_LENGTH)
     )
+
+
+def build_patient_short_invite_url(code: str) -> str:
+    settings = get_settings()
+    base_url = (
+        settings.meeting_patient_join_base_url or settings.frontend_base_url
+    ).rstrip("/")
+    return f"{base_url}{PATIENT_SHORT_JOIN_PATH}/{code}"
 
 
 def _build_patient_invite_token(*, meeting_id: str, expires_at_unix: int) -> str:
@@ -331,6 +345,27 @@ def _create_patient_short_code_record(
     )
 
 
+def get_active_patient_invite_code(
+    *,
+    db: Session,
+    meeting_id: uuid.UUID,
+) -> MeetingPatientInviteCode | None:
+    now = datetime.now(timezone.utc)
+    invite_codes = db.scalars(
+        select(MeetingPatientInviteCode)
+        .where(MeetingPatientInviteCode.meeting_id == meeting_id)
+        .order_by(
+            MeetingPatientInviteCode.expires_at.desc(),
+            MeetingPatientInviteCode.created_at.desc(),
+        )
+    ).all()
+
+    for invite_code in invite_codes:
+        if _as_utc(invite_code.expires_at) > now:
+            return invite_code
+    return None
+
+
 def _resolve_patient_short_code_record(
     *,
     db: Session,
@@ -360,6 +395,85 @@ def _resolve_patient_short_code_record(
     return short_link
 
 
+def _resolve_patient_invite_expiry(
+    *,
+    meeting: Meeting,
+    issued_at: datetime,
+    expires_in_seconds: int | None = None,
+) -> datetime:
+    settings = get_settings()
+    ttl = expires_in_seconds or settings.meeting_patient_invite_ttl_seconds
+    default_expiry = issued_at + timedelta(seconds=ttl)
+    if not meeting.date_time:
+        return default_expiry
+
+    meeting_time = _as_utc(meeting.date_time)
+    scheduled_expiry = meeting_time + timedelta(seconds=ttl)
+    if scheduled_expiry > default_expiry:
+        return scheduled_expiry
+    return default_expiry
+
+
+def _build_patient_invite_response(
+    *,
+    meeting: Meeting,
+    invite_code: MeetingPatientInviteCode,
+    issued_at: datetime,
+) -> dict[str, Any]:
+    expires_at = _as_utc(invite_code.expires_at)
+    return {
+        "meeting_id": str(meeting.id),
+        "room_id": derive_room_id(meeting),
+        "invite_token": _build_patient_invite_token(
+            meeting_id=str(meeting.id),
+            expires_at_unix=int(expires_at.timestamp()),
+        ),
+        "short_code": invite_code.code,
+        "invite_url": build_patient_short_invite_url(invite_code.code),
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+    }
+
+
+def deactivate_patient_join_invites(
+    *,
+    db: Session,
+    meeting: Meeting,
+    clear_meeting_url: bool = True,
+) -> None:
+    now = datetime.now(timezone.utc)
+    invite_codes = db.scalars(
+        select(MeetingPatientInviteCode).where(
+            MeetingPatientInviteCode.meeting_id == meeting.id
+        )
+    ).all()
+    for invite_code in invite_codes:
+        if _as_utc(invite_code.expires_at) > now:
+            invite_code.expires_at = now
+            db.add(invite_code)
+
+    if clear_meeting_url:
+        meeting.patient_invite_url = None
+        db.add(meeting)
+
+    db.commit()
+
+
+def ensure_patient_join_invite(
+    *,
+    db: Session,
+    meeting: Meeting,
+    created_by_user_id: str | None = None,
+    expires_in_seconds: int | None = None,
+) -> dict[str, Any]:
+    return create_patient_join_invite(
+        db=db,
+        meeting=meeting,
+        created_by_user_id=created_by_user_id,
+        expires_in_seconds=expires_in_seconds,
+    )
+
+
 def create_patient_join_invite(
     *,
     db: Session,
@@ -375,16 +489,32 @@ def create_patient_join_invite(
 
     _ensure_meeting_is_joinable(meeting)
 
-    settings = get_settings()
     issued_at = datetime.now(timezone.utc)
-    ttl = expires_in_seconds or settings.meeting_patient_invite_ttl_seconds
-    expires_at = issued_at + timedelta(seconds=ttl)
-    room_id = derive_room_id(meeting)
-
-    invite_token = _build_patient_invite_token(
-        meeting_id=str(meeting.id),
-        expires_at_unix=int(expires_at.timestamp()),
+    expires_at = _resolve_patient_invite_expiry(
+        meeting=meeting,
+        issued_at=issued_at,
+        expires_in_seconds=expires_in_seconds,
     )
+    active_short_link = get_active_patient_invite_code(
+        db=db,
+        meeting_id=meeting.id,
+    )
+    if active_short_link:
+        if _as_utc(active_short_link.expires_at) < expires_at:
+            active_short_link.expires_at = expires_at
+            db.add(active_short_link)
+        meeting.patient_invite_url = build_patient_short_invite_url(
+            active_short_link.code
+        )
+        db.add(meeting)
+        db.commit()
+        db.refresh(active_short_link)
+        return _build_patient_invite_response(
+            meeting=meeting,
+            invite_code=active_short_link,
+            issued_at=issued_at,
+        )
+
     short_link = _create_patient_short_code_record(
         db=db,
         meeting=meeting,
@@ -392,24 +522,16 @@ def create_patient_join_invite(
         created_by_user_id=created_by_user_id,
     )
 
-    frontend_base_url = (
-        settings.meeting_patient_join_base_url or settings.frontend_base_url
-    ).rstrip("/")
-    invite_url = f"{frontend_base_url}{PATIENT_SHORT_JOIN_PATH}/{short_link.code}"
-
     # Persist the invite URL on the meeting for the patient app to query
-    meeting.patient_invite_url = invite_url
+    meeting.patient_invite_url = build_patient_short_invite_url(short_link.code)
+    db.add(meeting)
     db.commit()
 
-    return {
-        "meeting_id": str(meeting.id),
-        "room_id": room_id,
-        "invite_token": invite_token,
-        "short_code": short_link.code,
-        "invite_url": invite_url,
-        "issued_at": issued_at,
-        "expires_at": expires_at,
-    }
+    return _build_patient_invite_response(
+        meeting=meeting,
+        invite_code=short_link,
+        issued_at=issued_at,
+    )
 
 
 def _decode_patient_invite_token(invite_token: str) -> dict[str, Any]:

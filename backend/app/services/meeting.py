@@ -10,6 +10,7 @@ from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
 from app.schemas.meeting import MeetingCreate, MeetingUpdate
+from app.services import meeting_video as meeting_video_service
 
 settings = get_settings()
 
@@ -95,6 +96,14 @@ def create_meeting(db: Session, payload: MeetingCreate) -> Meeting:
     db.add(meeting)
     db.commit()
     db.refresh(meeting)
+    if meeting.user_id and meeting.status not in (
+        MeetingStatus.cancelled,
+        MeetingStatus.completed,
+    ):
+        meeting_video_service.ensure_patient_join_invite(
+            db=db,
+            meeting=meeting,
+        )
     # Reload with relationships
     return get_meeting(db, str(meeting.id))
 
@@ -123,6 +132,8 @@ def update_meeting(
     actor_id: Optional[UUID] = None,
 ) -> Meeting:
     data = payload.model_dump(exclude_unset=True)
+    original_patient_id = meeting.user_id
+    original_status = meeting.status
 
     # Handle cancellation metadata
     if data.get("status") == MeetingStatus.cancelled and meeting.status != MeetingStatus.cancelled:
@@ -135,6 +146,31 @@ def update_meeting(
     db.add(meeting)
     db.commit()
     db.refresh(meeting)
+
+    patient_changed = original_patient_id != meeting.user_id
+    is_joinable = meeting.user_id and meeting.status not in (
+        MeetingStatus.cancelled,
+        MeetingStatus.completed,
+    )
+
+    if patient_changed or (
+        original_status not in (MeetingStatus.cancelled, MeetingStatus.completed)
+        and meeting.status in (MeetingStatus.cancelled, MeetingStatus.completed)
+    ) or not meeting.user_id:
+        meeting_video_service.deactivate_patient_join_invites(
+            db=db,
+            meeting=meeting,
+            clear_meeting_url=True,
+        )
+        db.refresh(meeting)
+
+    if is_joinable:
+        meeting_video_service.ensure_patient_join_invite(
+            db=db,
+            meeting=meeting,
+            created_by_user_id=str(actor_id) if actor_id else None,
+        )
+
     # Reload with relationships
     return get_meeting(db, str(meeting.id))
 

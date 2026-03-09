@@ -73,6 +73,7 @@ class MeetingOut(MeetingBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
+    patient_invite_url: Optional[str] = None
     reason: Optional[str] = None
     cancelled_at: Optional[datetime] = None
     cancelled_by: Optional[UUID] = None

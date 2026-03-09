@@ -935,6 +935,7 @@ export interface Meeting {
   description?: string | null;
   doctor_id?: string | null;
   note?: string | null;
+  patient_invite_url?: string | null;
   room?: string | null;
   user_id?: string | null;
   status: MeetingStatus;

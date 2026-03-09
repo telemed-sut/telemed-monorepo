@@ -9,11 +9,8 @@ from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.config import get_settings
 from app.core.security import create_access_token, get_password_hash, verify_password
-from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
-from app.models.meeting_patient_invite_code import MeetingPatientInviteCode
 from app.models.patient import Patient
 from app.models.patient_app_registration import PatientAppRegistration
 from app.services import meeting_video as meeting_video_service
@@ -37,35 +34,6 @@ def _as_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
-
-
-def _build_patient_short_invite_url(code: str) -> str:
-    settings = get_settings()
-    base_url = (
-        settings.meeting_patient_join_base_url or settings.frontend_base_url
-    ).rstrip("/")
-    return f"{base_url}/p/{code}"
-
-
-def _get_active_patient_invite_code(
-    *,
-    db: Session,
-    meeting_id,
-) -> MeetingPatientInviteCode | None:
-    now = datetime.now(timezone.utc)
-    invite_codes = db.scalars(
-        select(MeetingPatientInviteCode)
-        .where(MeetingPatientInviteCode.meeting_id == meeting_id)
-        .order_by(
-            MeetingPatientInviteCode.expires_at.desc(),
-            MeetingPatientInviteCode.created_at.desc(),
-        )
-    ).all()
-
-    for invite_code in invite_codes:
-        if _as_utc(invite_code.expires_at) > now:
-            return invite_code
-    return None
 
 
 # ---------- Staff: generate registration code ----------
@@ -209,8 +177,6 @@ def register_patient_app(
     db.refresh(patient)
 
     token = _create_patient_token(patient)
-    settings = get_settings()
-
     return {
         "patient_id": str(patient.id),
         "access_token": token,
@@ -315,12 +281,15 @@ def get_patient_meetings(
     for m in meetings:
         invite_url = None
         invite_expires_at = None
-        invite_code = _get_active_patient_invite_code(db=db, meeting_id=m.id)
+        invite_code = meeting_video_service.get_active_patient_invite_code(
+            db=db,
+            meeting_id=m.id,
+        )
         if invite_code:
-            invite_url = _build_patient_short_invite_url(invite_code.code)
+            invite_url = meeting_video_service.build_patient_short_invite_url(
+                invite_code.code
+            )
             invite_expires_at = invite_code.expires_at
-        elif m.status in (MeetingStatus.cancelled, MeetingStatus.completed):
-            invite_url = m.patient_invite_url
 
         items.append({
             "id": str(m.id),
@@ -381,7 +350,7 @@ def issue_patient_meeting_invite(
             detail="Meeting not found.",
         )
 
-    active_invite_code = _get_active_patient_invite_code(
+    active_invite_code = meeting_video_service.get_active_patient_invite_code(
         db=db,
         meeting_id=meeting.id,
     )
@@ -396,7 +365,9 @@ def issue_patient_meeting_invite(
                 expires_at_unix=int(_as_utc(expires_at).timestamp()),
             ),
             "short_code": active_invite_code.code,
-            "invite_url": _build_patient_short_invite_url(active_invite_code.code),
+            "invite_url": meeting_video_service.build_patient_short_invite_url(
+                active_invite_code.code
+            ),
             "issued_at": issued_at,
             "expires_at": expires_at,
         }

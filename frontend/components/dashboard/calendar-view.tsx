@@ -786,8 +786,11 @@ export function EventDetailSheet({
     }
     setCopyingPatientLink(true);
     try {
-      const invite = await createMeetingPatientInvite(meeting.id, token);
-      await navigator.clipboard.writeText(invite.invite_url);
+      const existingInviteUrl = meeting.patient_invite_url?.trim();
+      const inviteUrl = existingInviteUrl
+        ? existingInviteUrl
+        : (await createMeetingPatientInvite(meeting.id, token)).invite_url;
+      await navigator.clipboard.writeText(inviteUrl);
       toast.success(
         tr(
           language,

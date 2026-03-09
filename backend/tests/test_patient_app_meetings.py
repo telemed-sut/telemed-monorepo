@@ -13,6 +13,7 @@ from app.models.meeting_room_presence import MeetingRoomPresence
 from app.models.meeting_patient_invite_code import MeetingPatientInviteCode
 from app.models.patient import Patient
 from app.models.user import User, UserRole
+from app.services.auth import create_login_response
 
 
 def _create_user(db: Session, email: str, role: UserRole) -> User:
@@ -67,6 +68,11 @@ def _patient_auth_headers(patient: Patient) -> dict[str, str]:
         },
         expires_in=3_600,
     )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _doctor_auth_headers(user: User) -> dict[str, str]:
+    token = create_login_response(user)["access_token"]
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -213,6 +219,43 @@ def test_patient_meetings_reuses_any_active_invite_without_regenerating(
     get_settings.cache_clear()
 
 
+def test_patient_meetings_show_eager_invite_after_doctor_created_meeting(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    monkeypatch.setenv("MEETING_PATIENT_JOIN_BASE_URL", "https://demo.trycloudflare.com")
+    get_settings.cache_clear()
+
+    doctor = _create_user(db, "doctor-eager-patient-list@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Visible", "Join")
+
+    create_response = client.post(
+        "/meetings",
+        json={
+            "date_time": datetime.now(timezone.utc).isoformat(),
+            "doctor_id": str(doctor.id),
+            "user_id": str(patient.id),
+            "description": "Visible to patient immediately",
+        },
+        headers=_doctor_auth_headers(doctor),
+    )
+    assert create_response.status_code == 201
+
+    response = client.get(
+        "/patient-app/me/meetings",
+        headers=_patient_auth_headers(patient),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["patient_invite_url"].startswith("https://demo.trycloudflare.com/p/")
+    assert payload["items"][0]["patient_invite_expires_at"] is not None
+
+    get_settings.cache_clear()
+
+
 def test_patient_can_issue_invite_explicitly_for_owned_meeting(
     client: TestClient,
     db: Session,
@@ -290,6 +333,52 @@ def test_patient_explicit_invite_reuses_active_code(
         select(MeetingPatientInviteCode).where(MeetingPatientInviteCode.meeting_id == meeting.id)
     ).all()
     assert len(invite_codes) == 1
+
+    get_settings.cache_clear()
+
+
+def test_patient_meetings_hide_invite_for_cancelled_meeting(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    monkeypatch.setenv("MEETING_PATIENT_JOIN_BASE_URL", "https://demo.trycloudflare.com")
+    get_settings.cache_clear()
+
+    doctor = _create_user(db, "doctor-cancelled-invite@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Cancelled", "Invite")
+
+    create_response = client.post(
+        "/meetings",
+        json={
+            "date_time": datetime.now(timezone.utc).isoformat(),
+            "doctor_id": str(doctor.id),
+            "user_id": str(patient.id),
+            "description": "Cancelled meeting hides invite",
+        },
+        headers=_doctor_auth_headers(doctor),
+    )
+    assert create_response.status_code == 201
+    meeting_id = create_response.json()["id"]
+
+    cancel_response = client.put(
+        f"/meetings/{meeting_id}",
+        json={"status": "cancelled"},
+        headers=_doctor_auth_headers(doctor),
+    )
+    assert cancel_response.status_code == 200
+
+    response = client.get(
+        "/patient-app/me/meetings",
+        headers=_patient_auth_headers(patient),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["status"] == "cancelled"
+    assert payload["items"][0]["patient_invite_url"] is None
+    assert payload["items"][0]["patient_invite_expires_at"] is None
 
     get_settings.cache_clear()
 

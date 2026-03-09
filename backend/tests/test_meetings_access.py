@@ -1,11 +1,15 @@
 from datetime import date, datetime, timezone
+from uuid import UUID
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.security import get_password_hash
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.meeting import Meeting
+from app.models.meeting_patient_invite_code import MeetingPatientInviteCode
 from app.models.patient import Patient
 from app.models.user import User, UserRole
 from app.services.auth import create_login_response
@@ -75,6 +79,12 @@ def _create_meeting(
     db.commit()
     db.refresh(meeting)
     return meeting
+
+
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def test_doctor_list_meetings_shows_owner_and_assigned_patient_meetings(
@@ -189,6 +199,43 @@ def test_doctor_create_meeting_allows_any_patient_and_forces_doctor_id(
     assert unassigned_response.json()["doctor_id"] == str(doctor.id)
 
 
+def test_doctor_create_meeting_eagerly_generates_patient_invite(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    monkeypatch.setenv("MEETING_PATIENT_JOIN_BASE_URL", "https://demo.trycloudflare.com")
+    get_settings.cache_clear()
+
+    doctor = _create_user(db, "doctor-eager-invite@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Eager", "Invite")
+
+    response = client.post(
+        "/meetings",
+        json={
+            "date_time": datetime.now(timezone.utc).isoformat(),
+            "doctor_id": str(doctor.id),
+            "user_id": str(patient.id),
+            "description": "Generate invite immediately",
+        },
+        headers=_auth_headers(doctor),
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["patient_invite_url"].startswith("https://demo.trycloudflare.com/p/")
+
+    meeting_id = UUID(payload["id"])
+    invite_codes = db.scalars(
+        select(MeetingPatientInviteCode)
+        .where(MeetingPatientInviteCode.meeting_id == meeting_id)
+        .order_by(MeetingPatientInviteCode.created_at.asc())
+    ).all()
+    assert len(invite_codes) == 1
+
+    get_settings.cache_clear()
+
+
 def test_doctor_can_update_own_meeting_to_unassigned_patient(
     client: TestClient,
     db: Session,
@@ -215,6 +262,63 @@ def test_doctor_can_update_own_meeting_to_unassigned_patient(
     assert update_response.status_code == 200
     assert update_response.json()["doctor_id"] == str(doctor.id)
     assert update_response.json()["user_id"] == str(patient_unassigned.id)
+
+
+def test_doctor_update_meeting_rotates_patient_invite_when_patient_changes(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    monkeypatch.setenv("MEETING_PATIENT_JOIN_BASE_URL", "https://demo.trycloudflare.com")
+    get_settings.cache_clear()
+
+    doctor = _create_user(db, "doctor-rotate-invite@example.com", UserRole.doctor)
+    patient_initial = _create_patient(db, "Initial", "Invite")
+    patient_next = _create_patient(db, "Next", "Invite")
+
+    create_response = client.post(
+        "/meetings",
+        json={
+            "date_time": datetime.now(timezone.utc).isoformat(),
+            "doctor_id": str(doctor.id),
+            "user_id": str(patient_initial.id),
+            "description": "Rotate invite after reassignment",
+        },
+        headers=_auth_headers(doctor),
+    )
+    assert create_response.status_code == 201
+    created_payload = create_response.json()
+    original_invite_url = created_payload["patient_invite_url"]
+    meeting_id = UUID(created_payload["id"])
+
+    update_response = client.put(
+        f"/meetings/{meeting_id}",
+        json={"user_id": str(patient_next.id)},
+        headers=_auth_headers(doctor),
+    )
+
+    assert update_response.status_code == 200
+    updated_payload = update_response.json()
+    assert updated_payload["user_id"] == str(patient_next.id)
+    assert updated_payload["patient_invite_url"].startswith("https://demo.trycloudflare.com/p/")
+    assert updated_payload["patient_invite_url"] != original_invite_url
+
+    invite_codes = db.scalars(
+        select(MeetingPatientInviteCode)
+        .where(MeetingPatientInviteCode.meeting_id == meeting_id)
+        .order_by(MeetingPatientInviteCode.created_at.asc())
+    ).all()
+    assert len(invite_codes) == 2
+    assert (
+        sum(
+            1
+            for code in invite_codes
+            if _as_utc(code.expires_at) > datetime.now(timezone.utc)
+        )
+        == 1
+    )
+
+    get_settings.cache_clear()
 
 
 def test_staff_cannot_access_meetings_endpoints(
