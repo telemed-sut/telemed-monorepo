@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
@@ -33,7 +34,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AnimatedCalendar } from "@/components/ui/calender";
 import { format } from "date-fns";
 import {
   Select,
@@ -72,11 +72,35 @@ import { fetchPatients, createPatient, updatePatient, deletePatient, generatePat
 import { buildProfileSeed, getProfileOrbStyle } from "@/components/ui/profile-avatar-orb";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
-import { PatientAssignmentsDialog } from "./patient-assignments-dialog";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100, 200];
+const PAGE_PREFETCH_DELAY_MS = 300;
+
+const AnimatedCalendar = dynamic(
+  () =>
+    import("@/components/ui/calender").then((module) => ({
+      default: module.AnimatedCalendar,
+    })),
+  {
+    loading: () => (
+      <div className="h-11 w-full rounded-md border bg-muted/60 animate-pulse" />
+    ),
+    ssr: false,
+  }
+);
+
+const PatientAssignmentsDialog = dynamic(
+  () =>
+    import("./patient-assignments-dialog").then((module) => ({
+      default: module.PatientAssignmentsDialog,
+    })),
+  {
+    loading: () => null,
+    ssr: false,
+  }
+);
 
 interface PatientFormState {
   first_name: string;
@@ -163,6 +187,7 @@ export function PatientsTable() {
 
   // Cache for pages to enable instant navigation
   const cacheRef = useRef<Map<string, { items: Patient[]; total: number }>>(new Map());
+  const prefetchTimeoutRef = useRef<number | null>(null);
 
   const getCacheKey = useCallback(
     (p: number) => `${p}-${limit}-${debouncedSearch}-${sort}-${order}`,
@@ -200,20 +225,36 @@ export function PatientsTable() {
           // Cache this page
           cacheRef.current.set(cacheKey, { items: res.items, total: res.total });
 
-          // Prefetch adjacent pages in background (next and previous)
-          const maxPages = Math.ceil(res.total / limit);
-          const pagesToPrefetch = [page - 1, page + 1].filter(p => p >= 1 && p <= maxPages);
+          if (prefetchTimeoutRef.current !== null) {
+            window.clearTimeout(prefetchTimeoutRef.current);
+            prefetchTimeoutRef.current = null;
+          }
 
-          pagesToPrefetch.forEach(prefetchPage => {
-            const prefetchCacheKey = getCacheKey(prefetchPage);
-            if (!cacheRef.current.has(prefetchCacheKey)) {
-              fetchPatients({ page: prefetchPage, limit, q: debouncedSearch, sort, order }, token)
+          const nextPage = page + 1;
+          const maxPages = Math.ceil(res.total / limit);
+
+          if (nextPage <= maxPages) {
+            prefetchTimeoutRef.current = window.setTimeout(() => {
+              if (cancelled) return;
+
+              const prefetchCacheKey = getCacheKey(nextPage);
+              if (cacheRef.current.has(prefetchCacheKey)) {
+                return;
+              }
+
+              void fetchPatients(
+                { page: nextPage, limit, q: debouncedSearch, sort, order },
+                token
+              )
                 .then((prefetchRes) => {
-                  cacheRef.current.set(prefetchCacheKey, { items: prefetchRes.items, total: prefetchRes.total });
+                  cacheRef.current.set(prefetchCacheKey, {
+                    items: prefetchRes.items,
+                    total: prefetchRes.total,
+                  });
                 })
-                .catch(() => { }); // Silently fail prefetch
-            }
-          });
+                .catch(() => undefined);
+            }, PAGE_PREFETCH_DELAY_MS);
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -237,6 +278,10 @@ export function PatientsTable() {
     loadPatients();
     return () => {
       cancelled = true;
+      if (prefetchTimeoutRef.current !== null) {
+        window.clearTimeout(prefetchTimeoutRef.current);
+        prefetchTimeoutRef.current = null;
+      }
     };
   }, [token, page, limit, debouncedSearch, sort, order, clearToken, getCacheKey, language, router]);
 
@@ -1282,16 +1327,18 @@ export function PatientsTable() {
         </DialogContent>
       </Dialog>
 
-      <PatientAssignmentsDialog
-        open={Boolean(assignmentPatient)}
-        patientId={assignmentPatient?.id ?? null}
-        patientName={assignmentPatient ? `${assignmentPatient.first_name} ${assignmentPatient.last_name}` : ""}
-        onOpenChange={(open) => {
-          if (!open) {
-            setAssignmentPatient(null);
-          }
-        }}
-      />
+      {assignmentPatient ? (
+        <PatientAssignmentsDialog
+          open
+          patientId={assignmentPatient.id}
+          patientName={`${assignmentPatient.first_name} ${assignmentPatient.last_name}`}
+          onOpenChange={(open) => {
+            if (!open) {
+              setAssignmentPatient(null);
+            }
+          }}
+        />
+      ) : null}
 
       {/* Registration Code Dialog */}
       <Dialog open={regCodeDialogOpen} onOpenChange={setRegCodeDialogOpen}>

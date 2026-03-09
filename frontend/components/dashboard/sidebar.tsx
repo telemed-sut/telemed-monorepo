@@ -434,7 +434,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                     >
                       <Link
                         href={route.link}
-                        prefetch={true}
+                        prefetch={false}
                         className={cn(
                           "flex w-full items-center",
                           isCollapsed ? "justify-center" : "gap-2.5"

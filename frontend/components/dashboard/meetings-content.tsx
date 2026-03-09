@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { addWeeks, setHours, setMinutes } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
@@ -22,7 +23,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
-import { AnimatedCalendar } from "@/components/ui/calender";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -47,8 +47,6 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { CalendarView, type CalendarSlotSelection } from "./calendar-view";
-import { QueueView } from "./queue-view";
-import { MonthCalendarPopover } from "./month-calendar-popover";
 import { useCalendarStore } from "@/store/calendar-store";
 import { useAuthStore } from "@/store/auth-store";
 import {
@@ -110,6 +108,48 @@ const ACTIVE_MEETING_REFRESH_INTERVAL_MS = 5_000;
 const NEAR_MEETING_REFRESH_INTERVAL_MS = 10_000;
 const IDLE_MEETING_REFRESH_INTERVAL_MS = 30_000;
 const NEAR_MEETING_WINDOW_MS = 15 * 60 * 1_000;
+
+const AnimatedCalendar = dynamic(
+  () =>
+    import("@/components/ui/calender").then((module) => ({
+      default: module.AnimatedCalendar,
+    })),
+  {
+    loading: () => (
+      <div className="h-10 w-full rounded-md border bg-muted/60 animate-pulse" />
+    ),
+    ssr: false,
+  }
+);
+
+const QueueView = dynamic(
+  () =>
+    import("./queue-view").then((module) => ({
+      default: module.QueueView,
+    })),
+  {
+    loading: () => (
+      <div className="flex-1 px-4 py-4">
+        <div className="space-y-3">
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-[320px] w-full rounded-xl" />
+        </div>
+      </div>
+    ),
+    ssr: false,
+  }
+);
+
+const MonthCalendarPopover = dynamic(
+  () =>
+    import("./month-calendar-popover").then((module) => ({
+      default: module.MonthCalendarPopover,
+    })),
+  {
+    loading: () => <div className="h-8 w-8 rounded-md bg-muted/60 animate-pulse" />,
+    ssr: false,
+  }
+);
 
 function isJoinableMeetingStatus(status: Meeting["status"]): boolean {
   return status !== "completed" && status !== "cancelled";
