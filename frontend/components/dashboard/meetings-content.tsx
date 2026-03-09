@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Image from "next/image";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { addWeeks, setHours, setMinutes } from "date-fns";
+import { addWeeks } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,6 +67,11 @@ import {
 import { getMeetingLinkMode, resolveMeetingRoomValue } from "./meeting-link";
 import { toast } from "@/components/ui/toast";
 import { includesSearchQuery, normalizeSearchText } from "@/lib/search";
+import {
+  combineLocalDateAndTimeToIso,
+  formatLocalDateKey,
+  parseLocalDateKey,
+} from "@/lib/meeting-datetime";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
@@ -238,7 +243,7 @@ interface PatientPickerItem extends PickerCommandItem {
 }
 
 interface CreateEventDraft {
-  selectedDateISO: string;
+  selectedDateKey: string;
   startHour: number;
   startMinute: number;
   endHour: number;
@@ -268,13 +273,19 @@ function readCreateEventDraft(userId: string | null): CreateEventDraft | null {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
 
-    const draft = parsed as Partial<CreateEventDraft>;
-    if (!draft.selectedDateISO || typeof draft.selectedDateISO !== "string") {
-      return null;
-    }
+    const draft = parsed as Partial<CreateEventDraft> & {
+      selectedDateISO?: string;
+    };
+    const selectedDateKey =
+      typeof draft.selectedDateKey === "string"
+        ? draft.selectedDateKey
+        : typeof draft.selectedDateISO === "string"
+          ? formatLocalDateKey(new Date(draft.selectedDateISO))
+          : null;
+    if (!selectedDateKey) return null;
 
-    const parsedDate = new Date(draft.selectedDateISO);
-    if (Number.isNaN(parsedDate.getTime())) return null;
+    const parsedDate = parseLocalDateKey(selectedDateKey);
+    if (!parsedDate) return null;
 
     const startHour = clampInt(draft.startHour, 9, 0, 23);
     const startMinute = clampInt(draft.startMinute, 0, 0, 59);
@@ -283,7 +294,7 @@ function readCreateEventDraft(userId: string | null): CreateEventDraft | null {
     const endMinute = clampInt(draft.endMinute, startMinute, 0, 59);
 
     return {
-      selectedDateISO: draft.selectedDateISO,
+      selectedDateKey,
       startHour,
       startMinute,
       endHour,
@@ -1458,7 +1469,9 @@ function CreateEventDialog({
       } else {
         const savedDraft = readCreateEventDraft(currentUserId);
         if (savedDraft) {
-          setSelectedDate(new Date(savedDraft.selectedDateISO));
+          setSelectedDate(
+            parseLocalDateKey(savedDraft.selectedDateKey) ?? new Date()
+          );
           setStartHour(savedDraft.startHour);
           setStartMinute(savedDraft.startMinute);
           setEndHour(savedDraft.endHour);
@@ -1512,7 +1525,7 @@ function CreateEventDialog({
     if (!open || editMeeting || !isDraftHydrated) return;
 
     writeCreateEventDraft(currentUserId, {
-      selectedDateISO: selectedDate.toISOString(),
+      selectedDateKey: formatLocalDateKey(selectedDate),
       startHour,
       startMinute,
       endHour,
@@ -1630,8 +1643,7 @@ function CreateEventDialog({
   }, [open, patientPickerOpen, patientQuery, token]);
 
   const dateTimeISO = useMemo(() => {
-    const dt = setMinutes(setHours(selectedDate, startHour), startMinute);
-    return dt.toISOString();
+    return combineLocalDateAndTimeToIso(selectedDate, startHour, startMinute);
   }, [selectedDate, startHour, startMinute]);
 
   const effectiveDoctorId = isDoctorUser ? currentUserId || doctorId : doctorId;

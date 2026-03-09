@@ -12,8 +12,6 @@ import {
   isSameDay,
   isSameMonth,
   isToday,
-  setHours,
-  setMinutes,
   startOfMonth,
   startOfWeek,
   startOfYear,
@@ -37,6 +35,11 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  combineLocalDateAndTimeToIso,
+  formatLocalDateKey,
+  parseLocalDateKey,
+} from "@/lib/meeting-datetime";
 import { cn } from "@/lib/utils";
 import {
   createMeeting,
@@ -150,7 +153,7 @@ interface MonthCalendarPopoverProps {
 }
 
 interface ComposerDraft {
-  dateISO: string;
+  dateKey: string;
   startHour: number;
   startMinute: number;
   endHour: number;
@@ -208,7 +211,7 @@ function pad2(value: number): string {
 }
 
 function formatDateKey(date: Date): string {
-  return format(date, "yyyy-MM-dd");
+  return formatLocalDateKey(date);
 }
 
 function getInviteesDraftKey(meetingId: string): string {
@@ -248,10 +251,16 @@ function readComposerDraft(userId: string | null): ComposerDraft | null {
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
-    const draft = parsed as Partial<ComposerDraft>;
-    if (!draft.dateISO || typeof draft.dateISO !== "string") return null;
-    const parsedDate = new Date(draft.dateISO);
-    if (Number.isNaN(parsedDate.getTime())) return null;
+    const draft = parsed as Partial<ComposerDraft> & { dateISO?: string };
+    const dateKey =
+      typeof draft.dateKey === "string"
+        ? draft.dateKey
+        : typeof draft.dateISO === "string"
+          ? formatLocalDateKey(new Date(draft.dateISO))
+          : null;
+    if (!dateKey) return null;
+    const parsedDate = parseLocalDateKey(dateKey);
+    if (!parsedDate) return null;
 
     const toInt = (value: unknown, fallback: number, min: number, max: number) => {
       if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
@@ -265,7 +274,7 @@ function readComposerDraft(userId: string | null): ComposerDraft | null {
     const endMinute = toInt(draft.endMinute, startMinute, 0, 59);
 
     return {
-      dateISO: draft.dateISO,
+      dateKey,
       startHour,
       startMinute,
       endHour,
@@ -322,9 +331,7 @@ function clampStartMinutes(start: number, duration: number): number {
 function buildIsoFromDateAndMinutes(date: Date, minutesInDay: number): string {
   const clamped = Math.min(Math.max(0, minutesInDay), 23 * 60 + 55);
   const { hour, minute } = minutesToHourMinute(clamped);
-  const base = new Date(date);
-  base.setSeconds(0, 0);
-  return setMinutes(setHours(base, hour), minute).toISOString();
+  return combineLocalDateAndTimeToIso(date, hour, minute);
 }
 
 function formatHourOption(hour: number): string {
@@ -860,7 +867,7 @@ export function MonthCalendarPopover({
     if (!composer || composer.submitting) return;
 
     writeComposerDraft(currentUserId, {
-      dateISO: composer.date.toISOString(),
+      dateKey: formatLocalDateKey(composer.date),
       startHour: composer.startHour,
       startMinute: composer.startMinute,
       endHour: composer.endHour,
@@ -1388,7 +1395,7 @@ export function MonthCalendarPopover({
       setComposer({
         anchorX: positioned.x,
         anchorY: positioned.y,
-        date: new Date(savedDraft.dateISO),
+        date: parseLocalDateKey(savedDraft.dateKey) ?? new Date(),
         startHour: savedDraft.startHour,
         startMinute: savedDraft.startMinute,
         endHour: savedDraft.endHour,
@@ -1961,13 +1968,12 @@ export function MonthCalendarPopover({
 
     setComposer((prev) => (prev ? { ...prev, submitting: true } : prev));
 
-    const startDate = setMinutes(
-      setHours(new Date(composer.date), composer.startHour),
-      composer.startMinute
-    );
-
     const payload: MeetingCreatePayload = {
-      date_time: startDate.toISOString(),
+      date_time: combineLocalDateAndTimeToIso(
+        composer.date,
+        composer.startHour,
+        composer.startMinute
+      ),
       doctor_id: effectiveDoctorId,
       user_id: composer.patientId,
       description: composer.description.trim() || undefined,
