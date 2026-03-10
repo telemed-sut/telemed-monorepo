@@ -169,6 +169,9 @@ Validation highlights:
   - compat profile (full suite): `./scripts/run_test_matrix.sh compat`
   - strict profile (device security smoke test): `./scripts/run_test_matrix.sh strict`
   - both profiles: `./scripts/run_test_matrix.sh all`
+- PostgreSQL subset profile from repo root: `TEST_DATABASE_URL=postgresql+psycopg://... ./scripts/test-backend-postgres-subset.sh`
+  - Runs the most DB-sensitive suites with `RUN_TEST_MIGRATIONS=true` by default.
+  - Current subset: `test_users`, `test_patients`, `test_dense_mode_access`, `test_audit_logs`, `test_auth_2fa_management`, `test_security_admin_endpoints`, `test_stats_and_audit_contracts`
 - Bootstrap test env first when setting up a fresh machine: `make backend-test-env`
 
 ### Real device style simulation (HTTP ingest)

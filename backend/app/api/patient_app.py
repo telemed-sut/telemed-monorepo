@@ -5,7 +5,7 @@ Endpoints:
   POST /patient-app/login             — Login with phone + PIN
   GET  /patient-app/me/meetings       — List my meetings with current invite snapshot
   POST /patient-app/me/meetings/{id}/invite — Issue/refresh my invite explicitly
-  POST /patient-app/{patient_id}/code — Staff: generate registration code
+  POST /patient-app/{patient_id}/code — Admin/Doctor: generate registration code
 """
 
 from datetime import datetime
@@ -54,7 +54,7 @@ def _parse_updated_after(value: str | None) -> datetime | None:
         ) from exc
 
 
-# ---------- Staff: generate registration code ----------
+# ---------- Admin/Doctor: generate registration code ----------
 
 @router.post(
     "/{patient_id}/code",
@@ -67,7 +67,7 @@ def generate_registration_code(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Staff/doctor generates a 6-char registration code for a patient."""
+    """Admin or assigned doctor generates a 6-char registration code for a patient."""
     if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 

@@ -432,7 +432,6 @@ def revoke_trusted_device(
     current_hash = hash_security_token(raw_cookie) if raw_cookie else None
     revoked_row = db.scalar(select(UserTrustedDevice).where(UserTrustedDevice.id == device_id))
 
-    response = MessageResponse(message="Trusted device revoked.")
     db.add(
         AuditLog(
             user_id=current_user.id,

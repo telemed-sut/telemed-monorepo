@@ -163,6 +163,7 @@ Common local commands:
 ./scripts/seed-backend.sh     # python -m scripts.seed
 ./scripts/test-frontend.sh    # vitest run
 ./scripts/build-frontend.sh   # next build
+TEST_DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/patient_db ./scripts/test-backend-postgres-subset.sh
 ```
 
 Services:
@@ -176,6 +177,7 @@ Notes:
 - Official scripts ignore root `.env`; the source of truth is Infisical runtime env.
 - Backend container runs migrations and seed step on startup via `backend/entrypoint.sh`.
 - Compose includes a local PostgreSQL service.
+- The backend CI workflow in [.github/workflows/backend-tests.yml](/Volumes/P1Back/telemed-monorepo/.github/workflows/backend-tests.yml) already runs the main backend suite against PostgreSQL.
 
 ## Local Development (Without Docker)
 
