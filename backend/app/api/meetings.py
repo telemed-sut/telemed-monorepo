@@ -12,6 +12,7 @@ from app.schemas.meeting_video import (
     MeetingPatientInviteRequest,
     MeetingPatientInviteResponse,
     MeetingPatientPresenceRequest,
+    MeetingReliabilitySnapshotResponse,
     MeetingRoomPresenceResponse,
     MeetingPatientTokenRequest,
     MeetingVideoTokenRequest,
@@ -84,6 +85,26 @@ def _presence_response(meeting, presence) -> MeetingRoomPresenceResponse:
         patient_left_at=presence.patient_left_at,
         updated_at=presence.updated_at,
     )
+
+
+def _ensure_doctor_can_view_meeting(
+    *,
+    db: Session,
+    current_user: User,
+    meeting,
+) -> None:
+    if current_user.role not in (UserRole.admin, UserRole.doctor):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if current_user.role == UserRole.doctor and not meeting_service.can_doctor_view_meeting(
+        db=db,
+        doctor_id=current_user.id,
+        meeting=meeting,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only access meetings you own or assigned patients.",
+        )
 
 
 @router.post("", response_model=MeetingOut, status_code=status.HTTP_201_CREATED)
@@ -190,15 +211,7 @@ def issue_meeting_video_token(
     if not meeting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
 
-    if current_user.role == UserRole.doctor and not meeting_service.can_doctor_view_meeting(
-        db=db,
-        doctor_id=current_user.id,
-        meeting=meeting,
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only access meetings you own or assigned patients.",
-        )
+    _ensure_doctor_can_view_meeting(db=db, current_user=current_user, meeting=meeting)
 
     response = meeting_video_service.issue_meeting_video_token(
         meeting=meeting,
@@ -211,6 +224,43 @@ def issue_meeting_video_token(
         db.add(meeting)
         db.commit()
     return response
+
+
+@router.get(
+    "/{meeting_id}/video/reliability",
+    response_model=MeetingReliabilitySnapshotResponse,
+)
+@limiter.limit("120/minute")
+def get_meeting_video_reliability(
+    request: Request,
+    meeting_id: str,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(get_current_user),
+):
+    meeting = meeting_service.get_meeting(db, meeting_id)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    _ensure_doctor_can_view_meeting(db=db, current_user=current_user, meeting=meeting)
+
+    presence = meeting.room_presence
+    status_before_reconcile = meeting.status
+    if presence and meeting_presence_service.reconcile_active_meeting_status(
+        db,
+        meeting,
+        presence,
+    ):
+        db.commit()
+        db.refresh(meeting)
+        presence = meeting.room_presence
+
+    return MeetingReliabilitySnapshotResponse(
+        **meeting_presence_service.build_reliability_snapshot(
+            meeting=meeting,
+            presence=presence,
+            meeting_status_before_reconcile=status_before_reconcile,
+        )
+    )
 
 
 @router.post(

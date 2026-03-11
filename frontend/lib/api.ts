@@ -938,6 +938,30 @@ export interface MeetingRoomPresence {
   updated_at?: string | null;
 }
 
+export interface MeetingReliabilitySnapshot {
+  meeting_id: string;
+  checked_at: string;
+  heartbeat_timeout_seconds: number;
+  meeting_status: MeetingStatus;
+  meeting_status_before_reconcile: MeetingStatus;
+  meeting_status_reconciled: boolean;
+  active_status_projection: MeetingStatus;
+  status_in_sync?: boolean | null;
+  room_presence_state: MeetingRoomPresenceState;
+  doctor_online: boolean;
+  patient_online: boolean;
+  doctor_presence_stale: boolean;
+  patient_presence_stale: boolean;
+  doctor_last_seen_at?: string | null;
+  patient_last_seen_at?: string | null;
+  doctor_last_seen_age_seconds?: number | null;
+  patient_last_seen_age_seconds?: number | null;
+  doctor_left_at?: string | null;
+  patient_left_at?: string | null;
+  refreshed_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface Meeting {
   id: string;
   date_time: string;
@@ -1162,6 +1186,17 @@ export async function heartbeatDoctorMeetingPresence(
   return apiFetch<MeetingRoomPresence>(
     `/meetings/${meetingId}/video/presence/heartbeat`,
     { method: "POST", body: JSON.stringify({}) },
+    token
+  );
+}
+
+export async function fetchMeetingReliabilitySnapshot(
+  meetingId: string,
+  token: string
+) {
+  return apiFetch<MeetingReliabilitySnapshot>(
+    `/meetings/${meetingId}/video/reliability`,
+    { method: "GET" },
     token
   );
 }

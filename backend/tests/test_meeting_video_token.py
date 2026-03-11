@@ -292,6 +292,77 @@ def test_doctor_cannot_issue_video_token_for_hidden_meeting(
     assert hidden_response.status_code == 403
 
 
+@pytest.mark.meeting_presence_regression
+def test_reliability_snapshot_reconciles_status_and_reports_staleness(
+    client: TestClient,
+    db: Session,
+    use_mock_video_provider,
+):
+    doctor = _create_user(db, "doctor-reliability@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Reliability", "Snapshot")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+    meeting.status = MeetingStatus.in_progress
+    db.add(meeting)
+    db.commit()
+    db.refresh(meeting)
+
+    stale_time = datetime.now(timezone.utc) - timedelta(minutes=2)
+    db.add(
+        MeetingRoomPresence(
+            meeting_id=meeting.id,
+            doctor_last_seen_at=stale_time,
+            doctor_left_at=None,
+            patient_last_seen_at=stale_time,
+            patient_left_at=None,
+            refreshed_at=stale_time,
+        )
+    )
+    db.commit()
+
+    response = client.get(
+        f"/meetings/{meeting.id}/video/reliability",
+        headers=_auth_headers(doctor),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["meeting_id"] == str(meeting.id)
+    assert body["meeting_status_before_reconcile"] == "in_progress"
+    assert body["meeting_status"] == "scheduled"
+    assert body["meeting_status_reconciled"] is True
+    assert body["active_status_projection"] == "scheduled"
+    assert body["status_in_sync"] is True
+    assert body["room_presence_state"] == "none"
+    assert body["doctor_online"] is False
+    assert body["patient_online"] is False
+    assert body["doctor_presence_stale"] is True
+    assert body["patient_presence_stale"] is True
+    assert body["doctor_last_seen_age_seconds"] >= 100
+    assert body["patient_last_seen_age_seconds"] >= 100
+    assert body["heartbeat_timeout_seconds"] == 25
+
+    db.refresh(meeting)
+    assert meeting.status == MeetingStatus.scheduled
+
+
+def test_hidden_doctor_cannot_view_reliability_snapshot(
+    client: TestClient,
+    db: Session,
+    use_mock_video_provider,
+):
+    doctor_owner = _create_user(db, "doctor-reliability-owner@example.com", UserRole.doctor)
+    doctor_other = _create_user(db, "doctor-reliability-other@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Reliability", "Denied")
+    meeting = _create_meeting(db, doctor_id=doctor_other.id, patient_id=patient.id)
+
+    response = client.get(
+        f"/meetings/{meeting.id}/video/reliability",
+        headers=_auth_headers(doctor_owner),
+    )
+
+    assert response.status_code == 403
+
+
 def test_staff_cannot_issue_meeting_video_token(
     client: TestClient,
     db: Session,

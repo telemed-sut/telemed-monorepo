@@ -84,3 +84,27 @@ class MeetingRoomPresenceResponse(BaseModel):
     doctor_left_at: datetime | None = None
     patient_left_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class MeetingReliabilitySnapshotResponse(BaseModel):
+    meeting_id: str
+    checked_at: datetime
+    heartbeat_timeout_seconds: int
+    meeting_status: str
+    meeting_status_before_reconcile: str
+    meeting_status_reconciled: bool
+    active_status_projection: str
+    status_in_sync: bool | None = None
+    room_presence_state: str
+    doctor_online: bool
+    patient_online: bool
+    doctor_presence_stale: bool
+    patient_presence_stale: bool
+    doctor_last_seen_at: datetime | None = None
+    patient_last_seen_at: datetime | None = None
+    doctor_last_seen_age_seconds: int | None = None
+    patient_last_seen_age_seconds: int | None = None
+    doctor_left_at: datetime | None = None
+    patient_left_at: datetime | None = None
+    refreshed_at: datetime | None = None
+    updated_at: datetime | None = None
