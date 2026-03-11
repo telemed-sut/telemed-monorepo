@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   createMeetingPatientInvite,
   fetchMeetingReliabilitySnapshot,
@@ -1212,9 +1213,10 @@ export default function MeetingCallPage() {
     <>
       <main className="flex h-full w-full flex-col p-2 md:p-3">
         <div
-          className={`relative flex-1 overflow-hidden rounded-2xl border border-border bg-black ${
+          className={cn(
+            "relative flex-1 overflow-hidden rounded-2xl border border-border bg-black",
             isPopupWindow ? "min-h-[86vh]" : "min-h-[80vh]"
-          }`}
+          )}
         >
           <div ref={containerRef} className="h-full w-full" />
 
@@ -1272,11 +1274,12 @@ export default function MeetingCallPage() {
           {callHealth !== "healthy" ? (
             <section className="absolute left-3 right-3 top-24 z-30 pointer-events-auto md:right-[calc(420px+1.5rem)]">
               <div
-                className={`rounded-2xl border px-4 py-3 text-white shadow-xl backdrop-blur-md ${
+                className={cn(
+                  "rounded-2xl border px-4 py-3 text-white shadow-xl backdrop-blur-md",
                   callHealthAppearance.tone === "red"
                     ? "border-red-300/35 bg-red-500/20"
                     : "border-amber-300/35 bg-amber-500/20"
-                }`}
+                )}
               >
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div className="space-y-1">
@@ -1329,11 +1332,12 @@ export default function MeetingCallPage() {
           ) : null}
 
           <section
-            className={`absolute right-3 top-14 z-40 w-[min(92vw,420px)] origin-top-right overflow-hidden rounded-2xl border border-white/20 bg-slate-950/75 text-white shadow-2xl backdrop-blur-xl transition duration-200 ${
+            className={cn(
+              "absolute right-3 top-14 z-40 w-[min(92vw,420px)] origin-top-right overflow-hidden rounded-2xl border border-white/20 bg-slate-950/75 text-white shadow-2xl backdrop-blur-xl transition duration-200",
               showMetaPanel
                 ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
                 : "pointer-events-none -translate-y-2 scale-95 opacity-0"
-            }`}
+            )}
           >
             <div className="flex items-center justify-between border-b border-white/15 px-4 py-3">
               <div>
@@ -1363,11 +1367,12 @@ export default function MeetingCallPage() {
             <div className="max-h-[56vh] space-y-3 overflow-y-auto px-4 py-3">
               {callHealth !== "healthy" ? (
                 <div
-                  className={`rounded-xl px-3 py-3 text-xs ${
+                  className={cn(
+                    "rounded-xl px-3 py-3 text-xs",
                     callHealthAppearance.tone === "red"
                       ? "border border-red-300/30 bg-red-500/20 text-red-100"
                       : "border border-amber-300/30 bg-amber-500/20 text-amber-100"
-                  }`}
+                  )}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-1">
@@ -1408,13 +1413,14 @@ export default function MeetingCallPage() {
                     </p>
                   </div>
                   <span
-                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                    className={cn(
+                      "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]",
                       isRunActive
                         ? "border-emerald-300/30 bg-emerald-500/15 text-emerald-100"
                         : runFinishedAt
                           ? "border-sky-300/30 bg-sky-500/15 text-sky-100"
                           : "border-white/15 bg-white/10 text-white/70"
-                    }`}
+                    )}
                   >
                     {isRunActive
                       ? tr(language, "Run active", "กำลังทดสอบ")
@@ -1503,11 +1509,12 @@ export default function MeetingCallPage() {
                       <button
                         key={profile.id}
                         type="button"
-                        className={`w-full rounded-xl border px-3 py-3 text-left transition ${
+                        className={cn(
+                          "w-full rounded-xl border px-3 py-3 text-left transition",
                           isSelected
                             ? "border-white/30 bg-white/12 text-white"
                             : "border-white/10 bg-white/5 text-white/80 hover:bg-white/10"
-                        }`}
+                        )}
                         onClick={() => {
                           setSelectedTestProfile(profile);
                           appendCallEvent(
@@ -1793,7 +1800,10 @@ export default function MeetingCallPage() {
                     callEvents.map((event) => (
                       <div
                         key={event.id}
-                        className={`rounded-lg border px-2.5 py-2 ${eventToneClassName[event.tone]}`}
+                        className={cn(
+                          "rounded-lg border px-2.5 py-2",
+                          eventToneClassName[event.tone]
+                        )}
                       >
                         <div className="flex items-center justify-between gap-3 text-[10px] uppercase tracking-[0.12em] text-white/60">
                           <span>

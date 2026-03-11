@@ -294,6 +294,20 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
   void _appendCallEvent(String message, {bool isCritical = false}) {
     final trimmed = message.trim();
     if (trimmed.isEmpty) return;
+    if (!mounted) {
+      _callEvents.insert(
+        0,
+        _CallReliabilityEvent(
+          at: _currentClockLabel(),
+          message: trimmed,
+          isCritical: isCritical,
+        ),
+      );
+      if (_callEvents.length > 6) {
+        _callEvents.removeRange(6, _callEvents.length);
+      }
+      return;
+    }
     final event = _CallReliabilityEvent(
       at: _currentClockLabel(),
       message: trimmed,
