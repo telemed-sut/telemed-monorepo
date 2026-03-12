@@ -321,7 +321,7 @@ const formatInviteTimestamp = (value?: string | null, language: AppLanguage = "e
 
 // --- Component ---
 
-export function UsersTable() {
+export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
     const { role: currentUserRole, token } = useAuthStore();
     const language = useLanguageStore((state) => state.language);
 
@@ -468,7 +468,7 @@ export function UsersTable() {
 
     useEffect(() => {
         void loadUsers();
-    }, [loadUsers]);
+    }, [loadUsers, refreshKey]);
 
     useEffect(() => {
         if (!isInviteSheetOpen) return;

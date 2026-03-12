@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -48,6 +49,7 @@ from app.schemas.auth import (
 from app.schemas.user import CLINICAL_ROLES
 from app.services import auth as auth_service
 from app.services import security as security_service
+from app.services.user_events import publish_user_registered
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -894,4 +896,8 @@ def accept_invite(request: Request, payload: InviteAcceptRequest, db: Session = 
         )
     )
     db.commit()
+    try:
+        anyio.from_thread.run(publish_user_registered, user.id)
+    except Exception:
+        logger.warning("Failed to publish user registration event", exc_info=True)
     return MessageResponse(message="Account created successfully")

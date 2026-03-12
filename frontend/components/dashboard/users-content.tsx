@@ -74,6 +74,41 @@ function tr(language: AppLanguage, en: string, th: string): string {
   return language === "th" ? th : en;
 }
 
+type UsersStreamEvent = {
+  type?: string;
+};
+
+function parseSseEvent(rawEvent: string): { event: string; data: UsersStreamEvent | null } {
+  const lines = rawEvent.split("\n");
+  let event = "message";
+  const dataLines: string[] = [];
+
+  for (const line of lines) {
+    if (line.startsWith("event:")) {
+      event = line.slice("event:".length).trim();
+      continue;
+    }
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trim());
+    }
+  }
+
+  const dataText = dataLines.join("\n");
+  if (!dataText) {
+    return { event, data: null };
+  }
+
+  try {
+    return { event, data: JSON.parse(dataText) as UsersStreamEvent };
+  } catch {
+    return { event, data: null };
+  }
+}
+
+function shouldSendBearer(token: string | null): boolean {
+  return Boolean(token && token.split(".").length === 3);
+}
+
 // ── Welcome Section ──
 function WelcomeSection({
   users,
@@ -858,6 +893,7 @@ export function UsersContent() {
   const language = useLanguageStore((state) => state.language);
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const showUserStats = useDashboardStore((s) => s.showUserStats);
   const showUserCharts = useDashboardStore((s) => s.showUserCharts);
@@ -868,6 +904,10 @@ export function UsersContent() {
       router.replace("/login");
     }
   }, [hydrated, token, router]);
+
+  const triggerRefresh = useCallback(() => {
+    setRefreshKey((prev) => prev + 1);
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -907,7 +947,94 @@ export function UsersContent() {
     return () => {
       cancelled = true;
     };
-  }, [token, clearToken, router]);
+  }, [token, clearToken, router, refreshKey]);
+
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    let retryDelay = 1000;
+    let retryTimeoutId: number | null = null;
+    let controller: AbortController | null = null;
+
+    const scheduleReconnect = () => {
+      if (!active) return;
+      if (retryTimeoutId) {
+        window.clearTimeout(retryTimeoutId);
+      }
+      retryTimeoutId = window.setTimeout(() => {
+        retryDelay = Math.min(retryDelay * 2, 30000);
+        void connect();
+      }, retryDelay);
+    };
+
+    const connect = async () => {
+      if (!active) return;
+      controller?.abort();
+      controller = new AbortController();
+
+      const headers: HeadersInit = {};
+      if (shouldSendBearer(token)) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      try {
+        const res = await fetch("/api/events/users", {
+          method: "GET",
+          headers,
+          credentials: "include",
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403) {
+            return;
+          }
+          throw new Error(`SSE connection failed (${res.status})`);
+        }
+
+        if (!res.body) {
+          throw new Error("SSE connection closed");
+        }
+
+        retryDelay = 1000;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (active) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          let boundary = buffer.indexOf("\n\n");
+          while (boundary !== -1) {
+            const rawEvent = buffer.slice(0, boundary).trim();
+            buffer = buffer.slice(boundary + 2);
+            boundary = buffer.indexOf("\n\n");
+
+            if (!rawEvent) continue;
+            const parsed = parseSseEvent(rawEvent);
+            if (parsed.event === "user.registered") {
+              triggerRefresh();
+            }
+          }
+        }
+      } catch (error) {
+        if (!active) return;
+        scheduleReconnect();
+      }
+    };
+
+    void connect();
+
+    return () => {
+      active = false;
+      if (retryTimeoutId) {
+        window.clearTimeout(retryTimeoutId);
+      }
+      controller?.abort();
+    };
+  }, [token, triggerRefresh]);
 
   if (!hydrated || !token) {
     return null;
@@ -923,7 +1050,7 @@ export function UsersContent() {
           <UsersByRoleChart users={users} language={language} />
         </div>
       )}
-      {showUserTable && <UsersTable />}
+      {showUserTable && <UsersTable refreshKey={refreshKey} />}
     </main>
   );
 }

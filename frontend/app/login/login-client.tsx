@@ -50,6 +50,13 @@ function getLoginErrorMessage(language: AppLanguage, error: ApiError): string {
     detail && typeof detail === "object" && typeof (detail as { code?: unknown }).code === "string"
       ? ((detail as { code: string }).code ?? "").toLowerCase()
       : "";
+  const normalizedMessage = typeof error.message === "string" ? error.message.trim() : "";
+  const genericEn = "Unable to sign in. Please try again.";
+  const genericTh = "ไม่สามารถเข้าสู่ระบบได้ โปรดลองอีกครั้ง";
+
+  if (normalizedMessage && normalizedMessage !== genericEn && normalizedMessage !== genericTh) {
+    return normalizedMessage;
+  }
 
   if (
     error.status === 400 ||

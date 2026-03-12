@@ -152,11 +152,17 @@ export interface PatientAssignmentListResponse {
 
 type SortOrder = "asc" | "desc";
 
-// Use environment variable for API URL or default to localhost:8000
-// In production/tunnel, if deployed on same domain, use relative path
-const API_BASE_URL = (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
-  ? '/api'
-  : (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000");
+// Browser requests should always use the Next.js same-origin proxy to avoid
+// local-dev CORS drift between frontend and backend runtime environments.
+const API_BASE_URL =
+  typeof window !== "undefined"
+    ? "/api"
+    : (
+      process.env.NEXT_SERVER_API_BASE_URL ||
+      process.env.NEXT_SERVER_API_PROXY_TARGET ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      "http://localhost:8000"
+    );
 export type ApiError = Error & { status?: number; detail?: unknown; code?: string };
 
 // Token refresh state to prevent multiple simultaneous refresh calls
@@ -178,6 +184,10 @@ const INTERNAL_ERROR_PATTERN =
 const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /access denied|permission denied|forbidden/i, message: "คุณไม่มีสิทธิ์ทำรายการนี้" },
   {
+    pattern: /temporarily blocked due to too many failed login attempts|your ip has been temporarily blocked|access denied\.\s*your ip has been temporarily blocked/i,
+    message: "IP ของคุณถูกบล็อกชั่วคราวจากการพยายามเข้าสู่ระบบผิดหลายครั้ง กรุณารอสักครู่แล้วลองใหม่",
+  },
+  {
     pattern: /doctors?\s+can\s+only\s+create\s+meetings?\s+for\s+assigned\s+patients?\.?/i,
     message: "แพทย์สามารถสร้างนัดหมายได้เฉพาะผู้ป่วยที่ได้รับมอบหมายเท่านั้น",
   },
@@ -194,6 +204,7 @@ const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /too many requests|rate limit/i, message: "คุณทำรายการถี่เกินไป กรุณาลองใหม่อีกครั้ง" },
   { pattern: /network error|failed to fetch|network request failed/i, message: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่" },
   { pattern: /invalid credentials|incorrect password/i, message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" },
+  { pattern: /invalid two-factor authentication code/i, message: "รหัส 2FA หรือ Backup Code ไม่ถูกต้อง" },
 ];
 
 function clampPage(page?: number): number {
@@ -270,6 +281,7 @@ function statusFallbackMessage(status?: number, fallback: string = DEFAULT_ERROR
   if (status === 403) return "คุณไม่มีสิทธิ์ทำรายการนี้";
   if (status === 404) return "ไม่พบข้อมูลที่ต้องการ";
   if (status === 409) return "ข้อมูลขัดแย้งกับสถานะปัจจุบัน กรุณารีเฟรชแล้วลองใหม่";
+  if (status === 423) return "บัญชีถูกล็อกชั่วคราว กรุณาลองใหม่อีกครั้งภายหลัง";
   if (status === 422) return "ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบก่อนบันทึก";
   if (status === 429) return "คุณทำรายการถี่เกินไป กรุณาลองใหม่อีกครั้ง";
   if (typeof status === "number" && status >= 500) return "ระบบขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง";
