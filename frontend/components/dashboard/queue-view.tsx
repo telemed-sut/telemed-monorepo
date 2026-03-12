@@ -944,7 +944,12 @@ export function QueueView({
         toast.error(tr(language, "This meeting is read-only for your account", "บัญชีของคุณดูได้อย่างเดียวสำหรับนัดหมายนี้"));
         return;
       }
-      window.location.assign(`/meetings/call/${meeting.id}`);
+      const callParams = new URLSearchParams();
+      const pn = [meeting.patient?.first_name, meeting.patient?.last_name].filter(Boolean).join(" ");
+      if (pn) callParams.set("pn", pn);
+      if (meeting.date_time) callParams.set("pt", meeting.date_time);
+      const qs = callParams.toString();
+      window.location.assign(`/meetings/call/${meeting.id}${qs ? `?${qs}` : ""}`);
     },
     [role, language, canWriteMeeting]
   );

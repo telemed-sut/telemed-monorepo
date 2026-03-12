@@ -51,6 +51,9 @@ const CALL_SURFACE_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
+  // Strict Mode double-invokes effects in dev; disable to prevent ZEGO SDK,
+  // camera warmup, and heartbeat API calls from firing twice on every HMR update.
+  reactStrictMode: false,
   output: 'standalone', // Required for Docker containerization
   images: {
     remotePatterns: [

@@ -773,7 +773,12 @@ export function EventDetailSheet({
       toast.error(tr(language, "Only the assigned doctor can start this call", "เฉพาะแพทย์เจ้าของนัดหมายเท่านั้นที่เริ่มคอลได้"));
       return;
     }
-    window.location.assign(`/meetings/call/${meeting.id}`);
+    const callParams = new URLSearchParams();
+    const pn = [meeting.patient?.first_name, meeting.patient?.last_name].filter(Boolean).join(" ");
+    if (pn) callParams.set("pn", pn);
+    if (meeting.date_time) callParams.set("pt", meeting.date_time);
+    const qs = callParams.toString();
+    window.location.assign(`/meetings/call/${meeting.id}${qs ? `?${qs}` : ""}`);
   };
 
   const handleCopyPatientJoinLink = async () => {

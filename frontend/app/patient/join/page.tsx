@@ -262,6 +262,7 @@ function PatientJoinPageContent() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
+  const [hintDismissed, setHintDismissed] = useState(false);
   const [showResumeButton, setShowResumeButton] = useState(false);
   const [displayName, setDisplayName] = useState(nameFromQuery);
   const [cameraEnabled, setCameraEnabled] = useState(true);
@@ -348,6 +349,7 @@ function PatientJoinPageContent() {
     try {
       const mediaPreference = await warmupPatientMediaDevices();
       if (mediaPreference.hint) {
+        setHintDismissed(false);
         setHint(mediaPreference.hint);
       }
       const allowCameraOnJoin = mediaPreference.allowCamera && cameraEnabled;
@@ -554,9 +556,19 @@ function PatientJoinPageContent() {
           </div>
         ) : null}
 
-        {hint ? (
-          <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-200">
-            {hint}
+        {hint && !hintDismissed ? (
+          <div className="flex items-start justify-between gap-3 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-200">
+            <span>{hint}</span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 border-amber-200/60 bg-amber-200/10 px-3 text-xs font-semibold text-amber-50 hover:bg-amber-200/20"
+              onClick={() => {
+                setHintDismissed(true);
+              }}
+            >
+              Dismiss
+            </Button>
           </div>
         ) : null}
 
@@ -594,7 +606,7 @@ function PatientJoinPageContent() {
           </div>
         ) : null}
 
-        <div className="relative min-h-[70vh] overflow-hidden rounded-xl border border-slate-800 bg-black">
+        <div className="relative min-h-[78vh] overflow-hidden rounded-xl border border-slate-800 bg-black md:min-h-[70vh]">
           {loading ? (
             <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-300">
               Joining video room...
