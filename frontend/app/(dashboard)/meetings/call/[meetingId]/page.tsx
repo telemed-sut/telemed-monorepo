@@ -1,6 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  Check,
+  Clock3,
+  Copy,
+  ExternalLink,
+  PhoneOff,
+  UserRound,
+} from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
@@ -10,7 +19,6 @@ import {
   heartbeatDoctorMeetingPresence,
   issueMeetingVideoToken,
   leaveDoctorMeetingPresence,
-  type MeetingRoomPresence,
   type MeetingVideoTokenResponse,
 } from "@/lib/api";
 import {
@@ -134,6 +142,8 @@ function warmupDoctorMediaDevices(
     .getUserMedia({
       video: {
         facingMode: "user",
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
       },
       audio: true,
     })
@@ -141,11 +151,12 @@ function warmupDoctorMediaDevices(
       stream.getTracks().forEach((track) => {
         track.stop();
       });
-      return {
+      // Give iOS Safari time to fully release the hardware lock to prevent black frames
+      return new Promise<void>((r) => setTimeout(r, 800)).then(() => ({
         allowCamera: true,
         allowMicrophone: true,
         hint: null,
-      };
+      }));
     })
     .catch((error: unknown) => {
       const normalized = stringifyErrorReason(error).toLowerCase();
@@ -265,31 +276,11 @@ function formatCallDuration(seconds: number): string {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-function getPresenceBadge(
-  language: AppLanguage,
-  presence: MeetingRoomPresence | null
-): { label: string; className: string } | null {
-  if (!presence) return null;
-  const { state } = presence;
-  if (state === "both_in_room") {
-    return {
-      label: tr(language, "Patient in room", "คนไข้อยู่ในห้อง"),
-      className: "border-emerald-300/30 bg-emerald-500/15 text-emerald-100",
-    };
-  }
-  if (state === "patient_waiting" || state === "doctor_left_patient_waiting") {
-    return {
-      label: tr(language, "Patient waiting", "คนไข้รออยู่"),
-      className: "border-amber-300/30 bg-amber-500/15 text-amber-100",
-    };
-  }
-  return {
-    label: tr(language, "Waiting for patient", "รอคนไข้"),
-    className: "border-white/15 bg-white/10 text-white/55",
-  };
-}
-
 const DOCTOR_PRESENCE_HEARTBEAT_INTERVAL_MS = 10_000;
+const MEETING_VIDEO_CODEC = "H264" as const;
+const MINI_WINDOW_MESSAGE_SOURCE = "telemed-mini-window";
+
+type MiniWindowMessageType = "popup-ready" | "popup-closing" | "popup-ended";
 
 export default function MeetingCallPage() {
   const params = useParams<{ meetingId: string }>();
@@ -300,6 +291,8 @@ export default function MeetingCallPage() {
   const role = useAuthStore((state) => state.role);
   const hydrateAuth = useAuthStore((state) => state.hydrate);
   const isPopupWindow = searchParams.get("popup") === "1";
+  const resumeFromMiniWindow = searchParams.get("resume") === "1";
+  const endedFromSearch = searchParams.get("ended") === "1";
   const patientName = searchParams.get("pn") ?? "";
   const patientTime = searchParams.get("pt") ?? "";
 
@@ -307,15 +300,20 @@ export default function MeetingCallPage() {
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<MeetingVideoTokenResponse | null>(null);
   const [meetingUrl, setMeetingUrl] = useState<string>("");
-  const [patientPresence, setPatientPresence] = useState<MeetingRoomPresence | null>(null);
   const [patientInviteUrl, setPatientInviteUrl] = useState<string | null>(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
   const [callSeconds, setCallSeconds] = useState(0);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [miniWindowStandby, setMiniWindowStandby] = useState(false);
+  const [callEnded, setCallEnded] = useState(endedFromSearch);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const zegoInstanceRef = useRef<ZegoUIKitPrebuiltInstance | null>(null);
+  const hasLeftRoomRef = useRef(false);
   const skipUnloadGuardRef = useRef(false);
+  const suppressLeaveRoomNavigationRef = useRef(false);
   const callTimerRef = useRef<number | null>(null);
+  const popupWindowRef = useRef<Window | null>(null);
+  const resumeOnNextJoinRef = useRef(resumeFromMiniWindow);
 
   const meetingId = useMemo(() => {
     const raw = params?.meetingId;
@@ -323,9 +321,29 @@ export default function MeetingCallPage() {
     return raw.trim();
   }, [params]);
 
+  const buildCallUrl = useCallback(
+    (options?: { ended?: boolean }) => {
+      const nextParams = new URLSearchParams();
+      if (patientName) nextParams.set("pn", patientName);
+      if (patientTime) nextParams.set("pt", patientTime);
+      if (options?.ended) nextParams.set("ended", "1");
+      const qs = nextParams.toString();
+      return `/meetings/call/${meetingId}${qs ? `?${qs}` : ""}`;
+    },
+    [meetingId, patientName, patientTime]
+  );
+
   useEffect(() => {
     void hydrateAuth();
   }, [hydrateAuth]);
+
+  useEffect(() => {
+    if (isPopupWindow || (!resumeFromMiniWindow && !endedFromSearch)) {
+      return;
+    }
+
+    window.history.replaceState(window.history.state, "", buildCallUrl());
+  }, [buildCallUrl, endedFromSearch, isPopupWindow, resumeFromMiniWindow]);
 
   useEffect(() => {
     if (isPopupWindow) {
@@ -350,6 +368,8 @@ export default function MeetingCallPage() {
     if (loading) {
       return;
     }
+    setCallEnded(false);
+    window.history.replaceState(window.history.state, "", buildCallUrl());
     // Set loading immediately so rapid clicks hit the guard above
     // before the run() effect picks up the new retryNonce.
     setLoading(true);
@@ -361,7 +381,53 @@ export default function MeetingCallPage() {
     // renders its "You have left the room" UI after we clear innerHTML.
     zegoInstanceRef.current = null;
     setRetryNonce((current) => current + 1);
-  }, [loading]);
+  }, [buildCallUrl, loading]);
+
+  const requestResumeFromMiniWindow = useCallback(() => {
+    if (!popupWindowRef.current && !miniWindowStandby) {
+      return;
+    }
+    popupWindowRef.current = null;
+    skipUnloadGuardRef.current = false;
+    resumeOnNextJoinRef.current = true;
+    setMiniWindowStandby(false);
+    setCallEnded(false);
+    setLoading(true);
+    setError(null);
+    setRetryNonce((current) => current + 1);
+  }, [miniWindowStandby]);
+
+  const handleLeaveCallRoute = useCallback(() => {
+    hasLeftRoomRef.current = true;
+    popupWindowRef.current = null;
+    resumeOnNextJoinRef.current = false;
+    setMiniWindowStandby(false);
+    setSession(null);
+    setCallEnded(true);
+    setLoading(false);
+    setError(null);
+    window.history.replaceState(window.history.state, "", buildCallUrl({ ended: true }));
+
+    if (isPopupWindow) {
+      if (window.opener && !window.opener.closed) {
+        try {
+          (window.opener as Window).postMessage(
+            {
+              source: MINI_WINDOW_MESSAGE_SOURCE,
+              meetingId,
+              type: "popup-ended" satisfies MiniWindowMessageType,
+            },
+            window.location.origin
+          );
+          (window.opener as Window).focus();
+        } catch {
+          // ignore
+        }
+      }
+      window.close();
+      return;
+    }
+  }, [buildCallUrl, isPopupWindow, meetingId]);
 
   const openMiniWindowAndSwitch = () => {
     if (!meetingId) {
@@ -393,9 +459,11 @@ export default function MeetingCallPage() {
       return;
     }
 
+    popupWindowRef.current = popup;
+    resumeOnNextJoinRef.current = false;
+    setMiniWindowStandby(true);
+    setError(null);
     popup.focus();
-    skipUnloadGuardRef.current = true;
-    router.push("/meetings");
   };
 
   const handleBackToMeetings = () => {
@@ -405,16 +473,9 @@ export default function MeetingCallPage() {
 
   const handleClosePopupWindow = () => {
     skipUnloadGuardRef.current = true;
-    // Send parent window back to the full call view before closing
     if (window.opener && !window.opener.closed) {
       try {
-        const returnParams = new URLSearchParams();
-        if (patientName) returnParams.set("pn", patientName);
-        if (patientTime) returnParams.set("pt", patientTime);
-        const qs = returnParams.toString();
-        (window.opener as Window).location.assign(
-          `/meetings/call/${meetingId}${qs ? `?${qs}` : ""}`
-        );
+        (window.opener as Window).focus();
       } catch {
         // Cross-origin or already closed — ignore
       }
@@ -425,6 +486,25 @@ export default function MeetingCallPage() {
         router.push("/meetings");
       }
     }, 120);
+  };
+
+  const handleReturnFromMiniWindow = () => {
+    const popup = popupWindowRef.current;
+    if (popup && !popup.closed) {
+      skipUnloadGuardRef.current = true;
+      try {
+        popup.close();
+      } catch {
+        requestResumeFromMiniWindow();
+      }
+      window.setTimeout(() => {
+        if (popup.closed) {
+          requestResumeFromMiniWindow();
+        }
+      }, 180);
+      return;
+    }
+    requestResumeFromMiniWindow();
   };
 
   const handleCopyInvite = useCallback(async () => {
@@ -510,6 +590,10 @@ export default function MeetingCallPage() {
       setLoading(false);
       return;
     }
+    if (callEnded && !resumeOnNextJoinRef.current) {
+      setLoading(false);
+      return;
+    }
     if (!token) {
       setError(tr(language, "Session expired. Please log in again.", "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่"));
       setLoading(false);
@@ -525,10 +609,14 @@ export default function MeetingCallPage() {
     let mountedInstance: ZegoUIKitPrebuiltInstance | null = null;
 
     const run = async () => {
+      if (miniWindowStandby && !isPopupWindow) {
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError(null);
       setPatientInviteUrl(null);
-      setPatientPresence(null);
       try {
         if (!window.isSecureContext && window.location.hostname !== "localhost") {
           throw new Error(
@@ -542,6 +630,10 @@ export default function MeetingCallPage() {
 
         const mediaPreference = await warmupDoctorMediaDevices(language);
         if (cancelled) return;
+        const hintText = (mediaPreference.hint || "").toLowerCase();
+        const deviceMissing =
+          hintText.includes("no usable camera/mic") || hintText.includes("not found");
+        const permissionBlocked = !mediaPreference.allowCamera || !mediaPreference.allowMicrophone;
 
         const videoSession = await issueMeetingVideoToken(meetingId, token);
         if (cancelled) return;
@@ -582,23 +674,43 @@ export default function MeetingCallPage() {
         );
         mountedInstance = zego.create(kitToken);
         zegoInstanceRef.current = mountedInstance;
+        hasLeftRoomRef.current = false;
+        suppressLeaveRoomNavigationRef.current = false;
+        const shouldSkipPreJoin =
+          isPopupWindow || resumeFromMiniWindow || resumeOnNextJoinRef.current;
         mountedInstance.joinRoom({
           container: containerRef.current,
-          // Skip pre-join in popup (mini window) — permissions are already
-          // resolved by warmupDoctorMediaDevices so no form needed.
-          showPreJoinView: !isPopupWindow,
-          turnOnCameraWhenJoining: mediaPreference.allowCamera,
-          turnOnMicrophoneWhenJoining: mediaPreference.allowMicrophone,
+          // Skip pre-join in popup, and also when restoring from the mini
+          // window so the doctor returns straight into the active room.
+          showPreJoinView: !shouldSkipPreJoin,
+          // Start muted if device missing or permission/gesture blocked to avoid ZEGO auth modal; doctor can enable in-room after granting.
+          turnOnCameraWhenJoining: !deviceMissing && !permissionBlocked && mediaPreference.allowCamera,
+          turnOnMicrophoneWhenJoining: !deviceMissing && !permissionBlocked && mediaPreference.allowMicrophone,
           sharedLinks: [
             {
               name: "Meeting Link",
               url: meetingLink,
             },
           ],
+          showLeavingView: false,
+          onLeaveRoom: () => {
+            if (suppressLeaveRoomNavigationRef.current) {
+              return;
+            }
+            hasLeftRoomRef.current = true;
+            zegoInstanceRef.current = null;
+            handleLeaveCallRoute();
+          },
+          videoCodec: MEETING_VIDEO_CODEC,
+          videoResolutionDefault: zego.VideoResolution_720P,
+          videoScreenConfig: {
+            objectFit: "cover",
+          },
           scenario: {
             mode: zego.VideoConference,
           },
         });
+        resumeOnNextJoinRef.current = false;
       } catch (err: unknown) {
         if (cancelled) return;
         const message =
@@ -619,7 +731,12 @@ export default function MeetingCallPage() {
       cancelled = true;
       const instance = mountedInstance ?? zegoInstanceRef.current;
       try {
-        if (instance && typeof instance.destroy === "function") {
+        suppressLeaveRoomNavigationRef.current = true;
+        if (
+          !hasLeftRoomRef.current &&
+          instance &&
+          typeof instance.destroy === "function"
+        ) {
           instance.destroy();
         }
       } catch {
@@ -638,11 +755,132 @@ export default function MeetingCallPage() {
     token,
     role,
     language,
+    isPopupWindow,
+    handleLeaveCallRoute,
+    callEnded,
+    miniWindowStandby,
+    resumeFromMiniWindow,
     retryNonce,
   ]);
 
   useEffect(() => {
+    if (!isPopupWindow) {
+      return;
+    }
+
+    const postToParent = (type: MiniWindowMessageType) => {
+      if (!window.opener || window.opener.closed) {
+        return;
+      }
+      try {
+        (window.opener as Window).postMessage(
+          {
+            source: MINI_WINDOW_MESSAGE_SOURCE,
+            meetingId,
+            type,
+          },
+          window.location.origin
+        );
+      } catch {
+        // ignore messaging failures
+      }
+    };
+
+    postToParent("popup-ready");
+    const notifyClosing = () => {
+      postToParent("popup-closing");
+    };
+
+    window.addEventListener("pagehide", notifyClosing);
+    window.addEventListener("beforeunload", notifyClosing);
+
+    return () => {
+      window.removeEventListener("pagehide", notifyClosing);
+      window.removeEventListener("beforeunload", notifyClosing);
+    };
+  }, [isPopupWindow, meetingId]);
+
+  useEffect(() => {
+    if (isPopupWindow) {
+      return;
+    }
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      const data = event.data as
+        | {
+            source?: string;
+            meetingId?: string;
+            type?: MiniWindowMessageType;
+          }
+        | undefined;
+
+      if (
+        !data ||
+        data.source !== MINI_WINDOW_MESSAGE_SOURCE ||
+        data.meetingId !== meetingId
+      ) {
+        return;
+      }
+
+      if (data.type === "popup-ready") {
+        setMiniWindowStandby(true);
+        return;
+      }
+
+      if (data.type === "popup-closing") {
+        requestResumeFromMiniWindow();
+        return;
+      }
+
+      if (data.type === "popup-ended") {
+        popupWindowRef.current = null;
+        resumeOnNextJoinRef.current = false;
+        setMiniWindowStandby(false);
+        setSession(null);
+        setCallEnded(true);
+        setLoading(false);
+        setError(null);
+        window.history.replaceState(
+          window.history.state,
+          "",
+          buildCallUrl({ ended: true })
+        );
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [buildCallUrl, isPopupWindow, meetingId, requestResumeFromMiniWindow]);
+
+  useEffect(() => {
+    if (isPopupWindow || !miniWindowStandby) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      const popup = popupWindowRef.current;
+      if (popup && popup.closed) {
+        requestResumeFromMiniWindow();
+      }
+    }, 500);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [isPopupWindow, miniWindowStandby, requestResumeFromMiniWindow]);
+
+  useEffect(() => {
     if (!session || !token || !meetingId || role !== "doctor") {
+      return;
+    }
+
+    if (miniWindowStandby && !isPopupWindow) {
       return;
     }
 
@@ -650,14 +888,9 @@ export default function MeetingCallPage() {
 
     const sendHeartbeat = () => {
       if (disposed) return;
-      void heartbeatDoctorMeetingPresence(meetingId, token)
-        .then((presence) => {
-          if (disposed) return;
-          setPatientPresence(presence);
-        })
-        .catch(() => {
-          // silently retry on next interval
-        });
+      void heartbeatDoctorMeetingPresence(meetingId, token).catch(() => {
+        // silently retry on next interval
+      });
     };
 
     const sendLeave = () => {
@@ -681,14 +914,10 @@ export default function MeetingCallPage() {
       sendLeave();
       disposed = true;
     };
-  }, [session, token, meetingId, role]);
+  }, [session, token, meetingId, role, miniWindowStandby, isPopupWindow]);
 
-  const presenceBadge = session ? getPresenceBadge(language, patientPresence) : null;
   const callDuration = session ? formatCallDuration(callSeconds) : null;
   const appointmentLabel = patientTime ? formatAppointmentTime(language, patientTime) : null;
-  const roomSummary = session
-    ? `${tr(language, "Room", "ห้อง")}: ${session.room_id}`
-    : tr(language, "Preparing your call room...", "กำลังเตรียมห้องวิดีโอ...");
   const modeSummary = isPopupWindow
     ? tr(
         language,
@@ -700,87 +929,255 @@ export default function MeetingCallPage() {
         "Main dashboard mode",
         "โหมดหน้าหลัก"
       );
+  const patientInitial = (patientName.trim().charAt(0) || "P").toUpperCase();
+  const showStandbyState = miniWindowStandby && !isPopupWindow;
 
   return (
     <>
       <main className="flex h-full w-full flex-col p-2 md:p-3">
         <div
           className={cn(
-            "relative flex-1 overflow-hidden rounded-2xl border border-border bg-black",
+            "relative flex-1 overflow-hidden rounded-2xl border border-slate-800 bg-slate-950",
             isPopupWindow ? "min-h-[86vh]" : "min-h-[80vh]"
           )}
         >
-          <div ref={containerRef} className="h-full w-full" />
-
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/55 via-black/10 to-black/35" />
-
-          <div className="absolute left-3 right-3 top-3 z-30 flex items-start justify-between gap-2">
-            <div className="pointer-events-auto max-w-[58%] rounded-xl border border-white/20 bg-black/45 px-3 py-2 text-white backdrop-blur-md">
-              <p className="truncate text-sm font-semibold">
-                {patientName || tr(language, "Doctor Video Call", "ห้องวิดีโอแพทย์")}
-              </p>
-              {appointmentLabel ? (
-                <p className="truncate text-[11px] text-white/65">{appointmentLabel}</p>
-              ) : null}
-              <p className="truncate text-[11px] text-white/80">{roomSummary}</p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                <span className="inline-flex items-center rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/90">
-                  {modeSummary}
-                </span>
-                {callDuration !== null ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/8 px-2 py-0.5 text-[10px] font-medium tabular-nums text-white/85">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                    {callDuration}
+          {/* subtle glow behind video container */}
+          <div className="absolute inset-0 bg-gradient-to-tr from-slate-950 via-slate-900 to-slate-950 opacity-50" />
+          
+          <div ref={containerRef} className="relative z-10 h-full w-full" />
+          
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-16 bg-[linear-gradient(180deg,rgba(2,6,23,0.42),rgba(2,6,23,0))]" />
+          <div className="absolute left-3 right-3 top-3 z-30 flex flex-col gap-2.5 md:flex-row md:items-start md:justify-between">
+            <div className="pointer-events-auto max-w-[min(100%,320px)] rounded-[22px] border border-white/10 bg-slate-950/56 px-3 py-2.5 text-white shadow-[0_12px_32px_rgba(15,23,42,0.2)] backdrop-blur-lg">
+              <div className="flex items-center gap-2.5">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] text-sm font-semibold text-white/95">
+                  {patientName ? patientInitial : <UserRound className="size-4 text-white/80" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-white/95">
+                    {patientName || tr(language, "Doctor Video Call", "ห้องวิดีโอแพทย์")}
+                  </p>
+                  {appointmentLabel ? (
+                    <div className="mt-0.5 inline-flex max-w-full items-center gap-1.5 text-[11px] text-slate-200/68">
+                      <Clock3 className="size-3 shrink-0" />
+                      <span className="truncate">{appointmentLabel}</span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {isPopupWindow ? (
+                  <span className="inline-flex items-center rounded-full border border-white/12 bg-white/[0.06] px-2 py-1 text-[10px] font-medium text-white/78">
+                    {modeSummary}
                   </span>
                 ) : null}
-                {presenceBadge ? (
-                  <span
-                    className={cn(
-                      "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
-                      presenceBadge.className
-                    )}
-                  >
-                    {presenceBadge.label}
+                {callDuration !== null ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/18 bg-emerald-400/10 px-2 py-1 text-[10px] font-medium tabular-nums text-white/92">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    {callDuration}
                   </span>
                 ) : null}
               </div>
             </div>
 
-            <div className="pointer-events-auto flex flex-col gap-1.5 sm:flex-row sm:items-center">
+            <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1.5 rounded-full border border-white/10 bg-slate-950/56 p-1.5 shadow-[0_12px_32px_rgba(15,23,42,0.18)] backdrop-blur-lg">
               {patientInviteUrl && !isPopupWindow ? (
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-8 border-sky-300/50 bg-sky-500/20 px-2.5 text-xs font-semibold text-sky-100 shadow-sm backdrop-blur-sm hover:bg-sky-500/30 focus-visible:ring-sky-300/60"
+                  className="h-8 rounded-full border border-cyan-200/35 bg-cyan-200 px-3 text-[11px] font-semibold text-slate-950 shadow-[0_10px_24px_rgba(34,211,238,0.18)] hover:bg-cyan-100 focus-visible:ring-cyan-200/70"
                   onClick={() => { void handleCopyInvite(); }}
                 >
+                  {copiedInvite ? (
+                    <Check className="mr-1.5 size-3.5" />
+                  ) : (
+                    <Copy className="mr-1.5 size-3.5" />
+                  )}
                   {copiedInvite
                     ? tr(language, "Copied!", "คัดลอกแล้ว!")
-                    : tr(language, "Patient link", "ลิงก์คนไข้")}
+                    : tr(language, "Copy patient link", "คัดลอกลิงก์คนไข้")}
                 </Button>
               ) : null}
-              {!isPopupWindow ? (
+              {!isPopupWindow && !showStandbyState ? (
                 <Button
                   size="sm"
                   variant="secondary"
-                  className="h-8 border-white/25 bg-white/95 px-2.5 text-xs text-slate-900 shadow-sm hover:bg-white focus-visible:ring-white/60"
+                  className="h-8 rounded-full border border-white/18 bg-white/96 px-3 text-[11px] font-medium text-slate-900 shadow-sm hover:bg-white focus-visible:ring-white/60"
                   onClick={openMiniWindowAndSwitch}
                 >
-                  {tr(language, "Mini Window", "เปิดหน้าต่างเล็ก")}
+                  <ExternalLink className="mr-1.5 size-3.5" />
+                  {tr(language, "Open mini window", "เปิดหน้าต่างเล็ก")}
+                </Button>
+              ) : null}
+              {showStandbyState ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 rounded-full border border-white/18 bg-white/96 px-3 text-[11px] font-medium text-slate-900 shadow-sm hover:bg-white focus-visible:ring-white/60"
+                  onClick={handleReturnFromMiniWindow}
+                >
+                  <ArrowLeft className="mr-1.5 size-3.5" />
+                  {tr(language, "Return to main call", "กลับมาที่หน้าหลัก")}
+                </Button>
+              ) : null}
+              {showStandbyState ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-full border border-white/12 bg-white/[0.05] px-3 text-[11px] font-medium text-white shadow-sm backdrop-blur-md hover:bg-white/[0.09] focus-visible:ring-white/50"
+                  onClick={() => {
+                    const popup = popupWindowRef.current;
+                    if (popup && !popup.closed) {
+                      popup.focus();
+                    }
+                  }}
+                >
+                  <ExternalLink className="mr-1.5 size-3.5" />
+                  {tr(language, "Focus mini window", "โฟกัสหน้าต่างเล็ก")}
                 </Button>
               ) : null}
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 border-white/35 bg-white/10 px-2.5 text-xs text-white shadow-sm backdrop-blur-sm hover:bg-white/20 focus-visible:ring-white/60"
+                className="h-8 rounded-full border border-white/12 bg-white/[0.05] px-3 text-[11px] font-medium text-white shadow-sm backdrop-blur-md hover:bg-white/[0.09] focus-visible:ring-white/50"
                 onClick={isPopupWindow ? handleClosePopupWindow : handleBackToMeetings}
               >
+                <ArrowLeft className="mr-1.5 size-3.5" />
                 {isPopupWindow
                   ? tr(language, "Close Mini", "ปิดหน้าต่างเล็ก")
-                  : tr(language, "Back", "กลับหน้านัดหมาย")}
+                  : tr(language, "Back to meetings", "กลับหน้านัดหมาย")}
               </Button>
             </div>
           </div>
+
+          {showStandbyState ? (
+            <div className="absolute inset-0 z-20 flex items-center justify-center p-5">
+              <div className="w-full max-w-md rounded-[28px] border border-white/12 bg-slate-950/76 p-6 text-white shadow-[0_28px_80px_rgba(15,23,42,0.42)] backdrop-blur-2xl">
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-cyan-100/80">
+                  {tr(language, "Mini Window Active", "กำลังใช้หน้าต่างเล็ก")}
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">
+                  {tr(language, "Call is continuing in the mini window", "คอลกำลังทำงานอยู่ในหน้าต่างเล็ก")}
+                </h2>
+                <p className="mt-3 text-sm leading-6 text-slate-300">
+                  {tr(
+                    language,
+                    "Close the mini window to bring the call back here automatically, or use the button below to return now.",
+                    "ปิดหน้าต่างเล็กเพื่อดึงคอลกลับมาที่หน้านี้อัตโนมัติ หรือกดปุ่มด้านล่างเพื่อกลับมาทันที"
+                  )}
+                </p>
+                <div className="mt-5 flex flex-col gap-2.5 sm:flex-row">
+                  <Button
+                    className="h-11 rounded-full bg-cyan-200 px-4 text-sm font-semibold text-slate-950 shadow-[0_12px_28px_rgba(34,211,238,0.22)] hover:bg-cyan-100"
+                    onClick={handleReturnFromMiniWindow}
+                  >
+                    <ArrowLeft className="mr-2 size-4" />
+                    {tr(language, "Return to main call", "กลับมาที่หน้าหลัก")}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-11 rounded-full border border-white/14 bg-white/[0.04] px-4 text-sm font-medium text-white hover:bg-white/[0.08]"
+                    onClick={() => {
+                      const popup = popupWindowRef.current;
+                      if (popup && !popup.closed) {
+                        popup.focus();
+                      }
+                    }}
+                  >
+                    <ExternalLink className="mr-2 size-4" />
+                    {tr(language, "Open mini window", "เปิดหน้าต่างเล็ก")}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {callEnded && !showStandbyState ? (
+            <div className="absolute inset-0 z-20 flex items-center justify-center p-5">
+              <div className="w-full max-w-[580px] rounded-[30px] border border-slate-700/70 bg-slate-950/94 p-6 text-white shadow-[0_24px_72px_rgba(2,6,23,0.42)] backdrop-blur-xl sm:p-7">
+                <div className="flex flex-col gap-5">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex size-12 shrink-0 items-center justify-center rounded-[18px] border border-slate-700 bg-slate-900 text-slate-100">
+                        <PhoneOff className="size-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="inline-flex items-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-200">
+                          <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                          {tr(language, "Session closed", "ปิดเซสชันแล้ว")}
+                        </span>
+                        <h2 className="mt-3 text-[30px] font-semibold leading-[1.08] tracking-tight text-white sm:text-[32px]">
+                          {tr(language, "You have left the room", "คุณได้ออกจากห้องแล้ว")}
+                        </h2>
+                        <p className="mt-2 max-w-[40ch] text-sm leading-6 text-slate-300 sm:text-[15px]">
+                          {tr(
+                            language,
+                            "Restart the consultation from here, or return to the appointments view if this session is finished.",
+                            "คุณสามารถเริ่มคอลใหม่จากหน้านี้ หรือกลับไปที่หน้านัดหมายหากเซสชันนี้เสร็จสิ้นแล้ว"
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid shrink-0 gap-2 sm:min-w-[200px]">
+                      <div className="rounded-2xl border border-slate-700/80 bg-slate-900/80 px-3 py-2.5">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                          {tr(language, "Patient", "ผู้ป่วย")}
+                        </p>
+                        <div className="mt-1 flex items-center gap-2 text-sm font-medium text-slate-100">
+                          <UserRound className="size-4 text-slate-400" />
+                          <span className="truncate">
+                            {patientName || tr(language, "Current appointment", "นัดหมายปัจจุบัน")}
+                          </span>
+                        </div>
+                      </div>
+                      {appointmentLabel ? (
+                        <div className="rounded-2xl border border-slate-700/80 bg-slate-900/80 px-3 py-2.5">
+                          <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                            {tr(language, "Appointment time", "เวลานัดหมาย")}
+                          </p>
+                          <div className="mt-1 flex items-center gap-2 text-sm font-medium text-slate-100">
+                            <Clock3 className="size-4 text-slate-400" />
+                            <span className="truncate">{appointmentLabel}</span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-slate-700/80 bg-slate-900/70 p-4">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+                      {tr(language, "Next action", "การทำงานต่อ")}
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-slate-300">
+                      {tr(
+                        language,
+                        "Use restart when the consultation should continue now. Go back to appointments when you are done and want to manage other work.",
+                        "ใช้ปุ่มเริ่มคอลใหม่เมื่อต้องการตรวจต่อทันที หรือกลับหน้านัดหมายเมื่อทำรายการนี้เสร็จแล้วและต้องไปทำงานอื่น"
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <Button
+                      className="h-12 w-full cursor-pointer rounded-2xl bg-cyan-100 px-5 text-sm font-semibold text-slate-950 shadow-[0_10px_24px_rgba(103,232,249,0.16)] transition-colors duration-200 hover:bg-cyan-50"
+                      onClick={handleRetryJoin}
+                    >
+                      {tr(language, "Start call again", "เริ่มคอลใหม่")}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="h-11 cursor-pointer rounded-2xl border border-slate-700 bg-slate-900/90 px-4 text-sm font-medium text-slate-100 transition-colors duration-200 hover:border-slate-500 hover:bg-slate-800 hover:text-white"
+                      onClick={handleBackToMeetings}
+                    >
+                      <ArrowLeft className="mr-2 size-4" />
+                      {tr(language, "Back to meetings", "กลับหน้านัดหมาย")}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {loading ? (
             <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-white/85">

@@ -61,7 +61,7 @@ export function getLivePresenceInfo(
   ) {
     return {
       tone: "waiting",
-      label: tr(language, "Patient waiting for doctor", "คนไข้กำลังรอหมอ"),
+      label: tr(language, "Patient is in the waiting room", "คนไข้อยู่ในห้องรอแล้ว"),
     };
   }
 

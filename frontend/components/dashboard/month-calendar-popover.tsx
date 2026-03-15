@@ -183,7 +183,7 @@ const CLOSED_MEETING_CONTEXT_MENU: MeetingContextMenuState = {
 
 const TH_STATUS_LABELS: Partial<Record<MeetingStatus, string>> = {
   scheduled: "กำหนดการ",
-  waiting: "รอพบแพทย์",
+  waiting: "เช็กอินแล้ว",
   in_progress: "กำลังตรวจ",
   overtime: "เกินเวลา",
   completed: "เสร็จสิ้น",
@@ -197,7 +197,7 @@ function getStatusLabel(status: MeetingStatus, language: AppLanguage): string {
   return (
     {
       scheduled: "Scheduled",
-      waiting: "Waiting",
+      waiting: "Checked In",
       in_progress: "In progress",
       overtime: "Overtime",
       completed: "Completed",

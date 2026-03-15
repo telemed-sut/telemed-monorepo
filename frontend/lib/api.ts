@@ -898,7 +898,7 @@ export type MeetingStatus = (typeof MEETING_STATUSES)[number];
 
 export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
   scheduled: "Scheduled",
-  waiting: "Waiting",
+  waiting: "Checked In",
   in_progress: "In Progress",
   overtime: "Overtime",
   completed: "Completed",
@@ -906,8 +906,8 @@ export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
 };
 
 export const MEETING_STATUS_LABELS_TH: Record<MeetingStatus, string> = {
-  scheduled: "นัดหมายแล้ว",
-  waiting: "รอหมอเข้าห้อง",
+  scheduled: "กำหนดการ",
+  waiting: "เช็กอินแล้ว",
   in_progress: "กำลังตรวจ",
   overtime: "เกินเวลา",
   completed: "เสร็จแล้ว",
