@@ -10,9 +10,6 @@ import {
   Delete01Icon,
   Cancel01Icon,
   Clock01Icon,
-  ArrowUpRight01Icon,
-  ArrowLeft01Icon,
-  ArrowRight01Icon,
   Notification01Icon,
   AlertCircleIcon,
   Calendar01Icon,
@@ -28,7 +25,6 @@ import {
   HOURS_24,
   HOUR_HEIGHT,
   INITIAL_SCROLL_OFFSET,
-  getEventTop,
   getCurrentTimePosition,
   getMeetingDuration,
 } from "@/store/calendar-store";
@@ -45,6 +41,18 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -52,7 +60,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
-import { createMeetingPatientInvite, deleteMeeting, createMeeting } from "@/lib/api";
+import { createMeetingPatientInvite, deleteMeeting, createMeeting, updateMeeting } from "@/lib/api";
 import type { MeetingCreatePayload } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
@@ -70,6 +78,8 @@ export interface CalendarSlotSelection {
   date: Date;
   startHour: number;
   startMinute: number;
+  endHour?: number;
+  endMinute?: number;
 }
 
 const tr = (language: AppLanguage, en: string, th: string) =>
@@ -77,7 +87,7 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
 const TH_MEETING_STATUS_LABELS: Partial<Record<MeetingStatus, string>> = {
   scheduled: "กำหนดการ",
-  waiting: "รอหมอเข้าห้อง",
+  waiting: "เช็กอินแล้ว",
   in_progress: "กำลังตรวจ",
   completed: "เสร็จสิ้น",
   cancelled: "ยกเลิก",
@@ -127,34 +137,132 @@ function formatHourLabel(index: number, language: AppLanguage): string {
   return `${displayHour} ${period}`;
 }
 
-function getTimeRange(dateTime: string, language: AppLanguage, durationMin: number = 60) {
-  const start = new Date(dateTime);
-  const end = addMinutes(start, durationMin);
-  return `${formatTime12(dateTime, language)} - ${formatTime12(end.toISOString(), language)}`;
+function formatSelectionTimeRange(
+  startMinuteOfDay: number,
+  endMinuteOfDay: number,
+  language: AppLanguage
+): string {
+  const formatMinute = (totalMinutes: number) => {
+    const safeMinutes = Math.max(0, Math.min(totalMinutes, 24 * 60));
+    const hours = Math.floor(safeMinutes / 60);
+    const minutes = safeMinutes % 60;
+    const date = new Date();
+    date.setHours(Math.min(hours, 23), minutes, 0, 0);
+    return date.toLocaleTimeString(localeOf(language), {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
+
+  return `${formatMinute(startMinuteOfDay)} - ${formatMinute(endMinuteOfDay)}`;
+}
+
+function formatGmtOffsetLabel(date = new Date()): string {
+  const offsetMinutes = -date.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absoluteMinutes = Math.abs(offsetMinutes);
+  const hours = Math.floor(absoluteMinutes / 60)
+    .toString()
+    .padStart(2, "0");
+  const minutes = absoluteMinutes % 60;
+
+  return minutes === 0
+    ? `GMT${sign}${hours}`
+    : `GMT${sign}${hours}:${minutes.toString().padStart(2, "0")}`;
+}
+
+function sortMeetingsByTime(meetings: Meeting[]): Meeting[] {
+  return [...meetings].sort(
+    (a, b) => new Date(a.date_time).getTime() - new Date(b.date_time).getTime()
+  );
 }
 
 /** Status → dot color + border accent */
 function getStatusColor(status?: MeetingStatus): { dot: string; border: string; text: string } {
   switch (status) {
     case "waiting":
-      return { dot: "bg-amber-500", border: "border-l-amber-500", text: "text-amber-600 dark:text-amber-400" };
+      return { dot: "bg-amber-500", border: "border-amber-200/80", text: "text-amber-700 dark:text-amber-300" };
     case "in_progress":
-      return { dot: "bg-blue-500", border: "border-l-blue-500", text: "text-blue-600 dark:text-blue-400" };
+      return { dot: "bg-blue-500", border: "border-sky-200/85", text: "text-sky-700 dark:text-sky-300" };
     case "overtime":
-      return { dot: "bg-red-500", border: "border-l-red-500", text: "text-red-600 dark:text-red-400" };
+      return { dot: "bg-red-500", border: "border-rose-200/85", text: "text-rose-700 dark:text-rose-300" };
     case "completed":
-      return { dot: "bg-emerald-500", border: "border-l-emerald-500", text: "text-emerald-600 dark:text-emerald-400" };
+      return { dot: "bg-emerald-500", border: "border-emerald-200/85", text: "text-emerald-700 dark:text-emerald-300" };
     case "cancelled":
-      return { dot: "bg-gray-400", border: "border-l-gray-400", text: "text-gray-500" };
+      return { dot: "bg-gray-400", border: "border-zinc-200/85", text: "text-zinc-500" };
     case "scheduled":
     default:
-      return { dot: "bg-cyan-500", border: "border-l-cyan-500", text: "text-cyan-600 dark:text-cyan-400" };
+      return { dot: "bg-cyan-500", border: "border-cyan-200/85", text: "text-cyan-700 dark:text-cyan-300" };
+  }
+}
+
+function getWeekEventTone(status?: MeetingStatus) {
+  switch (status) {
+    case "waiting":
+      return {
+        border: "border-amber-200/90",
+        surface: "bg-amber-50/95",
+        surfaceHover: "hover:bg-amber-100/95",
+        label: "text-amber-700",
+        title: "text-amber-950",
+        dot: "bg-amber-500",
+      };
+    case "in_progress":
+      return {
+        border: "border-sky-200/90",
+        surface: "bg-sky-50/95",
+        surfaceHover: "hover:bg-sky-100/95",
+        label: "text-sky-700",
+        title: "text-sky-950",
+        dot: "bg-sky-500",
+      };
+    case "completed":
+      return {
+        border: "border-emerald-200/90",
+        surface: "bg-emerald-50/95",
+        surfaceHover: "hover:bg-emerald-100/95",
+        label: "text-emerald-700",
+        title: "text-emerald-950",
+        dot: "bg-emerald-500",
+      };
+    case "cancelled":
+      return {
+        border: "border-slate-200/90",
+        surface: "bg-slate-100/90",
+        surfaceHover: "hover:bg-slate-200/80",
+        label: "text-slate-500",
+        title: "text-slate-700",
+        dot: "bg-slate-400",
+      };
+    case "overtime":
+      return {
+        border: "border-rose-200/90",
+        surface: "bg-rose-50/95",
+        surfaceHover: "hover:bg-rose-100/95",
+        label: "text-rose-700",
+        title: "text-rose-950",
+        dot: "bg-rose-500",
+      };
+    case "scheduled":
+    default:
+      return {
+        border: "border-cyan-200/95",
+        surface: "bg-cyan-50/95",
+        surfaceHover: "hover:bg-cyan-100/95",
+        label: "text-cyan-700",
+        title: "text-cyan-950",
+        dot: "bg-cyan-500",
+      };
   }
 }
 
 function getInitial(name: string | null | undefined): string {
   return name?.charAt(0)?.toUpperCase() || "?";
 }
+
+const WEEK_LEFT_RAIL_CLASS = "w-[88px] md:w-[104px]";
+const WEEK_DAY_COLUMN_CLASS = "min-w-[170px] flex-1 basis-0 xl:min-w-[180px]";
 
 function normalizeRoomTarget(room?: string | null): string | null {
   const value = room?.trim();
@@ -181,16 +289,24 @@ function HoursColumn() {
   const language = useLanguageStore((state) => state.language);
   return (
     <div
-      className="w-[80px] md:w-[104px] shrink-0 relative sticky left-0 z-30 bg-background border-r border-border"
+      className={cn(
+        "relative sticky left-0 z-30 shrink-0 border-r border-slate-200/85 bg-white",
+        WEEK_LEFT_RAIL_CLASS
+      )}
     >
-      {HOURS_24.map((hour) => (
+      <div className="sticky top-0 z-10 border-b border-slate-200/90 bg-white/95 px-3 pb-2 pt-3 backdrop-blur">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+          {tr(language, "Time", "เวลา")}
+        </p>
+      </div>
+      {HOURS_24.map((hour, index) => (
         <div
           key={hour}
-          className="relative"
+          className="relative border-b border-slate-200/80 last:border-b-0 bg-white"
           style={{ height: HOUR_HEIGHT }}
         >
-          <span className="absolute -top-[0.6em] left-2 bg-background px-0.5 text-sm leading-none text-muted-foreground md:left-3 md:text-[0.95rem]">
-            {Number(hour) > 0 ? formatHourLabel(Number(hour), language) : ""}
+          <span className="absolute -top-[0.72em] left-2 bg-white px-1 py-0.5 text-[11px] font-medium leading-none text-slate-500 md:left-3 md:text-xs">
+            {index > 0 ? formatHourLabel(index, language) : ""}
           </span>
         </div>
       ))}
@@ -217,257 +333,10 @@ function CurrentTimeIndicator() {
       style={{ top }}
     >
       <div className="flex items-center">
-        <div className="size-2.5 rounded-full bg-red-500 -ml-[5px]" />
-        <div className="flex-1 h-[2px] bg-red-500" />
+        <div className="-ml-[5px] size-2.5 rounded-full bg-rose-500 shadow-[0_0_0_4px_rgba(244,63,94,0.14)]" />
+        <div className="flex-1 h-[2px] bg-rose-500" />
       </div>
     </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════
-// Event Card (Square UI event-card.tsx)
-// ══════════════════════════════════════════════════════════
-function EventCard({
-  meeting,
-  onClick,
-}: {
-  meeting: Meeting;
-  onClick: () => void;
-}) {
-  const language = useLanguageStore((state) => state.language);
-  const top = getEventTop(meeting.date_time) + 4;
-  const duration = getMeetingDuration(meeting);
-  const height = Math.max((duration / 60) * HOUR_HEIGHT - 8, 28);
-  const isVeryShort = height < 36;
-  const isMedium = height >= 36 && height < 80;
-
-  const title =
-    meeting.description ||
-    (meeting.patient
-      ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
-      : tr(language, "Appointment", "นัดหมาย"));
-  const isWaiting = isPatientWaitingLive(meeting);
-  const effectiveStatus = getPresenceAwareStatus(meeting);
-  const livePresenceInfo = getLivePresenceInfo(meeting, language);
-  const timeStr = getTimeRange(meeting.date_time, language, duration);
-  const statusColor = getStatusColor(effectiveStatus);
-  const waitingText = tr(language, "Patient waiting", "คนไข้รออยู่");
-
-  const participants = [
-    meeting.doctor
-      ? {
-        id: meeting.doctor.id,
-        name: `Dr. ${meeting.doctor.first_name || ""} ${meeting.doctor.last_name || ""}`.trim(),
-      }
-      : null,
-    meeting.patient
-      ? {
-        id: meeting.patient.id,
-        name: `${meeting.patient.first_name} ${meeting.patient.last_name}`,
-      }
-      : null,
-  ].filter(Boolean) as { id: string; name: string }[];
-
-  // Very short event – single-line card
-  if (isVeryShort) {
-    return (
-      <button
-        type="button"
-        className={cn(
-          "absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg px-2 py-1 z-10 flex items-center gap-1.5 cursor-pointer hover:bg-muted transition-colors",
-          statusColor.border,
-          isWaiting && "border-amber-300/70 bg-amber-50/50 ring-1 ring-amber-300/40"
-        )}
-        style={{ top, height }}
-        onClick={(event) => {
-          event.stopPropagation();
-          onClick();
-        }}
-      >
-        <div className="relative shrink-0">
-          {isWaiting && <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-60" />}
-          <div className={cn("size-1.5 rounded-full relative", statusColor.dot)} />
-        </div>
-        <h4 className="flex-1 truncate text-[11px] font-semibold text-foreground">
-          {title}
-        </h4>
-        {isWaiting && (
-          <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-semibold text-amber-700">
-            {tr(language, "Waiting", "รอหมอ")}
-          </span>
-        )}
-        {livePresenceInfo?.tone === "offline" && (
-          <span className="rounded bg-slate-500/15 px-1 py-0.5 text-[9px] font-semibold text-slate-700">
-            {tr(language, "Offline", "ออฟไลน์")}
-          </span>
-        )}
-        {livePresenceInfo?.tone === "left" && (
-          <span className="rounded bg-slate-500/15 px-1 py-0.5 text-[9px] font-semibold text-slate-700">
-            {tr(language, "Left", "ออกแล้ว")}
-          </span>
-        )}
-        <span className="shrink-0 text-[10px] text-muted-foreground">
-          {formatTime12(meeting.date_time, language)}
-        </span>
-      </button>
-    );
-  }
-
-  // Medium event – title + time
-  if (isMedium) {
-    return (
-      <button
-        type="button"
-        className={cn(
-          "absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg px-2.5 py-2 z-10 cursor-pointer hover:bg-muted transition-colors",
-          statusColor.border,
-          isWaiting && "border-amber-300/70 bg-amber-50/50 ring-1 ring-amber-300/40"
-        )}
-        style={{ top, height }}
-        onClick={(event) => {
-          event.stopPropagation();
-          onClick();
-        }}
-      >
-        <div className="flex flex-col gap-1 h-full">
-          <div className="flex items-center gap-1.5">
-            <div className="relative shrink-0">
-              {isWaiting && <span className="absolute inset-0 rounded-full bg-amber-400 animate-ping opacity-60" />}
-              <div className={cn("size-1.5 rounded-full relative", statusColor.dot)} />
-            </div>
-            <h4 className="flex-1 truncate text-[11px] font-semibold text-foreground">
-              {title}
-            </h4>
-            {isWaiting && (
-              <span className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-semibold text-amber-700">
-                {tr(language, "Waiting", "รอหมอ")}
-              </span>
-            )}
-            {livePresenceInfo?.tone === "offline" && (
-              <span className="rounded bg-slate-500/15 px-1 py-0.5 text-[9px] font-semibold text-slate-700">
-                {tr(language, "Offline", "ออฟไลน์")}
-              </span>
-            )}
-            {livePresenceInfo?.tone === "left" && (
-              <span className="rounded bg-slate-500/15 px-1 py-0.5 text-[9px] font-semibold text-slate-700">
-                {tr(language, "Left", "ออกแล้ว")}
-              </span>
-            )}
-          </div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            {timeStr}
-          </p>
-        </div>
-      </button>
-    );
-  }
-
-  // Full event card
-  return (
-    <button
-      type="button"
-      className={cn(
-        "absolute left-2 right-2 bg-card border border-border border-l-2 rounded-lg p-3 z-10 cursor-pointer hover:bg-muted transition-colors",
-        statusColor.border,
-        meeting.status === "cancelled" && "opacity-60",
-        isWaiting && "border-amber-300/70 bg-amber-50/60 ring-1 ring-amber-300/50 shadow-sm shadow-amber-500/20"
-      )}
-      style={{ top, height }}
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick();
-      }}
-    >
-      <div className="flex flex-col gap-1 h-full">
-        <div className="flex-1 min-h-0">
-          <div className="flex items-center gap-1.5 mb-1">
-            <h4
-              className={cn("text-xs font-semibold text-foreground flex-1",
-                duration <= 60 ? "truncate whitespace-nowrap" : "line-clamp-2",
-                meeting.status === "cancelled" && "line-through"
-              )}
-            >
-              {title}
-            </h4>
-            <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium", statusColor.text, "bg-current/10")}
-              style={{ backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)" }}
-            >
-              {getMeetingStatusLabel(effectiveStatus, language)}
-            </span>
-          </div>
-          {isWaiting && (
-            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-              <span className="relative inline-flex size-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-500 opacity-60" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
-              </span>
-              {waitingText}
-            </div>
-          )}
-          {livePresenceInfo?.tone === "active" && (
-            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              {tr(language, "Doctor + patient in room", "หมอและคนไข้อยู่ในห้อง")}
-            </div>
-          )}
-          {livePresenceInfo?.tone === "offline" && (
-            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
-              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-slate-500" />
-              {tr(language, "Patient offline", "คนไข้ออฟไลน์")}
-            </div>
-          )}
-          {livePresenceInfo?.tone === "left" && (
-            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-slate-500/25 bg-slate-500/10 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:text-slate-300">
-              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-slate-500" />
-              {tr(language, "Patient left room", "คนไข้ออกจากห้องแล้ว")}
-            </div>
-          )}
-          <p className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-            {timeStr}
-          </p>
-
-          {participants.length > 0 && (
-            <div className="flex items-center gap-1.5 mb-2">
-              <div className="flex -space-x-1.5">
-                {participants.slice(0, 3).map((p) => (
-                  <Avatar
-                    key={p.id}
-                    className="size-5 border-2 border-background"
-                  >
-                    <AvatarFallback className="bg-[var(--med-primary-light)]/15 text-[9px] font-bold text-[var(--med-primary-light)]">
-                      {getInitial(p.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                ))}
-              </div>
-              {participants.length > 3 && (
-                <span className="text-[11px] text-muted-foreground">
-                  +{participants.length - 3}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {meeting.room && (
-          <div className="mt-auto flex items-center gap-1.5 text-[11px] text-cyan-500">
-            <div className="size-4 rounded bg-cyan-500/10 flex items-center justify-center shrink-0">
-              <svg className="size-2.5" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"
-                  fill="currentColor"
-                />
-              </svg>
-            </div>
-            <span className="flex-1 truncate">{meeting.room}</span>
-            <HugeiconsIcon
-              icon={ArrowUpRight01Icon}
-              className="size-3 shrink-0"
-            />
-          </div>
-        )}
-      </div>
-    </button>
   );
 }
 
@@ -476,53 +345,123 @@ function EventCard({
 // ══════════════════════════════════════════════════════════
 function DayColumn({
   date,
-  meetings,
   scrollRef,
-  onEventClick,
   onSlotSelect,
 }: {
   date: Date;
-  meetings: Meeting[];
   scrollRef: (el: HTMLDivElement | null) => void;
-  onEventClick: (meeting: Meeting) => void;
   onSlotSelect?: (slot: CalendarSlotSelection) => void;
 }) {
+  const language = useLanguageStore((state) => state.language);
   const today = isToday(date);
   const columnHeight = HOURS_24.length * HOUR_HEIGHT;
+  const [selection, setSelection] = useState<{
+    pointerId: number;
+    startMinute: number;
+    currentMinute: number;
+  } | null>(null);
 
-  const handleSlotClick = (event: React.MouseEvent<HTMLDivElement>) => {
+  const resolveSnappedMinute = (clientY: number, rect: DOMRect) => {
+    const y = Math.min(Math.max(clientY - rect.top, 0), columnHeight - 1);
+    const minuteInDay = Math.floor((y / HOUR_HEIGHT) * 60);
+    return Math.max(0, Math.min(Math.floor(minuteInDay / 15) * 15, 23 * 60 + 45));
+  };
+
+  const emitSelection = (startMinuteOfDay: number, endMinuteOfDay: number) => {
     if (!onSlotSelect) return;
 
-    const rect = event.currentTarget.getBoundingClientRect();
-    const y = Math.min(
-      Math.max(event.clientY - rect.top, 0),
-      columnHeight - 1
-    );
-
-    const minuteInDay = Math.floor((y / HOUR_HEIGHT) * 60);
-    const snappedMinute = Math.floor(minuteInDay / 15) * 15;
-    const startHour = Math.floor(snappedMinute / 60);
-    const startMinute = snappedMinute % 60;
+    const normalizedEndMinute =
+      endMinuteOfDay >= 24 * 60 ? 23 * 60 + 59 : endMinuteOfDay;
+    const startHour = Math.floor(startMinuteOfDay / 60);
+    const startMinute = startMinuteOfDay % 60;
+    const endHour = Math.floor(normalizedEndMinute / 60);
+    const endMinute = normalizedEndMinute % 60;
 
     onSlotSelect({
       date: new Date(date),
       startHour,
       startMinute,
+      endHour,
+      endMinute,
     });
   };
+
+  const finalizeSelection = (draft: {
+    startMinute: number;
+    currentMinute: number;
+  }) => {
+    const lowerBound = Math.min(draft.startMinute, draft.currentMinute);
+    const upperBound = Math.max(draft.startMinute, draft.currentMinute);
+    const isClickSelection = upperBound === lowerBound;
+    const endMinuteOfDay = isClickSelection
+      ? Math.min(lowerBound + 60, 24 * 60)
+      : Math.min(upperBound + 15, 24 * 60);
+
+    emitSelection(lowerBound, endMinuteOfDay);
+  };
+
+  const previewStartMinute = selection
+    ? Math.min(selection.startMinute, selection.currentMinute)
+    : null;
+  const previewEndMinute = selection
+    ? (() => {
+        const lowerBound = Math.min(selection.startMinute, selection.currentMinute);
+        const upperBound = Math.max(selection.startMinute, selection.currentMinute);
+        return upperBound === lowerBound
+          ? Math.min(lowerBound + 60, 24 * 60)
+          : Math.min(upperBound + 15, 24 * 60);
+      })()
+    : null;
+  const previewTop =
+    previewStartMinute !== null ? (previewStartMinute / 60) * HOUR_HEIGHT : null;
+  const previewHeight =
+    previewStartMinute !== null && previewEndMinute !== null
+      ? Math.max(((previewEndMinute - previewStartMinute) / 60) * HOUR_HEIGHT, 24)
+      : null;
 
   return (
     <div
       ref={scrollRef}
       className={cn(
-        "flex-1 last:border-r-0 relative min-w-44",
-        today && "bg-[var(--med-primary-light)]/[0.03]"
+        "relative border-r border-slate-200/85 last:border-r-0",
+        WEEK_DAY_COLUMN_CLASS,
+        today
+          ? "bg-[linear-gradient(180deg,rgba(14,165,233,0.06),rgba(240,249,255,0.92)_14%,rgba(255,255,255,1))]"
+          : "bg-[linear-gradient(180deg,rgba(255,255,255,1),rgba(248,250,252,0.88))]"
       )}
     >
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-0 h-16 bg-[linear-gradient(180deg,rgba(255,255,255,0.75),rgba(255,255,255,0))]" />
       <div
         className={cn("relative", onSlotSelect && "cursor-cell")}
         style={{ height: columnHeight }}
-        onClick={handleSlotClick}
+        onPointerDown={(event) => {
+          if (!onSlotSelect || event.button !== 0) return;
+          const minute = resolveSnappedMinute(event.clientY, event.currentTarget.getBoundingClientRect());
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setSelection({
+            pointerId: event.pointerId,
+            startMinute: minute,
+            currentMinute: minute,
+          });
+        }}
+        onPointerMove={(event) => {
+          if (!selection || selection.pointerId !== event.pointerId) return;
+          const minute = resolveSnappedMinute(event.clientY, event.currentTarget.getBoundingClientRect());
+          setSelection((current) =>
+            current && current.pointerId === event.pointerId
+              ? { ...current, currentMinute: minute }
+              : current
+          );
+        }}
+        onPointerUp={(event) => {
+          if (!selection || selection.pointerId !== event.pointerId) return;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          finalizeSelection(selection);
+          setSelection(null);
+        }}
+        onPointerCancel={() => {
+          setSelection(null);
+        }}
         role="button"
         tabIndex={0}
         aria-disabled={!onSlotSelect}
@@ -536,17 +475,182 @@ function DayColumn({
         {HOURS_24.map((hour) => (
           <div
             key={`slot-${hour}`}
+            className="border-b border-slate-200/80 transition-colors duration-200 hover:bg-sky-50/60"
             style={{ height: HOUR_HEIGHT }}
           />
         ))}
+        {previewTop !== null && previewHeight !== null ? (
+          <div
+            className="pointer-events-none absolute inset-x-2 z-20 overflow-hidden rounded-[12px] border border-sky-300/90 bg-sky-100/85 shadow-[0_10px_18px_rgba(14,165,233,0.12)]"
+            style={{ top: previewTop + 3, height: Math.max(previewHeight - 6, 18) }}
+          >
+            <div className="border-b border-sky-200/90 bg-sky-100/90 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-800">
+              {previewStartMinute !== null && previewEndMinute !== null
+                ? formatSelectionTimeRange(previewStartMinute, previewEndMinute, language)
+                : null}
+            </div>
+            <div className="px-3 py-2 text-[12px] font-semibold text-sky-900">
+              {tr(language, "New appointment", "นัดหมายใหม่")}
+            </div>
+          </div>
+        ) : null}
         {today && <CurrentTimeIndicator />}
-        {meetings.map((meeting) => (
-          <EventCard
-            key={meeting.id}
-            meeting={meeting}
-            onClick={() => onEventClick(meeting)}
-          />
-        ))}
+      </div>
+    </div>
+  );
+}
+
+function WeekPreviewColumn({
+  date,
+  meetings,
+  onMeetingClick,
+}: {
+  date: Date;
+  meetings: Meeting[];
+  onMeetingClick: (meeting: Meeting) => void;
+}) {
+  const language = useLanguageStore((state) => state.language);
+  const [expanded, setExpanded] = useState(false);
+  const sortedMeetings = sortMeetingsByTime(meetings);
+  const visibleMeetings = sortedMeetings.slice(0, 2);
+  const overflowCount = Math.max(sortedMeetings.length - visibleMeetings.length, 0);
+
+  if (sortedMeetings.length === 0) {
+    return (
+        <div
+          className={cn(
+            "min-h-[54px] border-r border-slate-200/80 last:border-r-0 px-2 py-1.5",
+            WEEK_DAY_COLUMN_CLASS
+          )}
+        />
+    );
+  }
+
+  return (
+      <div
+        className={cn(
+        "min-h-[54px] border-r border-slate-200/80 last:border-r-0 px-2 py-1.5",
+        WEEK_DAY_COLUMN_CLASS
+      )}
+    >
+      <div className="flex flex-col gap-1.5">
+        {visibleMeetings.map((meeting) => {
+          const tone = getWeekEventTone(getPresenceAwareStatus(meeting));
+          const title =
+            meeting.description ||
+            (meeting.patient
+              ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
+              : tr(language, "Appointment", "นัดหมาย"));
+
+          return (
+            <button
+              key={`preview-${meeting.id}`}
+              type="button"
+              onClick={() => onMeetingClick(meeting)}
+              className={cn(
+                "w-full rounded-[10px] border px-3 py-2 text-left shadow-[0_6px_14px_rgba(15,23,42,0.06)] transition-colors duration-200",
+                tone.surface,
+                tone.surfaceHover,
+                tone.border
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <span className={cn("size-2 rounded-full", tone.dot)} />
+                <div className="min-w-0">
+                  <div className={cn("truncate text-[10px] font-semibold uppercase tracking-[0.12em]", tone.label)}>
+                    {formatTime12(meeting.date_time, language)}
+                  </div>
+                  <div className={cn("truncate text-[11px] font-semibold", tone.title)}>{title}</div>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+
+        {overflowCount > 0 ? (
+          <Popover open={expanded} onOpenChange={setExpanded}>
+            <PopoverTrigger
+              render={
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                  }}
+                  className="inline-flex items-center text-[11px] font-semibold text-slate-500 transition-colors hover:text-slate-900"
+                >
+                  {tr(language, `${overflowCount} more`, `${overflowCount} นัด`)}
+                </button>
+              }
+            />
+            <PopoverContent
+              side="right"
+              align="start"
+              sideOffset={10}
+              className="w-[min(84vw,280px)] gap-0 overflow-hidden rounded-[24px] border border-slate-200/90 bg-[linear-gradient(180deg,rgba(255,255,255,0.99),rgba(248,250,252,0.98))] p-0 text-slate-900 shadow-[0_18px_36px_rgba(15,23,42,0.14)]"
+            >
+              <div className="border-b border-slate-200/80 px-4 pb-3 pt-4 text-center">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1" />
+                  <div className="flex-1 text-center">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      {date.toLocaleDateString(localeOf(language), { weekday: "short" })}
+                    </p>
+                    <p className="mt-1 text-[2.1rem] font-semibold leading-none tracking-[-0.05em] text-slate-900">
+                      {date.toLocaleDateString(localeOf(language), { day: "numeric" })}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(false)}
+                    className="inline-flex size-7 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                    aria-label={tr(language, "Close", "ปิด")}
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+              <div className="max-h-[360px] overflow-y-auto px-3 py-3">
+                <div className="flex flex-col gap-1.5">
+                  {sortedMeetings.map((meeting) => {
+                    const tone = getWeekEventTone(getPresenceAwareStatus(meeting));
+                    const title =
+                      meeting.description ||
+                      (meeting.patient
+                        ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
+                        : tr(language, "Appointment", "นัดหมาย"));
+
+                    return (
+                      <button
+                        key={`preview-popover-${meeting.id}`}
+                        type="button"
+                        onClick={() => {
+                          setExpanded(false);
+                          onMeetingClick(meeting);
+                        }}
+                        className={cn(
+                          "w-full rounded-[10px] border px-3 py-2 text-left shadow-[0_6px_14px_rgba(15,23,42,0.06)] transition-colors duration-200",
+                          tone.surface,
+                          tone.surfaceHover,
+                          tone.border
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className={cn("size-2 rounded-full", tone.dot)} />
+                          <div className="min-w-0">
+                            <div className={cn("truncate text-[10px] font-semibold uppercase tracking-[0.12em]", tone.label)}>
+                              {formatTime12(meeting.date_time, language)}
+                            </div>
+                            <div className={cn("truncate text-[11px] font-semibold", tone.title)}>{title}</div>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+        ) : null}
       </div>
     </div>
   );
@@ -576,8 +680,16 @@ export function EventDetailSheet({
   const language = useLanguageStore((state) => state.language);
   const setMeetings = useCalendarStore((s) => s.setMeetings);
   const [deleting, setDeleting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [duplicating, setDuplicating] = useState(false);
   const [copyingPatientLink, setCopyingPatientLink] = useState(false);
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setNoteDialogOpen(false);
+    }
+  }, [open, meeting?.id]);
 
   if (!meeting) return null;
 
@@ -601,6 +713,9 @@ export function EventDetailSheet({
     addMinutes(meetingDate, meetingDuration).toISOString(),
     language
   )}`;
+  const noteText = meeting.note?.trim() ?? "";
+  const hasNote = noteText.length > 0;
+  const shouldCollapseNote = hasNote && (noteText.length > 180 || noteText.split(/\r?\n/).length > 4);
   const rawTitle = meeting.description?.trim();
   const title = rawTitle || patientName;
   const appointmentLabel = tr(language, "Appointment", "นัดหมาย");
@@ -616,6 +731,8 @@ export function EventDetailSheet({
     role === "doctor" && Boolean(currentUserId) && meeting.doctor_id === currentUserId;
   const canWrite = isAdmin || isOwnerDoctor;
   const canDelete = isAdmin;
+  const canCancel =
+    canWrite && (effectiveStatus === "scheduled" || effectiveStatus === "waiting");
   const canStartCall = isOwnerDoctor && !["cancelled", "completed"].includes(meeting.status);
 
   const sheetParticipants = [
@@ -692,6 +809,67 @@ export function EventDetailSheet({
     });
   };
 
+  const handleCancel = async () => {
+    if (!token || cancelling) return;
+    if (!canCancel) {
+      toast.error(
+        tr(
+          language,
+          "This appointment can no longer be cancelled here.",
+          "นัดหมายนี้ไม่สามารถยกเลิกจากหน้านี้ได้แล้ว"
+        )
+      );
+      return;
+    }
+
+    setCancelling(true);
+    try {
+      const updatedMeeting = await updateMeeting(
+        meeting.id,
+        {
+          status: "cancelled",
+          reason: isAdmin
+            ? tr(language, "Cancelled by admin", "ยกเลิกโดยผู้ดูแลระบบ")
+            : tr(language, "Cancelled by doctor", "ยกเลิกโดยแพทย์"),
+        },
+        token
+      );
+      const current = useCalendarStore.getState().meetings;
+      setMeetings(current.map((item) => (item.id === meeting.id ? updatedMeeting : item)));
+      toast.success(
+        tr(
+          language,
+          "Appointment cancelled. Find it in Queue > Cancelled or turn on Show cancelled in Filters.",
+          "ยกเลิกนัดหมายแล้ว ดูย้อนหลังได้ที่ คิว > ยกเลิก หรือเปิด แสดงนัดที่ยกเลิก ในตัวกรอง"
+        )
+      );
+      onOpenChange(false);
+      await onRefresh?.();
+    } catch {
+      toast.error(tr(language, "Failed to cancel appointment", "ยกเลิกนัดหมายไม่สำเร็จ"));
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const handleCancelAction = () => {
+    if (cancelling) return;
+    toast.warningAction(tr(language, "Cancel appointment?", "ยกเลิกนัดหมายใช่ไหม?"), {
+      description: tr(
+        language,
+        "This appointment will be removed from the working queue but kept in history.",
+        "นัดหมายนี้จะถูกเอาออกจากคิวทำงาน แต่ยังเก็บประวัติไว้"
+      ),
+      button: {
+        title: tr(language, "Cancel Appointment", "ยืนยันยกเลิกนัดหมาย"),
+        onClick: () => {
+          void handleCancel();
+        },
+      },
+      duration: 9000,
+    });
+  };
+
   const handleEdit = () => {
     if (!canWrite) {
       toast.error(tr(language, "This meeting is read-only for your account", "บัญชีของคุณดูได้อย่างเดียวสำหรับนัดหมายนี้"));
@@ -712,7 +890,7 @@ export function EventDetailSheet({
       `${tr(language, "Patient", "ผู้ป่วย")}: ${patientName}`,
     ];
     if (meeting.room) lines.push(`${tr(language, "Room", "ห้อง")}: ${meeting.room}`);
-    if (meeting.note) lines.push(`${tr(language, "Note", "บันทึก")}: ${meeting.note}`);
+    if (hasNote) lines.push(`${tr(language, "Note", "บันทึก")}: ${noteText}`);
     navigator.clipboard.writeText(lines.join("\n"));
     toast.success(tr(language, "Appointment details copied to clipboard", "คัดลอกรายละเอียดนัดหมายแล้ว"));
   };
@@ -822,16 +1000,16 @@ export function EventDetailSheet({
         <SheetContent
           side="right"
           showCloseButton={false}
-          className="w-full sm:max-w-[580px] overflow-y-auto border-l border-r border-t bg-background p-0 [&>button]:hidden"
+          className="w-full sm:max-w-[448px] overflow-y-auto border-l border-r border-t bg-background p-0 [&>button]:hidden"
         >
-          <div className="flex h-full flex-col">
-            <SheetHeader className="border-b border-border bg-[linear-gradient(180deg,rgba(189,232,245,0.18)_0%,rgba(255,255,255,0)_100%)] px-4 pt-4 pb-4">
+          <div className="flex h-full flex-col bg-background">
+            <SheetHeader className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 pt-4 pb-4 backdrop-blur supports-[backdrop-filter]:bg-background/88">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
                     <span
                       className={cn(
-                        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-semibold uppercase tracking-[0.14em]",
+                        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]",
                         statusColor.text
                       )}
                       style={{ backgroundColor: "color-mix(in srgb, currentColor 10%, white)" }}
@@ -839,21 +1017,17 @@ export function EventDetailSheet({
                       <span className={cn("size-2 rounded-full", statusColor.dot)} />
                       {getMeetingStatusLabel(effectiveStatus, language)}
                     </span>
-                    {meeting.room && (
-                      <span className="inline-flex items-center rounded-full border border-border/80 bg-background/80 px-3 py-1 text-sm font-medium text-muted-foreground">
-                        {tr(language, "Room", "ห้อง")} {meeting.room}
-                      </span>
-                    )}
                   </div>
-                  <p className="mb-1 text-sm font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                    {appointmentLabel}
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    {tr(language, "Appointment", "นัดหมาย")}
                   </p>
-                  <SheetTitle className="text-[22px] font-semibold leading-tight tracking-[-0.02em] text-foreground">
+                  <SheetTitle className="mt-1 max-w-[16ch] text-[22px] font-semibold leading-[1.08] tracking-[-0.02em] text-foreground sm:text-[24px]">
                     {title}
                   </SheetTitle>
-                  <div className="mt-2 flex flex-col gap-1 text-sm text-muted-foreground">
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+                    <p className="truncate">{appointmentLabel}</p>
+                    <span className="hidden text-border sm:inline">•</span>
                     <p className="truncate">{doctorName}</p>
-                    {rawTitle && <p className="truncate">{patientName}</p>}
                   </div>
                 </div>
 
@@ -863,12 +1037,12 @@ export function EventDetailSheet({
                       render={
                         <Button
                           variant="outline"
-                          size="sm"
-                          className="gap-2 border-border/80 bg-background/90"
+                          size="icon-sm"
+                          className="border-border/80 bg-background/90"
                           title={tr(language, "More actions", "การกระทำเพิ่มเติม")}
                         >
                           <MoreHorizontal className="size-4" />
-                          <span>{tr(language, "More", "เพิ่มเติม")}</span>
+                          <span className="sr-only">{tr(language, "More", "เพิ่มเติม")}</span>
                         </Button>
                       }
                     />
@@ -886,6 +1060,15 @@ export function EventDetailSheet({
                         >
                           <HugeiconsIcon icon={Layers01Icon} className="size-4" />
                           {tr(language, "Duplicate appointment", "ทำซ้ำนัดหมาย")}
+                        </DropdownMenuItem>
+                      )}
+                      {canCancel && (
+                        <DropdownMenuItem
+                          onClick={handleCancelAction}
+                          disabled={cancelling}
+                        >
+                          <HugeiconsIcon icon={Cancel01Icon} className="size-4" />
+                          {tr(language, "Cancel appointment", "ยกเลิกนัดหมาย")}
                         </DropdownMenuItem>
                       )}
                       {canDelete && <DropdownMenuSeparator />}
@@ -920,9 +1103,9 @@ export function EventDetailSheet({
               </div>
 
               {isPatientWaiting && (
-                <div className="mt-4 rounded-2xl border border-amber-500/35 bg-gradient-to-r from-amber-500/15 to-orange-500/10 p-3">
+                <div className="mt-4 rounded-3xl border border-amber-500/25 bg-amber-50/80 p-3">
                   <div className="flex items-start gap-3">
-                    <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-amber-500/20 text-amber-700">
+                    <div className="mt-0.5 inline-flex size-9 items-center justify-center rounded-2xl bg-amber-500/15 text-amber-700">
                       <HugeiconsIcon icon={Clock01Icon} className="size-4" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -951,7 +1134,7 @@ export function EventDetailSheet({
                     </div>
                     <Button
                       size="sm"
-                      className="h-9 bg-amber-600 text-white hover:bg-amber-700"
+                      className="h-10 rounded-xl bg-amber-600 px-3 text-white hover:bg-amber-700"
                       onClick={handleStartCall}
                       disabled={!canStartCall}
                     >
@@ -963,20 +1146,20 @@ export function EventDetailSheet({
               )}
 
               {livePresenceInfo?.tone === "offline" && (
-                <div className="mt-4 rounded-2xl border border-slate-500/35 bg-slate-500/10 p-3">
+                <div className="mt-4 rounded-2xl border border-slate-300 bg-slate-50 p-3">
                   <div className="flex items-start gap-3">
-                    <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-slate-500/20 text-slate-700 dark:text-slate-300">
+                    <div className="mt-0.5 inline-flex size-9 items-center justify-center rounded-2xl bg-slate-200 text-slate-700 dark:text-slate-300">
                       <HugeiconsIcon icon={Clock01Icon} className="size-4" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                        {tr(language, "Patient is offline now", "ตอนนี้คนไข้ออฟไลน์")}
+                        {tr(language, "No one has entered the room yet", "ยังไม่มีใครเข้าห้อง")}
                       </p>
                       <p className="mt-0.5 text-sm text-slate-700/90 dark:text-slate-300/90">
                         {tr(
                           language,
-                          "Ask patient to reopen the room link and wait in room.",
-                          "แนะนำให้คนไข้เปิดลิงก์เข้าห้องใหม่และรอในห้องอีกครั้ง"
+                          "Copy the patient link or wait for the patient to open the room before starting the call.",
+                          "คัดลอกลิงก์ให้คนไข้ หรือรอให้คนไข้เปิดห้องก่อนเริ่มคอล"
                         )}
                       </p>
                     </div>
@@ -985,9 +1168,9 @@ export function EventDetailSheet({
               )}
 
               {livePresenceInfo?.tone === "left" && (
-                <div className="mt-4 rounded-2xl border border-slate-500/35 bg-slate-500/10 p-3">
+                <div className="mt-4 rounded-2xl border border-slate-300 bg-slate-50 p-3">
                   <div className="flex items-start gap-3">
-                    <div className="mt-0.5 inline-flex size-8 items-center justify-center rounded-full bg-slate-500/20 text-slate-700 dark:text-slate-300">
+                    <div className="mt-0.5 inline-flex size-9 items-center justify-center rounded-2xl bg-slate-200 text-slate-700 dark:text-slate-300">
                       <HugeiconsIcon icon={AlertCircleIcon} className="size-4" />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -1006,22 +1189,9 @@ export function EventDetailSheet({
                 </div>
               )}
 
-              <div className="mt-4 grid gap-2 rounded-2xl border border-border/80 bg-background/90 p-3 shadow-[0_1px_2px_rgba(15,40,84,0.05)] sm:grid-cols-3">
-                {summaryItems.map((item) => (
-                  <div key={item.label} className="min-w-0 rounded-xl bg-muted/35 px-3 py-2.5">
-                    <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                      <HugeiconsIcon icon={item.icon} className="size-3.5" />
-                      <span>{item.label}</span>
-                    </div>
-                    <p className="truncate text-sm font-semibold text-foreground">{item.value}</p>
-                    <p className="truncate text-sm text-muted-foreground">{item.detail}</p>
-                  </div>
-                ))}
-              </div>
-
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
                 <Button
-                  className="h-11 justify-center gap-2 text-sm shadow-sm"
+                  className="h-11 justify-center gap-2 rounded-2xl text-sm shadow-sm"
                   onClick={handleStartCall}
                   disabled={!canStartCall}
                 >
@@ -1030,7 +1200,7 @@ export function EventDetailSheet({
                 </Button>
                 <Button
                   variant="outline"
-                  className="h-11 justify-center gap-2 border-border bg-background px-3 text-sm"
+                  className="h-11 justify-center gap-2 rounded-2xl border-border bg-background px-3 text-sm"
                   onClick={() => {
                     void handleCopyPatientJoinLink();
                   }}
@@ -1045,12 +1215,46 @@ export function EventDetailSheet({
                 </Button>
               </div>
 
+              <div className="mt-4 overflow-hidden rounded-[24px] border border-border/80 bg-slate-50/75 shadow-[0_1px_2px_rgba(15,40,84,0.04)]">
+                {summaryItems.map((item, index) => (
+                  <div
+                    key={item.label}
+                    className={cn(
+                      "flex items-start justify-between gap-4 px-4 py-3",
+                      index > 0 && "border-t border-border/70"
+                    )}
+                  >
+                    <div className="min-w-0">
+                      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        <HugeiconsIcon icon={item.icon} className="size-3.5" />
+                        <span>{item.label}</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{item.detail}</p>
+                    </div>
+                    <p className="min-w-0 text-right text-[15px] font-semibold tracking-[-0.01em] text-foreground">
+                      {item.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
               {secondaryActionsVisible && (
-                <div className="mt-2 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {canCancel && (
+                    <Button
+                      variant="outline"
+                      className="min-h-10 justify-center gap-2 rounded-2xl border-rose-200 bg-rose-50 px-4 text-sm text-rose-700 hover:bg-rose-100 hover:text-rose-800"
+                      onClick={handleCancelAction}
+                      disabled={cancelling}
+                    >
+                      <HugeiconsIcon icon={Cancel01Icon} className="size-4" />
+                      <span>{tr(language, "Cancel appointment", "ยกเลิกนัดหมาย")}</span>
+                    </Button>
+                  )}
                   {canWrite && (
                     <Button
                       variant="outline"
-                      className="min-h-9 flex-1 justify-center gap-2 border-border bg-background text-sm"
+                      className="min-h-10 justify-center gap-2 rounded-2xl border-border bg-background px-4 text-sm"
                       onClick={handleEdit}
                     >
                       <HugeiconsIcon icon={PencilEdit01Icon} className="size-4" />
@@ -1060,7 +1264,7 @@ export function EventDetailSheet({
                   {onGoToCalendar && (
                     <Button
                       variant="outline"
-                      className="min-h-9 flex-1 justify-center gap-2 border-border bg-background text-sm"
+                      className="min-h-10 justify-center gap-2 rounded-2xl border-border bg-background px-4 text-sm"
                       onClick={() => {
                         onGoToCalendar(meeting);
                         onOpenChange(false);
@@ -1074,9 +1278,9 @@ export function EventDetailSheet({
               )}
             </SheetHeader>
 
-            <div className="flex-1 overflow-y-auto px-4 py-4">
-              <div className="mx-auto flex max-w-[540px] flex-col gap-3">
-                <section className="rounded-2xl border border-border bg-card p-3 shadow-[0_1px_2px_rgba(15,40,84,0.05)]">
+            <div className="flex-1 overflow-y-auto bg-background px-4 py-4">
+              <div className="mx-auto flex max-w-[420px] flex-col gap-3">
+                <section className="border-t border-border/70 pt-4">
                   <div className="mb-2.5 flex items-start justify-between gap-3">
                     <div>
                       <h3 className="text-sm font-semibold text-foreground">
@@ -1088,11 +1292,11 @@ export function EventDetailSheet({
                     </span>
                   </div>
 
-                  <div className="flex flex-col gap-2.5">
+                  <div className="overflow-hidden rounded-[24px] border border-border/80 bg-background shadow-[0_1px_2px_rgba(15,40,84,0.04)]">
                     {sheetParticipants.map((participant) => (
                       <div
                         key={participant.id}
-                        className="flex items-start gap-2.5"
+                        className="flex items-start gap-2.5 px-4 py-3 first:pt-4 last:pb-4 [&+&]:border-t [&+&]:border-border/70"
                       >
                         <Avatar className="size-8 shrink-0 border border-background shadow-sm">
                           <AvatarFallback
@@ -1131,169 +1335,206 @@ export function EventDetailSheet({
                   </div>
                 </section>
 
-                {meeting.room && (
-                  <section className="rounded-2xl border border-border bg-card p-3.5 shadow-[0_1px_2px_rgba(15,40,84,0.05)]">
-                    <div className="mb-2.5 flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-sm font-semibold text-foreground">
-                          {tr(language, "Room access", "ทางเข้าห้องตรวจ")}
-                        </h3>
-                      </div>
-                      <div className="inline-flex size-9 shrink-0 items-center justify-center rounded-2xl bg-[var(--med-primary-light)]/12">
-                        <svg
-                          className="size-4"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                        >
-                          <rect
-                            x="3"
-                            y="3"
-                            width="18"
-                            height="18"
-                            rx="2"
-                            fill="var(--med-primary-light)"
-                            opacity="0.3"
-                          />
-                          <path
-                            d="M8 12h8M12 8v8"
-                            stroke="var(--med-primary-light)"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                          />
-                        </svg>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-border/70 bg-muted/35 px-3 py-2 text-sm font-medium text-foreground">
-                      {meeting.room}
-                    </div>
-
-                    <div className="mt-2.5 flex flex-wrap gap-2">
-                      <Button
-                        className="min-h-9 flex-1 gap-2 shadow-sm disabled:opacity-60"
-                        onClick={handleOpenRoom}
-                        disabled={!canOpenRoom}
-                      >
-                        <span>
-                          {canOpenRoom
-                            ? tr(language, `Go to ${meeting.room}`, `ไปที่ ${meeting.room}`)
-                            : tr(language, "Meeting link unavailable", "ไม่มีลิงก์ประชุม")}
-                        </span>
-                      </Button>
-                      <Button
-                        variant="outline"
-                        className="min-h-9 flex-1 gap-2 border-border bg-background"
-                        onClick={() => {
-                          navigator.clipboard.writeText(meeting.room || "");
-                          toast.success(tr(language, "Room copied", "คัดลอกห้องแล้ว"));
-                        }}
-                      >
-                        <HugeiconsIcon
-                          icon={LinkSquare01Icon}
-                          className="size-4"
-                        />
-                        <span>{tr(language, "Copy", "คัดลอก")}</span>
-                      </Button>
-                    </div>
-                  </section>
-                )}
-
-                <section className="rounded-2xl border border-border bg-card p-3 shadow-[0_1px_2px_rgba(15,40,84,0.05)]">
+                <section className="border-t border-border/70 pt-4">
                   <div className="mb-2.5">
                     <h3 className="text-sm font-semibold text-foreground">
-                      {tr(language, "Appointment details", "รายละเอียดนัดหมาย")}
+                      {tr(language, "Visit details", "รายละเอียดการนัดหมาย")}
                     </h3>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-xl bg-muted/35 px-3 py-2.5 text-sm text-foreground">
-                      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                        <HugeiconsIcon
-                          icon={Clock01Icon}
-                          className="size-3.5"
-                        />
-                        <span>{tr(language, "Schedule", "กำหนดเวลา")}</span>
+                  <div className="overflow-hidden rounded-[24px] border border-border/80 bg-background shadow-[0_1px_2px_rgba(15,40,84,0.04)]">
+                    <div className="flex items-start justify-between gap-4 px-4 py-3">
+                      <div className="min-w-0">
+                        <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          <HugeiconsIcon
+                            icon={Clock01Icon}
+                            className="size-3.5"
+                          />
+                          <span>{tr(language, "Schedule", "กำหนดเวลา")}</span>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{compactDateStr}</p>
                       </div>
-                      <p className="truncate text-sm leading-5 text-muted-foreground">{compactDateStr}</p>
-                      <p className="truncate text-sm font-medium">{compactTimeRange} ICT</p>
+                      <p className="text-right text-sm font-semibold text-foreground">{compactTimeRange} ICT</p>
                     </div>
-                    <div className="rounded-xl bg-muted/35 px-3 py-2.5 text-sm text-foreground">
-                      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                        <HugeiconsIcon
-                          icon={Notification01Icon}
-                          className="size-3.5"
-                        />
-                        <span>{tr(language, "Reminder", "แจ้งเตือน")}</span>
+
+                    <div className="flex items-start justify-between gap-4 border-t border-border/70 px-4 py-3">
+                      <div className="min-w-0">
+                        <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          <HugeiconsIcon
+                            icon={Notification01Icon}
+                            className="size-3.5"
+                          />
+                          <span>{tr(language, "Reminder", "แจ้งเตือน")}</span>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{tr(language, "Appointment reminder", "การแจ้งเตือนนัดหมาย")}</p>
                       </div>
-                      <p className="text-sm font-medium">
+                      <p className="text-right text-sm font-semibold text-foreground">
                         {tr(language, "30 min before", "30 นาทีก่อน")}
                       </p>
                     </div>
-                    <div className="rounded-xl bg-muted/35 px-3 py-2.5 text-sm text-foreground">
-                      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                        <HugeiconsIcon
-                          icon={Calendar01Icon}
-                          className="size-3.5"
-                        />
-                        <span>{tr(language, "Doctor", "แพทย์")}</span>
+
+                    <div className="flex items-start justify-between gap-4 border-t border-border/70 px-4 py-3">
+                      <div className="min-w-0">
+                        <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          <HugeiconsIcon
+                            icon={Calendar01Icon}
+                            className="size-3.5"
+                          />
+                          <span>{tr(language, "Doctor", "แพทย์")}</span>
+                        </div>
+                        <p className="truncate text-sm font-semibold text-foreground">{doctorName}</p>
                       </div>
-                      <p className="truncate text-sm font-medium">{doctorName}</p>
-                      <p className="truncate text-sm leading-5 text-muted-foreground">
+                      <p className="truncate text-right text-sm text-muted-foreground">
                         {meeting.doctor?.email || tr(language, "No contact email", "ไม่มีอีเมลติดต่อ")}
                       </p>
                     </div>
-                    <div className="rounded-xl bg-muted/35 px-3 py-2.5 text-sm text-foreground">
-                      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                        <HugeiconsIcon
-                          icon={UserGroupIcon}
-                          className="size-3.5"
-                        />
-                        <span>{tr(language, "Participants", "ผู้เข้าร่วม")}</span>
+
+                    <div className="flex items-start justify-between gap-4 border-t border-border/70 px-4 py-3">
+                      <div className="min-w-0">
+                        <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                          <HugeiconsIcon
+                            icon={UserGroupIcon}
+                            className="size-3.5"
+                          />
+                          <span>{tr(language, "Participants", "ผู้เข้าร่วม")}</span>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{tr(language, "Doctor and patient", "แพทย์และผู้ป่วย")}</p>
                       </div>
-                      <p className="text-sm font-medium">
+                      <p className="text-right text-sm font-semibold text-foreground">
                         {tr(language, `${sheetParticipants.length} people`, `${sheetParticipants.length} คน`)}
                       </p>
                     </div>
+
                     {meeting.room && (
-                      <div className="col-span-2 rounded-xl bg-muted/35 px-3 py-2.5 text-sm text-foreground">
-                        <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      <div className="border-t border-border/70 px-4 py-3">
+                        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                           <HugeiconsIcon
                             icon={CallIcon}
                             className="size-3.5"
                           />
-                          <span>{tr(language, "Room", "ห้อง")}</span>
+                          <span>{tr(language, "Room access", "ทางเข้าห้องตรวจ")}</span>
                         </div>
-                        <p className="truncate text-sm font-medium">{meeting.room}</p>
+                        <div className="rounded-2xl border border-border/70 bg-slate-50 px-3 py-3 text-sm font-medium text-foreground">
+                          {meeting.room}
+                        </div>
+                        <div className="mt-2.5 flex flex-wrap gap-2">
+                          <Button
+                            className="min-h-10 flex-1 gap-2 rounded-2xl shadow-sm disabled:opacity-60"
+                            onClick={handleOpenRoom}
+                            disabled={!canOpenRoom}
+                          >
+                            <span>
+                              {canOpenRoom
+                                ? tr(language, "Open meeting link", "เปิดลิงก์ห้องตรวจ")
+                                : tr(language, "Meeting link unavailable", "ไม่มีลิงก์ประชุม")}
+                            </span>
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="min-h-10 flex-1 gap-2 rounded-2xl border-border bg-background"
+                            onClick={() => {
+                              navigator.clipboard.writeText(meeting.room || "");
+                              toast.success(tr(language, "Room copied", "คัดลอกห้องแล้ว"));
+                            }}
+                          >
+                            <HugeiconsIcon
+                              icon={LinkSquare01Icon}
+                              className="size-4"
+                            />
+                            <span>{tr(language, "Copy", "คัดลอก")}</span>
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>
                 </section>
 
-                <section className="rounded-2xl border border-border bg-card p-3 shadow-[0_1px_2px_rgba(15,40,84,0.05)]">
+                <section className="border-t border-border/70 pt-4">
                   <div className="mb-2.5 flex items-start gap-3">
-                    <div className="rounded-xl bg-muted p-1.5 text-muted-foreground">
+                    <div className="rounded-xl bg-slate-100 p-1.5 text-muted-foreground">
                       <HugeiconsIcon icon={NoteIcon} className="size-4" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <h3 className="text-sm font-semibold text-foreground">
                         {tr(language, "Notes from doctor", "บันทึกจากแพทย์")}
                       </h3>
-                      <p className="mt-0.5 truncate text-sm text-muted-foreground">
-                        {meeting.note
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        {hasNote
                           ? tr(language, "Clinical note attached to this appointment", "มีบันทึกคลินิกแนบกับนัดหมายนี้")
                           : tr(language, "No note has been added yet", "ยังไม่มีการเพิ่มบันทึก")}
                       </p>
                     </div>
                   </div>
-                  <div className="rounded-xl border border-dashed border-border bg-muted/25 px-3 py-2.5 text-sm leading-5 text-foreground/80">
-                    {meeting.note || tr(language, "No notes available for this appointment.", "ยังไม่มีบันทึกสำหรับนัดหมายนี้")}
-                  </div>
+
+                  {hasNote ? (
+                    <div className="space-y-2.5">
+                      <div className="rounded-[24px] border border-border/80 bg-slate-50 px-4 py-4 text-sm leading-6 text-foreground/80">
+                        <p
+                          className={cn(
+                            "break-words whitespace-pre-wrap",
+                            shouldCollapseNote && "line-clamp-4"
+                          )}
+                        >
+                          {noteText}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs text-muted-foreground">
+                          {shouldCollapseNote
+                            ? tr(language, "Showing a short preview of the note", "กำลังแสดงตัวอย่างบันทึกแบบย่อ")
+                            : tr(language, "Full note is visible here", "กำลังแสดงบันทึกเต็มในส่วนนี้")}
+                        </p>
+                        {shouldCollapseNote && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 rounded-full px-3 text-sm"
+                            onClick={() => setNoteDialogOpen(true)}
+                          >
+                            {tr(language, "Read full note", "อ่านทั้งหมด")}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-[24px] border border-dashed border-border/80 bg-slate-50 px-4 py-4">
+                      <p className="text-sm leading-6 text-muted-foreground">
+                        {tr(
+                          language,
+                          "No notes available for this appointment.",
+                          "ยังไม่มีบันทึกสำหรับนัดหมายนี้"
+                        )}
+                      </p>
+                    </div>
+                  )}
                 </section>
               </div>
             </div>
           </div>
         </SheetContent>
       </Sheet>
+
+      <Dialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[680px]">
+          <DialogHeader>
+            <DialogTitle>{tr(language, "Clinical note", "บันทึกทางการแพทย์")}</DialogTitle>
+            <DialogDescription>
+              {tr(
+                language,
+                "Full note attached to this appointment.",
+                "บันทึกฉบับเต็มที่แนบกับนัดหมายนี้"
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="rounded-2xl border border-border/80 bg-slate-50 px-4 py-4">
+            <pre className="whitespace-pre-wrap break-words text-sm leading-7 text-foreground/85 font-sans">
+              {noteText}
+            </pre>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
@@ -1315,109 +1556,119 @@ export function CalendarView({
   const getMeetingsForDate = useCalendarStore((s) => s.getMeetingsForDate);
   const selectedMeeting = useCalendarStore((s) => s.selectedMeeting);
   const setSelectedMeeting = useCalendarStore((s) => s.setSelectedMeeting);
-  const goToPreviousWeek = useCalendarStore((s) => s.goToPreviousWeek);
-  const goToNextWeek = useCalendarStore((s) => s.goToNextWeek);
-
   const weekDays = getWeekDays();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
   const dayRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const timeZoneLabel = formatGmtOffsetLabel();
 
   useEffect(() => {
     if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = INITIAL_SCROLL_OFFSET;
+      const currentWeekIncludesToday = weekDays.some((day) => isToday(day));
+      const nextScrollTop = currentWeekIncludesToday
+        ? Math.max(getCurrentTimePosition() - HOUR_HEIGHT * 1.5, 0)
+        : INITIAL_SCROLL_OFFSET;
+
+      scrollContainerRef.current.scrollTop = nextScrollTop;
     }
-  }, []);
+  }, [weekDays]);
 
   return (
     <>
-      {/* ── Scrollable calendar body ── */}
-      {/* ── Scrollable Calendar Wrapper ── */}
-      <div className="flex-1 flex flex-col overflow-hidden w-full relative">
-
-        {/* ── 1) Week Header (Synced Scroll) ── */}
-        <div
-          ref={headerRef}
-          className="flex border-b border-border bg-background w-full overflow-hidden shrink-0"
-        >
-          <div className="flex w-max min-w-full">
-            {/* Corner (Sticky Left) */}
-            <div className="w-[80px] md:w-[104px] flex items-center gap-1 md:gap-2 p-1.5 md:p-2 border-r border-border shrink-0 sticky left-0 z-50 bg-background">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 md:size-8"
-                onClick={goToPreviousWeek}
-              >
-                <HugeiconsIcon
-                  icon={ArrowLeft01Icon}
-                  className="size-4 md:size-5"
-                />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 md:size-8"
-                onClick={goToNextWeek}
-              >
-                <HugeiconsIcon
-                  icon={ArrowRight01Icon}
-                  className="size-4 md:size-5"
-                />
-              </Button>
-            </div>
-
-            {/* Days Header */}
-            {weekDays.map((day) => (
-              <div
-                key={day.toISOString()}
-                className="flex-1 border-r border-border last:border-r-0 p-1.5 md:p-2 min-w-44 flex items-center bg-background"
-              >
-                <div
-                  className={cn(
-                    "text-xs md:text-sm font-medium",
-                    isToday(day) ? "text-[var(--med-primary-light)]" : "text-foreground"
-                  )}
-                >
-                  {day
-                    .toLocaleDateString(localeOf(language), {
-                      day: "2-digit",
-                      weekday: "short",
-                    })
-                    .toUpperCase()}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ── 2) Calendar Body (Main Scroll) ── */}
+      <div className="flex flex-1 flex-col overflow-hidden rounded-[28px] border border-slate-200/85 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.08)]">
+        {/* Single scroll container for both header and time grid */}
         <div
           ref={scrollContainerRef}
-          className="flex-1 overflow-auto w-full"
-          onScroll={(e) => {
-            if (headerRef.current) {
-              headerRef.current.scrollLeft = e.currentTarget.scrollLeft;
-            }
-          }}
+          className="flex-1 w-full overflow-auto bg-white"
         >
-          <div className="flex min-w-full w-max">
-            <HoursColumn />
-            {weekDays.map((day, i) => {
-              const setDayRef = (el: HTMLDivElement | null) => {
-                dayRefs.current[i] = el;
-              };
-              return (
-                <DayColumn
-                  key={day.toISOString()}
-                  date={day}
-                  meetings={getMeetingsForDate(day)}
-                  scrollRef={setDayRef}
-                  onEventClick={setSelectedMeeting}
-                  onSlotSelect={onSlotSelect}
-                />
-              );
-            })}
+          <div className="flex min-w-full w-full flex-col">
+            {/* ── Sticky header (date row + appointment preview row) ── */}
+            <div className="sticky top-0 z-40 flex flex-col border-b border-slate-200/85 bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.99))]">
+              {/* Date row */}
+              <div className="flex">
+                <div
+                  className={cn(
+                    "sticky left-0 z-50 flex shrink-0 flex-col justify-center border-r border-slate-200/85 bg-white px-3 py-3",
+                    WEEK_LEFT_RAIL_CLASS
+                  )}
+                >
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    {timeZoneLabel}
+                  </span>
+                </div>
+
+                {weekDays.map((day) => {
+                  const today = isToday(day);
+
+                  return (
+                    <div
+                      key={day.toISOString()}
+                      className={cn(
+                        "flex items-center justify-center border-r border-slate-200/85 px-3 py-3 last:border-r-0",
+                        WEEK_DAY_COLUMN_CLASS,
+                        today ? "bg-sky-50/50" : "bg-transparent"
+                      )}
+                    >
+                      <div className="text-center">
+                        <p className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", today ? "text-sky-700" : "text-slate-400")}>
+                          {day.toLocaleDateString(localeOf(language), { weekday: "short" })}
+                        </p>
+                        <div className="mt-1.5 flex items-center justify-center gap-2">
+                          <span
+                            className={cn(
+                              "inline-flex size-9 items-center justify-center rounded-full text-[1.45rem] font-semibold tracking-[-0.04em]",
+                              today ? "bg-sky-500 text-white" : "text-slate-700"
+                            )}
+                          >
+                            {day.toLocaleDateString(localeOf(language), { day: "numeric" })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Appointment preview row */}
+              <div className="flex border-t border-slate-200/85 bg-slate-50/65">
+                <div
+                  className={cn(
+                    "sticky left-0 z-40 flex shrink-0 flex-col border-r border-slate-200/85 bg-white px-3 py-2.5",
+                    WEEK_LEFT_RAIL_CLASS
+                  )}
+                >
+                  <span className="text-[10px] font-semibold uppercase leading-tight tracking-[0.08em] text-slate-400">
+                    {tr(language, "Preview", "นัดหมาย")}
+                  </span>
+                </div>
+
+                {weekDays.map((day) => (
+                  <WeekPreviewColumn
+                    key={`preview-${day.toISOString()}`}
+                    date={day}
+                    meetings={getMeetingsForDate(day)}
+                    onMeetingClick={setSelectedMeeting}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* ── Time grid (hours column + day columns) ── */}
+            <div className="flex">
+              <HoursColumn />
+              {weekDays.map((day, i) => {
+                const setDayRef = (el: HTMLDivElement | null) => {
+                  dayRefs.current[i] = el;
+                };
+                return (
+                  <DayColumn
+                    key={day.toISOString()}
+                    date={day}
+                    scrollRef={setDayRef}
+                    onSlotSelect={onSlotSelect}
+                  />
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>

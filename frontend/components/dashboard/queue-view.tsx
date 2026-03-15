@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { isToday, isTomorrow } from "date-fns";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -18,9 +18,19 @@ import {
   PencilEdit01Icon,
   Delete01Icon,
   CallIcon,
+  Settings01Icon,
 } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useCalendarStore } from "@/store/calendar-store";
@@ -51,12 +61,19 @@ const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
 
 const MEETING_STATUS_LABELS_TH: Record<MeetingStatus, string> = {
   scheduled: "กำหนดการ",
-  waiting: "รอหมอเข้าห้อง",
+  waiting: "เช็กอินแล้ว",
   in_progress: "กำลังตรวจ",
   overtime: "เกินเวลา",
   completed: "เสร็จสิ้น",
   cancelled: "ยกเลิก",
 };
+
+type QueueDisplayMode = "cards" | "list";
+type QueueDensity = "compact" | "comfortable" | "spacious";
+type QueueFocusFilter = "all" | "attention" | "waiting" | "upcoming";
+
+const QUEUE_VIEW_STORAGE_KEY = "telemed.queue.display-mode";
+const QUEUE_DENSITY_STORAGE_KEY = "telemed.queue.density";
 
 /* ── Status visual helpers ── */
 function getStatusConfig(status: MeetingStatus, language: AppLanguage) {
@@ -67,7 +84,7 @@ function getStatusConfig(status: MeetingStatus, language: AppLanguage) {
         bg: "bg-amber-500/10",
         text: "text-amber-600 dark:text-amber-400",
         border: "border-amber-500/30",
-        label: tr(language, "Patient Waiting", "คนไข้อยู่ในห้องรอ"),
+        label: tr(language, "Checked In", "เช็กอินแล้ว"),
         icon: Clock01Icon,
       };
     case "in_progress":
@@ -273,6 +290,8 @@ function QueueCard({
   canWrite,
   canDelete,
   language,
+  displayMode,
+  density,
 }: {
   meeting: Meeting;
   onStatusChange: (meeting: Meeting, newStatus: MeetingStatus) => void;
@@ -286,6 +305,8 @@ function QueueCard({
   canWrite: boolean;
   canDelete: boolean;
   language: AppLanguage;
+  displayMode: QueueDisplayMode;
+  density: QueueDensity;
 }) {
   const nextStatuses = STATUS_TRANSITIONS[meeting.status] || [];
   const undoTarget = UNDO_TRANSITIONS[meeting.status];
@@ -305,12 +326,19 @@ function QueueCard({
   const doctorName = meeting.doctor
     ? `Dr. ${meeting.doctor.first_name || ""} ${meeting.doctor.last_name || ""}`.trim()
     : tr(language, "Unassigned", "ยังไม่ระบุ");
+  const isListMode = displayMode === "list";
+  const isCompact = density === "compact";
+  const isSpacious = density === "spacious";
 
   return (
     <div
       className={cn(
-        "group flex flex-col gap-3 p-4 rounded-xl border border-border bg-card transition-all cursor-pointer h-full",
+        "group flex h-full flex-col rounded-2xl border border-border bg-card transition-all cursor-pointer",
         "hover:shadow-md hover:border-border/80",
+        isCompact && "gap-2.5 p-3",
+        density === "comfortable" && "gap-3 p-4",
+        isSpacious && "gap-4 p-5",
+        isListMode && "md:rounded-[1.35rem]",
         isTerminal && "opacity-60",
         isWaitingLive &&
           "border-amber-300/60 bg-gradient-to-br from-amber-50/70 to-card ring-1 ring-amber-300/40"
@@ -324,159 +352,180 @@ function QueueCard({
         onClick(meeting);
       }}
     >
-      {/* Top row: patient + actions + status */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
-          <Avatar className="size-9 shrink-0 border-2 border-background">
-            <AvatarFallback
+      <div
+        className={cn(
+          "flex flex-col",
+          isCompact ? "gap-2.5" : "gap-3",
+          isListMode && "md:grid md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)] md:gap-x-5"
+        )}
+      >
+        {/* Top row: patient + actions + status */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <Avatar
               className={cn(
-                "text-sm font-bold",
-                config.bg,
-                config.text
+                "shrink-0 border-2 border-background",
+                isCompact && "size-8",
+                density === "comfortable" && "size-9",
+                isSpacious && "size-10"
               )}
             >
-              {getInitial(meeting.patient?.first_name)}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 flex-1">
-            <h4
-              className={cn(
-                "text-sm font-semibold text-foreground truncate",
-                meeting.status === "cancelled" && "line-through"
-              )}
-            >
-              {patientName}
-            </h4>
-            <p className="text-sm text-muted-foreground truncate">
-              {meeting.description || tr(language, "General consultation", "ปรึกษาทั่วไป")}
-            </p>
-            {livePresenceInfo && (
-              <span
+              <AvatarFallback
                 className={cn(
-                  "mt-1 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold",
-                  livePresenceInfo.tone === "waiting" &&
-                    "bg-amber-500/15 text-amber-700 dark:text-amber-300",
-                  livePresenceInfo.tone === "active" &&
-                    "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-                  livePresenceInfo.tone === "left" &&
-                    "bg-slate-500/15 text-slate-700 dark:text-slate-300",
-                  livePresenceInfo.tone === "offline" &&
-                    "bg-slate-500/15 text-slate-700 dark:text-slate-300"
+                  "font-bold",
+                  isCompact ? "text-xs" : "text-sm",
+                  config.bg,
+                  config.text
                 )}
-                title={livePresenceInfo.label}
               >
-                {livePresenceInfo.label}
+                {getInitial(meeting.patient?.first_name)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0 flex-1">
+              <h4
+                className={cn(
+                  "font-semibold text-foreground truncate",
+                  isCompact ? "text-sm" : "text-[15px]",
+                  meeting.status === "cancelled" && "line-through"
+                )}
+              >
+                {patientName}
+              </h4>
+              <p className={cn("truncate text-muted-foreground", isCompact ? "text-xs" : "text-sm")}>
+                {meeting.description || tr(language, "General consultation", "ปรึกษาทั่วไป")}
+              </p>
+              {livePresenceInfo && (
+                <span
+                  className={cn(
+                    "mt-1 inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 font-semibold",
+                    isCompact ? "text-[10px]" : "text-xs",
+                    livePresenceInfo.tone === "waiting" &&
+                      "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+                    livePresenceInfo.tone === "active" &&
+                      "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+                    livePresenceInfo.tone === "left" &&
+                      "bg-slate-500/15 text-slate-700 dark:text-slate-300",
+                    livePresenceInfo.tone === "offline" &&
+                      "bg-slate-500/15 text-slate-700 dark:text-slate-300"
+                  )}
+                  title={livePresenceInfo.label}
+                >
+                  {livePresenceInfo.label}
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {canWrite && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit(meeting);
+                  }}
+                  title={tr(language, "Edit", "แก้ไข")}
+                >
+                  <HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDuplicate(meeting);
+                  }}
+                  disabled={loading}
+                  title={tr(language, "Duplicate", "ทำซ้ำ")}
+                >
+                  <HugeiconsIcon icon={Layers01Icon} className="size-3.5" />
+                </Button>
+              </>
+            )}
+            {canDelete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(meeting);
+                }}
+                disabled={loading}
+                title={tr(language, "Delete", "ลบ")}
+              >
+                <HugeiconsIcon icon={Delete01Icon} className="size-3.5" />
+              </Button>
+            )}
+            <StatusBadge status={statusForBadge} language={language} />
+          </div>
+        </div>
+
+        {/* Info row */}
+        <div className={cn("flex flex-col text-muted-foreground", isCompact ? "gap-1 text-xs" : "gap-1.5 text-sm")}>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="inline-flex items-center gap-1.5 font-medium text-foreground/85">
+              <HugeiconsIcon icon={Calendar01Icon} className="size-3.5" />
+              <span>{appointmentDateLabel}</span>
+            </span>
+            <span className="text-muted-foreground/50" aria-hidden="true">
+              •
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <HugeiconsIcon icon={Clock01Icon} className="size-3.5" />
+              {appointmentTimeLabel}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span className="inline-flex items-center gap-1.5">
+              <HugeiconsIcon icon={Stethoscope02Icon} className="size-3.5" />
+              {doctorName}
+            </span>
+            {meeting.room && (
+              <span className="inline-flex items-center gap-1.5">
+                <HugeiconsIcon icon={DoorIcon} className="size-3.5" />
+                {meeting.room}
               </span>
             )}
           </div>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          {canWrite && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onEdit(meeting);
-                }}
-                title={tr(language, "Edit", "แก้ไข")}
-              >
-                <HugeiconsIcon icon={PencilEdit01Icon} className="size-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDuplicate(meeting);
-                }}
-                disabled={loading}
-                title={tr(language, "Duplicate", "ทำซ้ำ")}
-              >
-                <HugeiconsIcon icon={Layers01Icon} className="size-3.5" />
-              </Button>
-            </>
-          )}
-          {canDelete && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(meeting);
-              }}
-              disabled={loading}
-              title={tr(language, "Delete", "ลบ")}
-            >
-              <HugeiconsIcon icon={Delete01Icon} className="size-3.5" />
-            </Button>
-          )}
-          <StatusBadge status={statusForBadge} language={language} />
-        </div>
-      </div>
-
-      {/* Info row */}
-      <div className="flex flex-col gap-1.5 text-sm text-muted-foreground">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="inline-flex items-center gap-1.5 font-medium text-foreground/85">
-            <HugeiconsIcon icon={Calendar01Icon} className="size-3.5" />
-            <span>{appointmentDateLabel}</span>
-          </span>
-          <span className="text-muted-foreground/50" aria-hidden="true">
-            •
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <HugeiconsIcon icon={Clock01Icon} className="size-3.5" />
-            {appointmentTimeLabel}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="inline-flex items-center gap-1.5">
-            <HugeiconsIcon icon={Stethoscope02Icon} className="size-3.5" />
-            {doctorName}
-          </span>
-          {meeting.room && (
-            <span className="inline-flex items-center gap-1.5">
-              <HugeiconsIcon icon={DoorIcon} className="size-3.5" />
-              {meeting.room}
-            </span>
-          )}
         </div>
       </div>
 
       {/* Cancel reason */}
       {meeting.status === "cancelled" && meeting.reason && (
-        <div className="flex items-start gap-2 rounded-lg bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
+        <div className={cn("flex items-start gap-2 rounded-lg bg-muted/50 text-muted-foreground", isCompact ? "px-2.5 py-2 text-xs" : "px-3 py-2 text-sm")}>
           <HugeiconsIcon icon={NoteIcon} className="size-3.5 mt-0.5 shrink-0" />
           <span>{meeting.reason}</span>
         </div>
       )}
 
       {isWaitingLive && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-          <div className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-300">
+        <div className={cn("rounded-lg border border-amber-500/30 bg-amber-500/10", isCompact ? "px-2.5 py-2" : "px-3 py-2")}>
+          <div className={cn("flex items-start gap-2 text-amber-700 dark:text-amber-300", isCompact ? "text-xs" : "text-sm")}>
             <HugeiconsIcon icon={Clock01Icon} className="size-3.5 mt-0.5 shrink-0" />
             <span>
               {isDoctorLeftWaiting
                 ? tr(
                     language,
                     "Doctor left room while patient is still waiting. Rejoin now.",
-                    "หมอออกจากห้องแล้ว แต่คนไข้ยังรออยู่ กดกลับเข้าห้องได้ทันที"
+                    "หมอออกจากห้องแล้ว แต่คนไข้ยังรออยู่ สามารถกลับเข้าห้องได้ทันที"
                   )
                 : tr(
                     language,
-                    "Patient is already in the waiting room. You can start call now.",
-                    "คนไข้เข้าห้องรอแล้ว กดเริ่มคอลได้ทันที"
+                    "Patient is already in the waiting room. You can start the call now.",
+                    "คนไข้อยู่ในห้องรอแล้ว สามารถเริ่มคอลได้ทันที"
                   )}
             </span>
           </div>
           <Button
             size="sm"
-            className="mt-2 h-8 gap-1.5 text-sm bg-amber-600 text-white hover:bg-amber-700"
+            className={cn(
+              "mt-2 gap-1.5 bg-amber-600 text-white hover:bg-amber-700",
+              isCompact ? "h-7 text-xs" : "h-8 text-sm"
+            )}
             onClick={(e) => {
               e.stopPropagation();
               onStartCall(meeting);
@@ -490,8 +539,8 @@ function QueueCard({
       )}
 
       {livePresenceInfo?.tone === "offline" && !isWaitingLive && (
-        <div className="rounded-lg border border-slate-400/30 bg-slate-500/10 px-3 py-2">
-          <div className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+        <div className={cn("rounded-lg border border-slate-400/30 bg-slate-500/10", isCompact ? "px-2.5 py-2" : "px-3 py-2")}>
+          <div className={cn("flex items-start gap-2 text-slate-700 dark:text-slate-300", isCompact ? "text-xs" : "text-sm")}>
             <HugeiconsIcon icon={AlertCircleIcon} className="size-3.5 mt-0.5 shrink-0" />
             <span>
               {tr(
@@ -505,8 +554,8 @@ function QueueCard({
       )}
 
       {livePresenceInfo?.tone === "left" && !isWaitingLive && (
-        <div className="rounded-lg border border-slate-400/30 bg-slate-500/10 px-3 py-2">
-          <div className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+        <div className={cn("rounded-lg border border-slate-400/30 bg-slate-500/10", isCompact ? "px-2.5 py-2" : "px-3 py-2")}>
+          <div className={cn("flex items-start gap-2 text-slate-700 dark:text-slate-300", isCompact ? "text-xs" : "text-sm")}>
             <HugeiconsIcon icon={AlertCircleIcon} className="size-3.5 mt-0.5 shrink-0" />
             <span>
               {tr(
@@ -521,7 +570,10 @@ function QueueCard({
 
       {/* Action buttons */}
       <div
-        className="flex items-center gap-2 pt-1 mt-auto border-t border-border/50"
+        className={cn(
+          "mt-auto flex flex-wrap items-center gap-2 border-t border-border/50 pt-1",
+          isListMode && "md:justify-between"
+        )}
         role="group"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
@@ -551,7 +603,10 @@ function QueueCard({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+                className={cn(
+                  "gap-1.5 text-muted-foreground hover:text-foreground",
+                  isCompact ? "h-7 text-xs" : "h-8 text-sm"
+                )}
                 onClick={() => onStatusChange(meeting, undoTarget)}
                 disabled={loading}
               >
@@ -562,7 +617,7 @@ function QueueCard({
             <Button
               variant="outline"
               size="sm"
-              className="h-8 gap-1.5 text-sm"
+              className={cn("gap-1.5", isCompact ? "h-7 text-xs" : "h-8 text-sm")}
               onClick={() => onStartCall(meeting)}
               disabled={loading || isTerminal}
             >
@@ -591,7 +646,9 @@ function StatusSummary({
   language: AppLanguage;
 }) {
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: meetings.length };
+    const c: Record<string, number> = {
+      all: meetings.filter((meeting) => getPresenceAwareStatus(meeting) !== "cancelled").length,
+    };
     for (const s of MEETING_STATUSES) c[s] = 0;
     meetings.forEach((m) => {
       const effectiveStatus = getPresenceAwareStatus(m);
@@ -603,7 +660,7 @@ function StatusSummary({
   const items: { key: MeetingStatus | "all"; label: string; count: number }[] = [
     { key: "all", label: tr(language, "All", "ทั้งหมด"), count: counts.all },
     { key: "scheduled", label: tr(language, "Scheduled", "กำหนดการ"), count: counts.scheduled || 0 },
-    { key: "waiting", label: tr(language, "Patient Waiting", "รอหมอเข้าห้อง"), count: counts.waiting || 0 },
+    { key: "waiting", label: tr(language, "Checked In", "เช็กอินแล้ว"), count: counts.waiting || 0 },
     { key: "in_progress", label: tr(language, "In Progress", "กำลังตรวจ"), count: counts.in_progress || 0 },
     { key: "overtime", label: tr(language, "Overtime", "เกินเวลา"), count: counts.overtime || 0 },
     { key: "completed", label: tr(language, "Completed", "เสร็จสิ้น"), count: counts.completed || 0 },
@@ -679,7 +736,38 @@ export function QueueView({
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [selectedMeeting, setSelectedMeeting] = useState<Meeting | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [displayMode, setDisplayMode] = useState<QueueDisplayMode>("cards");
+  const [density, setDensity] = useState<QueueDensity>("comfortable");
+  const [focusFilter, setFocusFilter] = useState<QueueFocusFilter>("all");
   const isAdmin = role === "admin";
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedDisplayMode = window.localStorage.getItem(QUEUE_VIEW_STORAGE_KEY);
+    const storedDensity = window.localStorage.getItem(QUEUE_DENSITY_STORAGE_KEY);
+
+    if (storedDisplayMode === "cards" || storedDisplayMode === "list") {
+      setDisplayMode(storedDisplayMode);
+    }
+
+    if (
+      storedDensity === "compact" ||
+      storedDensity === "comfortable" ||
+      storedDensity === "spacious"
+    ) {
+      setDensity(storedDensity);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(QUEUE_VIEW_STORAGE_KEY, displayMode);
+  }, [displayMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(QUEUE_DENSITY_STORAGE_KEY, density);
+  }, [density]);
 
   const canWriteMeeting = useCallback(
     (meeting: Meeting) => {
@@ -690,6 +778,20 @@ export function QueueView({
   );
 
   const canDeleteMeeting = isAdmin;
+
+  const isUpcomingMeeting = useCallback(
+    (meeting: Meeting) => {
+      const meetingTime = new Date(meeting.date_time).getTime();
+      if (Number.isNaN(meetingTime)) return false;
+
+      const now = Date.now();
+      const diff = meetingTime - now;
+      const effectiveStatus = getPresenceAwareStatus(meeting);
+
+      return diff >= 0 && diff <= 1000 * 60 * 60 && effectiveStatus === "scheduled";
+    },
+    []
+  );
 
   // Filter meetings
   const filteredMeetings = useMemo(() => {
@@ -702,12 +804,34 @@ export function QueueView({
       );
     }
 
+    if (focusFilter !== "all") {
+      filtered = filtered.filter((meeting) => {
+        const effectiveStatus = getPresenceAwareStatus(meeting);
+
+        if (focusFilter === "waiting") {
+          return isPatientWaitingLive(meeting);
+        }
+
+        if (focusFilter === "upcoming") {
+          return isUpcomingMeeting(meeting);
+        }
+
+        return (
+          isPatientWaitingLive(meeting) ||
+          effectiveStatus === "in_progress" ||
+          effectiveStatus === "overtime"
+        );
+      });
+    }
+
     // Status filter
     if (statusFilter !== "all") {
       filtered = filtered.filter((m) => {
         const effectiveStatus = getPresenceAwareStatus(m);
         return effectiveStatus === statusFilter;
       });
+    } else {
+      filtered = filtered.filter((meeting) => getPresenceAwareStatus(meeting) !== "cancelled");
     }
 
     // Sort: active statuses first, then by time
@@ -731,7 +855,7 @@ export function QueueView({
     });
 
     return filtered;
-  }, [meetings, statusFilter, dateFilter]);
+  }, [meetings, statusFilter, dateFilter, focusFilter, isUpcomingMeeting]);
 
   // Date-filtered meetings for summary counts
   const dateScopedMeetings = useMemo(() => {
@@ -884,7 +1008,13 @@ export function QueueView({
         setMeetings(
           meetings.map((m) => (m.id === meeting.id ? updated : m))
         );
-        toast.success(tr(language, "Appointment cancelled", "ยกเลิกนัดหมายแล้ว"));
+        toast.success(
+          tr(
+            language,
+            "Appointment cancelled. It is now in the Cancelled tab.",
+            "ยกเลิกนัดหมายแล้ว รายการนี้อยู่ในแท็บ ยกเลิก"
+          )
+        );
       } catch {
         toast.error(tr(language, "Failed to cancel appointment", "ยกเลิกนัดหมายไม่สำเร็จ"));
       } finally {
@@ -981,41 +1111,132 @@ export function QueueView({
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Queue Controls */}
       <div className="px-4 md:px-6 py-3 border-b border-border space-y-3">
-        {/* Date scope + sort */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Button
-              variant={dateFilter === "today" ? "default" : "outline"}
-              size="sm"
-              className={cn(
-                "h-8 text-sm",
-                dateFilter === "today" &&
-                  "bg-foreground text-background hover:bg-foreground/90"
+        <div className="rounded-2xl border border-border/80 bg-muted/20 p-2.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                {tr(language, "Range", "ช่วงเวลา")}
+              </span>
+              <div className="inline-flex items-center rounded-full border border-border bg-background p-0.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-8 rounded-full px-3 text-sm",
+                    dateFilter === "today" && "bg-foreground text-background hover:bg-foreground/90"
+                  )}
+                  onClick={() => setDateFilter("today")}
+                >
+                  {tr(language, "Today", "วันนี้")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-8 rounded-full px-3 text-sm",
+                    dateFilter === "all" && "bg-foreground text-background hover:bg-foreground/90"
+                  )}
+                  onClick={() => setDateFilter("all")}
+                >
+                  {tr(language, "All Dates", "ทุกช่วงวัน")}
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                {tr(language, "Focus", "โฟกัส")}
+              </span>
+              <div className="inline-flex items-center rounded-full border border-border bg-background p-0.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-8 rounded-full px-3 text-sm",
+                    focusFilter === "all" && "bg-background shadow-sm ring-1 ring-primary/25 text-foreground"
+                  )}
+                  onClick={() => setFocusFilter("all")}
+                >
+                  {tr(language, "All work", "ทั้งหมด")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "h-8 rounded-full px-3 text-sm",
+                    focusFilter === "attention" && "bg-background shadow-sm ring-1 ring-primary/25 text-foreground"
+                  )}
+                  onClick={() => setFocusFilter("attention")}
+                >
+                  {tr(language, "Needs attention", "ต้องทำตอนนี้")}
+                </Button>
+              </div>
+            </div>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger className="inline-flex h-8 items-center justify-center gap-2 rounded-full border border-border bg-background px-3 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                <HugeiconsIcon icon={Settings01Icon} className="size-3.5 text-muted-foreground" />
+                <span>{tr(language, "View options", "ปรับมุมมอง")}</span>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>{tr(language, "Layout", "รูปแบบแสดงผล")}</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={displayMode}
+                  onValueChange={(value) => setDisplayMode(value as QueueDisplayMode)}
+                >
+                  <DropdownMenuRadioItem value="cards">
+                    {tr(language, "Cards", "การ์ด")}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="list">
+                    {tr(language, "List", "รายการ")}
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>{tr(language, "Card density", "ขนาดการ์ด")}</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={density}
+                  onValueChange={(value) => setDensity(value as QueueDensity)}
+                >
+                  <DropdownMenuRadioItem value="compact">
+                    {tr(language, "Compact", "กะทัดรัด")}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="comfortable">
+                    {tr(language, "Comfortable", "มาตรฐาน")}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="spacious">
+                    {tr(language, "Spacious", "โปร่ง")}
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>{tr(language, "Quick focus", "โฟกัสงานด่วน")}</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  value={focusFilter}
+                  onValueChange={(value) => setFocusFilter(value as QueueFocusFilter)}
+                >
+                  <DropdownMenuRadioItem value="all">
+                    {tr(language, "All work", "ทั้งหมด")}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="attention">
+                    {tr(language, "Needs attention", "ต้องทำตอนนี้")}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="waiting">
+                    {tr(language, "Patient waiting", "คนไข้รออยู่")}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="upcoming">
+                    {tr(language, "Due soon", "ใกล้ถึงเวลา")}
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <span className="ml-auto text-sm text-muted-foreground">
+              {tr(
+                language,
+                `${filteredMeetings.length} meeting${filteredMeetings.length !== 1 ? "s" : ""}`,
+                `${filteredMeetings.length} นัดหมาย`
               )}
-              onClick={() => setDateFilter("today")}
-            >
-              {tr(language, "Today", "วันนี้")}
-            </Button>
-            <Button
-              variant={dateFilter === "all" ? "default" : "outline"}
-              size="sm"
-              className={cn(
-                "h-8 text-sm",
-                dateFilter === "all" &&
-                  "bg-foreground text-background hover:bg-foreground/90"
-              )}
-              onClick={() => setDateFilter("all")}
-            >
-              {tr(language, "All Dates", "ทุกช่วงวัน")}
-            </Button>
+            </span>
           </div>
-          <span className="text-sm text-muted-foreground">
-            {tr(
-              language,
-              `${filteredMeetings.length} meeting${filteredMeetings.length !== 1 ? "s" : ""}`,
-              `${filteredMeetings.length} นัดหมาย`
-            )}
-          </span>
         </div>
 
         {/* Status filter pills */}
@@ -1026,7 +1247,11 @@ export function QueueView({
           language={language}
         />
         <p className="text-sm text-muted-foreground">
-          {tr(language, "Tip: click the active status again to clear filter.", "เคล็ดลับ: กดสถานะที่เลือกอีกครั้งเพื่อล้างตัวกรอง")}
+          {tr(
+            language,
+            "Tip: start with Needs attention, then refine with status filters if needed.",
+            "เคล็ดลับ: เริ่มจาก ต้องทำตอนนี้ ก่อน แล้วค่อยกรองต่อด้วยสถานะเมื่อจำเป็น"
+          )}
         </p>
       </div>
 
@@ -1043,7 +1268,15 @@ export function QueueView({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          <div
+            className={cn(
+              "grid",
+              displayMode === "list" && "grid-cols-1 gap-3.5",
+              displayMode === "cards" && density === "compact" && "grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3",
+              displayMode === "cards" && density === "comfortable" && "grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3",
+              displayMode === "cards" && density === "spacious" && "grid-cols-1 xl:grid-cols-2 gap-4"
+            )}
+          >
             {filteredMeetings.map((meeting) => (
               <QueueCard
                 key={meeting.id}
@@ -1059,6 +1292,8 @@ export function QueueView({
                 canWrite={canWriteMeeting(meeting)}
                 canDelete={canDeleteMeeting}
                 language={language}
+                displayMode={displayMode}
+                density={density}
               />
             ))}
           </div>

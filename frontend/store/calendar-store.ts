@@ -17,6 +17,7 @@ interface CalendarState {
   currentWeekStart: Date;
   searchQuery: string;
   eventTypeFilter: EventTypeFilter;
+  includeCancelled: boolean;
   displayTimezone: DisplayTimezone;
   meetings: Meeting[];
   selectedMeeting: Meeting | null;
@@ -26,6 +27,7 @@ interface CalendarState {
   goToDate: (date: Date) => void;
   setSearchQuery: (query: string) => void;
   setEventTypeFilter: (filter: EventTypeFilter) => void;
+  setIncludeCancelled: (includeCancelled: boolean) => void;
   setDisplayTimezone: (tz: DisplayTimezone) => void;
   setMeetings: (meetings: Meeting[]) => void;
   setSelectedMeeting: (meeting: Meeting | null) => void;
@@ -38,6 +40,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   currentWeekStart: startOfWeek(new Date(), { weekStartsOn: 1 }),
   searchQuery: "",
   eventTypeFilter: "all",
+  includeCancelled: false,
   displayTimezone: "local",
   meetings: [],
   selectedMeeting: null,
@@ -52,6 +55,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     set({ currentWeekStart: startOfWeek(date, { weekStartsOn: 1 }) }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setEventTypeFilter: (filter) => set({ eventTypeFilter: filter }),
+  setIncludeCancelled: (includeCancelled) => set({ includeCancelled }),
   setDisplayTimezone: (tz) => set({ displayTimezone: tz }),
   setMeetings: (meetings) => set({ meetings }),
   setSelectedMeeting: (meeting) => set({ selectedMeeting: meeting }),
@@ -65,8 +69,10 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   },
 
   getFilteredMeetings: () => {
-    const { meetings, searchQuery, eventTypeFilter } = get();
-    let filtered = meetings;
+    const { meetings, searchQuery, eventTypeFilter, includeCancelled } = get();
+    let filtered = includeCancelled
+      ? meetings
+      : meetings.filter((meeting) => meeting.status !== "cancelled");
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -105,7 +111,7 @@ export const HOURS_24 = [
   "6 PM", "7 PM", "8 PM", "9 PM", "10 PM", "11 PM",
 ];
 
-export const HOUR_HEIGHT = 120;
+export const HOUR_HEIGHT = 72;
 export const INITIAL_SCROLL_OFFSET = 8 * HOUR_HEIGHT; // Scroll to 8 AM
 
 export function getEventTop(dateTime: string, tz: DisplayTimezone = "local"): number {

@@ -49,6 +49,8 @@ const {
     setSearchQuery: vi.fn(),
     eventTypeFilter: "all",
     setEventTypeFilter: vi.fn(),
+    includeCancelled: false,
+    setIncludeCancelled: vi.fn(),
     setMeetings: vi.fn(),
     meetings: [],
   },
@@ -75,6 +77,9 @@ vi.mock("next/navigation", () => ({
     replace: mockReplace,
     push: vi.fn(),
   }),
+  usePathname: () => "/meetings",
+  useSearchParams: () =>
+    new URLSearchParams("view=week&date=2026-03-06"),
 }));
 
 vi.mock("next/image", () => ({
