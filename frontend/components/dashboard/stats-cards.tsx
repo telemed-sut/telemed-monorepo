@@ -129,12 +129,12 @@ export function StatsCards() {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
         {[1, 2, 3].map((slot) => (
-          <div key={slot} className="relative p-5 rounded-xl border bg-card overflow-hidden">
-            <Skeleton className="h-4 w-24 mb-3" />
-            <Skeleton className="h-8 w-16 mb-4" />
-            <Skeleton className="h-4 w-32" />
+          <div key={slot} className="relative overflow-hidden rounded-xl border bg-card p-5">
+            <Skeleton className="mb-3 h-4 w-28" />
+            <Skeleton className="mb-3 h-8 w-20" />
+            <Skeleton className="h-4 w-36" />
           </div>
         ))}
       </div>
@@ -142,28 +142,28 @@ export function StatsCards() {
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
       {stats.map((stat) => (
         <div
           key={stat.title}
-          className="relative p-5 rounded-xl border bg-card overflow-hidden"
+          className="relative overflow-hidden rounded-xl border bg-card p-5"
         >
           <div className="absolute inset-0 bg-linear-to-br from-black/5 to-transparent pointer-events-none" />
           <div className="relative flex items-start justify-between">
-            <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-4">
               <p className="text-sm font-medium text-muted-foreground">
                 {stat.title}
               </p>
-              <p className="text-2xl sm:text-[26px] font-semibold tracking-tight">
+              <p className="text-[1.7rem] font-semibold tracking-tight sm:text-[1.9rem]">
                 {stat.value}
               </p>
               <div className="flex items-center gap-1.5 text-muted-foreground">
-                <HugeiconsIcon icon={stat.subtitleIcon} className="size-4" />
+                <HugeiconsIcon icon={stat.subtitleIcon} className="size-3.5" />
                 <span className="text-sm font-medium">{stat.subtitle}</span>
               </div>
             </div>
             <Button variant="outline" size="icon" className="size-10">
-              <HugeiconsIcon icon={stat.icon} className="size-5" />
+              <HugeiconsIcon icon={stat.icon} className="size-4.5" />
             </Button>
           </div>
         </div>

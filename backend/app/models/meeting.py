@@ -35,3 +35,10 @@ class Meeting(Base):
     doctor = relationship("User", back_populates="meetings_as_doctor", foreign_keys=[doctor_id])
     patient = relationship("Patient", back_populates="meetings", foreign_keys=[user_id])
     canceller = relationship("User", foreign_keys=[cancelled_by])
+    room_presence = relationship(
+        "MeetingRoomPresence",
+        back_populates="meeting",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

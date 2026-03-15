@@ -536,13 +536,13 @@ function AuditStatsCards({
                             <stat.icon className={`size-5 ${stat.iconColor}`} />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <p className="text-xs text-muted-foreground font-medium">
+                            <p className="text-sm font-medium text-muted-foreground">
                                 {stat.title}
                             </p>
                             <p className="text-[28px] font-semibold leading-tight tracking-tight mt-0.5">
                                 {stat.value}
                             </p>
-                            <p className="text-xs text-muted-foreground font-medium mt-1">
+                            <p className="mt-1 text-sm font-medium text-muted-foreground">
                                 {stat.subtitle}
                             </p>
                         </div>
@@ -779,7 +779,7 @@ export function AuditLogsContent() {
                                 <CardDescription className="flex items-center gap-2">
                                     {t("systemActivityAndSecurityEvents")}
                                     {isPolling && (
-                                        <span className="inline-flex items-center gap-1 text-xs text-emerald-500">
+                                        <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
                                             <span className="relative flex h-2 w-2">
                                                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                                                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
@@ -873,7 +873,7 @@ export function AuditLogsContent() {
                         {/* Date Range Filters */}
                         <div className="flex flex-wrap items-center gap-2 pt-2">
                             <div className="flex items-center gap-2">
-                                <span className="text-xs text-muted-foreground">{t("from")}:</span>
+                                <span className="text-sm text-muted-foreground">{t("from")}:</span>
                                 <Input
                                     type="date"
                                     className="w-[160px] bg-background/50 border-white/10"
@@ -882,7 +882,7 @@ export function AuditLogsContent() {
                                 />
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className="text-xs text-muted-foreground">{t("to")}:</span>
+                                <span className="text-sm text-muted-foreground">{t("to")}:</span>
                                 <Input
                                     type="date"
                                     className="w-[160px] bg-background/50 border-white/10"
@@ -904,7 +904,7 @@ export function AuditLogsContent() {
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className="text-xs"
+                                className="text-sm"
                                 onClick={() => setIsPolling((p) => !p)}
                             >
                                 {isPolling ? t("pause") : t("resume")} {t("autoRefresh")}
@@ -913,7 +913,7 @@ export function AuditLogsContent() {
                             <Button
                                 variant="default"
                                 size="sm"
-                                className="text-xs gap-2 ml-auto lg:ml-0"
+                                className="ml-auto gap-2 text-sm lg:ml-0"
                                 onClick={handleExport}
                                 disabled={isExporting || logs.length === 0}
                             >
@@ -988,13 +988,13 @@ export function AuditLogsContent() {
                                                                 <span className="block text-sm font-medium truncate">
                                                                     {log.user_name || "-"}
                                                                 </span>
-                                                                <span className="block text-xs text-muted-foreground truncate">
+                                                                <span className="block text-sm text-muted-foreground truncate">
                                                                     {log.user_email || "-"}
                                                                 </span>
                                                             </div>
                                                         </TableCell>
                                                         <TableCell>
-                                                            <Badge variant="outline" className={cn("text-xs", getActionColor(log.action))}>
+                                                            <Badge variant="outline" className={cn("text-sm", getActionColor(log.action))}>
                                                                 {actionLabel(log.action)}
                                                             </Badge>
                                                         </TableCell>
@@ -1002,7 +1002,7 @@ export function AuditLogsContent() {
                                                             <Badge
                                                                 variant="outline"
                                                                 className={cn(
-                                                                    "text-xs",
+                                                                    "text-sm",
                                                                     log.result === "failure"
                                                                         ? "border-red-500/20 text-red-500 bg-red-500/10"
                                                                         : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
@@ -1014,7 +1014,7 @@ export function AuditLogsContent() {
                                                         <TableCell>
                                                             <div className="min-w-0">
                                                                 <span className="block text-sm">{resourceLabel(log.resource_type)}</span>
-                                                                <span className="block text-xs text-muted-foreground font-mono">
+                                                                <span className="block text-sm font-mono text-muted-foreground">
                                                                     {shortenId(log.resource_id)}
                                                                 </span>
                                                             </div>
@@ -1029,7 +1029,7 @@ export function AuditLogsContent() {
                                                                     {t("yes")}
                                                                 </Badge>
                                                             ) : (
-                                                                <span className="text-xs text-muted-foreground">-</span>
+                                                                <span className="text-sm text-muted-foreground">-</span>
                                                             )}
                                                         </TableCell>
                                                         <TableCell>
@@ -1047,7 +1047,7 @@ export function AuditLogsContent() {
                         {/* Pagination - Load More */}
                         <div className="flex flex-col gap-3 border-t border-white/10 py-4 sm:flex-row sm:items-center sm:justify-between">
                             <div className="flex flex-wrap items-center gap-2">
-                                <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-medium text-muted-foreground">
+                                <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-sm font-medium text-muted-foreground">
                                     {logs.length} {t("allAuditEntries")}
                                 </span>
                                 <Select
@@ -1056,7 +1056,7 @@ export function AuditLogsContent() {
                                         setLimit(Number(val));
                                     }}
                                 >
-                                    <SelectTrigger variant="glass" className="h-8 w-[96px] rounded-full text-xs shadow-sm">
+                                    <SelectTrigger variant="glass" className="h-9 w-[108px] rounded-full text-sm shadow-sm">
                                         <SelectValue>{limit}</SelectValue>
                                     </SelectTrigger>
                                     <SelectContent side="top">
@@ -1067,14 +1067,14 @@ export function AuditLogsContent() {
                                         ))}
                                     </SelectContent>
                                 </Select>
-                                <span className="text-xs text-muted-foreground">{t("perPage")}</span>
+                                <span className="text-sm text-muted-foreground">{t("perPage")}</span>
                             </div>
                             <div className="flex items-center space-x-2">
                                 {nextCursor && (
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        className="h-8 rounded-full border-white/20 bg-white/5 px-4 text-xs shadow-sm hover:bg-white/10"
+                                        className="h-9 rounded-full border-white/20 bg-white/5 px-4 text-sm shadow-sm hover:bg-white/10"
                                         onClick={() => loadLogs(false, true)}
                                         disabled={loadingMore || loading}
                                     >
@@ -1112,13 +1112,13 @@ export function AuditLogsContent() {
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 flex-wrap">
-                                                <Badge variant="outline" className={cn("text-xs", getActionColor(selectedLog.action))}>
+                                                <Badge variant="outline" className={cn("text-sm", getActionColor(selectedLog.action))}>
                                                     {actionLabel(selectedLog.action)}
                                                 </Badge>
                                                 <Badge
                                                     variant="outline"
                                                     className={cn(
-                                                        "text-xs",
+                                                        "text-sm",
                                                         selectedLog.result === "failure"
                                                             ? "border-red-500/20 text-red-500 bg-red-500/10"
                                                             : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
@@ -1127,12 +1127,12 @@ export function AuditLogsContent() {
                                                     {resultLabel(selectedLog.result)}
                                                 </Badge>
                                                 {selectedLog.is_break_glass && (
-                                                    <Badge variant="outline" className="border-red-500/20 text-red-500 bg-red-500/10 text-xs">
+                                                    <Badge variant="outline" className="border-red-500/20 bg-red-500/10 text-sm text-red-500">
                                                         {t("breakGlass")}
                                                     </Badge>
                                                 )}
                                             </div>
-                                            <p className="text-xs text-muted-foreground mt-1">
+                                            <p className="mt-1 text-sm text-muted-foreground">
                                                 {localizeDateTime(selectedLog.created_at)} ({timeAgo(selectedLog.created_at, language)})
                                             </p>
                                         </div>
@@ -1145,7 +1145,7 @@ export function AuditLogsContent() {
                                 <div className="p-6 space-y-5 overflow-y-auto max-h-[calc(88vh-100px)]">
                                     {/* User Section */}
                                     <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
-                                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                                        <p className="mb-3 flex items-center gap-1.5 text-sm font-medium uppercase tracking-wide text-muted-foreground">
                                             <Users className="w-3.5 h-3.5" />
                                             {t("user")}
                                         </p>
@@ -1155,35 +1155,35 @@ export function AuditLogsContent() {
                                             </div>
                                             <div className="min-w-0">
                                                 <p className="text-sm font-medium truncate">{selectedLog.user_name || t("unknown")}</p>
-                                                <p className="text-xs text-muted-foreground truncate">{selectedLog.user_email || "-"}</p>
+                                                <p className="text-sm text-muted-foreground truncate">{selectedLog.user_email || "-"}</p>
                                             </div>
                                         </div>
                                         <div className="mt-3 pt-3 border-t border-border/40 grid grid-cols-2 gap-3">
                                             <div>
-                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("userId")}</p>
-                                                <p className="text-xs font-mono text-muted-foreground mt-0.5 truncate">{selectedLog.user_id || "-"}</p>
+                                                <p className="text-sm uppercase tracking-wider text-muted-foreground">{t("userId")}</p>
+                                                <p className="mt-0.5 truncate text-sm font-mono text-muted-foreground">{selectedLog.user_id || "-"}</p>
                                             </div>
                                             <div>
-                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("ipAddress")}</p>
-                                                <p className="text-xs font-mono text-muted-foreground mt-0.5">{selectedLog.ip_address || "-"}</p>
+                                                <p className="text-sm uppercase tracking-wider text-muted-foreground">{t("ipAddress")}</p>
+                                                <p className="mt-0.5 text-sm font-mono text-muted-foreground">{selectedLog.ip_address || "-"}</p>
                                             </div>
                                         </div>
                                     </div>
 
                                     {/* Resource Section */}
                                     <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
-                                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                                        <p className="mb-3 flex items-center gap-1.5 text-sm font-medium uppercase tracking-wide text-muted-foreground">
                                             <Activity className="w-3.5 h-3.5" />
                                             {t("resource")}
                                         </p>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
-                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("resourceType")}</p>
+                                                <p className="text-sm uppercase tracking-wider text-muted-foreground">{t("resourceType")}</p>
                                                 <p className="text-sm mt-0.5">{resourceLabel(selectedLog.resource_type)}</p>
                                             </div>
                                             <div>
-                                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("resourceId")}</p>
-                                                <p className="text-xs font-mono text-muted-foreground mt-0.5 break-all">{selectedLog.resource_id || "-"}</p>
+                                                <p className="text-sm uppercase tracking-wider text-muted-foreground">{t("resourceId")}</p>
+                                                <p className="mt-0.5 break-all text-sm font-mono text-muted-foreground">{selectedLog.resource_id || "-"}</p>
                                             </div>
                                         </div>
                                     </div>
@@ -1191,7 +1191,7 @@ export function AuditLogsContent() {
                                     {/* Break Glass Section */}
                                     {selectedLog.is_break_glass && (
                                         <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-4 space-y-2">
-                                            <p className="text-xs font-medium text-red-500 uppercase tracking-wide flex items-center gap-1.5">
+                                            <p className="flex items-center gap-1.5 text-sm font-medium uppercase tracking-wide text-red-500">
                                                 <ShieldAlert className="w-3.5 h-3.5" />
                                                 {t("breakGlassAccess")}
                                             </p>
@@ -1206,7 +1206,7 @@ export function AuditLogsContent() {
                                     {/* Details Section */}
                                     {selectedLog.details && (
                                         <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
-                                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                                            <p className="mb-3 flex items-center gap-1.5 text-sm font-medium uppercase tracking-wide text-muted-foreground">
                                                 <ScrollText className="w-3.5 h-3.5" />
                                                 {t("details")}
                                             </p>
@@ -1219,7 +1219,7 @@ export function AuditLogsContent() {
                                     {/* Change History Section */}
                                     {(selectedLog.old_values || selectedLog.new_values) && (
                                         <div className="rounded-lg border border-border/60 p-4 bg-muted/10">
-                                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                                            <p className="mb-3 flex items-center gap-1.5 text-sm font-medium uppercase tracking-wide text-muted-foreground">
                                                 <Activity className="w-3.5 h-3.5" />
                                                 {t("changeHistory")}
                                             </p>
@@ -1241,21 +1241,21 @@ export function AuditLogsContent() {
                                                             <Table>
                                                                 <TableHeader className="bg-muted/30">
                                                                     <TableRow className="border-border/40 hover:bg-transparent">
-                                                                        <TableHead className="h-8 text-xs font-medium">{t("field")}</TableHead>
-                                                                        <TableHead className="h-8 text-xs font-medium text-red-500/80">{t("oldValue")}</TableHead>
-                                                                        <TableHead className="h-8 text-xs font-medium text-emerald-500/80">{t("newValue")}</TableHead>
+                                                                        <TableHead className="h-8 text-sm font-medium">{t("field")}</TableHead>
+                                                                        <TableHead className="h-8 text-sm font-medium text-red-500/80">{t("oldValue")}</TableHead>
+                                                                        <TableHead className="h-8 text-sm font-medium text-emerald-500/80">{t("newValue")}</TableHead>
                                                                     </TableRow>
                                                                 </TableHeader>
                                                                 <TableBody>
                                                                     {changedKeys.map((key) => (
                                                                         <TableRow key={key} className="border-border/40 hover:bg-transparent">
-                                                                            <TableCell className="py-2 text-xs font-medium font-mono text-muted-foreground">
+                                                                            <TableCell className="py-2 text-sm font-medium font-mono text-muted-foreground">
                                                                                 {translateFieldLabel(key, language)}
                                                                             </TableCell>
-                                                                            <TableCell className="py-2 text-xs font-mono text-red-600/90 break-all bg-red-500/5">
+                                                                            <TableCell className="py-2 text-sm font-mono text-red-600/90 break-all bg-red-500/5">
                                                                                 {translateFieldValue(key, oldVals[key], language)}
                                                                             </TableCell>
-                                                                            <TableCell className="py-2 text-xs font-mono text-emerald-600/90 break-all bg-emerald-500/5">
+                                                                            <TableCell className="py-2 text-sm font-mono text-emerald-600/90 break-all bg-emerald-500/5">
                                                                                 {translateFieldValue(key, newVals[key], language)}
                                                                             </TableCell>
                                                                         </TableRow>
@@ -1271,8 +1271,8 @@ export function AuditLogsContent() {
 
                                     {/* Metadata Footer */}
                                     <div className="pt-2 border-t border-border/40">
-                                        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{t("logId")}</p>
-                                        <p className="text-xs font-mono text-muted-foreground mt-0.5 break-all">{selectedLog.id}</p>
+                                        <p className="text-sm uppercase tracking-wider text-muted-foreground">{t("logId")}</p>
+                                        <p className="mt-0.5 break-all text-sm font-mono text-muted-foreground">{selectedLog.id}</p>
                                     </div>
                                 </div>
                             </>

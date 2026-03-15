@@ -16,11 +16,12 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 
 export default function InviteRegisterClientPage() {
   const router = useRouter();
-  const params = useParams<{ token: string }>();
-  const token = params.token;
+  const params = useParams<{ token?: string }>();
+  const routeToken = typeof params?.token === "string" ? params.token : "";
   const language = useLanguageStore((state) => state.language);
   const setLanguage = useLanguageStore((state) => state.setLanguage);
 
+  const [inviteToken, setInviteToken] = useState(routeToken);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -34,10 +35,48 @@ export default function InviteRegisterClientPage() {
   const isClinicalInvite = CLINICAL_ROLES.has(role);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const hash = window.location.hash.startsWith("#")
+      ? window.location.hash.slice(1)
+      : window.location.hash;
+    const hashToken = new URLSearchParams(hash).get("token");
+
+    if (hashToken?.trim()) {
+      setInviteToken(hashToken.trim());
+      if (window.location.pathname !== "/invite") {
+        window.history.replaceState(
+          null,
+          "",
+          `/invite#token=${encodeURIComponent(hashToken.trim())}`
+        );
+      }
+      return;
+    }
+
+    if (routeToken.trim()) {
+      setInviteToken(routeToken.trim());
+      window.history.replaceState(
+        null,
+        "",
+        `/invite#token=${encodeURIComponent(routeToken.trim())}`
+      );
+    }
+  }, [routeToken]);
+
+  useEffect(() => {
+    if (!inviteToken.trim()) {
+      setLoading(false);
+      setError(
+        tr(language, "Invite link is invalid or expired", "ลิงก์คำเชิญไม่ถูกต้องหรือหมดอายุแล้ว")
+      );
+      return;
+    }
+
     const loadInvite = async () => {
       try {
         setLoading(true);
-        const info = await getInviteInfo(token);
+        const info = await getInviteInfo(inviteToken);
         setEmail(info.email);
         setRole(info.role);
       } catch (err) {
@@ -49,8 +88,8 @@ export default function InviteRegisterClientPage() {
         setLoading(false);
       }
     };
-    loadInvite();
-  }, [token, language]);
+    void loadInvite();
+  }, [inviteToken, language]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -71,7 +110,7 @@ export default function InviteRegisterClientPage() {
 
     try {
       setSubmitting(true);
-      await acceptInvite(token, {
+      await acceptInvite(inviteToken, {
         first_name: firstName || undefined,
         last_name: lastName || undefined,
         password,
@@ -99,16 +138,16 @@ export default function InviteRegisterClientPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <Card className="w-full max-w-md mx-4 border-border shadow-xl">
-        <CardHeader className="space-y-1 text-center">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+      <Card className="mx-4 w-full max-w-xl border-border shadow-xl">
+        <CardHeader className="space-y-2 text-center">
           <div className="flex justify-end">
             <div className="inline-flex rounded-md border border-input bg-background p-0.5">
               {APP_LANGUAGE_OPTIONS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
-                  className={`h-7 rounded px-2 text-xs transition-colors ${option.value === language
+                  className={`h-8 rounded px-2.5 text-[0.9rem] transition-colors ${option.value === language
                     ? "bg-foreground text-background"
                     : "text-muted-foreground hover:bg-muted"
                     }`}
@@ -119,18 +158,18 @@ export default function InviteRegisterClientPage() {
               ))}
             </div>
           </div>
-          <h2 className="text-2xl font-semibold">
+          <h2 className="text-3xl font-semibold tracking-tight">
             {tr(language, "Complete your account setup", "ตั้งค่าบัญชีของคุณให้เสร็จ")}
           </h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-[0.98rem] text-muted-foreground">
             {tr(language, "This invitation was created by an administrator.", "คำเชิญนี้ถูกสร้างโดยผู้ดูแลระบบ")}
           </p>
         </CardHeader>
         <CardContent>
           {error && !email ? (
             <div className="space-y-4">
-              <p className="text-sm text-destructive">{error}</p>
-              <Link href="/login" className="text-primary hover:underline text-sm">
+              <p className="text-[0.95rem] text-destructive">{error}</p>
+              <Link href="/login" className="text-[0.95rem] text-primary hover:underline">
                 {tr(language, "Back to sign in", "กลับไปหน้าเข้าสู่ระบบ")}
               </Link>
             </div>
@@ -192,7 +231,7 @@ export default function InviteRegisterClientPage() {
                     onChange={(e) => setLicenseNo(e.target.value)}
                     placeholder={tr(language, "e.g., MD-12345", "เช่น MD-12345")}
                   />
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[0.88rem] text-muted-foreground">
                     {tr(language, "Required for clinical roles.", "จำเป็นสำหรับตำแหน่งสายคลินิก")}
                   </p>
                 </div>
@@ -225,7 +264,7 @@ export default function InviteRegisterClientPage() {
               </div>
 
               {error && (
-                <p className="text-sm text-destructive" role="alert">
+                <p className="text-[0.95rem] text-destructive" role="alert">
                   {error}
                 </p>
               )}

@@ -51,6 +51,15 @@ def create_login_response(user: User) -> dict:
         "access_token": token,
         "token_type": "bearer",
         "expires_in": settings.jwt_expires_in,
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "role": user.role.value,
+            "verification_status": user.verification_status.value if user.verification_status else None,
+            "two_factor_enabled": bool(user.two_factor_enabled),
+        },
     }
 
 

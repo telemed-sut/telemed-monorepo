@@ -27,7 +27,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
   @override
   void initState() {
     super.initState();
-    _apiBaseUrlController = TextEditingController(text: AppConfig.telemedApiBaseUrl);
+    _apiBaseUrlController =
+        TextEditingController(text: AppConfig.telemedApiBaseUrl);
     _inviteUrlController = TextEditingController();
     _inviteUrlController.addListener(_refreshInvitePreview);
     _refreshInvitePreview();
@@ -69,18 +70,19 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
       return;
     }
 
-    final invite = _parsedInvite ?? PatientInviteLink.tryParse(_inviteUrlController.text);
+    final invite =
+        _parsedInvite ?? PatientInviteLink.tryParse(_inviteUrlController.text);
     if (invite == null || !invite.canJoin) {
       setState(() {
         _errorMessage =
-            'Invalid invite link. It must include invite_token, t, short_code, c, or /p/{code}.';
+            'ลิงก์เชิญไม่ถูกต้อง ต้องมี invite_token, t, short_code, c หรือ /p/{code}';
       });
       return;
     }
     if (invite.hasMeetingIdMismatch) {
       setState(() {
         _errorMessage =
-            'Invite link looks mismatched (meeting_id in URL is different from token). Please copy a new link from doctor.';
+            'ลิงก์เชิญไม่ตรงกัน (meeting_id ใน URL ไม่ตรงกับ token) กรุณาคัดลอกลิงก์ใหม่จากแพทย์';
       });
       return;
     }
@@ -88,7 +90,7 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
     final displayName = _displayNameController.text.trim();
     if (displayName.isEmpty) {
       setState(() {
-        _errorMessage = 'Please enter your name before joining.';
+        _errorMessage = 'กรุณากรอกชื่อของคุณก่อนเข้าห้อง';
       });
       return;
     }
@@ -96,7 +98,7 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
     final baseUrl = _apiBaseUrlController.text.trim();
     if (baseUrl.isEmpty) {
       setState(() {
-        _errorMessage = 'Please enter backend API base URL.';
+        _errorMessage = 'กรุณากรอก Backend API base URL';
       });
       return;
     }
@@ -106,8 +108,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
       _errorMessage = null;
     });
 
+    final apiClient = PatientVideoApiClient(baseUrl: baseUrl);
     try {
-      final apiClient = PatientVideoApiClient(baseUrl: baseUrl);
       final session = await apiClient.issuePatientVideoToken(
         meetingId: invite.meetingId,
         inviteToken: invite.inviteToken,
@@ -117,7 +119,7 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
 
       if (session.provider != 'zego') {
         setState(() {
-          _errorMessage = 'This meeting is not configured with ZEGO provider.';
+          _errorMessage = 'นัดหมายนี้ยังไม่ได้ตั้งค่า ZEGO provider';
         });
         return;
       }
@@ -129,6 +131,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
             displayName: displayName,
             startWithCamera: _startWithCamera,
             startWithMicrophone: _startWithMicrophone,
+            inviteToken: invite.inviteToken,
+            shortCode: invite.shortCode,
           ),
         ),
       );
@@ -140,9 +144,11 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
     } catch (_) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Unable to join call. Please check network and try again.';
+        _errorMessage =
+            'ไม่สามารถเข้าร่วมคอลได้ กรุณาตรวจสอบเครือข่ายแล้วลองใหม่';
       });
     } finally {
+      apiClient.close();
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -170,8 +176,9 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
           border: Border.all(color: const Color(0xFFE2E8F0)),
         ),
         child: Text(
-          'Paste invite link to verify meeting before joining.',
-          style: theme.textTheme.bodySmall?.copyWith(color: const Color(0xFF475569)),
+          'วางลิงก์เชิญเพื่อตรวจสอบนัดหมายก่อนเข้าห้อง',
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: const Color(0xFF475569)),
         ),
       );
     }
@@ -197,16 +204,22 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
               Icon(
                 mismatch ? Icons.error_outline : Icons.verified_outlined,
                 size: 16,
-                color: mismatch ? const Color(0xFFB91C1C) : const Color(0xFF166534),
+                color: mismatch
+                    ? const Color(0xFFB91C1C)
+                    : const Color(0xFF166534),
               ),
               const SizedBox(width: 6),
               Text(
                 mismatch
-                    ? 'Invite mismatch detected'
-                    : (invite.hasShortCode ? 'Short invite verified' : 'Invite verified'),
+                    ? 'พบความไม่ตรงกันของลิงก์เชิญ'
+                    : (invite.hasShortCode
+                        ? 'ยืนยัน short invite แล้ว'
+                        : 'ยืนยันลิงก์เชิญแล้ว'),
                 style: theme.textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.w700,
-                  color: mismatch ? const Color(0xFFB91C1C) : const Color(0xFF166534),
+                  color: mismatch
+                      ? const Color(0xFFB91C1C)
+                      : const Color(0xFF166534),
                 ),
               ),
             ],
@@ -214,26 +227,30 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
           const SizedBox(height: 6),
           if (invite.hasShortCode) ...[
             Text(
-              'Short code: ${invite.shortCode}',
+              'รหัสสั้น: ${invite.shortCode}',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: mismatch ? const Color(0xFF7F1D1D) : const Color(0xFF14532D),
+                color: mismatch
+                    ? const Color(0xFF7F1D1D)
+                    : const Color(0xFF14532D),
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 4),
           ],
           Text(
-            'Meeting ID: ${effectiveMeetingId ?? 'Unknown'}',
+            'Meeting ID: ${effectiveMeetingId ?? 'ไม่ทราบ'}',
             style: theme.textTheme.bodySmall?.copyWith(
-              color: mismatch ? const Color(0xFF7F1D1D) : const Color(0xFF14532D),
+              color:
+                  mismatch ? const Color(0xFF7F1D1D) : const Color(0xFF14532D),
               fontWeight: FontWeight.w600,
             ),
           ),
           if (mismatch) ...[
             const SizedBox(height: 4),
             Text(
-              'URL meeting_id and token meeting_id are not the same. This can make patient and doctor join different rooms.',
-              style: theme.textTheme.bodySmall?.copyWith(color: const Color(0xFF991B1B)),
+              'meeting_id ใน URL และใน token ไม่ตรงกัน อาจทำให้คนไข้กับแพทย์เข้าคนละห้อง',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: const Color(0xFF991B1B)),
             ),
           ],
         ],
@@ -295,7 +312,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                             colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
                           ),
                         ),
-                        child: const Icon(Icons.health_and_safety, color: Colors.white),
+                        child: const Icon(Icons.health_and_safety,
+                            color: Colors.white),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -303,13 +321,13 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Telemed Patient',
+                              'คนไข้ Telemed',
                               style: theme.textTheme.titleLarge?.copyWith(
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                             Text(
-                              'Join your doctor video call securely',
+                              'เข้าร่วมวิดีโอคอลกับแพทย์อย่างปลอดภัย',
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: const Color(0xFF475569),
                               ),
@@ -331,7 +349,7 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Call Details',
+                            'รายละเอียดการคอล',
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w700,
                             ),
@@ -353,12 +371,12 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                             minLines: 3,
                             maxLines: 5,
                             decoration: InputDecoration(
-                              labelText: 'Invite link',
+                              labelText: 'ลิงก์เชิญ',
                               hintText: 'https://.../p/abcd2345',
                               prefixIcon: const Icon(Icons.link_rounded),
                               suffixIcon: IconButton(
                                 onPressed: _isLoading ? null : _pasteInviteLink,
-                                tooltip: 'Paste',
+                                tooltip: 'วาง',
                                 icon: const Icon(Icons.content_paste_rounded),
                               ),
                             ),
@@ -370,8 +388,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                             controller: _displayNameController,
                             textInputAction: TextInputAction.done,
                             decoration: const InputDecoration(
-                              labelText: 'Your name',
-                              hintText: 'Anthony Rice',
+                              labelText: 'ชื่อของคุณ',
+                              hintText: 'สมชาย ใจดี',
                               prefixIcon: Icon(Icons.person_outline),
                             ),
                           ),
@@ -382,8 +400,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                   const SizedBox(height: 12),
                   _buildPermissionTile(
                     icon: Icons.videocam_outlined,
-                    title: 'Start with camera on',
-                    subtitle: 'You can switch it off anytime inside the call',
+                    title: 'เปิดกล้องเมื่อเข้าห้อง',
+                    subtitle: 'ภายหลังสามารถปิดได้จากปุ่มควบคุมในคอล',
                     value: _startWithCamera,
                     onChanged: (value) {
                       setState(() {
@@ -394,8 +412,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                   const SizedBox(height: 10),
                   _buildPermissionTile(
                     icon: Icons.mic_none_rounded,
-                    title: 'Start with microphone on',
-                    subtitle: 'Use mute/unmute controls during consultation',
+                    title: 'เปิดไมโครโฟนเมื่อเข้าห้อง',
+                    subtitle: 'ภายหลังสามารถปิดหรือเปิดได้ระหว่างการคอล',
                     value: _startWithMicrophone,
                     onChanged: (value) {
                       setState(() {
@@ -415,7 +433,8 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(Icons.error_outline, color: Color(0xFFDC2626)),
+                          const Icon(Icons.error_outline,
+                              color: Color(0xFFDC2626)),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
@@ -449,8 +468,9 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                               ),
                             )
                           : const Text(
-                              'Join Call',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                              'เข้าร่วมคอล',
+                              style: TextStyle(
+                                  fontSize: 16, fontWeight: FontWeight.w600),
                             ),
                     ),
                   ),

@@ -2,6 +2,7 @@ export interface LoginResponse {
   access_token: string;
   token_type: string;
   expires_in: number;
+  user?: UserMe;
 }
 
 export interface ForgotPasswordResponse {
@@ -38,6 +39,10 @@ export interface InviteInfoResponse {
   email: string;
   role: string;
   expires_at: string;
+}
+
+interface InviteTokenRequest {
+  token: string;
 }
 
 export interface UserMe {
@@ -147,11 +152,17 @@ export interface PatientAssignmentListResponse {
 
 type SortOrder = "asc" | "desc";
 
-// Use environment variable for API URL or default to localhost:8000
-// In production/tunnel, if deployed on same domain, use relative path
-const API_BASE_URL = (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1')
-  ? '/api'
-  : (process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000");
+// Browser requests should always use the Next.js same-origin proxy to avoid
+// local-dev CORS drift between frontend and backend runtime environments.
+const API_BASE_URL =
+  typeof window !== "undefined"
+    ? "/api"
+    : (
+      process.env.NEXT_SERVER_API_BASE_URL ||
+      process.env.NEXT_SERVER_API_PROXY_TARGET ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      "http://localhost:8000"
+    );
 export type ApiError = Error & { status?: number; detail?: unknown; code?: string };
 
 // Token refresh state to prevent multiple simultaneous refresh calls
@@ -165,12 +176,17 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 const MAX_QUERY_LIMIT = 200;
 const DEFAULT_ERROR_MESSAGE_TH = "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง";
+const COOKIE_SESSION_TOKEN = "__cookie_session__";
 
 const INTERNAL_ERROR_PATTERN =
   /(traceback|pydantic|validationerror|sqlalchemy|stack trace|line \d+|value_error|type_error)/i;
 
 const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /access denied|permission denied|forbidden/i, message: "คุณไม่มีสิทธิ์ทำรายการนี้" },
+  {
+    pattern: /temporarily blocked due to too many failed login attempts|your ip has been temporarily blocked|access denied\.\s*your ip has been temporarily blocked/i,
+    message: "IP ของคุณถูกบล็อกชั่วคราวจากการพยายามเข้าสู่ระบบผิดหลายครั้ง กรุณารอสักครู่แล้วลองใหม่",
+  },
   {
     pattern: /doctors?\s+can\s+only\s+create\s+meetings?\s+for\s+assigned\s+patients?\.?/i,
     message: "แพทย์สามารถสร้างนัดหมายได้เฉพาะผู้ป่วยที่ได้รับมอบหมายเท่านั้น",
@@ -188,6 +204,7 @@ const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /too many requests|rate limit/i, message: "คุณทำรายการถี่เกินไป กรุณาลองใหม่อีกครั้ง" },
   { pattern: /network error|failed to fetch|network request failed/i, message: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่" },
   { pattern: /invalid credentials|incorrect password/i, message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" },
+  { pattern: /invalid two-factor authentication code/i, message: "รหัส 2FA หรือ Backup Code ไม่ถูกต้อง" },
 ];
 
 function clampPage(page?: number): number {
@@ -264,6 +281,7 @@ function statusFallbackMessage(status?: number, fallback: string = DEFAULT_ERROR
   if (status === 403) return "คุณไม่มีสิทธิ์ทำรายการนี้";
   if (status === 404) return "ไม่พบข้อมูลที่ต้องการ";
   if (status === 409) return "ข้อมูลขัดแย้งกับสถานะปัจจุบัน กรุณารีเฟรชแล้วลองใหม่";
+  if (status === 423) return "บัญชีถูกล็อกชั่วคราว กรุณาลองใหม่อีกครั้งภายหลัง";
   if (status === 422) return "ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบก่อนบันทึก";
   if (status === 429) return "คุณทำรายการถี่เกินไป กรุณาลองใหม่อีกครั้ง";
   if (typeof status === "number" && status >= 500) return "ระบบขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง";
@@ -401,9 +419,16 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, token?: stri
 
 async function apiFetch<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   let activeToken = token;
+  const canAttemptRefresh = Boolean(activeToken);
 
   // Proactive refresh: if token is about to expire, refresh before making the request
-  if (activeToken && path !== "/auth/refresh" && path !== "/auth/login" && isTokenExpiring(activeToken)) {
+  if (
+    canAttemptRefresh &&
+    path !== "/auth/refresh" &&
+    path !== "/auth/login" &&
+    path !== "/auth/logout" &&
+    isTokenExpiring(activeToken!)
+  ) {
     const refreshed = await tryRefreshToken(activeToken);
     if (refreshed) {
       activeToken = refreshed;
@@ -415,7 +440,13 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
   if (result.ok) return result.data as T;
 
   // If 401, try to refresh once (supports both bearer and cookie auth flows)
-  if (result.status === 401 && path !== "/auth/refresh" && path !== "/auth/login") {
+  if (
+    canAttemptRefresh &&
+    result.status === 401 &&
+    path !== "/auth/refresh" &&
+    path !== "/auth/login" &&
+    path !== "/auth/logout"
+  ) {
     const newToken = await tryRefreshToken(activeToken);
     if (newToken) {
       // Retry the original request with the new token
@@ -459,9 +490,9 @@ async function tryRefreshToken(currentToken?: string): Promise<string | null> {
       // Dynamic import to avoid circular dependency
       const { useAuthStore } = await import("@/store/auth-store");
       const res = await rawFetch<LoginResponse>("/auth/refresh", { method: "POST" }, currentToken);
-      if (res.ok && res.data?.access_token) {
-        useAuthStore.getState().setToken(res.data.access_token);
-        return res.data.access_token;
+      if (res.ok && res.data?.user) {
+        useAuthStore.getState().setSession(res.data);
+        return COOKIE_SESSION_TOKEN;
       }
       return null;
     } catch {
@@ -506,8 +537,9 @@ export async function resetPassword(token: string, newPassword: string) {
 }
 
 export async function getInviteInfo(token: string) {
-  return apiFetch<InviteInfoResponse>(`/auth/invite/${token}`, {
-    method: "GET",
+  return apiFetch<InviteInfoResponse>("/auth/invite/inspect", {
+    method: "POST",
+    body: JSON.stringify({ token } satisfies InviteTokenRequest),
   });
 }
 
@@ -866,7 +898,7 @@ export type MeetingStatus = (typeof MEETING_STATUSES)[number];
 
 export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
   scheduled: "Scheduled",
-  waiting: "Waiting",
+  waiting: "Checked In",
   in_progress: "In Progress",
   overtime: "Overtime",
   completed: "Completed",
@@ -874,8 +906,8 @@ export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
 };
 
 export const MEETING_STATUS_LABELS_TH: Record<MeetingStatus, string> = {
-  scheduled: "นัดหมายแล้ว",
-  waiting: "รอพบแพทย์",
+  scheduled: "กำหนดการ",
+  waiting: "เช็กอินแล้ว",
   in_progress: "กำลังตรวจ",
   overtime: "เกินเวลา",
   completed: "เสร็จแล้ว",
@@ -896,12 +928,59 @@ export interface PatientBrief {
   people_id?: string | null;
 }
 
+export type MeetingRoomPresenceState =
+  | "none"
+  | "patient_waiting"
+  | "both_in_room"
+  | "doctor_only"
+  | "doctor_left_patient_waiting";
+
+export interface MeetingRoomPresence {
+  meeting_id: string;
+  state: MeetingRoomPresenceState;
+  doctor_online: boolean;
+  patient_online: boolean;
+  refreshed_at?: string | null;
+  doctor_joined_at?: string | null;
+  doctor_last_seen_at?: string | null;
+  patient_last_seen_at?: string | null;
+  patient_joined_at?: string | null;
+  doctor_left_at?: string | null;
+  patient_left_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MeetingReliabilitySnapshot {
+  meeting_id: string;
+  checked_at: string;
+  heartbeat_timeout_seconds: number;
+  meeting_status: MeetingStatus;
+  meeting_status_before_reconcile: MeetingStatus;
+  meeting_status_reconciled: boolean;
+  active_status_projection: MeetingStatus;
+  status_in_sync?: boolean | null;
+  room_presence_state: MeetingRoomPresenceState;
+  doctor_online: boolean;
+  patient_online: boolean;
+  doctor_presence_stale: boolean;
+  patient_presence_stale: boolean;
+  doctor_last_seen_at?: string | null;
+  patient_last_seen_at?: string | null;
+  doctor_last_seen_age_seconds?: number | null;
+  patient_last_seen_age_seconds?: number | null;
+  doctor_left_at?: string | null;
+  patient_left_at?: string | null;
+  refreshed_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface Meeting {
   id: string;
   date_time: string;
   description?: string | null;
   doctor_id?: string | null;
   note?: string | null;
+  patient_invite_url?: string | null;
   room?: string | null;
   user_id?: string | null;
   status: MeetingStatus;
@@ -912,10 +991,12 @@ export interface Meeting {
   updated_at?: string;
   doctor?: DoctorBrief | null;
   patient?: PatientBrief | null;
+  room_presence?: MeetingRoomPresence | null;
 }
 
 export interface MeetingVideoTokenResponse {
   provider: "mock" | "zego";
+  meeting_id: string;
   app_id?: number | null;
   room_id: string;
   user_id: string;
@@ -932,6 +1013,12 @@ export interface MeetingPatientInviteResponse {
   invite_url: string;
   issued_at: string;
   expires_at: string;
+}
+
+export interface MeetingPatientPresencePayload {
+  meetingId?: string;
+  inviteToken?: string;
+  shortCode?: string;
 }
 
 export interface MeetingListResponse {
@@ -1100,6 +1187,71 @@ export async function issuePatientMeetingVideoToken(params: {
     {
       method: "POST",
       body: JSON.stringify(body),
+    }
+  );
+}
+
+export async function heartbeatDoctorMeetingPresence(
+  meetingId: string,
+  token: string
+) {
+  return apiFetch<MeetingRoomPresence>(
+    `/meetings/${meetingId}/video/presence/heartbeat`,
+    { method: "POST", body: JSON.stringify({}) },
+    token
+  );
+}
+
+export async function fetchMeetingReliabilitySnapshot(
+  meetingId: string,
+  token: string
+) {
+  return apiFetch<MeetingReliabilitySnapshot>(
+    `/meetings/${meetingId}/video/reliability`,
+    { method: "GET" },
+    token
+  );
+}
+
+export async function leaveDoctorMeetingPresence(
+  meetingId: string,
+  token: string
+) {
+  return apiFetch<MeetingRoomPresence>(
+    `/meetings/${meetingId}/video/presence/leave`,
+    { method: "POST", body: JSON.stringify({}) },
+    token
+  );
+}
+
+function buildPatientPresenceBody(params: MeetingPatientPresencePayload) {
+  const body: Record<string, unknown> = {};
+  if (params.meetingId) body.meeting_id = params.meetingId;
+  if (params.inviteToken) body.invite_token = params.inviteToken;
+  if (params.shortCode) body.short_code = params.shortCode;
+  return body;
+}
+
+export async function heartbeatPatientMeetingPresence(
+  params: MeetingPatientPresencePayload
+) {
+  return apiFetch<MeetingRoomPresence>(
+    "/meetings/video/patient/presence/heartbeat",
+    {
+      method: "POST",
+      body: JSON.stringify(buildPatientPresenceBody(params)),
+    }
+  );
+}
+
+export async function leavePatientMeetingPresence(
+  params: MeetingPatientPresencePayload
+) {
+  return apiFetch<MeetingRoomPresence>(
+    "/meetings/video/patient/presence/leave",
+    {
+      method: "POST",
+      body: JSON.stringify(buildPatientPresenceBody(params)),
     }
   );
 }

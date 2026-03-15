@@ -15,4 +15,5 @@ from app.models import (  # noqa: F401,E402
     user_trusted_device, user_backup_code, device_registration,
     meeting_patient_invite_code,
     patient_app_registration,
+    meeting_room_presence,
 )

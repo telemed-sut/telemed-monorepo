@@ -52,7 +52,7 @@ export function NotificationsPopover({
                             </Avatar>
                             <div className="flex flex-col">
                                 <span className="text-sm font-medium">{text}</span>
-                                <span className="text-xs text-muted-foreground">{time}</span>
+                                <span className="text-sm text-muted-foreground">{time}</span>
                             </div>
                         </DropdownMenuItem>
                     ))}

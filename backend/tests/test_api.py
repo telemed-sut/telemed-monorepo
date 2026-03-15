@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -5,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
 from app.models.invite import UserInvite
+from app.models.patient import Patient
 from app.models.user import User, UserRole
 from app.core.security import get_password_hash
 
@@ -31,6 +34,8 @@ def test_login_endpoint(client: TestClient, db: Session):
     assert "access_token" in data
     assert data["token_type"] == "bearer"
     assert "expires_in" in data
+    assert data["user"]["email"] == "test@example.com"
+    assert data["user"]["role"] == "staff"
     assert "set-cookie" in response.headers
 
 
@@ -71,6 +76,7 @@ def test_refresh_endpoint(client: TestClient, db: Session):
     data = response.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
+    assert data["user"]["email"] == "refresh@example.com"
 
 
 def test_refresh_endpoint_uses_auth_cookie(client: TestClient, db: Session):
@@ -92,6 +98,7 @@ def test_refresh_endpoint_uses_auth_cookie(client: TestClient, db: Session):
     response = client.post("/auth/refresh")
     assert response.status_code == 200
     assert "access_token" in response.json()
+    assert response.json()["user"]["email"] == "refresh-cookie@example.com"
 
 
 def test_logout_endpoint(client: TestClient, db: Session):
@@ -204,10 +211,14 @@ def test_admin_can_create_invite_and_accept_it(client: TestClient, db: Session):
     )
     assert invite_response.status_code == 200
     invite_url = invite_response.json()["invite_url"]
-    invite_token = invite_url.rsplit("/", 1)[-1]
+    assert "/invite#token=" in invite_url
+    invite_token = invite_url.split("#token=", 1)[-1]
     assert invite_token
 
-    invite_info_response = client.get(f"/auth/invite/{invite_token}")
+    invite_info_response = client.post(
+        "/auth/invite/inspect",
+        json={"token": invite_token},
+    )
     assert invite_info_response.status_code == 200
     assert invite_info_response.json()["email"] == "doctor@example.com"
 
@@ -230,6 +241,40 @@ def test_admin_can_create_invite_and_accept_it(client: TestClient, db: Session):
     assert login_new_user.status_code == 200
 
 
+def test_doctor_cannot_generate_patient_app_code_for_unassigned_patient(
+    client: TestClient,
+    db: Session,
+):
+    doctor = User(
+        email="doctor-unassigned@example.com",
+        password_hash=get_password_hash("DoctorPass123"),
+        role=UserRole.doctor,
+    )
+    patient = Patient(
+        first_name="Pat",
+        last_name="Unassigned",
+        phone="+66812345678",
+        date_of_birth=date(1995, 1, 1),
+    )
+    db.add_all([doctor, patient])
+    db.commit()
+    db.refresh(patient)
+
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "doctor-unassigned@example.com", "password": "DoctorPass123"},
+    )
+    token = login_response.json()["access_token"]
+
+    response = client.post(
+        f"/patient-app/{patient.id}/code",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 403
+    assert "not assigned" in response.json()["detail"].lower()
+
+
 def test_invite_link_is_single_use(client: TestClient, db: Session):
     admin = User(
         email="single-admin@example.com",
@@ -250,7 +295,7 @@ def test_invite_link_is_single_use(client: TestClient, db: Session):
         json={"email": "single-use@example.com", "role": "doctor"},
         headers=headers,
     ).json()["invite_url"]
-    invite_token = invite_url.rsplit("/", 1)[-1]
+    invite_token = invite_url.split("#token=", 1)[-1]
 
     first_accept = client.post(
         "/auth/invite/accept",
@@ -285,7 +330,7 @@ def test_invite_acceptance_marks_used_and_writes_audit(client: TestClient, db: S
         json={"email": "invite-audit-doctor@example.com", "role": "doctor"},
         headers=headers,
     ).json()["invite_url"]
-    invite_token = invite_url.rsplit("/", 1)[-1]
+    invite_token = invite_url.split("#token=", 1)[-1]
 
     accept = client.post(
         "/auth/invite/accept",
@@ -357,7 +402,7 @@ def test_clinical_invite_requires_license_no(client: TestClient, db: Session):
         json={"email": "doctor-clinical@example.com", "role": "doctor"},
         headers=headers,
     ).json()["invite_url"]
-    invite_token = invite_url.rsplit("/", 1)[-1]
+    invite_token = invite_url.split("#token=", 1)[-1]
 
     response = client.post(
         "/auth/invite/accept",

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -19,16 +19,35 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
   const language = useLanguageStore((state) => state.language);
   const setLanguage = useLanguageStore((state) => state.setLanguage);
 
-  const tokenInputRef = useRef<HTMLInputElement>(null);
+  const [tokenValue, setTokenValue] = useState(initialToken);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const hash = window.location.hash.startsWith("#")
+      ? window.location.hash.slice(1)
+      : window.location.hash;
+    const hashToken = new URLSearchParams(hash).get("token");
+
+    if (hashToken?.trim()) {
+      setTokenValue(hashToken.trim());
+      return;
+    }
+
+    if (initialToken.trim()) {
+      setTokenValue(initialToken.trim());
+      window.history.replaceState(null, "", "/reset-password");
+    }
+  }, [initialToken]);
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    const token = tokenInputRef.current?.value.trim() ?? "";
+    const token = tokenValue.trim();
 
     if (!token) {
       setError(tr(language, "Reset token is required", "ต้องระบุรีเซ็ตโทเคน"));
@@ -58,16 +77,16 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <Card className="w-full max-w-md mx-4 border-border shadow-xl">
-        <CardHeader className="space-y-1 text-center">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+      <Card className="mx-4 w-full max-w-lg border-border shadow-xl">
+        <CardHeader className="space-y-2 text-center">
           <div className="flex justify-end">
             <div className="inline-flex rounded-md border border-input bg-background p-0.5">
               {APP_LANGUAGE_OPTIONS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
-                  className={`h-7 rounded px-2 text-xs transition-colors ${option.value === language
+                  className={`h-8 rounded px-2.5 text-[0.9rem] transition-colors ${option.value === language
                     ? "bg-foreground text-background"
                     : "text-muted-foreground hover:bg-muted"
                     }`}
@@ -78,8 +97,8 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
               ))}
             </div>
           </div>
-          <h2 className="text-2xl font-semibold">{tr(language, "Reset password", "ตั้งรหัสผ่านใหม่")}</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-3xl font-semibold tracking-tight">{tr(language, "Reset password", "ตั้งรหัสผ่านใหม่")}</h2>
+          <p className="text-[0.98rem] text-muted-foreground">
             {tr(language, "Enter your reset token and set a new password.", "กรอกรีเซ็ตโทเคนและตั้งรหัสผ่านใหม่")}
           </p>
         </CardHeader>
@@ -89,9 +108,9 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
               <Label htmlFor="token">{tr(language, "Reset token", "รีเซ็ตโทเคน")}</Label>
               <Input
                 id="token"
-                ref={tokenInputRef}
                 required
-                defaultValue={initialToken}
+                value={tokenValue}
+                onChange={(event) => setTokenValue(event.target.value)}
                 placeholder={tr(language, "Paste reset token", "วางรีเซ็ตโทเคน")}
               />
             </div>
@@ -123,7 +142,7 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
             </div>
 
             {error && (
-              <p className="text-sm text-destructive" role="alert">
+              <p className="text-[0.95rem] text-destructive" role="alert">
                 {error}
               </p>
             )}
@@ -135,7 +154,7 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
             </Button>
           </form>
 
-          <div className="mt-4 text-sm text-center">
+          <div className="mt-4 text-center text-[0.95rem]">
             <Link href="/login" className="text-primary hover:underline">
               {tr(language, "Back to sign in", "กลับไปหน้าเข้าสู่ระบบ")}
             </Link>

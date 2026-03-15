@@ -552,7 +552,7 @@ export function SettingsContent() {
                       : tr(language, "Not enabled", "ยังไม่เปิดใช้งาน")}
                   </span>
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {twoFA.required
                     ? tr(
                       language,
@@ -561,14 +561,14 @@ export function SettingsContent() {
                     )
                     : tr(language, "Optional for your role", "ไม่บังคับสำหรับบทบาทของคุณ")}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {tr(language, "Trusted device expires in", "อุปกรณ์ที่เชื่อถือจะหมดอายุใน")} {twoFA.trusted_device_days ?? (isAdmin ? 7 : 30)} {tr(language, "days", "วัน")}
                 </p>
               </div>
 
               {(twoFA.setup_required || twoFA.provisioning_uri) && twoFA.provisioning_uri && (
                 <div className="space-y-2 rounded-lg border border-border p-3">
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     {tr(language, "Scan QR with your authenticator app and enter 6-digit code to verify", "สแกน QR ด้วยแอป Authenticator แล้วกรอกรหัส 6 หลักเพื่อยืนยัน")}
                   </p>
                   <div className="flex justify-center rounded-md bg-white p-2">
@@ -582,10 +582,10 @@ export function SettingsContent() {
                         className="h-[220px] w-[220px]"
                       />
                     ) : (
-                      <p className="py-8 text-xs text-muted-foreground">{tr(language, "Generating QR code...", "กำลังสร้าง QR code...")}</p>
+                      <p className="py-8 text-sm text-muted-foreground">{tr(language, "Generating QR code...", "กำลังสร้าง QR code...")}</p>
                     )}
                   </div>
-                  <p className="break-all text-[11px] text-muted-foreground">
+                  <p className="break-all text-sm text-muted-foreground">
                     {tr(language, "Setup key", "รหัสตั้งค่า")}: {extractSetupKey(twoFA.provisioning_uri) ?? "-"}
                   </p>
                 </div>
@@ -650,7 +650,7 @@ export function SettingsContent() {
 
               <div className="space-y-2 border-t border-border pt-4">
                 <p className="text-sm font-medium">{tr(language, "Backup Codes", "รหัสสำรอง")}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {tr(language, "Use one code at a time when you cannot access authenticator app", "ใช้แทนรหัส 2FA ได้ครั้งละ 1 โค้ดเมื่อเข้า Authenticator ไม่ได้")}
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -665,7 +665,7 @@ export function SettingsContent() {
                   </Button>
                 </div>
                 {backupCodes.length > 0 && (
-                  <pre className="rounded-md border border-border bg-muted p-3 text-xs leading-6">
+                  <pre className="rounded-md border border-border bg-muted p-3 text-sm leading-6">
                     {backupCodes.join("\n")}
                   </pre>
                 )}
@@ -694,10 +694,10 @@ export function SettingsContent() {
                             ? tr(language, "Current device", "อุปกรณ์ปัจจุบัน")
                             : tr(language, "Trusted device", "อุปกรณ์ที่เชื่อถือ")}
                         </p>
-                        <p className="text-xs text-muted-foreground">{tr(language, "IP", "ไอพี")}: {device.ip_address || tr(language, "unknown", "ไม่ทราบ")}</p>
-                        <p className="text-xs text-muted-foreground">{tr(language, "Created", "สร้างเมื่อ")}: {formatDateTime(device.created_at, language)}</p>
-                        <p className="text-xs text-muted-foreground">{tr(language, "Last used", "ใช้งานล่าสุด")}: {formatDateTime(device.last_used_at, language)}</p>
-                        <p className="text-xs text-muted-foreground">{tr(language, "Expires", "หมดอายุ")}: {formatDateTime(device.expires_at, language)}</p>
+                        <p className="text-sm text-muted-foreground">{tr(language, "IP", "ไอพี")}: {device.ip_address || tr(language, "unknown", "ไม่ทราบ")}</p>
+                        <p className="text-sm text-muted-foreground">{tr(language, "Created", "สร้างเมื่อ")}: {formatDateTime(device.created_at, language)}</p>
+                        <p className="text-sm text-muted-foreground">{tr(language, "Last used", "ใช้งานล่าสุด")}: {formatDateTime(device.last_used_at, language)}</p>
+                        <p className="text-sm text-muted-foreground">{tr(language, "Expires", "หมดอายุ")}: {formatDateTime(device.expires_at, language)}</p>
                         <Button
                           type="button"
                           variant="ghost"
@@ -766,7 +766,7 @@ export function SettingsContent() {
                 <p><span className="text-muted-foreground">{tr(language, "2FA Enabled", "เปิดใช้งาน 2FA")}:</span> {resolvedUser.two_factor_enabled ? tr(language, "Yes", "ใช่") : tr(language, "No", "ไม่")}</p>
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">{tr(language, "Resolve user first to confirm target account", "ค้นหาผู้ใช้ก่อน เพื่อยืนยันบัญชีเป้าหมาย")}</p>
+              <p className="text-sm text-muted-foreground">{tr(language, "Resolve user first to confirm target account", "ค้นหาผู้ใช้ก่อน เพื่อยืนยันบัญชีเป้าหมาย")}</p>
             )}
 
             <div className="flex flex-wrap gap-2">
@@ -794,11 +794,11 @@ export function SettingsContent() {
               </Button>
               {generatedResetToken && (
                 <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     {tr(language, "One-time reset token (shown once):", "โทเคนรีเซ็ตรหัสผ่านแบบครั้งเดียว (แสดงครั้งเดียว):")}
                   </p>
                   <Input value={generatedResetToken} readOnly />
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     {tr(language, "Expires in", "หมดอายุใน")} {generatedResetTokenTTL ?? "-"} {tr(language, "seconds", "วินาที")}
                   </p>
                   <Button type="button" variant="outline" onClick={handleCopyGeneratedResetToken}>

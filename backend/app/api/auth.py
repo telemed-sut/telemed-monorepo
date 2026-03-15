@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+import anyio
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -38,6 +39,7 @@ from app.schemas.auth import (
     TrustedDevicesRevokeAllResponse,
     InviteAcceptRequest,
     InviteInfoResponse,
+    InviteTokenRequest,
     LoginRequest,
     MessageResponse,
     ResetPasswordRequest,
@@ -47,6 +49,7 @@ from app.schemas.auth import (
 from app.schemas.user import CLINICAL_ROLES
 from app.services import auth as auth_service
 from app.services import security as security_service
+from app.services.user_events import publish_user_registered
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -431,7 +434,6 @@ def revoke_trusted_device(
     current_hash = hash_security_token(raw_cookie) if raw_cookie else None
     revoked_row = db.scalar(select(UserTrustedDevice).where(UserTrustedDevice.id == device_id))
 
-    response = MessageResponse(message="Trusted device revoked.")
     db.add(
         AuditLog(
             user_id=current_user.id,
@@ -817,6 +819,20 @@ def get_invite_info(request: Request, token: str, db: Session = Depends(auth_ser
     return InviteInfoResponse(email=invite.email, role=invite.role, expires_at=invite.expires_at)
 
 
+@router.post("/invite/inspect", response_model=InviteInfoResponse)
+@limiter.limit("60/minute")
+def inspect_invite_token(
+    request: Request,
+    payload: InviteTokenRequest,
+    db: Session = Depends(auth_service.get_db),
+):
+    invite = auth_service.get_active_invite_by_token(db, payload.token)
+    if not invite:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite link is invalid or expired")
+
+    return InviteInfoResponse(email=invite.email, role=invite.role, expires_at=invite.expires_at)
+
+
 @router.post("/invite/accept", response_model=MessageResponse)
 @limiter.limit("20/minute")
 def accept_invite(request: Request, payload: InviteAcceptRequest, db: Session = Depends(auth_service.get_db)):
@@ -880,4 +896,8 @@ def accept_invite(request: Request, payload: InviteAcceptRequest, db: Session = 
         )
     )
     db.commit()
+    try:
+        anyio.from_thread.run(publish_user_registered, user.id)
+    except Exception:
+        logger.warning("Failed to publish user registration event", exc_info=True)
     return MessageResponse(message="Account created successfully")

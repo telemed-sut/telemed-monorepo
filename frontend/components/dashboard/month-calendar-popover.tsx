@@ -12,8 +12,6 @@ import {
   isSameDay,
   isSameMonth,
   isToday,
-  setHours,
-  setMinutes,
   startOfMonth,
   startOfWeek,
   startOfYear,
@@ -37,6 +35,11 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  combineLocalDateAndTimeToIso,
+  formatLocalDateKey,
+  parseLocalDateKey,
+} from "@/lib/meeting-datetime";
 import { cn } from "@/lib/utils";
 import {
   createMeeting,
@@ -150,7 +153,7 @@ interface MonthCalendarPopoverProps {
 }
 
 interface ComposerDraft {
-  dateISO: string;
+  dateKey: string;
   startHour: number;
   startMinute: number;
   endHour: number;
@@ -180,7 +183,7 @@ const CLOSED_MEETING_CONTEXT_MENU: MeetingContextMenuState = {
 
 const TH_STATUS_LABELS: Partial<Record<MeetingStatus, string>> = {
   scheduled: "กำหนดการ",
-  waiting: "รอพบแพทย์",
+  waiting: "เช็กอินแล้ว",
   in_progress: "กำลังตรวจ",
   overtime: "เกินเวลา",
   completed: "เสร็จสิ้น",
@@ -194,7 +197,7 @@ function getStatusLabel(status: MeetingStatus, language: AppLanguage): string {
   return (
     {
       scheduled: "Scheduled",
-      waiting: "Waiting",
+      waiting: "Checked In",
       in_progress: "In progress",
       overtime: "Overtime",
       completed: "Completed",
@@ -208,7 +211,7 @@ function pad2(value: number): string {
 }
 
 function formatDateKey(date: Date): string {
-  return format(date, "yyyy-MM-dd");
+  return formatLocalDateKey(date);
 }
 
 function getInviteesDraftKey(meetingId: string): string {
@@ -248,10 +251,16 @@ function readComposerDraft(userId: string | null): ComposerDraft | null {
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
-    const draft = parsed as Partial<ComposerDraft>;
-    if (!draft.dateISO || typeof draft.dateISO !== "string") return null;
-    const parsedDate = new Date(draft.dateISO);
-    if (Number.isNaN(parsedDate.getTime())) return null;
+    const draft = parsed as Partial<ComposerDraft> & { dateISO?: string };
+    const dateKey =
+      typeof draft.dateKey === "string"
+        ? draft.dateKey
+        : typeof draft.dateISO === "string"
+          ? formatLocalDateKey(new Date(draft.dateISO))
+          : null;
+    if (!dateKey) return null;
+    const parsedDate = parseLocalDateKey(dateKey);
+    if (!parsedDate) return null;
 
     const toInt = (value: unknown, fallback: number, min: number, max: number) => {
       if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
@@ -265,7 +274,7 @@ function readComposerDraft(userId: string | null): ComposerDraft | null {
     const endMinute = toInt(draft.endMinute, startMinute, 0, 59);
 
     return {
-      dateISO: draft.dateISO,
+      dateKey,
       startHour,
       startMinute,
       endHour,
@@ -322,9 +331,7 @@ function clampStartMinutes(start: number, duration: number): number {
 function buildIsoFromDateAndMinutes(date: Date, minutesInDay: number): string {
   const clamped = Math.min(Math.max(0, minutesInDay), 23 * 60 + 55);
   const { hour, minute } = minutesToHourMinute(clamped);
-  const base = new Date(date);
-  base.setSeconds(0, 0);
-  return setMinutes(setHours(base, hour), minute).toISOString();
+  return combineLocalDateAndTimeToIso(date, hour, minute);
 }
 
 function formatHourOption(hour: number): string {
@@ -589,7 +596,7 @@ function MeetingPreviewCard({
           <h4 className="line-clamp-2 text-lg font-semibold leading-tight text-zinc-100">
             {title}
           </h4>
-          <div className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-600 bg-zinc-800/80 px-2 py-1 text-[11px] text-zinc-100">
+          <div className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-600 bg-zinc-800/80 px-2 py-1 text-xs text-zinc-100">
             <span className={cn("size-2 rounded-full", getMeetingDotClass(meeting.status))} />
             <span>{getStatusLabel(meeting.status, language)}</span>
           </div>
@@ -607,7 +614,7 @@ function MeetingPreviewCard({
           <Button
             type="button"
             variant="outline"
-            className="h-8 border-zinc-600 bg-zinc-800 px-3 text-xs text-zinc-100 hover:bg-zinc-700"
+            className="h-9 border-zinc-600 bg-zinc-800 px-3 text-sm text-zinc-100 hover:bg-zinc-700"
             onClick={onClose}
           >
             {tr(language, "Close", "ปิด")}
@@ -636,7 +643,7 @@ function MeetingPreviewCard({
           placeholder={title}
           disabled={savingField === "description"}
         />
-        <div className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-600 bg-zinc-800/80 px-2 py-1 text-[11px] text-zinc-100">
+        <div className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-zinc-600 bg-zinc-800/80 px-2 py-1 text-xs text-zinc-100">
           <span className={cn("size-2 rounded-full", getMeetingDotClass(meeting.status))} />
           <span>{getStatusLabel(meeting.status, language)}</span>
         </div>
@@ -758,7 +765,7 @@ function MiniMonthNavigator({
 
   return (
     <div className="rounded-2xl border border-zinc-700 bg-zinc-900/95 p-3">
-      <div className="mb-2 text-xs font-medium text-zinc-300">
+      <div className="mb-2 text-sm font-medium text-zinc-300">
         {monthStart.toLocaleDateString(localeOf(language), {
           month: "long",
           year: "numeric",
@@ -767,7 +774,7 @@ function MiniMonthNavigator({
 
       <div className="grid grid-cols-7 gap-1">
         {weekdayLabels.map((item) => (
-          <div key={item.key} className="text-center text-[10px] text-zinc-500">
+          <div key={item.key} className="text-center text-xs text-zinc-500">
             {item.label}
           </div>
         ))}
@@ -783,7 +790,7 @@ function MiniMonthNavigator({
               key={key}
               type="button"
               className={cn(
-                "relative flex h-7 items-center justify-center rounded text-[10px] transition-colors",
+                "relative flex h-7 items-center justify-center rounded text-xs transition-colors",
                 inCurrentMonth
                   ? "text-zinc-200 hover:bg-zinc-800"
                   : "text-zinc-600 hover:bg-zinc-900/60",
@@ -860,7 +867,7 @@ export function MonthCalendarPopover({
     if (!composer || composer.submitting) return;
 
     writeComposerDraft(currentUserId, {
-      dateISO: composer.date.toISOString(),
+      dateKey: formatLocalDateKey(composer.date),
       startHour: composer.startHour,
       startMinute: composer.startMinute,
       endHour: composer.endHour,
@@ -1388,7 +1395,7 @@ export function MonthCalendarPopover({
       setComposer({
         anchorX: positioned.x,
         anchorY: positioned.y,
-        date: new Date(savedDraft.dateISO),
+        date: parseLocalDateKey(savedDraft.dateKey) ?? new Date(),
         startHour: savedDraft.startHour,
         startMinute: savedDraft.startMinute,
         endHour: savedDraft.endHour,
@@ -1961,13 +1968,12 @@ export function MonthCalendarPopover({
 
     setComposer((prev) => (prev ? { ...prev, submitting: true } : prev));
 
-    const startDate = setMinutes(
-      setHours(new Date(composer.date), composer.startHour),
-      composer.startMinute
-    );
-
     const payload: MeetingCreatePayload = {
-      date_time: startDate.toISOString(),
+      date_time: combineLocalDateAndTimeToIso(
+        composer.date,
+        composer.startHour,
+        composer.startMinute
+      ),
       doctor_id: effectiveDoctorId,
       user_id: composer.patientId,
       description: composer.description.trim() || undefined,
@@ -2977,7 +2983,7 @@ export function MonthCalendarPopover({
 
             <div className="mt-4 flex items-center justify-between gap-2">
               <h3 className="text-2xl font-semibold tracking-tight">{headerTitle}</h3>
-              <p className="text-[11px] md:text-xs text-zinc-400">
+              <p className="text-sm text-zinc-400">
                 {tr(
                   language,
                   "Right-click a date and choose New Event",
@@ -3104,10 +3110,10 @@ export function MonthCalendarPopover({
             >
               <div className="mb-3 flex items-center justify-between gap-2">
                 <div className="inline-flex min-w-[220px] items-center rounded-full bg-zinc-800 p-1">
-                  <span className="flex-1 rounded-full bg-rose-500 px-3 py-1 text-center text-xs font-semibold text-white">
+                  <span className="flex-1 rounded-full bg-rose-500 px-3 py-1 text-center text-sm font-semibold text-white">
                     {tr(language, "Event", "อีเวนต์")}
                   </span>
-                  <span className="flex-1 rounded-full px-3 py-1 text-center text-xs font-medium text-zinc-500">
+                  <span className="flex-1 rounded-full px-3 py-1 text-center text-sm font-medium text-zinc-500">
                     {tr(language, "Reminder", "เตือนความจำ")}
                   </span>
                 </div>
@@ -3131,10 +3137,10 @@ export function MonthCalendarPopover({
                     )
                   }
                   placeholder={tr(language, "New Event", "ชื่อนัดหมาย")}
-                  className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-950/70 px-3 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-zinc-500"
+                  className="h-11 w-full rounded-lg border border-zinc-700 bg-zinc-950/70 px-3 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none focus:border-zinc-500"
                 />
 
-                <div className="rounded-lg border border-zinc-700 bg-zinc-950/70 p-2.5 text-xs text-zinc-200">
+                <div className="rounded-lg border border-zinc-700 bg-zinc-950/70 p-2.5 text-sm text-zinc-200">
                   {composer.date.toLocaleDateString(localeOf(language), {
                     day: "numeric",
                     month: "short",
@@ -3146,7 +3152,7 @@ export function MonthCalendarPopover({
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
-                    <label className="text-[11px] text-zinc-400">
+                    <label className="text-sm text-zinc-400">
                       {tr(language, "Start", "เริ่ม")}
                     </label>
                     <div className="flex gap-1">
@@ -3158,7 +3164,7 @@ export function MonthCalendarPopover({
                             composer.startMinute
                           )
                         }
-                        className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 text-xs text-zinc-100 outline-none"
+                        className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 text-sm text-zinc-100 outline-none"
                       >
                         {TIME_PICKER_HOURS.map((hour) => (
                           <option key={`start-hour-${hour}`} value={hour}>
@@ -3174,7 +3180,7 @@ export function MonthCalendarPopover({
                             Number(event.target.value)
                           )
                         }
-                        className="h-9 w-20 rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 text-xs text-zinc-100 outline-none"
+                        className="h-10 w-20 rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 text-sm text-zinc-100 outline-none"
                       >
                         {MINUTE_OPTIONS.map((minute) => (
                           <option key={`start-minute-${minute}`} value={minute}>
@@ -3186,7 +3192,7 @@ export function MonthCalendarPopover({
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[11px] text-zinc-400">
+                    <label className="text-sm text-zinc-400">
                       {tr(language, "End", "สิ้นสุด")}
                     </label>
                     <div className="flex gap-1">
@@ -3202,7 +3208,7 @@ export function MonthCalendarPopover({
                               : prev
                           )
                         }
-                        className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 text-xs text-zinc-100 outline-none"
+                        className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 text-sm text-zinc-100 outline-none"
                       >
                         {TIME_PICKER_HOURS.map((hour) => (
                           <option key={`end-hour-${hour}`} value={hour}>
@@ -3222,7 +3228,7 @@ export function MonthCalendarPopover({
                               : prev
                           )
                         }
-                        className="h-9 w-20 rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 text-xs text-zinc-100 outline-none"
+                        className="h-10 w-20 rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 text-sm text-zinc-100 outline-none"
                       >
                         {MINUTE_OPTIONS.map((minute) => (
                           <option key={`end-minute-${minute}`} value={minute}>
@@ -3235,7 +3241,7 @@ export function MonthCalendarPopover({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="flex items-center gap-1 text-[11px] text-zinc-400">
+                  <label className="flex items-center gap-1 text-sm text-zinc-400">
                     <HugeiconsIcon icon={Stethoscope02Icon} className="size-3.5" />
                     {tr(language, "Doctor", "แพทย์")}
                   </label>
@@ -3247,7 +3253,7 @@ export function MonthCalendarPopover({
                       )
                     }
                     disabled={isDoctorUser}
-                    className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 text-xs text-zinc-100 outline-none disabled:opacity-65"
+                    className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 text-sm text-zinc-100 outline-none disabled:opacity-65"
                   >
                     {doctors.length === 0 ? (
                       <option value="">{tr(language, "No doctors", "ไม่พบแพทย์")}</option>
@@ -3261,7 +3267,7 @@ export function MonthCalendarPopover({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="flex items-center gap-1 text-[11px] text-zinc-400">
+                  <label className="flex items-center gap-1 text-sm text-zinc-400">
                     <HugeiconsIcon icon={UserIcon} className="size-3.5" />
                     {tr(language, "Patient", "ผู้ป่วย")}
                   </label>
@@ -3272,7 +3278,7 @@ export function MonthCalendarPopover({
                         prev ? { ...prev, patientId: event.target.value } : prev
                       )
                     }
-                    className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 text-xs text-zinc-100 outline-none"
+                    className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-2 text-sm text-zinc-100 outline-none"
                   >
                     <option value="">{tr(language, "Select patient", "เลือกผู้ป่วย")}</option>
                     {patients.map((patient) => (
@@ -3284,7 +3290,7 @@ export function MonthCalendarPopover({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="flex items-center gap-1 text-[11px] text-zinc-400">
+                  <label className="flex items-center gap-1 text-sm text-zinc-400">
                     <HugeiconsIcon icon={DoorIcon} className="size-3.5" />
                     {tr(language, "Room / Meeting Link", "ห้อง / ลิงก์ประชุม")}
                   </label>
@@ -3296,12 +3302,12 @@ export function MonthCalendarPopover({
                       )
                     }
                     placeholder={tr(language, "Room 101 or https://...", "ห้อง 101 หรือ https://...")}
-                    className="h-9 w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-3 text-xs text-zinc-100 placeholder:text-zinc-500 outline-none"
+                    className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-3 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="flex items-center gap-1 text-[11px] text-zinc-400">
+                  <label className="flex items-center gap-1 text-sm text-zinc-400">
                     <HugeiconsIcon icon={NoteIcon} className="size-3.5" />
                     {tr(language, "Notes", "หมายเหตุ")}
                   </label>
@@ -3313,7 +3319,7 @@ export function MonthCalendarPopover({
                       )
                     }
                     rows={3}
-                    className="w-full resize-none overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950/80 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 outline-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                    className="w-full resize-none overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950/80 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 outline-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
                     placeholder={tr(language, "Additional details", "รายละเอียดเพิ่มเติม")}
                   />
                 </div>
@@ -3323,7 +3329,7 @@ export function MonthCalendarPopover({
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-8 border-zinc-600 bg-zinc-900 px-3 text-xs text-zinc-200 hover:bg-zinc-800"
+                  className="h-9 border-zinc-600 bg-zinc-900 px-3 text-sm text-zinc-200 hover:bg-zinc-800"
                   onClick={handleClearComposerForm}
                   disabled={composer.submitting}
                 >
@@ -3332,7 +3338,7 @@ export function MonthCalendarPopover({
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-8 border-zinc-600 bg-zinc-900 px-3 text-xs text-zinc-200 hover:bg-zinc-800"
+                  className="h-9 border-zinc-600 bg-zinc-900 px-3 text-sm text-zinc-200 hover:bg-zinc-800"
                   onClick={() => {
                     clearComposerDraft(currentUserId);
                     setComposer(null);
@@ -3342,7 +3348,7 @@ export function MonthCalendarPopover({
                 </Button>
                 <Button
                   type="button"
-                  className="h-8 bg-rose-500 px-3 text-xs text-white hover:bg-rose-600 disabled:opacity-65"
+                  className="h-9 bg-rose-500 px-3 text-sm text-white hover:bg-rose-600 disabled:opacity-65"
                   onClick={handleCreateEvent}
                   disabled={!canSubmitComposer}
                 >

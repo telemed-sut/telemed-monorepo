@@ -162,6 +162,7 @@ def test_audit_export_honors_user_and_result_filters(client: TestClient, db: Ses
 
     csv_text = response.content.decode("utf-8")
     rows = list(csv.DictReader(io.StringIO(csv_text)))
+    response.close()
     assert len(rows) == 1
     assert rows[0]["User Email"] == doctor.email
     assert rows[0]["Result"] == "success"
@@ -231,6 +232,7 @@ def test_audit_export_serializes_dict_details_for_csv_reports(client: TestClient
 
     csv_text = response.content.decode("utf-8")
     rows = list(csv.DictReader(io.StringIO(csv_text)))
+    response.close()
     assert len(rows) == 1
     assert rows[0]["Details"].startswith("{")
     assert '"reason": "export dict payload"' in rows[0]["Details"]

@@ -12,12 +12,6 @@ class LoginRequest(BaseModel):
     remember_device: bool = False
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-
-
 class UserMeResponse(BaseModel):
     id: str
     email: str
@@ -26,6 +20,13 @@ class UserMeResponse(BaseModel):
     role: str
     verification_status: str | None = None
     two_factor_enabled: bool = False
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: UserMeResponse | None = None
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -109,6 +110,10 @@ class InviteInfoResponse(BaseModel):
     email: EmailStr
     role: UserRole
     expires_at: datetime
+
+
+class InviteTokenRequest(BaseModel):
+    token: str = Field(min_length=16, max_length=4096)
 
 
 class InviteAcceptRequest(BaseModel):

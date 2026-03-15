@@ -69,7 +69,7 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
                                 <span className="truncate font-semibold">
                                     {activeTeam.name}
                                 </span>
-                                <span className="truncate text-xs text-muted-foreground">{activeTeam.plan}</span>
+                                <span className="truncate text-sm text-muted-foreground">{activeTeam.plan}</span>
                             </div>
                             <ChevronsUpDown className="ml-auto" />
                         </DropdownMenuTrigger>
@@ -80,7 +80,7 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
                             sideOffset={4}
                         >
                             <DropdownMenuGroup>
-                                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                                <DropdownMenuLabel className="text-sm text-muted-foreground">
                                     {tr(language, "Teams", "ทีม")}
                                 </DropdownMenuLabel>
                                 {teams.map((team, index) => (

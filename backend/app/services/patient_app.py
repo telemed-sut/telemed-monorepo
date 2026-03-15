@@ -7,14 +7,13 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from app.core.config import get_settings
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.meeting import Meeting
-from app.models.meeting_patient_invite_code import MeetingPatientInviteCode
 from app.models.patient import Patient
 from app.models.patient_app_registration import PatientAppRegistration
+from app.services import meeting_video as meeting_video_service
 
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _CODE_LENGTH = 6
@@ -29,6 +28,12 @@ def _generate_code() -> str:
 
 def _normalize_phone(phone: str) -> str:
     return re.sub(r"[\s\-().]", "", phone.strip())
+
+
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 # ---------- Staff: generate registration code ----------
@@ -172,8 +177,6 @@ def register_patient_app(
     db.refresh(patient)
 
     token = _create_patient_token(patient)
-    settings = get_settings()
-
     return {
         "patient_id": str(patient.id),
         "access_token": token,
@@ -250,8 +253,9 @@ def get_patient_meetings(
     *,
     db: Session,
     patient_id: str,
+    updated_after: datetime | None = None,
 ) -> dict:
-    """Return all meetings for this patient with invite URLs."""
+    """Return all meetings for this patient without mutating invite state."""
     import uuid as _uuid
 
     try:
@@ -259,33 +263,33 @@ def get_patient_meetings(
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid patient ID.") from exc
 
-    meetings = db.scalars(
+    stmt = (
         select(Meeting)
+        .options(
+            joinedload(Meeting.doctor),
+            joinedload(Meeting.room_presence),
+        )
         .where(Meeting.user_id == pid)
         .order_by(Meeting.date_time.desc().nullslast())
-    ).all()
+    )
+    if updated_after is not None:
+        stmt = stmt.where(Meeting.updated_at > _as_utc(updated_after))
+
+    meetings = db.scalars(stmt).all()
 
     items = []
     for m in meetings:
-        # Try to get the latest invite URL if not stored on the meeting.
-        invite_url = m.patient_invite_url
-        if not invite_url:
-            invite_code = db.scalar(
-                select(MeetingPatientInviteCode)
-                .where(MeetingPatientInviteCode.meeting_id == m.id)
-                .order_by(MeetingPatientInviteCode.created_at.desc())
+        invite_url = None
+        invite_expires_at = None
+        invite_code = meeting_video_service.get_active_patient_invite_code(
+            db=db,
+            meeting_id=m.id,
+        )
+        if invite_code:
+            invite_url = meeting_video_service.build_patient_short_invite_url(
+                invite_code.code
             )
-            if invite_code:
-                now = datetime.now(timezone.utc)
-                code_expires = invite_code.expires_at
-                if code_expires.tzinfo is None:
-                    code_expires = code_expires.replace(tzinfo=timezone.utc)
-                if code_expires > now:
-                    settings = get_settings()
-                    base_url = (
-                        settings.meeting_patient_join_base_url or settings.frontend_base_url
-                    ).rstrip("/")
-                    invite_url = f"{base_url}/p/{invite_code.code}"
+            invite_expires_at = invite_code.expires_at
 
         items.append({
             "id": str(m.id),
@@ -294,14 +298,84 @@ def get_patient_meetings(
             "status": m.status.value if hasattr(m.status, "value") else str(m.status),
             "note": m.note,
             "patient_invite_url": invite_url,
+            "patient_invite_expires_at": invite_expires_at,
             "doctor": m.doctor,
+            "room_presence": m.room_presence,
             "created_at": m.created_at,
+            "updated_at": m.updated_at,
         })
 
     return {
         "items": items,
         "total": len(items),
     }
+
+
+def issue_patient_meeting_invite(
+    *,
+    db: Session,
+    patient_id: str,
+    meeting_id: str,
+) -> dict:
+    """Issue or refresh a patient invite explicitly for a joinable owned meeting."""
+    import uuid as _uuid
+
+    try:
+        pid = _uuid.UUID(patient_id)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid patient ID.",
+        ) from exc
+
+    try:
+        mid = _uuid.UUID(meeting_id)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid meeting ID.",
+        ) from exc
+
+    meeting = db.scalar(
+        select(Meeting).where(
+            and_(
+                Meeting.id == mid,
+                Meeting.user_id == pid,
+            )
+        )
+    )
+    if not meeting:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Meeting not found.",
+        )
+
+    active_invite_code = meeting_video_service.get_active_patient_invite_code(
+        db=db,
+        meeting_id=meeting.id,
+    )
+    if active_invite_code:
+        issued_at = active_invite_code.created_at
+        expires_at = active_invite_code.expires_at
+        return {
+            "meeting_id": str(meeting.id),
+            "room_id": meeting_video_service.derive_room_id(meeting),
+            "invite_token": meeting_video_service._build_patient_invite_token(
+                meeting_id=str(meeting.id),
+                expires_at_unix=int(_as_utc(expires_at).timestamp()),
+            ),
+            "short_code": active_invite_code.code,
+            "invite_url": meeting_video_service.build_patient_short_invite_url(
+                active_invite_code.code
+            ),
+            "issued_at": issued_at,
+            "expires_at": expires_at,
+        }
+
+    return meeting_video_service.create_patient_join_invite(
+        db=db,
+        meeting=meeting,
+    )
 
 
 # ---------- Helpers ----------

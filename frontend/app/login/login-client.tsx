@@ -50,6 +50,13 @@ function getLoginErrorMessage(language: AppLanguage, error: ApiError): string {
     detail && typeof detail === "object" && typeof (detail as { code?: unknown }).code === "string"
       ? ((detail as { code: string }).code ?? "").toLowerCase()
       : "";
+  const normalizedMessage = typeof error.message === "string" ? error.message.trim() : "";
+  const genericEn = "Unable to sign in. Please try again.";
+  const genericTh = "ไม่สามารถเข้าสู่ระบบได้ โปรดลองอีกครั้ง";
+
+  if (normalizedMessage && normalizedMessage !== genericEn && normalizedMessage !== genericTh) {
+    return normalizedMessage;
+  }
 
   if (
     error.status === 400 ||
@@ -68,7 +75,7 @@ export default function LoginClientPage() {
   const token = useAuthStore((state) => state.token);
   const hydrate = useAuthStore((state) => state.hydrate);
   const hydrated = useAuthStore((state) => state.hydrated);
-  const setToken = useAuthStore((state) => state.setToken);
+  const setSession = useAuthStore((state) => state.setSession);
   const language = useLanguageStore((state) => state.language);
   const setLanguage = useLanguageStore((state) => state.setLanguage);
 
@@ -128,7 +135,12 @@ export default function LoginClientPage() {
     setLoading(true);
     try {
       const res = await loginRequest(email, password, otpCode, rememberDevice);
-      setToken(res.access_token);
+      if (!res.user) {
+        throw new Error(
+          tr(language, "Unable to establish session. Please try again.", "ไม่สามารถเริ่มต้นเซสชันได้ โปรดลองอีกครั้ง")
+        );
+      }
+      setSession(res);
       router.replace("/patients");
     } catch (err) {
       const apiError = err as ApiError;
@@ -138,8 +150,10 @@ export default function LoginClientPage() {
         setProvisioningUri(detail.provisioning_uri ?? null);
         setTrustedDays(typeof detail.trusted_device_days === "number" ? detail.trusted_device_days : null);
         setError(detail.message ?? tr(language, "Login requires a 2FA code.", "การเข้าสู่ระบบต้องใช้รหัส 2FA"));
+      } else if (apiError instanceof Error) {
+        setError(apiError.detail ? getLoginErrorMessage(language, apiError) : apiError.message);
       } else {
-        setError(getLoginErrorMessage(language, apiError));
+        setError(tr(language, "Unable to sign in. Please try again.", "ไม่สามารถเข้าสู่ระบบได้ โปรดลองอีกครั้ง"));
       }
     } finally {
       setLoading(false);
@@ -153,16 +167,16 @@ export default function LoginClientPage() {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background">
-      <Card className="w-full max-w-md mx-4 pb-8 shadow-xl border-border">
-        <CardHeader className="space-y-1 text-center mb-2 mt-4">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+      <Card className="mx-4 w-full max-w-lg border-border pb-8 shadow-xl">
+        <CardHeader className="mt-4 mb-2 space-y-2 text-center">
           <div className="flex justify-end">
             <div className="inline-flex rounded-md border border-input bg-background p-0.5">
               {APP_LANGUAGE_OPTIONS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
-                  className={`h-7 rounded px-2 text-xs transition-colors ${option.value === language
+                  className={`h-8 rounded px-2.5 text-[0.9rem] transition-colors ${option.value === language
                     ? "bg-foreground text-background"
                     : "text-muted-foreground hover:bg-muted"
                     }`}
@@ -177,10 +191,10 @@ export default function LoginClientPage() {
             <Logo className="size-20" />
           </div>
           <div>
-            <h2 className="text-2xl font-semibold">
+            <h2 className="text-3xl font-semibold tracking-tight">
               {tr(language, "Welcome Back", "ยินดีต้อนรับกลับ")}
             </h2>
-            <p className="text-muted-foreground text-sm">
+            <p className="mt-2 text-[0.98rem] text-muted-foreground">
               {tr(language, "Sign in to continue securely.", "ลงชื่อเข้าใช้เพื่อดำเนินการต่ออย่างปลอดภัย")}
             </p>
           </div>
@@ -203,7 +217,7 @@ export default function LoginClientPage() {
                 <Label htmlFor="password">{tr(language, "Password", "รหัสผ่าน")}</Label>
                 <Link
                   href="/forgot-password"
-                  className="text-sm text-primary hover:underline"
+                  className="text-[0.95rem] text-primary hover:underline"
                 >
                   {tr(language, "Need help signing in?", "ต้องการความช่วยเหลือในการเข้าสู่ระบบ?")}
                 </Link>
@@ -257,7 +271,7 @@ export default function LoginClientPage() {
 
                 {provisioningUri ? (
                   <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-[0.88rem] text-muted-foreground">
                       {tr(
                         language,
                         "Scan this QR with your authenticator app, then enter a 6-digit code or backup code.",
@@ -275,17 +289,17 @@ export default function LoginClientPage() {
                           className="h-[220px] w-[220px]"
                         />
                       ) : (
-                        <p className="text-xs text-muted-foreground py-8">
+                        <p className="py-8 text-[0.88rem] text-muted-foreground">
                           {tr(language, "Generating QR code...", "กำลังสร้าง QR code...")}
                         </p>
                       )}
                     </div>
-                    <p className="text-[11px] text-muted-foreground break-all">
+                    <p className="break-all text-[0.82rem] text-muted-foreground">
                       {tr(language, "Setup key", "รหัสตั้งค่า")}: {extractSetupKey(provisioningUri) ?? "-"}
                     </p>
                   </div>
                 ) : (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[0.88rem] text-muted-foreground">
                     {tr(
                       language,
                       "If your original authenticator device is unavailable, use a backup code or ask a super admin to reset 2FA for this account.",
@@ -300,7 +314,7 @@ export default function LoginClientPage() {
                     checked={rememberDevice}
                     onCheckedChange={(value) => setRememberDevice(Boolean(value))}
                   />
-                  <Label htmlFor="remember_device" className="text-sm font-normal">
+                  <Label htmlFor="remember_device" className="text-[0.95rem] font-normal">
                     {tr(language, "Trust this device", "เชื่อถืออุปกรณ์นี้")}
                     {trustedDays
                       ? language === "th"
@@ -313,7 +327,7 @@ export default function LoginClientPage() {
             )}
 
             {error && (
-              <p className="text-sm text-destructive" role="alert">
+              <p className="text-[0.95rem] text-destructive" role="alert">
                 {error}
               </p>
             )}

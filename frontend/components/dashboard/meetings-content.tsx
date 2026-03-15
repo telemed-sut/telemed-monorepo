@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { addWeeks, setHours, setMinutes } from "date-fns";
+import dynamic from "next/dynamic";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { addMonths, addWeeks, isSameMonth } from "date-fns";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,16 +20,23 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
-import { AnimatedCalendar } from "@/components/ui/calender";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Search01Icon,
-  Settings01Icon,
   Add01Icon,
   ProfileIcon,
   Cancel01Icon,
@@ -42,13 +50,15 @@ import {
   UserIcon,
   Stethoscope02Icon,
   DoorIcon,
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  ArrowDown01Icon,
   Notification01Icon,
   Tick02Icon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { CalendarView, type CalendarSlotSelection } from "./calendar-view";
-import { QueueView } from "./queue-view";
-import { MonthCalendarPopover } from "./month-calendar-popover";
+import { MonthCalendarView } from "./month-calendar-view";
 import { useCalendarStore } from "@/store/calendar-store";
 import { useAuthStore } from "@/store/auth-store";
 import {
@@ -68,6 +78,12 @@ import {
 } from "@/lib/api";
 import { getMeetingLinkMode, resolveMeetingRoomValue } from "./meeting-link";
 import { toast } from "@/components/ui/toast";
+import { includesSearchQuery, normalizeSearchText } from "@/lib/search";
+import {
+  combineLocalDateAndTimeToIso,
+  formatLocalDateKey,
+  parseLocalDateKey,
+} from "@/lib/meeting-datetime";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
@@ -105,8 +121,92 @@ function formatPatientDisplayName(patient: Pick<Patient, "first_name" | "last_na
   return fullName || patient.email || patient.id;
 }
 
-function includesQuery(value: string, query: string): boolean {
-  return value.toLowerCase().includes(query.toLowerCase());
+const ACTIVE_MEETING_REFRESH_INTERVAL_MS = 5_000;
+const NEAR_MEETING_REFRESH_INTERVAL_MS = 10_000;
+const IDLE_MEETING_REFRESH_INTERVAL_MS = 30_000;
+const NEAR_MEETING_WINDOW_MS = 15 * 60 * 1_000;
+
+const AnimatedCalendar = dynamic(
+  () =>
+    import("@/components/ui/calender").then((module) => ({
+      default: module.AnimatedCalendar,
+    })),
+  {
+    loading: () => (
+      <div className="h-10 w-full rounded-md border bg-muted/60 animate-pulse" />
+    ),
+    ssr: false,
+  }
+);
+
+const AnimatedCalendarStandalone = dynamic(
+  () =>
+    import("@/components/ui/calender").then((module) => ({
+      default: module.AnimatedCalendarStandalone,
+    })),
+  {
+    loading: () => (
+      <div className="h-[340px] w-[328px] rounded-[26px] border border-slate-200/80 bg-white/90 animate-pulse" />
+    ),
+    ssr: false,
+  }
+);
+
+const QueueView = dynamic(
+  () =>
+    import("./queue-view").then((module) => ({
+      default: module.QueueView,
+    })),
+  {
+    loading: () => (
+      <div className="flex-1 px-4 py-4">
+        <div className="space-y-3">
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-[320px] w-full rounded-xl" />
+        </div>
+      </div>
+    ),
+    ssr: false,
+  }
+);
+
+function isJoinableMeetingStatus(status: Meeting["status"]): boolean {
+  return status !== "completed" && status !== "cancelled";
+}
+
+function isActivelyWaitingMeeting(meeting: Meeting): boolean {
+  if (!isJoinableMeetingStatus(meeting.status)) {
+    return false;
+  }
+
+  const presenceState = meeting.room_presence?.state;
+  if (
+    presenceState === "patient_waiting" ||
+    presenceState === "doctor_left_patient_waiting" ||
+    presenceState === "doctor_only" ||
+    presenceState === "both_in_room"
+  ) {
+    return true;
+  }
+
+  return meeting.status === "waiting" || meeting.status === "in_progress";
+}
+
+function isNearMeetingWindow(meeting: Meeting, now: number): boolean {
+  if (!isJoinableMeetingStatus(meeting.status) || isActivelyWaitingMeeting(meeting)) {
+    return false;
+  }
+
+  const meetingTime = new Date(meeting.date_time).getTime();
+  if (Number.isNaN(meetingTime)) {
+    return false;
+  }
+
+  const millisecondsUntilMeeting = meetingTime - now;
+  return (
+    millisecondsUntilMeeting >= -NEAR_MEETING_WINDOW_MS &&
+    millisecondsUntilMeeting <= NEAR_MEETING_WINDOW_MS
+  );
 }
 
 function resolveDoctorRoleType(value: string): DoctorPickerItem["roleType"] {
@@ -157,7 +257,7 @@ interface PatientPickerItem extends PickerCommandItem {
 }
 
 interface CreateEventDraft {
-  selectedDateISO: string;
+  selectedDateKey: string;
   startHour: number;
   startMinute: number;
   endHour: number;
@@ -187,13 +287,19 @@ function readCreateEventDraft(userId: string | null): CreateEventDraft | null {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
 
-    const draft = parsed as Partial<CreateEventDraft>;
-    if (!draft.selectedDateISO || typeof draft.selectedDateISO !== "string") {
-      return null;
-    }
+    const draft = parsed as Partial<CreateEventDraft> & {
+      selectedDateISO?: string;
+    };
+    const selectedDateKey =
+      typeof draft.selectedDateKey === "string"
+        ? draft.selectedDateKey
+        : typeof draft.selectedDateISO === "string"
+          ? formatLocalDateKey(new Date(draft.selectedDateISO))
+          : null;
+    if (!selectedDateKey) return null;
 
-    const parsedDate = new Date(draft.selectedDateISO);
-    if (Number.isNaN(parsedDate.getTime())) return null;
+    const parsedDate = parseLocalDateKey(selectedDateKey);
+    if (!parsedDate) return null;
 
     const startHour = clampInt(draft.startHour, 9, 0, 23);
     const startMinute = clampInt(draft.startMinute, 0, 0, 59);
@@ -202,7 +308,7 @@ function readCreateEventDraft(userId: string | null): CreateEventDraft | null {
     const endMinute = clampInt(draft.endMinute, startMinute, 0, 59);
 
     return {
-      selectedDateISO: draft.selectedDateISO,
+      selectedDateKey,
       startHour,
       startMinute,
       endHour,
@@ -259,13 +365,16 @@ function PatientDirectoryDialog({
 }) {
   const [expanded, setExpanded] = useState(false);
   const filteredAllPatients = useMemo(
-    () =>
-      items.filter(
+    () => {
+      const normalizedQuery = normalizeSearchText(query);
+      if (!normalizedQuery) return items;
+      return items.filter(
         (patient) =>
-          patient.label.toLowerCase().includes(query.toLowerCase()) ||
-          patient.status.toLowerCase().includes(query.toLowerCase()) ||
-          (patient.description || "").toLowerCase().includes(query.toLowerCase())
-      ),
+          includesSearchQuery(patient.label, query) ||
+          includesSearchQuery(patient.status, query) ||
+          includesSearchQuery(patient.description || "", query)
+      );
+    },
     [items, query]
   );
   const activeItems = useMemo(
@@ -292,7 +401,7 @@ function PatientDirectoryDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[560px] p-0 gap-0 overflow-hidden bg-muted/50" showCloseButton={false}>
-        <div className="flex items-center justify-between border-b border-border/50 px-5 py-3">
+        <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
           <div className="text-sm font-semibold text-foreground">
             {tr(language, "Select Patient", "เลือกผู้ป่วย")}
           </div>
@@ -308,8 +417,8 @@ function PatientDirectoryDialog({
         </div>
 
         <div className="p-4">
-          <div className="relative w-full rounded-[34px] border border-border bg-background pb-6">
-            <div className="px-7 pb-3 pt-7">
+          <div className="relative w-full rounded-[28px] border border-border bg-background pb-5">
+            <div className="px-6 pb-3 pt-6">
               <div className="mb-5 flex items-center justify-between">
                 <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
                   {tr(language, "Active Patients", "ผู้ป่วยที่พร้อมติดต่อ")}
@@ -343,7 +452,7 @@ function PatientDirectoryDialog({
               </div>
             </div>
 
-            <div className="max-h-[280px] overflow-y-auto px-7 pb-24">
+            <div className="max-h-[280px] overflow-y-auto px-6 pb-20">
               <motion.div
                 initial={false}
                 animate="visible"
@@ -463,7 +572,7 @@ function PatientDirectoryDialog({
                       initial={{ opacity: 0, y: -8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
-                      className="px-6 py-4"
+                      className="px-5 py-4"
                     >
                       <div className="relative">
                         <HugeiconsIcon
@@ -482,7 +591,7 @@ function PatientDirectoryDialog({
                   )}
                 </AnimatePresence>
 
-                <div className="flex-1 overflow-y-auto px-6 py-2">
+                <div className="flex-1 overflow-y-auto px-5 py-2">
                   <motion.div
                     initial="hidden"
                     animate={expanded ? "visible" : "hidden"}
@@ -746,13 +855,16 @@ function DoctorDirectoryDialog({
 }) {
   const [expanded, setExpanded] = useState(false);
   const filteredAllDoctors = useMemo(
-    () =>
-      items.filter(
+    () => {
+      const normalizedQuery = normalizeSearchText(query);
+      if (!normalizedQuery) return items;
+      return items.filter(
         (doctor) =>
-          doctor.label.toLowerCase().includes(query.toLowerCase()) ||
-          doctor.role.toLowerCase().includes(query.toLowerCase()) ||
-          (doctor.description || "").toLowerCase().includes(query.toLowerCase())
-      ),
+          includesSearchQuery(doctor.label, query) ||
+          includesSearchQuery(doctor.role, query) ||
+          includesSearchQuery(doctor.description || "", query)
+      );
+    },
     [items, query]
   );
   const activeItems = useMemo(
@@ -779,7 +891,7 @@ function DoctorDirectoryDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[560px] p-0 gap-0 overflow-hidden bg-muted/50" showCloseButton={false}>
-        <div className="flex items-center justify-between border-b border-border/50 px-5 py-3">
+        <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
           <div className="text-sm font-semibold text-foreground">
             {tr(language, "Select Doctor", "เลือกแพทย์")}
           </div>
@@ -795,8 +907,8 @@ function DoctorDirectoryDialog({
         </div>
 
         <div className="p-4">
-          <div className="relative w-full rounded-[34px] border border-border bg-background pb-6">
-            <div className="px-7 pb-3 pt-7">
+          <div className="relative w-full rounded-[28px] border border-border bg-background pb-5">
+            <div className="px-6 pb-3 pt-6">
               <div className="mb-5 flex items-center justify-between">
                 <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
                   {tr(language, "Active Doctors", "แพทย์ที่พร้อมใช้งาน")}
@@ -830,7 +942,7 @@ function DoctorDirectoryDialog({
               </div>
             </div>
 
-            <div className="max-h-[280px] overflow-y-auto px-7 pb-24">
+            <div className="max-h-[280px] overflow-y-auto px-6 pb-20">
               <motion.div
                 initial={false}
                 animate="visible"
@@ -950,7 +1062,7 @@ function DoctorDirectoryDialog({
                       initial={{ opacity: 0, y: -8 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -8 }}
-                      className="px-6 py-4"
+                      className="px-5 py-4"
                     >
                       <div className="relative">
                         <HugeiconsIcon
@@ -969,7 +1081,7 @@ function DoctorDirectoryDialog({
                   )}
                 </AnimatePresence>
 
-                <div className="flex-1 overflow-y-auto px-6 py-2">
+                <div className="flex-1 overflow-y-auto px-5 py-2">
                   <motion.div
                     initial="hidden"
                     animate={expanded ? "visible" : "hidden"}
@@ -1040,8 +1152,8 @@ function SchedulePopover({
       <PopoverContent className="w-80 p-4" align="end">
         <div className="space-y-4">
           <div>
-            <h4 className="text-sm font-semibold mb-3">{tr(language, "Schedule Meeting", "นัดหมายการประชุม")}</h4>
-            <p className="text-xs text-muted-foreground mb-4">
+            <h4 className="mb-3 text-base font-semibold">{tr(language, "Schedule Meeting", "นัดหมายการประชุม")}</h4>
+            <p className="mb-4 text-sm text-muted-foreground">
               {tr(language, "Quick schedule a meeting or event", "สร้างนัดหมายหรืออีเวนต์อย่างรวดเร็ว")}
             </p>
           </div>
@@ -1049,7 +1161,7 @@ function SchedulePopover({
           <div className="space-y-3">
             {/* Date */}
             <div className="grid gap-2">
-              <Label className="text-xs">{tr(language, "Date", "วันที่")}</Label>
+              <Label className="text-sm">{tr(language, "Date", "วันที่")}</Label>
               <Popover
                 open={datePickerOpen}
                 onOpenChange={setDatePickerOpen}
@@ -1059,7 +1171,7 @@ function SchedulePopover({
                     <Button
                       variant="outline"
                       className={cn(
-                        "w-full justify-start text-left font-normal h-9",
+                        "h-10 w-full justify-start text-left text-sm font-normal",
                         !date && "text-muted-foreground"
                       )}
                     >
@@ -1083,7 +1195,7 @@ function SchedulePopover({
                   <Calendar
                     mode="single"
                     selected={date}
-                    onSelect={(selectedDate) => {
+                    onSelect={(selectedDate: Date | undefined) => {
                       setDate(selectedDate);
                       setDatePickerOpen(false);
                     }}
@@ -1096,7 +1208,7 @@ function SchedulePopover({
             {/* Start / End time */}
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-2">
-                <Label className="text-xs">{tr(language, "Start", "เริ่ม")}</Label>
+                <Label className="text-sm">{tr(language, "Start", "เริ่ม")}</Label>
                 <div className="relative">
                   <HugeiconsIcon
                     icon={Clock01Icon}
@@ -1106,13 +1218,13 @@ function SchedulePopover({
                     type="time"
                     value={startTime}
                     onChange={(e) => setStartTime(e.target.value)}
-                    className="pl-8 h-9 text-xs"
+                    className="h-10 pl-8 text-sm"
                     placeholder="09:00"
                   />
                 </div>
               </div>
               <div className="grid gap-2">
-                <Label className="text-xs">{tr(language, "End", "สิ้นสุด")}</Label>
+                <Label className="text-sm">{tr(language, "End", "สิ้นสุด")}</Label>
                 <div className="relative">
                   <HugeiconsIcon
                     icon={Clock01Icon}
@@ -1122,7 +1234,7 @@ function SchedulePopover({
                     type="time"
                     value={endTime}
                     onChange={(e) => setEndTime(e.target.value)}
-                    className="pl-8 h-9 text-xs"
+                    className="h-10 pl-8 text-sm"
                     placeholder="10:00"
                   />
                 </div>
@@ -1136,7 +1248,7 @@ function SchedulePopover({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 justify-start gap-2 text-xs"
+                className="h-9 justify-start gap-2 text-sm"
               >
                 <HugeiconsIcon icon={UserGroupIcon} className="size-3.5" />
                 <span>{tr(language, "Add participants", "เพิ่มผู้เข้าร่วม")}</span>
@@ -1144,7 +1256,7 @@ function SchedulePopover({
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 justify-start gap-2 text-xs"
+                className="h-9 justify-start gap-2 text-sm"
               >
                 <HugeiconsIcon icon={Calendar01Icon} className="size-3.5" />
                 <span>{tr(language, "Add video call", "เพิ่มวิดีโอคอล")}</span>
@@ -1156,14 +1268,14 @@ function SchedulePopover({
               <Button
                 variant="outline"
                 size="sm"
-                className="flex-1 h-8 text-xs"
+                className="h-9 flex-1 text-sm"
                 onClick={() => setOpen(false)}
               >
                 {tr(language, "Cancel", "ยกเลิก")}
               </Button>
               <Button
                 size="sm"
-                className="flex-1 h-8 text-xs"
+                className="h-9 flex-1 text-sm"
                 onClick={handleSchedule}
                 disabled={!date || !startTime || !endTime}
               >
@@ -1245,14 +1357,14 @@ function CreateEventDialog({
   );
 
   const visibleDoctors = useMemo(() => {
-    const query = doctorQuery.trim();
+    const query = normalizeSearchText(doctorQuery);
     if (!query) return doctors;
     if (query.length < 2) {
       return doctors.filter((doctor) => {
         const display = formatDoctorDisplayName(doctor);
         return (
-          includesQuery(display, query) ||
-          includesQuery(doctor.email || "", query)
+          includesSearchQuery(display, doctorQuery) ||
+          includesSearchQuery(doctor.email || "", doctorQuery)
         );
       });
     }
@@ -1260,14 +1372,14 @@ function CreateEventDialog({
   }, [doctorQuery, doctors, doctorSearchResults]);
 
   const visiblePatients = useMemo(() => {
-    const query = patientQuery.trim();
+    const query = normalizeSearchText(patientQuery);
     if (!query) return patients;
     if (query.length < 2) {
       return patients.filter((patient) => {
         const display = formatPatientDisplayName(patient);
         return (
-          includesQuery(display, query) ||
-          includesQuery(patient.email || "", query)
+          includesSearchQuery(display, patientQuery) ||
+          includesSearchQuery(patient.email || "", patientQuery)
         );
       });
     }
@@ -1371,7 +1483,9 @@ function CreateEventDialog({
       } else {
         const savedDraft = readCreateEventDraft(currentUserId);
         if (savedDraft) {
-          setSelectedDate(new Date(savedDraft.selectedDateISO));
+          setSelectedDate(
+            parseLocalDateKey(savedDraft.selectedDateKey) ?? new Date()
+          );
           setStartHour(savedDraft.startHour);
           setStartMinute(savedDraft.startMinute);
           setEndHour(savedDraft.endHour);
@@ -1387,12 +1501,14 @@ function CreateEventDialog({
             : new Date();
           const presetStartHour = initialSlot?.startHour ?? 9;
           const presetStartMinute = initialSlot?.startMinute ?? 0;
+          const presetEndHour = initialSlot?.endHour ?? 10;
+          const presetEndMinute = initialSlot?.endMinute ?? 0;
 
           setSelectedDate(presetDate);
           setStartHour(presetStartHour);
           setStartMinute(presetStartMinute);
-          setEndHour(10);
-          setEndMinute(0);
+          setEndHour(presetEndHour);
+          setEndMinute(presetEndMinute);
           setPatientId("");
           setDoctorId(currentUserId || (doctors.length > 0 ? doctors[0].id : ""));
           setDescription("");
@@ -1425,7 +1541,7 @@ function CreateEventDialog({
     if (!open || editMeeting || !isDraftHydrated) return;
 
     writeCreateEventDraft(currentUserId, {
-      selectedDateISO: selectedDate.toISOString(),
+      selectedDateKey: formatLocalDateKey(selectedDate),
       startHour,
       startMinute,
       endHour,
@@ -1456,7 +1572,7 @@ function CreateEventDialog({
 
   useEffect(() => {
     if (!open || !doctorPickerOpen || isDoctorUser) return;
-    const query = doctorQuery.trim();
+    const query = normalizeSearchText(doctorQuery);
     if (query.length < 2) {
       setDoctorSearchResults([]);
       setDoctorSearchLoading(false);
@@ -1501,7 +1617,7 @@ function CreateEventDialog({
 
   useEffect(() => {
     if (!open || !patientPickerOpen) return;
-    const query = patientQuery.trim();
+    const query = normalizeSearchText(patientQuery);
     if (query.length < 2) {
       setPatientSearchResults([]);
       setPatientSearchLoading(false);
@@ -1543,8 +1659,7 @@ function CreateEventDialog({
   }, [open, patientPickerOpen, patientQuery, token]);
 
   const dateTimeISO = useMemo(() => {
-    const dt = setMinutes(setHours(selectedDate, startHour), startMinute);
-    return dt.toISOString();
+    return combineLocalDateAndTimeToIso(selectedDate, startHour, startMinute);
   }, [selectedDate, startHour, startMinute]);
 
   const effectiveDoctorId = isDoctorUser ? currentUserId || doctorId : doctorId;
@@ -1646,7 +1761,7 @@ function CreateEventDialog({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-[520px] p-0 gap-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-6 pb-4">
+        <DialogHeader className="px-5 pb-3 pt-5">
           <DialogTitle className="text-base">
             {editMeeting
               ? tr(language, "Edit Appointment", "แก้ไขนัดหมาย")
@@ -1659,10 +1774,10 @@ function CreateEventDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-6 pb-2 space-y-5">
+        <div className="space-y-4 px-5 pb-2">
           {/* ── Date & Time Selection ── */}
           <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
               {tr(language, "Date & Time Selection", "เลือกวันและเวลา")}
             </Label>
             <AnimatedCalendar
@@ -1686,7 +1801,7 @@ function CreateEventDialog({
               closeOnSelect
               className="w-full"
             />
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {tr(
                 language,
                 "Select a date, then set start and end time below.",
@@ -1698,7 +1813,7 @@ function CreateEventDialog({
           {/* ── Time Pickers ── */}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {tr(language, "Start Time", "เวลาเริ่ม")}
               </Label>
               <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3.5 py-2 text-sm">
@@ -1732,7 +1847,7 @@ function CreateEventDialog({
               </div>
             </div>
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {tr(language, "End Time", "เวลาสิ้นสุด")}
               </Label>
               <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3.5 py-2 text-sm">
@@ -1770,7 +1885,7 @@ function CreateEventDialog({
           {/* ── Doctor & Patient ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {tr(language, "Doctor", "แพทย์")} <span className="text-red-400">*</span>
               </Label>
               <Button
@@ -1794,7 +1909,7 @@ function CreateEventDialog({
                 <HugeiconsIcon icon={Search01Icon} className="size-4 text-muted-foreground" />
               </Button>
               {!isDoctorUser && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {tr(
                     language,
                     "Click to open doctor search panel.",
@@ -1803,13 +1918,13 @@ function CreateEventDialog({
                 </p>
               )}
               {isDoctorUser && (
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {tr(language, "Doctor is locked to your account.", "แพทย์ถูกล็อกตามบัญชีของคุณ")}
                 </p>
               )}
             </div>
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {tr(language, "Patient", "ผู้ป่วย")} <span className="text-red-400">*</span>
               </Label>
               <Button
@@ -1831,7 +1946,7 @@ function CreateEventDialog({
                 </span>
                 <HugeiconsIcon icon={Search01Icon} className="size-4 text-muted-foreground" />
               </Button>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {tr(
                   language,
                   "Click to open patient search panel.",
@@ -1844,7 +1959,7 @@ function CreateEventDialog({
           {/* ── Description & Room ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {tr(language, "Description", "รายละเอียด")}
               </Label>
               <Textarea
@@ -1857,12 +1972,12 @@ function CreateEventDialog({
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
                   {tr(language, "Room / Meeting Link", "ห้อง / ลิงก์ประชุม")}
                 </Label>
                 <span
                   className={cn(
-                    "inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-2.5 text-[10px] font-medium uppercase tracking-[0.06em]",
+                    "inline-flex h-6 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-2.5 text-xs font-medium uppercase tracking-[0.06em]",
                     meetingLinkMode === "off"
                       ? "bg-muted text-muted-foreground"
                       : "bg-sky-100 text-sky-700"
@@ -1885,7 +2000,7 @@ function CreateEventDialog({
                   className="bg-transparent outline-none flex-1 placeholder:text-muted-foreground"
                 />
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {meetingLinkHelperText}
               </p>
             </div>
@@ -1893,7 +2008,7 @@ function CreateEventDialog({
 
           {/* ── Notes ── */}
           <div className="space-y-2">
-            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+            <Label className="text-sm font-medium uppercase tracking-[0.12em] text-muted-foreground">
               {tr(language, "Notes", "บันทึก")}
             </Label>
             <Textarea
@@ -1907,7 +2022,7 @@ function CreateEventDialog({
         </div>
 
         {/* ── Footer ── */}
-        <div className="flex items-center justify-between px-6 py-4 mt-2 border-t bg-muted/30">
+        <div className="mt-2 flex items-center justify-between border-t bg-muted/30 px-5 py-3.5">
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -1980,6 +2095,8 @@ function CreateEventDialog({
 // ══════════════════════════════════════════════════════════
 export function MeetingsContent() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const token = useAuthStore((state) => state.token);
   const userId = useAuthStore((state) => state.userId);
   const userRole = useAuthStore((state) => state.role);
@@ -1988,16 +2105,19 @@ export function MeetingsContent() {
 
   const currentWeekStart = useCalendarStore((s) => s.currentWeekStart);
   const goToToday = useCalendarStore((s) => s.goToToday);
+  const goToPreviousWeek = useCalendarStore((s) => s.goToPreviousWeek);
+  const goToNextWeek = useCalendarStore((s) => s.goToNextWeek);
   const goToDate = useCalendarStore((s) => s.goToDate);
-  const getFilteredMeetings = useCalendarStore((s) => s.getFilteredMeetings);
   const searchQuery = useCalendarStore((s) => s.searchQuery);
   const setSearchQuery = useCalendarStore((s) => s.setSearchQuery);
   const eventTypeFilter = useCalendarStore((s) => s.eventTypeFilter);
   const setEventTypeFilter = useCalendarStore((s) => s.setEventTypeFilter);
+  const includeCancelled = useCalendarStore((s) => s.includeCancelled);
+  const setIncludeCancelled = useCalendarStore((s) => s.setIncludeCancelled);
   const setMeetings = useCalendarStore((s) => s.setMeetings);
   const meetings = useCalendarStore((s) => s.meetings);
 
-  const [viewMode, setViewMode] = useState<"calendar" | "queue">("calendar");
+  const [viewMode, setViewMode] = useState<"calendar" | "month" | "queue">("calendar");
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [editMeeting, setEditMeeting] = useState<Meeting | null>(null);
@@ -2010,6 +2130,9 @@ export function MeetingsContent() {
   const [doctorScope, setDoctorScope] = useState<
     "all-visible" | "my-meetings" | "care-team"
   >("my-meetings");
+  const meetingsRefreshPromiseRef = useRef<Promise<void> | null>(null);
+  const meetingsRefreshTimeoutRef = useRef<number | null>(null);
+  const urlStateHydratedRef = useRef(false);
 
   const weekEnd = addWeeks(currentWeekStart, 1);
   const weekStartLabel = formatDateLabel(currentWeekStart, language, {
@@ -2022,77 +2145,137 @@ export function MeetingsContent() {
     { month: "short", day: "numeric", year: "numeric" }
   );
 
-  const todayMeetingsCount = meetings.filter(
+  const visibleMeetings = useMemo(
+    () =>
+      includeCancelled
+        ? meetings
+        : meetings.filter((meeting) => meeting.status !== "cancelled"),
+    [includeCancelled, meetings]
+  );
+
+  const todayMeetingsCount = visibleMeetings.filter(
     (m) => new Date(m.date_time).toDateString() === new Date().toDateString()
   ).length;
-  const totalEventsCount = meetings.length;
+  const currentMonthMeetingsCount = visibleMeetings.filter((meeting) =>
+    isSameMonth(new Date(meeting.date_time), currentWeekStart)
+  ).length;
+  const totalEventsCount = visibleMeetings.length;
 
-  const hasActiveFilters = eventTypeFilter !== "all";
+  const hasActiveFilters = eventTypeFilter !== "all" || includeCancelled;
+  const currentViewLabel =
+    viewMode === "calendar"
+      ? tr(language, "Week", "สัปดาห์")
+      : viewMode === "month"
+        ? tr(language, "Month", "เดือน")
+        : tr(language, "Queue", "คิว");
+  const headerTitle =
+    viewMode === "month"
+      ? formatDateLabel(currentWeekStart, language, {
+        month: "long",
+        year: "numeric",
+      })
+      : formatDateLabel(currentWeekStart, language, {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+  const toolbarDateLabel =
+    viewMode === "month"
+      ? formatDateLabel(currentWeekStart, language, {
+        month: "short",
+        year: "numeric",
+      })
+      : `${weekStartLabel} - ${weekEndLabel}`;
 
-  const goToLatestDay = useCallback(() => {
-    const filteredMeetings = getFilteredMeetings();
+  const goToPrimaryPeriod = useCallback(() => {
+    goToToday();
+  }, [goToToday]);
 
-    if (!filteredMeetings.length) {
-      goToToday();
+  const goToPreviousPeriod = useCallback(() => {
+    if (viewMode === "month") {
+      goToDate(addMonths(currentWeekStart, -1));
       return;
     }
 
-    const validDates = filteredMeetings
-      .map((meeting) => new Date(meeting.date_time))
-      .filter((date) => !Number.isNaN(date.getTime()));
+    goToPreviousWeek();
+  }, [currentWeekStart, goToDate, goToPreviousWeek, viewMode]);
 
-    if (!validDates.length) {
-      goToToday();
+  const goToNextPeriod = useCallback(() => {
+    if (viewMode === "month") {
+      goToDate(addMonths(currentWeekStart, 1));
       return;
     }
 
-    const latestDate = validDates.reduce((latest, current) =>
-      current.getTime() > latest.getTime() ? current : latest
-    );
-
-    goToDate(latestDate);
-  }, [getFilteredMeetings, goToDate, goToToday]);
+    goToNextWeek();
+  }, [currentWeekStart, goToDate, goToNextWeek, viewMode]);
 
   const loadMeetings = useCallback(
     async (background = false) => {
       if (!token) return;
-      if (!background) setLoading(true);
-      try {
-        const doctorFilter =
-          userRole === "doctor" && doctorScope === "my-meetings" && userId
-            ? userId
-            : undefined;
-
-        const allMeetings = await fetchAllMeetings(
-          { doctor_id: doctorFilter },
-          token,
-          { maxItems: 5000 }
-        );
-
-        const scopedItems =
-          userRole === "doctor" && doctorScope === "care-team" && userId
-            ? allMeetings.filter((item) => item.doctor_id !== userId)
-            : allMeetings;
-
-        setMeetings(scopedItems);
-      } catch (err) {
-        const status = (err as { status?: number }).status;
-        if (status === 401) {
-          clearToken();
-          router.replace("/login");
-        }
-      } finally {
-        if (!background) setLoading(false);
+      if (meetingsRefreshPromiseRef.current) {
+        return meetingsRefreshPromiseRef.current;
       }
+
+      if (!background) setLoading(true);
+
+      const refreshPromise = (async () => {
+        try {
+          const doctorFilter =
+            userRole === "doctor" && doctorScope === "my-meetings" && userId
+              ? userId
+              : undefined;
+
+          const allMeetings = await fetchAllMeetings(
+            { doctor_id: doctorFilter },
+            token,
+            { maxItems: 5000 }
+          );
+
+          const scopedItems =
+            userRole === "doctor" && doctorScope === "care-team" && userId
+              ? allMeetings.filter((item) => item.doctor_id !== userId)
+              : allMeetings;
+
+          setMeetings(scopedItems);
+        } catch (err) {
+          const status = (err as { status?: number }).status;
+          if (status === 401) {
+            clearToken();
+            router.replace("/login");
+          }
+        } finally {
+          if (!background) setLoading(false);
+        }
+      })().finally(() => {
+        meetingsRefreshPromiseRef.current = null;
+      });
+
+      meetingsRefreshPromiseRef.current = refreshPromise;
+      return refreshPromise;
     },
     [token, setMeetings, clearToken, router, userRole, userId, doctorScope]
   );
+
+  const resolveMeetingsRefreshInterval = useCallback(() => {
+    if (!meetings.length) {
+      return IDLE_MEETING_REFRESH_INTERVAL_MS;
+    }
+
+    const now = Date.now();
+    if (meetings.some(isActivelyWaitingMeeting)) {
+      return ACTIVE_MEETING_REFRESH_INTERVAL_MS;
+    }
+    if (meetings.some((meeting) => isNearMeetingWindow(meeting, now))) {
+      return NEAR_MEETING_REFRESH_INTERVAL_MS;
+    }
+    return IDLE_MEETING_REFRESH_INTERVAL_MS;
+  }, [meetings]);
 
   const handleMeetingCreated = useCallback(
     async (meeting?: Meeting) => {
       // If we have a date (new meeting), go to it
       // But if we just edited an existing one, user might want to stay in current view
-      if (meeting?.date_time && viewMode === "calendar") {
+      if (meeting?.date_time && viewMode !== "queue") {
         goToDate(new Date(meeting.date_time));
       }
 
@@ -2115,14 +2298,106 @@ export function MeetingsContent() {
   }, [loadMeetings]);
 
   useEffect(() => {
+    if (urlStateHydratedRef.current) {
+      return;
+    }
+
+    const requestedView = searchParams.get("view");
+    const requestedDate = searchParams.get("date");
+
+    if (requestedView === "week") {
+      setViewMode("calendar");
+    } else if (requestedView === "month" || requestedView === "queue") {
+      setViewMode(requestedView);
+    }
+
+    if (requestedDate) {
+      const parsedDate = parseLocalDateKey(requestedDate);
+      if (parsedDate && !Number.isNaN(parsedDate.getTime())) {
+        goToDate(parsedDate);
+      }
+    }
+
+    urlStateHydratedRef.current = true;
+  }, [goToDate, searchParams]);
+
+  useEffect(() => {
+    if (!urlStateHydratedRef.current) {
+      return;
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    const urlView =
+      viewMode === "calendar" ? "week" : viewMode === "month" ? "month" : "queue";
+    const urlDate =
+      viewMode === "month"
+        ? formatLocalDateKey(
+            new Date(
+              currentWeekStart.getFullYear(),
+              currentWeekStart.getMonth(),
+              15
+            )
+          )
+        : formatLocalDateKey(currentWeekStart);
+
+    params.set("view", urlView);
+    params.set("date", urlDate);
+
+    const nextUrl = `${pathname}?${params.toString()}`;
+    const currentUrl = `${pathname}?${searchParams.toString()}`;
+
+    if (nextUrl !== currentUrl) {
+      router.replace(nextUrl, { scroll: false });
+    }
+  }, [currentWeekStart, pathname, router, searchParams, viewMode]);
+
+  useEffect(() => {
     if (!token) return;
-    const interval = window.setInterval(() => {
-      void loadMeetings(true);
-    }, 15000);
-    return () => {
-      window.clearInterval(interval);
+
+    let cancelled = false;
+
+    const clearScheduledRefresh = () => {
+      if (meetingsRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(meetingsRefreshTimeoutRef.current);
+        meetingsRefreshTimeoutRef.current = null;
+      }
     };
-  }, [token, loadMeetings]);
+
+    const scheduleNextRefresh = () => {
+      clearScheduledRefresh();
+      if (cancelled || document.visibilityState !== "visible") {
+        return;
+      }
+      meetingsRefreshTimeoutRef.current = window.setTimeout(() => {
+        void loadMeetings(true).finally(() => {
+          if (!cancelled) {
+            scheduleNextRefresh();
+          }
+        });
+      }, resolveMeetingsRefreshInterval());
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void loadMeetings(true).finally(() => {
+          if (!cancelled) {
+            scheduleNextRefresh();
+          }
+        });
+        return;
+      }
+      clearScheduledRefresh();
+    };
+
+    scheduleNextRefresh();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      clearScheduledRefresh();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [token, loadMeetings, resolveMeetingsRefreshInterval]);
 
   // Load patients & doctors for form
   useEffect(() => {
@@ -2145,49 +2420,59 @@ export function MeetingsContent() {
   }, [token, userRole]);
 
   return (
-    <main className="w-full flex-1 overflow-hidden flex flex-col">
-      <div className="sticky top-0 z-40 bg-background">
+    <main className="flex h-full w-full flex-1 flex-col overflow-hidden">
+      <div className="sticky top-0 z-40 border-b border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.94))] shadow-[0_18px_42px_rgba(15,23,42,0.04)] supports-[backdrop-filter]:bg-white/82 supports-[backdrop-filter]:backdrop-blur-xl">
         {/* ══════════════════════════════════════════════════
             Calendar Header (Square UI calendar-header.tsx)
             ══════════════════════════════════════════════════ */}
-        <div className="border-b border-border bg-background">
-          <div className="px-3 md:px-6 py-2.5 md:py-3">
-            <div className="flex items-center justify-between gap-2 md:gap-3 flex-nowrap">
+        <div className="border-b border-slate-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.92))]">
+          <div className="px-3 py-2.5 md:px-4 md:py-3">
+            <div className="flex items-center justify-between gap-3 md:gap-4">
               {/* Left: title area */}
-              <div className="flex items-center gap-2 flex-1 min-w-0">
-                <div className="flex-1 min-w-0">
-                  <h1 className="text-sm md:text-base lg:text-lg font-semibold text-foreground truncate mb-0 md:mb-1">
-                    {formatDateLabel(currentWeekStart, language, {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                    })}
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28, ease: "easeOut" }}
+                className="flex min-w-0 flex-1 items-center gap-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <h1 className="truncate text-[1.08rem] font-semibold tracking-[-0.03em] text-slate-950 md:text-[1.28rem]">
+                    {headerTitle}
                   </h1>
-                  <p className="hidden md:block text-xs text-muted-foreground">
-                    {language === "th"
-                      ? `คุณมีนัดหมาย ${todayMeetingsCount} รายการ และอีเวนต์ ${totalEventsCount} รายการในวันนี้ 🗓️`
-                      : `You have ${todayMeetingsCount} meeting${todayMeetingsCount !== 1 ? "s" : ""} and ${totalEventsCount} event${totalEventsCount !== 1 ? "s" : ""} today 🗓️`}
+                  <p className="mt-1 hidden text-sm text-slate-500 md:block">
+                    {viewMode === "month"
+                      ? tr(
+                        language,
+                        `${currentMonthMeetingsCount} meetings this month • ${totalEventsCount} total events`,
+                        `เดือนนี้ ${currentMonthMeetingsCount} นัดหมาย • ทั้งหมด ${totalEventsCount} รายการ`
+                      )
+                      : tr(
+                        language,
+                        `${todayMeetingsCount} meetings today • ${totalEventsCount} total events`,
+                        `วันนี้ ${todayMeetingsCount} นัดหมาย • ทั้งหมด ${totalEventsCount} รายการ`
+                      )}
                   </p>
                 </div>
-              </div>
+              </motion.div>
 
               {/* Right: actions */}
-              <div className="flex items-center gap-1 md:gap-1.5 lg:gap-2 shrink-0">
-                {/* Notification bell */}
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28, delay: 0.04, ease: "easeOut" }}
+                className="flex shrink-0 items-center gap-1 rounded-[20px] border border-slate-200/80 bg-white/82 p-1 shadow-[0_10px_26px_rgba(15,23,42,0.06)] supports-[backdrop-filter]:bg-white/72 supports-[backdrop-filter]:backdrop-blur"
+              >
                 <Popover>
                   <PopoverTrigger
                     render={
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="relative size-7 md:size-8 shrink-0"
+                        className="relative size-8 shrink-0 rounded-2xl text-slate-600 transition-[transform,background-color,color] duration-200 hover:-translate-y-0.5 hover:bg-slate-100 hover:text-slate-950 active:scale-[0.98] md:size-9"
                       >
-                        <HugeiconsIcon
-                          icon={Notification01Icon}
-                          className="size-4"
-                        />
+                        <HugeiconsIcon icon={Notification01Icon} className="size-4" />
                         {todayMeetingsCount > 0 && (
-                          <span className="absolute top-1 right-1 size-1 bg-red-500 rounded-full" />
+                          <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-rose-500 shadow-[0_0_0_3px_rgba(255,255,255,0.95)]" />
                         )}
                       </Button>
                     }
@@ -2199,18 +2484,15 @@ export function MeetingsContent() {
                     <div className="divide-y divide-border">
                       <div className="flex flex-col items-start gap-1 p-3">
                         <div className="flex items-center gap-2 w-full">
-                          <HugeiconsIcon
-                            icon={Tick02Icon}
-                            className="size-4 text-green-500"
-                          />
+                          <HugeiconsIcon icon={Tick02Icon} className="size-4 text-green-500" />
                           <span className="text-sm font-medium flex-1">
                             {tr(language, "Meeting confirmed", "ยืนยันนัดหมายแล้ว")}
                           </span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-sm text-muted-foreground">
                             {tr(language, "2m ago", "2 นาทีที่แล้ว")}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground pl-6">
+                        <p className="pl-6 text-sm text-muted-foreground">
                           {tr(
                             language,
                             "Daily checkin has been confirmed for tomorrow at 9:00 AM",
@@ -2220,18 +2502,15 @@ export function MeetingsContent() {
                       </div>
                       <div className="flex flex-col items-start gap-1 p-3">
                         <div className="flex items-center gap-2 w-full">
-                          <HugeiconsIcon
-                            icon={Clock01Icon}
-                            className="size-4 text-blue-500"
-                          />
+                          <HugeiconsIcon icon={Clock01Icon} className="size-4 text-blue-500" />
                           <span className="text-sm font-medium flex-1">
                             {tr(language, "Reminder", "การแจ้งเตือน")}
                           </span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-sm text-muted-foreground">
                             {tr(language, "15m ago", "15 นาทีที่แล้ว")}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground pl-6">
+                        <p className="pl-6 text-sm text-muted-foreground">
                           {tr(
                             language,
                             "Team Standup starts in 30 minutes",
@@ -2241,18 +2520,15 @@ export function MeetingsContent() {
                       </div>
                       <div className="flex flex-col items-start gap-1 p-3">
                         <div className="flex items-center gap-2 w-full">
-                          <HugeiconsIcon
-                            icon={Calendar01Icon}
-                            className="size-4 text-orange-500"
-                          />
+                          <HugeiconsIcon icon={Calendar01Icon} className="size-4 text-orange-500" />
                           <span className="text-sm font-medium flex-1">
                             {tr(language, "Event updated", "อัปเดตอีเวนต์แล้ว")}
                           </span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-sm text-muted-foreground">
                             {tr(language, "1h ago", "1 ชั่วโมงที่แล้ว")}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground pl-6">
+                        <p className="pl-6 text-sm text-muted-foreground">
                           {tr(
                             language,
                             "Design Workshop time has been changed to 2:00 PM",
@@ -2262,209 +2538,171 @@ export function MeetingsContent() {
                       </div>
                     </div>
                     <div className="p-2 border-t border-border text-center">
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-sm text-muted-foreground">
                         {tr(language, "View all notifications", "ดูการแจ้งเตือนทั้งหมด")}
                       </span>
                     </div>
                   </PopoverContent>
                 </Popover>
-
-                {/* Schedule popover */}
-                <SchedulePopover
-                  language={language}
-                  onSchedule={() => {
-                    setCreateInitialSlot(null);
-                    setCreateOpen(true);
-                  }}
-                >
+                <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.985 }}>
                   <Button
-                    variant="outline"
                     size="icon"
-                    className="size-7 md:size-8 shrink-0 md:w-auto md:px-2 md:gap-1.5"
+                    className="size-8 shrink-0 rounded-2xl border border-slate-900 bg-slate-900 text-white shadow-[0_14px_28px_rgba(15,23,42,0.16)] transition-[transform,box-shadow,background-color] hover:bg-slate-800 hover:shadow-[0_18px_34px_rgba(15,23,42,0.18)] md:h-9 md:w-auto md:px-3 md:gap-2"
+                    onClick={() => {
+                      setCreateInitialSlot(null);
+                      setCreateOpen(true);
+                    }}
                   >
-                    <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
-                    <span className="hidden lg:inline text-xs">{tr(language, "Schedule", "นัดหมาย")}</span>
+                    <HugeiconsIcon icon={Add01Icon} className="size-4" />
+                    <span className="hidden text-sm lg:inline">{tr(language, "Create Event", "สร้างอีเวนต์")}</span>
                   </Button>
-                </SchedulePopover>
-
-                <div className="hidden md:block">
-                  <MonthCalendarPopover
-                    meetings={meetings}
-                    patients={patients}
-                    doctors={doctors}
-                    token={token}
-                    currentUserId={userId}
-                    userRole={userRole}
-                    onMeetingCreated={handleMeetingCreated}
-                  />
-                </div>
-
-                {/* View mode toggle: Calendar / Queue */}
-                <div className="flex items-center rounded-lg border border-border p-0.5 gap-0.5">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "size-7 md:size-8 rounded-md transition-colors",
-                      viewMode === "calendar" && "bg-muted text-foreground"
-                    )}
-                    onClick={() => setViewMode("calendar")}
-                    title={tr(language, "Calendar view", "มุมมองปฏิทิน")}
-                  >
-                    <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "size-7 md:size-8 rounded-md transition-colors",
-                      viewMode === "queue" && "bg-muted text-foreground"
-                    )}
-                    onClick={() => setViewMode("queue")}
-                    title={tr(language, "Queue view", "มุมมองคิว")}
-                  >
-                    <HugeiconsIcon icon={UserGroupIcon} className="size-4" />
-                  </Button>
-                </div>
-
-                {/* + Create Event */}
-                <Button
-                  size="icon"
-                  className="size-7 md:size-8 shrink-0 md:w-auto md:px-2 md:gap-1.5 bg-foreground text-background hover:bg-foreground/90"
-                  onClick={() => {
-                    setCreateInitialSlot(null);
-                    setCreateOpen(true);
-                  }}
-                >
-                  <HugeiconsIcon icon={Add01Icon} className="size-4" />
-                  <span className="hidden lg:inline text-xs">{tr(language, "Create Event", "สร้างอีเวนต์")}</span>
-                </Button>
-              </div>
+                </motion.div>
+              </motion.div>
             </div>
           </div>
         </div>
-
-        {userRole === "doctor" && (
-          <div className="px-3 md:px-6 py-3 border-b border-border bg-background">
-            <div className="flex items-center gap-2 overflow-x-auto">
-              <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                {tr(language, "Scope:", "ขอบเขต:")}
-              </span>
-              <Button
-                variant={doctorScope === "all-visible" ? "default" : "outline"}
-                size="sm"
-                className="h-7 text-xs whitespace-nowrap"
-                onClick={() => setDoctorScope("all-visible")}
-              >
-                {tr(language, "All Visible", "มองเห็นทั้งหมด")}
-              </Button>
-              <Button
-                variant={doctorScope === "my-meetings" ? "default" : "outline"}
-                size="sm"
-                className="h-7 text-xs whitespace-nowrap"
-                onClick={() => setDoctorScope("my-meetings")}
-              >
-                {tr(language, "My Meetings", "นัดหมายของฉัน")}
-              </Button>
-              <Button
-                variant={doctorScope === "care-team" ? "default" : "outline"}
-                size="sm"
-                className="h-7 text-xs whitespace-nowrap"
-                onClick={() => setDoctorScope("care-team")}
-              >
-                {tr(language, "Care Team", "ทีมดูแล")}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* ══════════════════════════════════════════════════
-            Calendar Controls (Square UI calendar-controls.tsx)
-            ══════════════════════════════════════════════════ */}
-        {viewMode === "calendar" && (
-          <div className="px-3 md:px-6 py-4 border-b border-border bg-background">
-            <div className="flex items-center gap-2 md:gap-3 flex-wrap">
-              {/* Search with settings icon */}
-              <div className="relative flex-1 min-w-[200px] max-w-[280px] shrink-0">
-                <HugeiconsIcon
-                  icon={Search01Icon}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
-                />
-                <Input
-                  placeholder={tr(language, "Search in calendar...", "ค้นหาในปฏิทิน...")}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 pr-9 h-8 bg-background"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-1 top-1/2 -translate-y-1/2 size-6"
-                >
-                  <HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
-                </Button>
-              </div>
-
-              {/* Today button */}
+        <div className="border-b border-slate-200/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.94),rgba(255,255,255,0.92))] px-3 py-3 md:px-4">
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.24, delay: 0.1, ease: "easeOut" }}
+            className="flex flex-wrap items-center gap-2 rounded-[22px] border border-slate-200/80 bg-white/84 p-1.5 shadow-[0_12px_26px_rgba(15,23,42,0.05)] supports-[backdrop-filter]:bg-white/72 supports-[backdrop-filter]:backdrop-blur"
+          >
+            <div className="flex items-center gap-1.5 rounded-[18px] border border-slate-200/80 bg-slate-50/80 p-1">
               <Button
                 variant="outline"
-                className="h-8 px-3 shrink-0"
-                onClick={goToLatestDay}
+                className="h-9 rounded-2xl border-slate-200/80 bg-white/90 px-3.5 text-sm font-semibold text-slate-700 shadow-none transition-colors hover:bg-white"
+                onClick={goToPrimaryPeriod}
               >
                 {tr(language, "Today", "วันนี้")}
               </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 rounded-2xl text-slate-500 transition-[transform,background-color,color] duration-200 hover:-translate-y-0.5 hover:bg-white hover:text-slate-900"
+                onClick={goToPreviousPeriod}
+              >
+                <HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 rounded-2xl text-slate-500 transition-[transform,background-color,color] duration-200 hover:-translate-y-0.5 hover:bg-white hover:text-slate-900"
+                onClick={goToNextPeriod}
+              >
+                <HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />
+              </Button>
+            </div>
 
-              {/* Date range picker */}
-              <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
-                <PopoverTrigger
-                  render={
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        "h-8 px-3 gap-2 justify-start text-left font-normal shrink-0",
-                        "hover:bg-accent"
-                      )}
-                    >
-                      <HugeiconsIcon
-                        icon={Calendar01Icon}
-                        className="size-4 text-muted-foreground"
-                      />
-                      <span className="text-xs text-foreground">
-                        {weekStartLabel} - {weekEndLabel}
-                      </span>
-                    </Button>
-                  }
+            <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+              <PopoverTrigger
+                render={
+                  <Button
+                    variant="outline"
+                    className="h-9 shrink-0 justify-start gap-2 rounded-2xl border-slate-200/80 bg-white/80 px-3.5 text-left text-sm font-medium text-slate-700 shadow-none hover:bg-slate-50"
+                  >
+                    <HugeiconsIcon icon={Calendar01Icon} className="size-4 text-slate-400" />
+                    <span className="text-sm text-slate-800">
+                      {toolbarDateLabel}
+                    </span>
+                  </Button>
+                }
+              />
+              <PopoverContent
+                className="w-auto rounded-[28px] border border-sky-200/80 bg-white p-1.5 shadow-[0_18px_46px_rgba(15,23,42,0.12)]"
+                align="start"
+              >
+                <AnimatedCalendarStandalone
+                  mode="single"
+                  value={currentWeekStart}
+                  onChange={(value: Date | undefined) => {
+                    if (value instanceof Date) {
+                      goToDate(value);
+                      setDatePickerOpen(false);
+                    }
+                  }}
+                  localeStrings={{
+                    today: tr(language, "Today", "วันนี้"),
+                    clear: tr(language, "Clear", "ล้าง"),
+                    selectTime: tr(language, "Select time", "เลือกเวลา"),
+                    backToCalendar: tr(language, "Back to calendar", "กลับไปปฏิทิน"),
+                    selected: tr(language, "selected", "ที่เลือก"),
+                  }}
+                  showWeekNumbers
+                  showTodayButton
+                  showClearButton={false}
+                  closeOnSelect
+                  className="w-full"
                 />
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={currentWeekStart}
-                    onSelect={(date) => {
-                      if (date) {
-                        goToDate(date);
-                        setDatePickerOpen(false);
-                      }
-                    }}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
+              </PopoverContent>
+            </Popover>
 
-              <div className="ml-auto" />
+            <div className="relative min-w-[220px] flex-1 basis-[280px]">
+              <HugeiconsIcon
+                icon={Search01Icon}
+                className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"
+              />
+              <Input
+                placeholder={tr(language, "Search appointments...", "ค้นหานัดหมาย...")}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-9 rounded-2xl border-slate-200/80 bg-slate-50/80 pl-9 pr-4 text-sm shadow-none placeholder:text-slate-400"
+              />
+            </div>
 
-              {/* Filter button */}
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger className="inline-flex h-9 items-center gap-2 rounded-2xl border border-slate-200/80 bg-white/80 px-3.5 text-sm font-medium text-slate-700 shadow-none transition-colors hover:bg-slate-50">
+                  <span>{currentViewLabel}</span>
+                  <HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5 text-slate-400" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44 rounded-2xl p-1.5">
+                  <DropdownMenuLabel>{tr(language, "View mode", "มุมมอง")}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setViewMode("calendar")}>
+                    <HugeiconsIcon icon={Calendar01Icon} className="size-4 text-sky-500" />
+                    <span>{tr(language, "Week", "สัปดาห์")}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setViewMode("month")}>
+                    <HugeiconsIcon icon={Calendar01Icon} className="size-4 text-indigo-500" />
+                    <span>{tr(language, "Month", "เดือน")}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setViewMode("queue")}>
+                    <HugeiconsIcon icon={UserGroupIcon} className="size-4 text-slate-500" />
+                    <span>{tr(language, "Queue", "คิว")}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <SchedulePopover
+                language={language}
+                onSchedule={() => {
+                  setCreateInitialSlot(null);
+                  setCreateOpen(true);
+                }}
+              >
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-9 rounded-2xl border-slate-200/80 bg-white/80 px-3.5 text-sm font-medium text-slate-700 shadow-none transition-colors hover:bg-slate-50 md:w-auto md:gap-2"
+                >
+                  <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
+                  <span className="hidden md:inline">{tr(language, "Schedule", "นัดหมาย")}</span>
+                </Button>
+              </SchedulePopover>
+
               <Popover open={filterOpen} onOpenChange={setFilterOpen}>
                 <PopoverTrigger
                   render={
                     <Button
                       variant="outline"
                       className={cn(
-                        "h-8 px-3 gap-2",
-                        hasActiveFilters && "bg-accent"
+                        "h-9 gap-2 rounded-2xl border-slate-200/80 bg-white/80 px-3.5 text-sm font-medium text-slate-700 shadow-none transition-colors",
+                        hasActiveFilters && "border-sky-200 bg-sky-50 text-sky-800"
                       )}
                     >
                       <HugeiconsIcon icon={FilterIcon} className="size-4" />
-                      <span className="hidden sm:inline text-xs">{tr(language, "Filter", "ตัวกรอง")}</span>
+                      <span className="hidden text-sm sm:inline">{tr(language, "Filter", "ตัวกรอง")}</span>
                       {hasActiveFilters && (
                         <span className="size-1.5 rounded-full bg-primary" />
                       )}
@@ -2472,10 +2710,59 @@ export function MeetingsContent() {
                   }
                 />
                 <PopoverContent
-                  className="p-4 w-[288px]"
+                  className="w-[280px] p-4"
                   align="end"
                 >
                   <div className="space-y-4 w-full">
+                    {userRole === "doctor" ? (
+                      <div>
+                        <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                          <HugeiconsIcon
+                            icon={UserGroupIcon}
+                            className="size-4 text-muted-foreground"
+                          />
+                          {tr(language, "Scope", "ขอบเขต")}
+                        </h4>
+                        <div className="space-y-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8.5 w-full justify-between px-3"
+                            onClick={() => setDoctorScope("my-meetings")}
+                          >
+                            <span className="text-sm">{tr(language, "My Meetings", "นัดหมายของฉัน")}</span>
+                            {doctorScope === "my-meetings" ? (
+                              <HugeiconsIcon icon={Tick02Icon} className="size-4 text-primary" />
+                            ) : null}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8.5 w-full justify-between px-3"
+                            onClick={() => setDoctorScope("care-team")}
+                          >
+                            <span className="text-sm">{tr(language, "Care Team", "ทีมดูแล")}</span>
+                            {doctorScope === "care-team" ? (
+                              <HugeiconsIcon icon={Tick02Icon} className="size-4 text-primary" />
+                            ) : null}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8.5 w-full justify-between px-3"
+                            onClick={() => setDoctorScope("all-visible")}
+                          >
+                            <span className="text-sm">{tr(language, "All Visible", "มองเห็นทั้งหมด")}</span>
+                            {doctorScope === "all-visible" ? (
+                              <HugeiconsIcon icon={Tick02Icon} className="size-4 text-primary" />
+                            ) : null}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {userRole === "doctor" ? <Separator /> : null}
+
                     <div>
                       <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
                         <HugeiconsIcon
@@ -2488,7 +2775,7 @@ export function MeetingsContent() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="w-full justify-between h-9 px-3"
+                          className="h-8.5 w-full justify-between px-3"
                           onClick={() => setEventTypeFilter("all")}
                         >
                           <span className="text-sm">{tr(language, "All events", "ทุกอีเวนต์")}</span>
@@ -2502,7 +2789,7 @@ export function MeetingsContent() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="w-full justify-between h-9 px-3"
+                          className="h-8.5 w-full justify-between px-3"
                           onClick={() => setEventTypeFilter("with-room")}
                         >
                           <div className="flex items-center gap-2.5">
@@ -2522,7 +2809,7 @@ export function MeetingsContent() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="w-full justify-between h-9 px-3"
+                          className="h-8.5 w-full justify-between px-3"
                           onClick={() => setEventTypeFilter("without-room")}
                         >
                           <div className="flex items-center gap-2.5">
@@ -2542,15 +2829,40 @@ export function MeetingsContent() {
                       </div>
                     </div>
 
+                    <Separator />
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold">
+                            {tr(language, "Show cancelled", "แสดงนัดที่ยกเลิก")}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {tr(
+                              language,
+                              "Cancelled appointments are hidden from the main calendar until you turn this on.",
+                              "นัดที่ยกเลิกจะถูกซ่อนจากปฏิทินหลักไว้ก่อน จนกว่าคุณจะเปิดตัวเลือกนี้"
+                            )}
+                          </p>
+                        </div>
+                        <Switch
+                          checked={includeCancelled}
+                          onCheckedChange={setIncludeCancelled}
+                          aria-label={tr(language, "Show cancelled appointments", "แสดงนัดที่ยกเลิก")}
+                        />
+                      </div>
+                    </div>
+
                     {hasActiveFilters && (
                       <>
                         <Separator />
                         <Button
                           variant="outline"
                           size="sm"
-                          className="w-full h-9"
+                          className="h-8.5 w-full"
                           onClick={() => {
                             setEventTypeFilter("all");
+                            setIncludeCancelled(false);
                           }}
                         >
                           {tr(language, "Clear all filters", "ล้างตัวกรองทั้งหมด")}
@@ -2561,8 +2873,8 @@ export function MeetingsContent() {
                 </PopoverContent>
               </Popover>
             </div>
-          </div>
-        )}
+          </motion.div>
+        </div>
       </div>
 
       {/* ══════════════════════════════════════════════════
@@ -2570,9 +2882,9 @@ export function MeetingsContent() {
           ══════════════════════════════════════════════════ */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center">
-          <div className="space-y-4 w-full max-w-3xl px-6">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-[400px] w-full rounded-xl" />
+          <div className="w-full max-w-3xl space-y-3 px-4">
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-[360px] w-full rounded-xl" />
           </div>
         </div>
       ) : viewMode === "calendar" ? (
@@ -2583,6 +2895,22 @@ export function MeetingsContent() {
               setEditMeeting(meeting);
               setCreateInitialSlot(null);
               setCreateOpen(true);
+            }}
+            onRefresh={loadMeetings}
+          />
+        </div>
+      ) : viewMode === "month" ? (
+        <div className="flex-1 flex flex-col overflow-auto">
+          <MonthCalendarView
+            onEditMeeting={(meeting) => {
+              setEditMeeting(meeting);
+              setCreateInitialSlot(null);
+              setCreateOpen(true);
+            }}
+            onSlotSelect={handleSlotSelect}
+            onGoToWeek={(date) => {
+              goToDate(date);
+              setViewMode("calendar");
             }}
             onRefresh={loadMeetings}
           />

@@ -1,5 +1,6 @@
 """Tests for dense-mode access control with assignment-only doctor/admin policy."""
 
+import json
 from datetime import date, datetime, timezone
 
 from fastapi.testclient import TestClient
@@ -10,8 +11,10 @@ from app.core.security import get_password_hash
 from app.models.alert import Alert
 from app.models.audit_log import AuditLog
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
+from app.models.medication import Medication
 from app.models.enums import AlertCategory, AlertSeverity, UserRole
 from app.models.patient import Patient
+from app.models.timeline_event import TimelineEvent
 from app.models.user import User
 
 
@@ -310,3 +313,137 @@ class TestAuditLogging:
             )
         )
         assert audit is not None
+
+
+class TestWriteActions:
+    def test_assigned_doctor_can_create_medication_order_with_audit(
+        self,
+        client: TestClient,
+        db: Session,
+    ):
+        doctor = _create_user(db, "order-doc@test.com", UserRole.doctor)
+        patient = _create_patient(db)
+        _assign_doctor(db, doctor.id, patient.id)
+
+        token = _login(client, "order-doc@test.com")
+        response = client.post(
+            f"/patients/{patient.id}/orders",
+            json={
+                "order_type": "medication",
+                "name": "Amlodipine",
+                "dosage": "5 mg",
+                "frequency": "daily",
+                "route": "oral",
+                "notes": "Start tonight",
+            },
+            headers=_auth_headers(token),
+        )
+
+        assert response.status_code == 201, response.text
+
+        medication = db.scalar(
+            select(Medication).where(Medication.patient_id == patient.id)
+        )
+        assert medication is not None
+        assert medication.name == "Amlodipine"
+        assert medication.ordered_by == doctor.id
+
+        event = db.scalar(
+            select(TimelineEvent).where(
+                TimelineEvent.patient_id == patient.id,
+                TimelineEvent.reference_type == "medication",
+            )
+        )
+        assert event is not None
+        assert event.reference_id == medication.id
+
+        audit = db.scalar(
+            select(AuditLog).where(
+                AuditLog.user_id == doctor.id,
+                AuditLog.action == "create_medication_order",
+            )
+        )
+        assert audit is not None
+        assert audit.resource_id == medication.id
+
+    def test_unassigned_doctor_cannot_create_order(
+        self,
+        client: TestClient,
+        db: Session,
+    ):
+        doctor = _create_user(db, "order-denied@test.com", UserRole.doctor)
+        patient = _create_patient(db)
+
+        token = _login(client, "order-denied@test.com")
+        response = client.post(
+            f"/patients/{patient.id}/orders",
+            json={
+                "order_type": "medication",
+                "name": "Blocked Order",
+            },
+            headers=_auth_headers(token),
+        )
+
+        assert response.status_code == 403
+        assert db.scalar(select(Medication).where(Medication.patient_id == patient.id)) is None
+
+    def test_create_order_requires_required_fields(
+        self,
+        client: TestClient,
+        db: Session,
+    ):
+        doctor = _create_user(db, "order-validate@test.com", UserRole.doctor)
+        patient = _create_patient(db)
+        _assign_doctor(db, doctor.id, patient.id)
+
+        token = _login(client, "order-validate@test.com")
+        response = client.post(
+            f"/patients/{patient.id}/orders",
+            json={"order_type": "medication"},
+            headers=_auth_headers(token),
+        )
+
+        assert response.status_code == 422
+
+    def test_assigned_doctor_can_create_note_with_audit(
+        self,
+        client: TestClient,
+        db: Session,
+    ):
+        doctor = _create_user(db, "note-doc@test.com", UserRole.doctor)
+        patient = _create_patient(db)
+        _assign_doctor(db, doctor.id, patient.id)
+
+        token = _login(client, "note-doc@test.com")
+        response = client.post(
+            f"/patients/{patient.id}/notes",
+            json={
+                "note_type": "soap",
+                "subjective": "Patient reports headache.",
+                "assessment": "Stable",
+                "plan": "Monitor blood pressure",
+                "title": "SOAP follow-up",
+            },
+            headers=_auth_headers(token),
+        )
+
+        assert response.status_code == 201, response.text
+        event = db.scalar(
+            select(TimelineEvent).where(
+                TimelineEvent.patient_id == patient.id,
+                TimelineEvent.event_type == "note",
+            )
+        )
+        assert event is not None
+        detail = json.loads(event.details)
+        assert detail["assessment"] == "Stable"
+        assert detail["plan"] == "Monitor blood pressure"
+
+        audit = db.scalar(
+            select(AuditLog).where(
+                AuditLog.user_id == doctor.id,
+                AuditLog.action == "create_note",
+            )
+        )
+        assert audit is not None
+        assert audit.resource_id == event.id

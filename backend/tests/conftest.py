@@ -1,7 +1,8 @@
 import os
+
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
@@ -16,6 +17,7 @@ os.environ.setdefault("DEVICE_API_REQUIRE_NONCE", "false")
 
 from app.core.config import get_settings
 from app.db.base import Base
+from app.db.session import engine as app_engine
 from app.main import app
 from app.services.auth import get_db
 
@@ -83,15 +85,24 @@ def apply_test_migrations():
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
     command.upgrade(alembic_cfg, "head")
+    # Keep Postgres test schema aligned with ORM metadata even when a migration
+    # lags behind a newly added table used by the test suite.
+    Base.metadata.create_all(bind=engine)
     yield
 
 
 @pytest.fixture(scope="function", autouse=True)
 def setup_database():
     """Create tables for each test"""
-    Base.metadata.create_all(bind=engine)
+    if IS_SQLITE or not RUN_TEST_MIGRATIONS:
+        Base.metadata.create_all(bind=engine)
+        yield
+        Base.metadata.drop_all(bind=engine)
+        return
+
+    _truncate_all_tables()
     yield
-    Base.metadata.drop_all(bind=engine)
+    _truncate_all_tables()
 
 
 @pytest.fixture
@@ -113,3 +124,21 @@ def client():
 @pytest.fixture
 def test_settings():
     return get_settings()
+
+
+def _truncate_all_tables():
+    app_engine.dispose()
+    engine.dispose()
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names(schema="public") or inspector.get_table_names())
+    table_names = [
+        table.name
+        for table in reversed(Base.metadata.sorted_tables)
+        if table.schema in (None, "public") and table.name in existing_tables
+    ]
+    if not table_names:
+        return
+
+    joined_tables = ", ".join(f'"{name}"' for name in table_names)
+    with engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE {joined_tables} RESTART IDENTITY CASCADE"))

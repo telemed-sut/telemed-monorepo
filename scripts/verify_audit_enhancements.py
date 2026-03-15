@@ -2,13 +2,25 @@
 import requests
 import json
 import sys
+import os
 
 # Configuration
-API_URL = "http://localhost:8000"
-ADMIN_EMAIL = "admin@example.com"
-ADMIN_PASSWORD = "password123"
+API_URL = os.getenv("API_URL", "http://localhost:8000")
+ADMIN_EMAIL = os.getenv("VERIFY_AUDIT_ADMIN_EMAIL")
+ADMIN_PASSWORD = os.getenv("VERIFY_AUDIT_ADMIN_PASSWORD")
+
+
+def require_credentials():
+    if ADMIN_EMAIL and ADMIN_PASSWORD:
+        return
+    print(
+        "Missing VERIFY_AUDIT_ADMIN_EMAIL or VERIFY_AUDIT_ADMIN_PASSWORD environment variables.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 def login():
+    require_credentials()
     print(f"Logging in as {ADMIN_EMAIL}...")
     response = requests.post(f"{API_URL}/auth/login", json={
         "email": ADMIN_EMAIL,

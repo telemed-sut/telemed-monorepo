@@ -352,7 +352,7 @@ export function MeetingsTable() {
                     </CardHeader>
                     <CardContent className="relative z-10">
                         <div className="text-3xl font-bold tracking-tight text-foreground">{stats.total}</div>
-                        <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                        <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
                             <span className="text-violet-500 font-medium">All</span> scheduled meetings
                         </p>
                     </CardContent>
@@ -370,7 +370,7 @@ export function MeetingsTable() {
                     </CardHeader>
                     <CardContent className="relative z-10">
                         <div className="text-3xl font-bold tracking-tight text-foreground">{stats.upcoming}</div>
-                        <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                        <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
                             <span className="text-emerald-500 font-medium">Future</span> appointments
                         </p>
                     </CardContent>
@@ -388,7 +388,7 @@ export function MeetingsTable() {
                     </CardHeader>
                     <CardContent className="relative z-10">
                         <div className="text-3xl font-bold tracking-tight text-foreground">{stats.today}</div>
-                        <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                        <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
                             <span className="text-amber-500 font-medium">Scheduled</span> for today
                         </p>
                     </CardContent>
@@ -701,7 +701,7 @@ export function MeetingsTable() {
                                         ))}
                                     </SelectContent>
                                 </Select>
-                                <span className="text-xs">per page</span>
+                                <span className="text-sm">per page</span>
                             </div>
 
                             <div className="flex items-center gap-2">
@@ -767,7 +767,7 @@ export function MeetingsTable() {
                                 onChange={(e) => setFormData({ ...formData, date_time: e.target.value })}
                                 className={cn(formErrors.date_time && "border-destructive")}
                             />
-                            {formErrors.date_time && <p className="text-xs text-destructive">{formErrors.date_time}</p>}
+                            {formErrors.date_time && <p className="text-sm text-destructive">{formErrors.date_time}</p>}
                         </div>
 
                         {/* Doctor */}
@@ -788,7 +788,7 @@ export function MeetingsTable() {
                                         type="button"
                                         variant="outline"
                                         size="sm"
-                                        className="shrink-0 text-xs"
+                                        className="shrink-0 text-sm"
                                         onClick={() => setFormData({ ...formData, doctor_id: userId })}
                                     >
                                         Use my ID
@@ -796,11 +796,11 @@ export function MeetingsTable() {
                                 )}
                             </div>
                             {userId && formData.doctor_id === userId && (
-                                <p className="text-xs text-emerald-500 flex items-center gap-1">
+                                <p className="flex items-center gap-1 text-sm text-emerald-500">
                                     <Stethoscope className="size-3" /> Assigned to you (current user)
                                 </p>
                             )}
-                            {formErrors.doctor_id && <p className="text-xs text-destructive">{formErrors.doctor_id}</p>}
+                            {formErrors.doctor_id && <p className="text-sm text-destructive">{formErrors.doctor_id}</p>}
                         </div>
 
                         {/* Patient */}
@@ -830,7 +830,7 @@ export function MeetingsTable() {
                                     className={cn(formErrors.user_id && "border-destructive")}
                                 />
                             )}
-                            {formErrors.user_id && <p className="text-xs text-destructive">{formErrors.user_id}</p>}
+                            {formErrors.user_id && <p className="text-sm text-destructive">{formErrors.user_id}</p>}
                         </div>
 
                         {/* Room */}

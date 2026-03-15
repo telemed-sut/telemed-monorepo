@@ -239,6 +239,8 @@
 @layer base {
   html {
     scrollbar-gutter: stable both-edges;
+    font-size: clamp(15px, 0.14vw + 14.4px, 16px);
+    -webkit-text-size-adjust: 100%;
   }
 
   * {
@@ -247,6 +249,8 @@
 
   body {
     @apply bg-background text-foreground;
+    line-height: 1.5;
+    text-rendering: optimizeLegibility;
   }
 
   @media (prefers-reduced-motion: reduce) {

@@ -33,25 +33,66 @@ FastAPI backend with JWT auth, PostgreSQL (Neon/Supabase), patient CRUD, Alembic
 - DEVICE_API_NONCE_TTL_SECONDS: nonce replay window retention
 - DEVICE_API_MAX_BODY_BYTES: max accepted request payload size in bytes
 
-See [.env.example](.env.example) for a starter file.
+Primary source should be Infisical secrets at runtime.  
+`.env.example` documents required keys only. `backend/.env` is not an official runtime source anymore.
 
 ### Frontend Integration
 - Backend URL: `http://localhost:8000`
 - Frontend Env: `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`
 - Allowed Origins: Frontend must run on port **3000** or **8080** (e.g. `http://localhost:3000`).
-  - Note: Other ports (like 3001) will fail CORS checks unless added to `.env`.
+  - Note: Other ports (like 3001) will fail CORS checks unless added to runtime config / Infisical secrets.
+
+### Backend environment bootstrap
+Use the bootstrap script to create or refresh the backend virtual environment
+before you run tests or start the API. It installs `requirements.txt`, checks
+package integrity, and verifies that the local pytest plugins are present.
+
+From `backend/`:
+
+```bash
+./scripts/bootstrap_backend_env.sh
+```
+
+If you prefer `make`, run:
+
+```bash
+make backend-test-env
+```
+
+Optional environment overrides:
+- `PYTHON_BIN=/path/to/python3.12` picks a specific interpreter.
+- `VENV_DIR=/custom/path/to/venv` installs into a different virtual environment.
+- `UPGRADE_PIP=1` upgrades `pip` before syncing dependencies.
 
 ### Running locally (without Docker)
-1) Create and activate a Python 3.11+ venv.
-2) Install dependencies: `pip install -r requirements.txt`.
-3) Set env vars (DATABASE_URL, JWT_SECRET, JWT_EXPIRES_IN, CORS_ORIGINS).
+1) Bootstrap the environment with `./scripts/bootstrap_backend_env.sh`.
+2) Activate the virtual environment: `source venv/bin/activate`.
+3) Load env vars via Infisical (`infisical run -- ...`) or by exporting env vars
+   in your shell.
 4) Run migrations: `alembic upgrade head`.
 5) Seed demo data: `python -m scripts.seed`.
-6) Start API: `uvicorn app.main:app --reload` (defaults to 8000).
+6) Start API: `infisical run -- uvicorn app.main:app --reload` (defaults to
+   8000).
+
+From the repo root you can use the Infisical-aware wrappers instead:
+
+```bash
+./scripts/dev-api.sh
+./scripts/test-backend.sh
+./scripts/migrate-backend.sh
+./scripts/seed-backend.sh
+```
+
+If you want to force a specific Infisical environment:
+
+```bash
+INFISICAL_RUN_ARGS="--env=dev" ./scripts/dev-api.sh
+```
 
 ### Running with Docker Compose
-1) Copy .env.example to .env and fill values (use sslmode=require for Supabase URLs).
-2) `docker-compose up --build` (backend on port 8000). Migrations and seed run automatically before uvicorn starts.
+1) Preferred: run the team script from repo root (`./scripts/dev-backend.sh`).
+2) Alternative: export the required env vars in your shell, then run `docker compose up --build`.
+3) Backend runs on port 8000; migrations and seed run automatically before uvicorn starts.
 
 ### Auth and demo users
 - Login endpoint: POST /auth/login with {"email", "password"}.
@@ -121,13 +162,17 @@ Validation highlights:
 - `a` and `b` must be equal length when both provided.
 
 ### Testing
-- Unit tests: `python -m pytest` (requires test dependencies)
+- Unit tests: `python -m pytest`
 - API tests: Import `Patient_Management_API.postman_collection.json` into Postman
 - Test coverage includes auth, patients CRUD, role-based access, and error handling
 - Test matrix profiles:
   - compat profile (full suite): `./scripts/run_test_matrix.sh compat`
   - strict profile (device security smoke test): `./scripts/run_test_matrix.sh strict`
   - both profiles: `./scripts/run_test_matrix.sh all`
+- PostgreSQL subset profile from repo root: `TEST_DATABASE_URL=postgresql+psycopg://... ./scripts/test-backend-postgres-subset.sh`
+  - Runs the most DB-sensitive suites with `RUN_TEST_MIGRATIONS=true` by default.
+  - Current subset: `test_users`, `test_patients`, `test_dense_mode_access`, `test_audit_logs`, `test_auth_2fa_management`, `test_security_admin_endpoints`, `test_stats_and_audit_contracts`
+- Bootstrap test env first when setting up a fresh machine: `make backend-test-env`
 
 ### Real device style simulation (HTTP ingest)
 Use this when you want to simulate an actual machine sending signed payloads to `/device/v1/pressure`.
