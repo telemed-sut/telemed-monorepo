@@ -30,7 +30,7 @@ PATIENT_INVITE_TOKEN_TYPE = "meeting_patient_invite"
 PATIENT_SHORT_JOIN_PATH = "/p"
 PATIENT_PARTICIPANT_PREFIX = "patient"
 STAFF_PARTICIPANT_PREFIX = "user"
-PATIENT_INVITE_TOKEN_VERSION = "v2"
+PATIENT_INVITE_TOKEN_VERSION = "v3"
 PATIENT_INVITE_SHORT_CODE_PATTERN = re.compile(r"^[a-z0-9]{6,24}$")
 PATIENT_INVITE_SHORT_CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 PATIENT_INVITE_SHORT_CODE_LENGTH = 8
@@ -159,10 +159,18 @@ def build_patient_short_invite_url(code: str) -> str:
     return f"{base_url}{PATIENT_SHORT_JOIN_PATH}/{code}"
 
 
-def _build_patient_invite_token(*, meeting_id: str, expires_at_unix: int) -> str:
+def _build_patient_invite_token(
+    *,
+    meeting_id: str,
+    patient_id: str,
+    room_id: str,
+    expires_at_unix: int,
+) -> str:
     nonce = _b64_url(str(time.time_ns()).encode("utf-8"))[:10]
-    payload_v2 = f"{PATIENT_INVITE_TOKEN_VERSION}:{meeting_id}:{expires_at_unix}:{nonce}"
-    compact_payload = _b64_url(payload_v2.encode("utf-8"))
+    payload_v3 = (
+        f"{PATIENT_INVITE_TOKEN_VERSION}:{meeting_id}:{patient_id}:{room_id}:{expires_at_unix}:{nonce}"
+    )
+    compact_payload = _b64_url(payload_v3.encode("utf-8"))
     signature = _sign_compact_payload(compact_payload)
     return f"{PATIENT_INVITE_TOKEN_PREFIX}.{compact_payload}.{signature}"
 
@@ -421,11 +429,19 @@ def _build_patient_invite_response(
     issued_at: datetime,
 ) -> dict[str, Any]:
     expires_at = _as_utc(invite_code.expires_at)
+    if not meeting.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Meeting has no patient assigned.",
+        )
+    room_id = derive_room_id(meeting)
     return {
         "meeting_id": str(meeting.id),
-        "room_id": derive_room_id(meeting),
+        "room_id": room_id,
         "invite_token": _build_patient_invite_token(
             meeting_id=str(meeting.id),
+            patient_id=str(meeting.user_id),
+            room_id=room_id,
             expires_at_unix=int(expires_at.timestamp()),
         ),
         "short_code": invite_code.code,
@@ -576,16 +592,43 @@ def _decode_patient_invite_token(invite_token: str) -> dict[str, Any]:
             )
         return payload
 
-    # Compact v2 payload: v2:<meeting_id>:<exp>:<nonce>
-    parts_payload = decoded_payload.split(":", 3)
-    if len(parts_payload) != 4 or parts_payload[0] != PATIENT_INVITE_TOKEN_VERSION:
+    # Compact payload:
+    # v3:<meeting_id>:<patient_id>:<room_id>:<exp>:<nonce>
+    # v2:<meeting_id>:<exp>:<nonce> (legacy)
+    parts_payload = decoded_payload.split(":")
+    if len(parts_payload) not in (4, 6):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid patient invite token payload.",
         )
 
-    _, meeting_id_raw, exp_raw, _nonce = parts_payload
+    version = parts_payload[0]
+    if version == "v2" and len(parts_payload) == 4:
+        _, meeting_id_raw, exp_raw, _nonce = parts_payload
+        meeting_id = _normalize_uuid_text(meeting_id_raw)
+        try:
+            exp = int(exp_raw)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid patient invite token expiry.",
+            ) from exc
+        return {
+            "typ": PATIENT_INVITE_TOKEN_TYPE,
+            "mid": meeting_id,
+            "exp": exp,
+        }
+
+    if version != PATIENT_INVITE_TOKEN_VERSION or len(parts_payload) != 6:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid patient invite token payload.",
+        )
+
+    _, meeting_id_raw, patient_id_raw, room_id_raw, exp_raw, _nonce = parts_payload
     meeting_id = _normalize_uuid_text(meeting_id_raw)
+    patient_id = _normalize_uuid_text(patient_id_raw)
+    room_id = (room_id_raw or "").strip()
     try:
         exp = int(exp_raw)
     except (TypeError, ValueError) as exc:
@@ -597,6 +640,8 @@ def _decode_patient_invite_token(invite_token: str) -> dict[str, Any]:
     return {
         "typ": PATIENT_INVITE_TOKEN_TYPE,
         "mid": meeting_id,
+        "pid": patient_id,
+        "rid": room_id,
         "exp": exp,
     }
 
@@ -604,6 +649,8 @@ def _decode_patient_invite_token(invite_token: str) -> dict[str, Any]:
 def _validate_patient_invite_claim_shape(claims: dict[str, Any]) -> None:
     token_type = claims.get("typ")
     meeting_id = _normalize_uuid_text(str(claims.get("mid") or ""))
+    patient_id = _normalize_uuid_text(str(claims.get("pid") or ""))
+    room_id = str(claims.get("rid") or "").strip()
 
     if token_type != PATIENT_INVITE_TOKEN_TYPE:
         raise HTTPException(
@@ -612,6 +659,12 @@ def _validate_patient_invite_claim_shape(claims: dict[str, Any]) -> None:
         )
 
     if not meeting_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid patient invite token payload.",
+        )
+
+    if not patient_id or not room_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid patient invite token payload.",

@@ -357,11 +357,14 @@ def issue_patient_meeting_invite(
     if active_invite_code:
         issued_at = active_invite_code.created_at
         expires_at = active_invite_code.expires_at
+        room_id = meeting_video_service.derive_room_id(meeting)
         return {
             "meeting_id": str(meeting.id),
-            "room_id": meeting_video_service.derive_room_id(meeting),
+            "room_id": room_id,
             "invite_token": meeting_video_service._build_patient_invite_token(
                 meeting_id=str(meeting.id),
+                patient_id=str(meeting.user_id),
+                room_id=room_id,
                 expires_at_unix=int(_as_utc(expires_at).timestamp()),
             ),
             "short_code": active_invite_code.code,

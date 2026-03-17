@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Camera, CameraOff, Mic, MicOff, ShieldCheck, Video } from "lucide-react";
 
@@ -13,13 +13,32 @@ import {
   leavePatientMeetingPresence,
 } from "@/lib/api";
 import {
+  getCallNetworkProfile,
+  getDefaultZegoVideoResolution,
   loadZegoUIKitPrebuilt,
+  preloadZegoUIKitPrebuilt,
+  withTimeout,
+  withRetry,
+  CallStartupMetrics,
+  getAdaptiveMediaConstraints,
+  getMediaReleaseDelay,
+  API_TIMEOUT_MS,
   type ZegoUIKitPrebuiltInstance,
 } from "@/lib/zego-uikit";
 
 const PATIENT_PRESENCE_HEARTBEAT_INTERVAL_MS = 10_000;
 const PATIENT_ROOM_BACKGROUND_URL = "/patient-room-bg.svg";
 const MEETING_VIDEO_CODEC = "H264" as const;
+const JOIN_LOADING_SLOW_THRESHOLD_MS = 8_000;
+type JoinLoadingStep =
+  | "checking-media"
+  | "connecting-room"
+  | "loading-video"
+  | "entering-room";
+type PatientCallState = "prejoin" | "bootstrapping" | "in-room";
+
+const STAGE_TIMEOUT_MS = 15_000;
+const OVERALL_TIMEOUT_MS = 45_000;
 
 function PatientJoinLoadingShell() {
   return (
@@ -149,21 +168,22 @@ function unlockBrowserAudioPlayback() {
     a.muted = true;
     a.volume = 0;
     void a.play().catch(() => {});
-  } catch (e) {
+  } catch {
     // ignore
   }
 }
 
-async function warmupPatientMediaDevices(): Promise<void> {
+async function warmupPatientMediaDevices(
+  networkProfile: "slow" | "standard" = "standard"
+): Promise<void> {
   if (!navigator.mediaDevices?.getUserMedia) return;
+  const constraints = getAdaptiveMediaConstraints(networkProfile);
+  const releaseDelay = getMediaReleaseDelay();
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: true,
-    });
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
     stream.getTracks().forEach((track) => track.stop());
     // Give iOS Safari time to fully release the hardware lock to prevent black frames
-    await new Promise((r) => setTimeout(r, 800));
+    await new Promise((r) => setTimeout(r, releaseDelay));
   } catch (error: unknown) {
     const normalized = stringifyErrorReason(error).toLowerCase();
     if (
@@ -175,7 +195,7 @@ async function warmupPatientMediaDevices(): Promise<void> {
           audio: true,
         });
         audioStream.getTracks().forEach((t) => t.stop());
-      } catch (e) {
+      } catch {
         // ignore
       }
       try {
@@ -183,11 +203,11 @@ async function warmupPatientMediaDevices(): Promise<void> {
           video: { facingMode: "user", width: 320, height: 240 },
         });
         videoStream.getTracks().forEach((t) => t.stop());
-      } catch (e) {
+      } catch {
         // ignore
       }
       // Give iOS Safari time to fully release the hardware lock
-      await new Promise((r) => setTimeout(r, 800));
+      await new Promise((r) => setTimeout(r, releaseDelay));
     }
   }
 }
@@ -287,21 +307,67 @@ function PatientJoinPageContent() {
   const nameFromQuery = (searchParams.get("name") || "").trim();
 
   const [loading, setLoading] = useState(false);
-  const [joined, setJoined] = useState(false);
+  const [callState, setCallState] = useState<PatientCallState>("prejoin");
   const [error, setError] = useState<string | null>(null);
   const [showResumeButton, setShowResumeButton] = useState(false);
   const [displayName, setDisplayName] = useState(nameFromQuery);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
+  const [loadingStep, setLoadingStep] = useState<JoinLoadingStep>("checking-media");
+  const [isSlowLoading, setIsSlowLoading] = useState(false);
+  const [stageStuck, setStageStuck] = useState(false);
+  const [overallTimedOut, setOverallTimedOut] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const zegoInstanceRef = useRef<ZegoUIKitPrebuiltInstance | null>(null);
-  const inviteLabel = shortCode || meetingId || "Private room";
+  const activeJoinAttemptRef = useRef(0);
+  const networkProfile = useMemo(() => getCallNetworkProfile(), []);
+  const isSlowNetwork = networkProfile === "slow";
+  const isInRoom = callState === "in-room";
+  const showCallSurface = callState !== "prejoin";
 
   useEffect(() => {
     if (!displayName && nameFromQuery) {
       setDisplayName(nameFromQuery);
     }
   }, [displayName, nameFromQuery]);
+
+  useEffect(() => {
+    preloadZegoUIKitPrebuilt();
+  }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      setIsSlowLoading(false);
+      setStageStuck(false);
+      setOverallTimedOut(false);
+      return;
+    }
+
+    setIsSlowLoading(false);
+    setStageStuck(false);
+    setOverallTimedOut(false);
+    const slowTimer = window.setTimeout(() => {
+      setIsSlowLoading(true);
+    }, JOIN_LOADING_SLOW_THRESHOLD_MS);
+    const overallTimer = window.setTimeout(() => {
+      setOverallTimedOut(true);
+    }, OVERALL_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(slowTimer);
+      window.clearTimeout(overallTimer);
+    };
+  }, [loading]);
+
+  // Per-stage stuck detector — resets each time loadingStep changes
+  useEffect(() => {
+    if (!loading) return;
+    setStageStuck(false);
+    const timer = window.setTimeout(() => {
+      setStageStuck(true);
+    }, STAGE_TIMEOUT_MS);
+    return () => { window.clearTimeout(timer); };
+  }, [loading, loadingStep]);
 
   useEffect(() => {
     patchSetSinkIdForMobileSafari();
@@ -355,7 +421,7 @@ function PatientJoinPageContent() {
     }
     const normalizedName = displayName.trim();
     if (!normalizedName) {
-        setError("Please enter your name before joining.");
+      setError("Please enter your name before joining.");
       return;
     }
 
@@ -369,28 +435,64 @@ function PatientJoinPageContent() {
     // Capture the user gesture synchronously
     unlockBrowserAudioPlayback();
 
+    activeJoinAttemptRef.current += 1;
+    const attemptId = activeJoinAttemptRef.current;
     setLoading(true);
     setError(null);
+    const metrics = new CallStartupMetrics("patient", networkProfile);
+    let mountedInstance: ZegoUIKitPrebuiltInstance | null = null;
     try {
-      await warmupPatientMediaDevices();
+      setLoadingStep("checking-media");
+      metrics.mark("sdk-load-start");
+      const zegoPromise = withRetry(
+        () => loadZegoUIKitPrebuilt(),
+        1,
+        "ZEGO SDK load"
+      );
+      metrics.mark("api-token-start");
+      const videoSessionPromise = withRetry(
+        () => withTimeout(
+          issuePatientMeetingVideoToken({
+            meetingId: meetingId || undefined,
+            inviteToken: inviteToken || undefined,
+            shortCode: shortCode || undefined,
+          }),
+          API_TIMEOUT_MS,
+          "Patient video token API"
+        ),
+        1,
+        "Patient video token API"
+      );
+      metrics.mark("media-warmup-start");
+      await warmupPatientMediaDevices(networkProfile);
+      if (activeJoinAttemptRef.current !== attemptId) {
+        return;
+      }
+      metrics.mark("media-warmup-end");
+      metrics.measure("media-warmup", "media-warmup-start", "media-warmup-end");
 
-      const videoSession = await issuePatientMeetingVideoToken({
-        meetingId: meetingId || undefined,
-        inviteToken: inviteToken || undefined,
-        shortCode: shortCode || undefined,
-      });
+      setLoadingStep("connecting-room");
+      const videoSession = await videoSessionPromise;
+      if (activeJoinAttemptRef.current !== attemptId) {
+        return;
+      }
+      metrics.mark("api-token-end");
+      metrics.measure("api-token", "api-token-start", "api-token-end");
       if (videoSession.provider !== "zego") {
         throw new Error("Meeting video provider is not ZEGO.");
       }
       if (!videoSession.app_id) {
         throw new Error("Missing ZEGO AppID from video session response.");
       }
-      if (!containerRef.current) {
-        throw new Error("Call container is not ready.");
-      }
 
-      const zego = await loadZegoUIKitPrebuilt();
-      
+      setLoadingStep("loading-video");
+      const zego = await zegoPromise;
+      if (activeJoinAttemptRef.current !== attemptId) {
+        return;
+      }
+      metrics.mark("sdk-load-end");
+      metrics.measure("sdk-load", "sdk-load-start", "sdk-load-end");
+
       if (zegoInstanceRef.current?.destroy) {
         zegoInstanceRef.current.destroy();
       }
@@ -405,51 +507,88 @@ function PatientJoinPageContent() {
         videoSession.user_id,
         normalizedName
       );
-      const mountedInstance = zego.create(kitToken);
+      mountedInstance = zego.create(kitToken);
       zegoInstanceRef.current = mountedInstance;
-      
-      setJoined(true);
 
-      setTimeout(() => {
-        if (!containerRef.current) return;
-        try {
-          mountedInstance.joinRoom({
-            container: containerRef.current,
-            // Skip ZEGO pre-join because this page already handles name and media choices.
-            showPreJoinView: false,
-            backgroundUrl: PATIENT_ROOM_BACKGROUND_URL,
-            showRoomDetailsButton: false,
-            showTextChat: false,
-            showUserList: false,
-            showLayoutButton: false,
-            // Respect patient preference
-            turnOnCameraWhenJoining: cameraEnabled,
-            turnOnMicrophoneWhenJoining: microphoneEnabled,
-            useFrontFacingCamera: true,
-            // Keep patient publishing on a more stable mobile-friendly resolution.
-            videoCodec: MEETING_VIDEO_CODEC,
-            videoResolutionDefault: zego.VideoResolution_480P,
-            videoScreenConfig: {
-              objectFit: "cover",
-            },
-            scenario: {
-              mode: zego.VideoConference,
-            },
-          });
-        } catch (je) {
-          console.error("Zego joinRoom error:", je);
-        }
-      }, 100);
+      setCallState("bootstrapping");
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      });
+      if (activeJoinAttemptRef.current !== attemptId) {
+        return;
+      }
+      if (!containerRef.current) {
+        throw new Error("Call container is not ready.");
+      }
+
+      metrics.mark("room-join-start");
+      setLoadingStep("entering-room");
+      mountedInstance.joinRoom({
+        container: containerRef.current,
+        // Skip ZEGO pre-join because this page already handles name and media choices.
+        showPreJoinView: false,
+        backgroundUrl: PATIENT_ROOM_BACKGROUND_URL,
+        showRoomDetailsButton: false,
+        showTextChat: false,
+        showUserList: false,
+        showLayoutButton: false,
+        // Respect patient preference
+        turnOnCameraWhenJoining: cameraEnabled,
+        turnOnMicrophoneWhenJoining: microphoneEnabled,
+        useFrontFacingCamera: true,
+        // Keep patient publishing on a more stable mobile-friendly resolution.
+        videoCodec: MEETING_VIDEO_CODEC,
+        videoResolutionDefault: getDefaultZegoVideoResolution(zego, {
+          networkProfile,
+          audience: "patient",
+        }),
+        videoScreenConfig: {
+          objectFit: "cover",
+        },
+        scenario: {
+          mode: zego.VideoConference,
+        },
+      });
+      if (activeJoinAttemptRef.current !== attemptId) {
+        return;
+      }
+      setCallState("in-room");
+      metrics.mark("room-join-end");
+      metrics.measure("room-join", "room-join-start", "room-join-end");
+      metrics.recordSummary({
+        route: "patient-join",
+        status: "success",
+        meetingId: meetingId || null,
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unable to join call.";
+      metrics.recordSummary({
+        route: "patient-join",
+        status: "failed",
+        meetingId: meetingId || null,
+        errorMessage: message,
+      });
+      if (mountedInstance?.destroy) {
+        mountedInstance.destroy();
+      }
+      if (zegoInstanceRef.current === mountedInstance) {
+        zegoInstanceRef.current = null;
+      }
+      if (containerRef.current) {
+        containerRef.current.innerHTML = "";
+      }
+      setCallState("prejoin");
       setError(message);
     } finally {
-      setLoading(false);
+      if (activeJoinAttemptRef.current === attemptId) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     return () => {
+      activeJoinAttemptRef.current += 1;
       if (zegoInstanceRef.current?.destroy) {
         zegoInstanceRef.current.destroy();
       }
@@ -458,34 +597,40 @@ function PatientJoinPageContent() {
   }, []);
 
   useEffect(() => {
-    if (!joined || (!inviteToken && !shortCode)) {
+    if (!isInRoom || (!inviteToken && !shortCode)) {
       return;
     }
 
     let disposed = false;
+    let presenceStarted = false;
     const payload = {
       meetingId: meetingId || undefined,
       inviteToken: inviteToken || undefined,
       shortCode: shortCode || undefined,
     };
 
-    const sendHeartbeat = () => {
+    const sendHeartbeat = async () => {
       if (disposed) return;
-      void heartbeatPatientMeetingPresence(payload).catch(() => {
+      try {
+        await heartbeatPatientMeetingPresence(payload);
+        presenceStarted = true;
+      } catch {
         // Best-effort heartbeat.
-      });
+      }
     };
 
     const sendLeave = () => {
-      if (disposed) return;
+      if (disposed || !presenceStarted) return;
       void leavePatientMeetingPresence(payload).catch(() => {
         // Best-effort leave marker.
       });
     };
 
-    sendHeartbeat();
+    void sendHeartbeat();
     const interval = window.setInterval(
-      sendHeartbeat,
+      () => {
+        void sendHeartbeat();
+      },
       PATIENT_PRESENCE_HEARTBEAT_INTERVAL_MS
     );
     window.addEventListener("pagehide", sendLeave);
@@ -496,10 +641,10 @@ function PatientJoinPageContent() {
       sendLeave();
       disposed = true;
     };
-  }, [joined, meetingId, inviteToken, shortCode]);
+  }, [isInRoom, meetingId, inviteToken, shortCode]);
 
   useEffect(() => {
-    if (!joined) {
+    if (!isInRoom) {
       setShowResumeButton(false);
       return;
     }
@@ -570,11 +715,40 @@ function PatientJoinPageContent() {
       window.removeEventListener("click", onGesture);
       document.removeEventListener("visibilitychange", onGesture);
     };
-  }, [joined]);
+  }, [isInRoom]);
+  const loadingTitle = (() => {
+    if (loadingStep === "checking-media") {
+      return "Preparing camera and microphone";
+    }
+    if (loadingStep === "connecting-room") {
+      return "Connecting your private room";
+    }
+    if (loadingStep === "loading-video") {
+      return "Loading secure video";
+    }
+    return "Entering the consultation room";
+  })();
+  const loadingDescription = (() => {
+    if (loadingStep === "checking-media") {
+      return "We are checking your device first so camera and mic can recover more smoothly inside the room.";
+    }
+    if (loadingStep === "connecting-room") {
+      return "Your invite is being verified and a secure room token is being created.";
+    }
+    if (loadingStep === "loading-video") {
+      return "The video engine is loading now. This may take longer on slower internet.";
+    }
+    return "Final room controls are being prepared before the call appears.";
+  })();
+  const loadingHint = isSlowLoading
+    ? "Your connection looks slow, so we are starting with a lighter video profile first."
+    : isSlowNetwork
+      ? "Slow-network mode is on to reduce startup time."
+      : null;
   return (
     <main className="min-h-[100dvh] bg-slate-950 text-slate-100">
       <div className="mx-auto flex min-h-[100dvh] max-w-6xl flex-col lg:min-h-0 lg:px-6 lg:py-6">
-        {!joined ? (
+        {!showCallSurface ? (
           <section className="flex h-[100dvh] flex-col overflow-hidden bg-slate-950 lg:h-[min(760px,calc(100dvh-3rem))] lg:rounded-[28px] lg:border lg:border-white/10 lg:shadow-[0_24px_60px_rgba(0,0,0,0.4)]">
             <div className="grid h-full grid-rows-[minmax(240px,38dvh)_minmax(0,1fr)] lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)] lg:grid-rows-1">
               <div className="relative flex min-h-0 flex-col justify-between overflow-hidden bg-transparent lg:border-r lg:border-white/5 px-4 pb-4 pt-5 sm:px-6 sm:pb-5 sm:pt-6 lg:px-8 lg:pb-8 lg:pt-8">
@@ -699,7 +873,7 @@ function PatientJoinPageContent() {
           </section>
         ) : null}
 
-        {joined ? (
+        {isInRoom ? (
           <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex items-start justify-between gap-3 px-4 pb-6 pt-4 sm:px-6 lg:px-8">
             <div className="flex gap-2">
               <Button
@@ -749,13 +923,13 @@ function PatientJoinPageContent() {
           </div>
         ) : null}
 
-        {joined && error ? (
+        {isInRoom && error ? (
           <div className="fixed bottom-4 left-4 right-4 z-50 rounded-2xl border border-red-400/25 bg-slate-950/84 p-3 text-sm text-red-200 shadow-[0_18px_48px_rgba(0,0,0,0.45)] backdrop-blur-md sm:left-auto sm:right-4 sm:w-[min(420px,calc(100vw-2rem))]">
             {error}
           </div>
         ) : null}
 
-        {joined && showResumeButton ? (
+        {isInRoom && showResumeButton ? (
           <div className="fixed bottom-4 left-4 right-4 z-50 sm:left-4 sm:right-auto sm:w-auto">
             <Button
               variant="secondary"
@@ -773,13 +947,59 @@ function PatientJoinPageContent() {
 
         <div
           className={
-            joined ? "fixed inset-0 z-40 overflow-hidden bg-slate-950" : "hidden"
+            showCallSurface
+              ? "fixed inset-0 z-40 overflow-hidden bg-slate-950"
+              : "hidden"
           }
         >
           <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-24 bg-[linear-gradient(180deg,rgba(2,6,23,0.52),rgba(2,6,23,0))]" />
           {loading ? (
-            <div className="absolute inset-0 z-20 flex items-center justify-center text-sm text-slate-300">
-              Joining video room...
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/62 p-4">
+              <div className="w-full max-w-md rounded-[28px] border border-white/10 bg-slate-950/84 p-5 text-white shadow-[0_24px_72px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-blue-200/80">
+                  Secure join
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">
+                  {overallTimedOut ? "Connection is taking too long" : loadingTitle}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-300">
+                  {overallTimedOut
+                    ? "We could not connect your call in time. Please check your internet and try again."
+                    : loadingDescription}
+                </p>
+                <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className={[
+                      "h-full rounded-full bg-blue-500 transition-all duration-500",
+                      loadingStep === "checking-media"
+                        ? "w-[28%]"
+                        : loadingStep === "connecting-room"
+                          ? "w-[55%]"
+                          : loadingStep === "loading-video"
+                            ? "w-[78%]"
+                            : "w-[92%]",
+                    ].join(" ")}
+                  />
+                  {/* Indeterminate shimmer so patients see movement even when progress pauses */}
+                  <div
+                    className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                    style={{ animation: "shimmer 1.8s ease-in-out infinite" }}
+                  />
+                  <style>{`@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}`}</style>
+                </div>
+                {loadingHint ? (
+                  <p className="mt-3 text-xs leading-5 text-blue-100/78">
+                    {loadingHint}
+                  </p>
+                ) : null}
+                {stageStuck || overallTimedOut ? (
+                  <p className="mt-3 text-xs leading-5 text-amber-200/80">
+                    {overallTimedOut
+                      ? "Timed out \u2014 please go back and try joining again."
+                      : "This step is taking longer than usual. Please wait or try joining again."}
+                  </p>
+                ) : null}
+              </div>
             </div>
           ) : null}
           <div ref={containerRef} className="relative z-0 h-full w-full" />

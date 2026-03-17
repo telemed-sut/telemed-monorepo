@@ -54,6 +54,7 @@ import {
   isDoctorLeftWhilePatientWaiting,
   isPatientWaitingLive,
 } from "./meeting-presence";
+import { preloadZegoUIKitPrebuilt } from "@/lib/zego-uikit";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
@@ -288,6 +289,7 @@ function QueueCard({
   onClick,
   loading,
   canWrite,
+  canStartCall,
   canDelete,
   language,
   displayMode,
@@ -303,6 +305,7 @@ function QueueCard({
   onClick: (meeting: Meeting) => void;
   loading: boolean;
   canWrite: boolean;
+  canStartCall: boolean;
   canDelete: boolean;
   language: AppLanguage;
   displayMode: QueueDisplayMode;
@@ -329,6 +332,12 @@ function QueueCard({
   const isListMode = displayMode === "list";
   const isCompact = density === "compact";
   const isSpacious = density === "spacious";
+  const handleStartCallIntent = useCallback(() => {
+    if (!canStartCall) {
+      return;
+    }
+    preloadZegoUIKitPrebuilt();
+  }, [canStartCall]);
 
   return (
     <div
@@ -530,7 +539,10 @@ function QueueCard({
               e.stopPropagation();
               onStartCall(meeting);
             }}
-            disabled={loading || isTerminal}
+            onMouseEnter={handleStartCallIntent}
+            onFocus={handleStartCallIntent}
+            onTouchStart={handleStartCallIntent}
+            disabled={loading || !canStartCall}
           >
             <HugeiconsIcon icon={CallIcon} className="size-3.5" />
             {tr(language, "Start call now", "เริ่มคอลตอนนี้")}
@@ -619,7 +631,10 @@ function QueueCard({
               size="sm"
               className={cn("gap-1.5", isCompact ? "h-7 text-xs" : "h-8 text-sm")}
               onClick={() => onStartCall(meeting)}
-              disabled={loading || isTerminal}
+              onMouseEnter={handleStartCallIntent}
+              onFocus={handleStartCallIntent}
+              onTouchStart={handleStartCallIntent}
+              disabled={loading || !canStartCall}
             >
               <HugeiconsIcon icon={CallIcon} className="size-3.5" />
               {tr(language, "Start Call", "เริ่มคอล")}
@@ -1290,6 +1305,7 @@ export function QueueView({
                 onClick={setSelectedMeeting}
                 loading={updatingId === meeting.id || duplicatingId === meeting.id}
                 canWrite={canWriteMeeting(meeting)}
+                canStartCall={role === "doctor" && canWriteMeeting(meeting) && !["completed", "cancelled"].includes(meeting.status)}
                 canDelete={canDeleteMeeting}
                 language={language}
                 displayMode={displayMode}

@@ -84,9 +84,13 @@ import {
   formatLocalDateKey,
   parseLocalDateKey,
 } from "@/lib/meeting-datetime";
+import { getPresenceAwareStatus } from "./meeting-presence";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
+import {
+  scheduleZegoUIKitPreload,
+} from "@/lib/zego-uikit";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
@@ -175,7 +179,8 @@ function isJoinableMeetingStatus(status: Meeting["status"]): boolean {
 }
 
 function isActivelyWaitingMeeting(meeting: Meeting): boolean {
-  if (!isJoinableMeetingStatus(meeting.status)) {
+  const effectiveStatus = getPresenceAwareStatus(meeting);
+  if (!isJoinableMeetingStatus(effectiveStatus)) {
     return false;
   }
 
@@ -189,7 +194,7 @@ function isActivelyWaitingMeeting(meeting: Meeting): boolean {
     return true;
   }
 
-  return meeting.status === "waiting" || meeting.status === "in_progress";
+  return effectiveStatus === "waiting" || effectiveStatus === "in_progress";
 }
 
 function isNearMeetingWindow(meeting: Meeting, now: number): boolean {
@@ -2102,6 +2107,14 @@ export function MeetingsContent() {
   const userRole = useAuthStore((state) => state.role);
   const clearToken = useAuthStore((state) => state.clearToken);
   const language = useLanguageStore((state) => state.language);
+
+  // Pre-warm the ZEGO SDK bundle so it's cached before the doctor clicks "Start call".
+  // On 3G this can take 20-40s, so starting early is critical.
+  useEffect(() => {
+    return scheduleZegoUIKitPreload({
+      enabled: userRole === "doctor",
+    });
+  }, [userRole]);
 
   const currentWeekStart = useCalendarStore((s) => s.currentWeekStart);
   const goToToday = useCalendarStore((s) => s.goToToday);

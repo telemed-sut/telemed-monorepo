@@ -23,6 +23,15 @@ import {
 } from "@/lib/api";
 import {
   loadZegoUIKitPrebuilt,
+  getCallNetworkProfile,
+  getDefaultZegoVideoResolution,
+  preloadZegoUIKitPrebuilt,
+  withTimeout,
+  withRetry,
+  CallStartupMetrics,
+  getAdaptiveMediaConstraints,
+  getMediaReleaseDelay,
+  API_TIMEOUT_MS,
   type ZegoUIKitPrebuiltInstance,
 } from "@/lib/zego-uikit";
 import { useAuthStore } from "@/store/auth-store";
@@ -124,7 +133,8 @@ type DoctorMediaWarmupPreference = {
 };
 
 function warmupDoctorMediaDevices(
-  language: AppLanguage
+  language: AppLanguage,
+  networkProfile: "slow" | "standard" = "standard"
 ): Promise<DoctorMediaWarmupPreference> {
   if (!navigator.mediaDevices?.getUserMedia) {
     return Promise.resolve({
@@ -138,21 +148,17 @@ function warmupDoctorMediaDevices(
     });
   }
 
+  const constraints = getAdaptiveMediaConstraints(networkProfile);
+  const releaseDelay = getMediaReleaseDelay();
+
   return navigator.mediaDevices
-    .getUserMedia({
-      video: {
-        facingMode: "user",
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      },
-      audio: true,
-    })
+    .getUserMedia(constraints)
     .then((stream) => {
       stream.getTracks().forEach((track) => {
         track.stop();
       });
       // Give iOS Safari time to fully release the hardware lock to prevent black frames
-      return new Promise<void>((r) => setTimeout(r, 800)).then(() => ({
+      return new Promise<void>((r) => setTimeout(r, releaseDelay)).then(() => ({
         allowCamera: true,
         allowMicrophone: true,
         hint: null,
@@ -279,8 +285,27 @@ function formatCallDuration(seconds: number): string {
 const DOCTOR_PRESENCE_HEARTBEAT_INTERVAL_MS = 10_000;
 const MEETING_VIDEO_CODEC = "H264" as const;
 const MINI_WINDOW_MESSAGE_SOURCE = "telemed-mini-window";
+const CALL_LOADING_SLOW_THRESHOLD_MS = 8_000;
+const STAGE_TIMEOUT_MS = 15_000;
+const OVERALL_TIMEOUT_MS = 45_000;
 
-type MiniWindowMessageType = "popup-ready" | "popup-closing" | "popup-ended";
+type MiniWindowMessageType =
+  | "popup-mounted"
+  | "popup-active"
+  | "popup-failed"
+  | "popup-closing"
+  | "popup-ended";
+type HandoffState =
+  | "idle"
+  | "popup-opening"
+  | "popup-joining"
+  | "popup-active"
+  | "resuming";
+type CallLoadingStep =
+  | "checking-media"
+  | "connecting-room"
+  | "loading-video"
+  | "entering-room";
 
 export default function MeetingCallPage() {
   const params = useParams<{ meetingId: string }>();
@@ -299,13 +324,16 @@ export default function MeetingCallPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<MeetingVideoTokenResponse | null>(null);
-  const [meetingUrl, setMeetingUrl] = useState<string>("");
   const [patientInviteUrl, setPatientInviteUrl] = useState<string | null>(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
   const [callSeconds, setCallSeconds] = useState(0);
   const [retryNonce, setRetryNonce] = useState(0);
-  const [miniWindowStandby, setMiniWindowStandby] = useState(false);
+  const [handoffState, setHandoffState] = useState<HandoffState>("idle");
   const [callEnded, setCallEnded] = useState(endedFromSearch);
+  const [loadingStep, setLoadingStep] = useState<CallLoadingStep>("checking-media");
+  const [isSlowLoading, setIsSlowLoading] = useState(false);
+  const [stageStuck, setStageStuck] = useState(false);
+  const [overallTimedOut, setOverallTimedOut] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const zegoInstanceRef = useRef<ZegoUIKitPrebuiltInstance | null>(null);
   const hasLeftRoomRef = useRef(false);
@@ -314,12 +342,21 @@ export default function MeetingCallPage() {
   const callTimerRef = useRef<number | null>(null);
   const popupWindowRef = useRef<Window | null>(null);
   const resumeOnNextJoinRef = useRef(resumeFromMiniWindow);
+  const activeHandoffIdRef = useRef<string | null>(null);
+  const skipDoctorPresenceLeaveRef = useRef(false);
+  const popupActivationAnnouncedRef = useRef(false);
 
   const meetingId = useMemo(() => {
     const raw = params?.meetingId;
     if (typeof raw !== "string") return "";
     return raw.trim();
   }, [params]);
+  const networkProfile = useMemo(() => getCallNetworkProfile(), []);
+  const isSlowNetwork = networkProfile === "slow";
+  const handoffIdFromSearch = (searchParams.get("handoff") || "").trim();
+  const isMainWindowParked = !isPopupWindow && handoffState === "popup-active";
+  const isMiniWindowPending =
+    handoffState === "popup-opening" || handoffState === "popup-joining";
 
   const buildCallUrl = useCallback(
     (options?: { ended?: boolean }) => {
@@ -333,9 +370,69 @@ export default function MeetingCallPage() {
     [meetingId, patientName, patientTime]
   );
 
+  const postMiniWindowMessage = useCallback(
+    (type: MiniWindowMessageType) => {
+      if (!isPopupWindow || !window.opener || window.opener.closed) {
+        return;
+      }
+      try {
+        (window.opener as Window).postMessage(
+          {
+            source: MINI_WINDOW_MESSAGE_SOURCE,
+            meetingId,
+            type,
+            handoffId: handoffIdFromSearch || undefined,
+          },
+          window.location.origin
+        );
+      } catch {
+        // ignore messaging failures
+      }
+    },
+    [handoffIdFromSearch, isPopupWindow, meetingId]
+  );
+
   useEffect(() => {
     void hydrateAuth();
   }, [hydrateAuth]);
+
+  useEffect(() => {
+    preloadZegoUIKitPrebuilt();
+  }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      setIsSlowLoading(false);
+      setStageStuck(false);
+      setOverallTimedOut(false);
+      return;
+    }
+
+    setIsSlowLoading(false);
+    setStageStuck(false);
+    setOverallTimedOut(false);
+    const slowTimer = window.setTimeout(() => {
+      setIsSlowLoading(true);
+    }, CALL_LOADING_SLOW_THRESHOLD_MS);
+    const overallTimer = window.setTimeout(() => {
+      setOverallTimedOut(true);
+    }, OVERALL_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(slowTimer);
+      window.clearTimeout(overallTimer);
+    };
+  }, [loading, retryNonce]);
+
+  // Per-stage stuck detector — resets when loadingStep changes
+  useEffect(() => {
+    if (!loading) return;
+    setStageStuck(false);
+    const timer = window.setTimeout(() => {
+      setStageStuck(true);
+    }, STAGE_TIMEOUT_MS);
+    return () => { window.clearTimeout(timer); };
+  }, [loading, loadingStep]);
 
   useEffect(() => {
     if (isPopupWindow || (!resumeFromMiniWindow && !endedFromSearch)) {
@@ -370,6 +467,8 @@ export default function MeetingCallPage() {
     }
     setCallEnded(false);
     window.history.replaceState(window.history.state, "", buildCallUrl());
+    skipDoctorPresenceLeaveRef.current = false;
+    setHandoffState("idle");
     // Set loading immediately so rapid clicks hit the guard above
     // before the run() effect picks up the new retryNonce.
     setLoading(true);
@@ -384,24 +483,27 @@ export default function MeetingCallPage() {
   }, [buildCallUrl, loading]);
 
   const requestResumeFromMiniWindow = useCallback(() => {
-    if (!popupWindowRef.current && !miniWindowStandby) {
+    if (!popupWindowRef.current && handoffState === "idle") {
       return;
     }
     popupWindowRef.current = null;
     skipUnloadGuardRef.current = false;
     resumeOnNextJoinRef.current = true;
-    setMiniWindowStandby(false);
+    skipDoctorPresenceLeaveRef.current = false;
+    setHandoffState("resuming");
     setCallEnded(false);
     setLoading(true);
     setError(null);
     setRetryNonce((current) => current + 1);
-  }, [miniWindowStandby]);
+  }, [handoffState]);
 
   const handleLeaveCallRoute = useCallback(() => {
     hasLeftRoomRef.current = true;
     popupWindowRef.current = null;
+    activeHandoffIdRef.current = null;
     resumeOnNextJoinRef.current = false;
-    setMiniWindowStandby(false);
+    skipDoctorPresenceLeaveRef.current = false;
+    setHandoffState("idle");
     setSession(null);
     setCallEnded(true);
     setLoading(false);
@@ -430,11 +532,14 @@ export default function MeetingCallPage() {
   }, [buildCallUrl, isPopupWindow, meetingId]);
 
   const openMiniWindowAndSwitch = () => {
-    if (!meetingId) {
+    if (!meetingId || handoffState !== "idle") {
       return;
     }
 
-    const popupParams = new URLSearchParams({ popup: "1" });
+    const handoffId = `${meetingId}-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+    const popupParams = new URLSearchParams({ popup: "1", handoff: handoffId });
     if (patientName) popupParams.set("pn", patientName);
     if (patientTime) popupParams.set("pt", patientTime);
     const popupUrl = `${window.location.origin}/meetings/call/${meetingId}?${popupParams.toString()}`;
@@ -459,9 +564,11 @@ export default function MeetingCallPage() {
       return;
     }
 
+    activeHandoffIdRef.current = handoffId;
     popupWindowRef.current = popup;
     resumeOnNextJoinRef.current = false;
-    setMiniWindowStandby(true);
+    skipDoctorPresenceLeaveRef.current = false;
+    setHandoffState("popup-opening");
     setError(null);
     popup.focus();
   };
@@ -607,16 +714,20 @@ export default function MeetingCallPage() {
 
     let cancelled = false;
     let mountedInstance: ZegoUIKitPrebuiltInstance | null = null;
+    const containerNode = containerRef.current;
 
     const run = async () => {
-      if (miniWindowStandby && !isPopupWindow) {
+      if (isMainWindowParked) {
         setLoading(false);
         return;
       }
 
       setLoading(true);
       setError(null);
+      const metrics = new CallStartupMetrics("doctor", networkProfile);
+      setLoadingStep("checking-media");
       setPatientInviteUrl(null);
+      popupActivationAnnouncedRef.current = false;
       try {
         if (!window.isSecureContext && window.location.hostname !== "localhost") {
           throw new Error(
@@ -628,14 +739,37 @@ export default function MeetingCallPage() {
           );
         }
 
-        const mediaPreference = await warmupDoctorMediaDevices(language);
+        metrics.mark("sdk-load-start");
+        const zegoPromise = withRetry(
+          () => loadZegoUIKitPrebuilt(),
+          1,
+          "ZEGO SDK load"
+        );
+        metrics.mark("api-token-start");
+        const videoSessionPromise = withRetry(
+          () => withTimeout(
+            issueMeetingVideoToken(meetingId, token),
+            API_TIMEOUT_MS,
+            "Video token API"
+          ),
+          1,
+          "Video token API"
+        );
+
+        metrics.mark("media-warmup-start");
+        const mediaPreference = await warmupDoctorMediaDevices(language, networkProfile);
+        metrics.mark("media-warmup-end");
+        metrics.measure("media-warmup", "media-warmup-start", "media-warmup-end");
         if (cancelled) return;
         const hintText = (mediaPreference.hint || "").toLowerCase();
         const deviceMissing =
           hintText.includes("no usable camera/mic") || hintText.includes("not found");
         const permissionBlocked = !mediaPreference.allowCamera || !mediaPreference.allowMicrophone;
 
-        const videoSession = await issueMeetingVideoToken(meetingId, token);
+        setLoadingStep("connecting-room");
+        const videoSession = await videoSessionPromise;
+        metrics.mark("api-token-end");
+        metrics.measure("api-token", "api-token-start", "api-token-end");
         if (cancelled) return;
 
         if (videoSession.provider !== "zego") {
@@ -647,7 +781,6 @@ export default function MeetingCallPage() {
 
         setSession(videoSession);
         const meetingLink = `${window.location.origin}/meetings/call/${meetingId}`;
-        setMeetingUrl(meetingLink);
 
         // Fire-and-forget patient invite — does not block room setup
         void createMeetingPatientInvite(meetingId, token)
@@ -658,9 +791,12 @@ export default function MeetingCallPage() {
             // silent — invite failure does not affect the call
           });
 
-        const zego = await loadZegoUIKitPrebuilt();
+        setLoadingStep("loading-video");
+        const zego = await zegoPromise;
+        metrics.mark("sdk-load-end");
+        metrics.measure("sdk-load", "sdk-load-start", "sdk-load-end");
         if (cancelled) return;
-        if (!containerRef.current) {
+        if (!containerNode) {
           throw new Error("Call container is not ready.");
         }
 
@@ -676,10 +812,12 @@ export default function MeetingCallPage() {
         zegoInstanceRef.current = mountedInstance;
         hasLeftRoomRef.current = false;
         suppressLeaveRoomNavigationRef.current = false;
+        metrics.mark("room-join-start");
+        setLoadingStep("entering-room");
         const shouldSkipPreJoin =
           isPopupWindow || resumeFromMiniWindow || resumeOnNextJoinRef.current;
         mountedInstance.joinRoom({
-          container: containerRef.current,
+          container: containerNode,
           // Skip pre-join in popup, and also when restoring from the mini
           // window so the doctor returns straight into the active room.
           showPreJoinView: !shouldSkipPreJoin,
@@ -702,7 +840,10 @@ export default function MeetingCallPage() {
             handleLeaveCallRoute();
           },
           videoCodec: MEETING_VIDEO_CODEC,
-          videoResolutionDefault: zego.VideoResolution_720P,
+          videoResolutionDefault: getDefaultZegoVideoResolution(zego, {
+            networkProfile,
+            audience: "doctor",
+          }),
           videoScreenConfig: {
             objectFit: "cover",
           },
@@ -711,12 +852,28 @@ export default function MeetingCallPage() {
           },
         });
         resumeOnNextJoinRef.current = false;
+        metrics.mark("room-join-end");
+        metrics.measure("room-join", "room-join-start", "room-join-end");
+        metrics.recordSummary({
+          route: "doctor-call",
+          status: "success",
+          meetingId,
+        });
       } catch (err: unknown) {
         if (cancelled) return;
         const message =
           err instanceof Error
             ? err.message
             : tr(language, "Unable to start call.", "ไม่สามารถเริ่มการคอลได้");
+        metrics.recordSummary({
+          route: "doctor-call",
+          status: "failed",
+          meetingId,
+          errorMessage: message,
+        });
+        if (isPopupWindow) {
+          postMiniWindowMessage("popup-failed");
+        }
         setError(message);
       } finally {
         if (!cancelled) {
@@ -745,8 +902,8 @@ export default function MeetingCallPage() {
         mountedInstance = null;
         zegoInstanceRef.current = null;
         // Clear ZEGO DOM remnants so the next mount starts with a clean container.
-        if (containerRef.current) {
-          containerRef.current.innerHTML = "";
+        if (containerNode) {
+          containerNode.innerHTML = "";
         }
       }
     };
@@ -756,11 +913,13 @@ export default function MeetingCallPage() {
     role,
     language,
     isPopupWindow,
+    postMiniWindowMessage,
     handleLeaveCallRoute,
     callEnded,
-    miniWindowStandby,
+    isMainWindowParked,
     resumeFromMiniWindow,
     retryNonce,
+    networkProfile,
   ]);
 
   useEffect(() => {
@@ -768,27 +927,12 @@ export default function MeetingCallPage() {
       return;
     }
 
-    const postToParent = (type: MiniWindowMessageType) => {
-      if (!window.opener || window.opener.closed) {
+    postMiniWindowMessage("popup-mounted");
+    const notifyClosing = () => {
+      if (hasLeftRoomRef.current) {
         return;
       }
-      try {
-        (window.opener as Window).postMessage(
-          {
-            source: MINI_WINDOW_MESSAGE_SOURCE,
-            meetingId,
-            type,
-          },
-          window.location.origin
-        );
-      } catch {
-        // ignore messaging failures
-      }
-    };
-
-    postToParent("popup-ready");
-    const notifyClosing = () => {
-      postToParent("popup-closing");
+      postMiniWindowMessage("popup-closing");
     };
 
     window.addEventListener("pagehide", notifyClosing);
@@ -798,7 +942,7 @@ export default function MeetingCallPage() {
       window.removeEventListener("pagehide", notifyClosing);
       window.removeEventListener("beforeunload", notifyClosing);
     };
-  }, [isPopupWindow, meetingId]);
+  }, [isPopupWindow, postMiniWindowMessage]);
 
   useEffect(() => {
     if (isPopupWindow) {
@@ -815,31 +959,65 @@ export default function MeetingCallPage() {
             source?: string;
             meetingId?: string;
             type?: MiniWindowMessageType;
+            handoffId?: string;
           }
         | undefined;
 
       if (
         !data ||
         data.source !== MINI_WINDOW_MESSAGE_SOURCE ||
-        data.meetingId !== meetingId
+        data.meetingId !== meetingId ||
+        data.handoffId !== activeHandoffIdRef.current
       ) {
         return;
       }
 
-      if (data.type === "popup-ready") {
-        setMiniWindowStandby(true);
+      if (data.type === "popup-mounted") {
+        setHandoffState((current) =>
+          current === "popup-opening" ? "popup-joining" : current
+        );
+        return;
+      }
+
+      if (data.type === "popup-active") {
+        skipDoctorPresenceLeaveRef.current = true;
+        setHandoffState("popup-active");
+        return;
+      }
+
+      if (data.type === "popup-failed") {
+        popupWindowRef.current = null;
+        activeHandoffIdRef.current = null;
+        skipDoctorPresenceLeaveRef.current = false;
+        setHandoffState("idle");
+        setError(
+          tr(
+            language,
+            "Mini window could not join the call. The main call is still active here.",
+            "หน้าต่างเล็กเข้าคอลไม่สำเร็จ แต่คอลหลักยังทำงานอยู่ที่หน้านี้"
+          )
+        );
         return;
       }
 
       if (data.type === "popup-closing") {
-        requestResumeFromMiniWindow();
+        if (handoffState === "popup-active") {
+          requestResumeFromMiniWindow();
+          return;
+        }
+        popupWindowRef.current = null;
+        activeHandoffIdRef.current = null;
+        skipDoctorPresenceLeaveRef.current = false;
+        setHandoffState("idle");
         return;
       }
 
       if (data.type === "popup-ended") {
         popupWindowRef.current = null;
+        activeHandoffIdRef.current = null;
         resumeOnNextJoinRef.current = false;
-        setMiniWindowStandby(false);
+        skipDoctorPresenceLeaveRef.current = false;
+        setHandoffState("idle");
         setSession(null);
         setCallEnded(true);
         setLoading(false);
@@ -856,53 +1034,78 @@ export default function MeetingCallPage() {
     return () => {
       window.removeEventListener("message", handleMessage);
     };
-  }, [buildCallUrl, isPopupWindow, meetingId, requestResumeFromMiniWindow]);
+  }, [
+    buildCallUrl,
+    handoffState,
+    isPopupWindow,
+    language,
+    meetingId,
+    requestResumeFromMiniWindow,
+  ]);
 
   useEffect(() => {
-    if (isPopupWindow || !miniWindowStandby) {
+    if (isPopupWindow || handoffState === "idle") {
       return;
     }
 
     const timer = window.setInterval(() => {
       const popup = popupWindowRef.current;
       if (popup && popup.closed) {
-        requestResumeFromMiniWindow();
+        if (handoffState === "popup-active") {
+          requestResumeFromMiniWindow();
+          return;
+        }
+        popupWindowRef.current = null;
+        activeHandoffIdRef.current = null;
+        skipDoctorPresenceLeaveRef.current = false;
+        setHandoffState("idle");
       }
     }, 500);
 
     return () => {
       window.clearInterval(timer);
     };
-  }, [isPopupWindow, miniWindowStandby, requestResumeFromMiniWindow]);
+  }, [handoffState, isPopupWindow, requestResumeFromMiniWindow]);
 
   useEffect(() => {
     if (!session || !token || !meetingId || role !== "doctor") {
       return;
     }
 
-    if (miniWindowStandby && !isPopupWindow) {
+    if (isMainWindowParked) {
       return;
     }
 
     let disposed = false;
 
-    const sendHeartbeat = () => {
+    const sendHeartbeat = async () => {
       if (disposed) return;
-      void heartbeatDoctorMeetingPresence(meetingId, token).catch(() => {
+      try {
+        await heartbeatDoctorMeetingPresence(meetingId, token);
+        if (isPopupWindow && !popupActivationAnnouncedRef.current) {
+          popupActivationAnnouncedRef.current = true;
+          postMiniWindowMessage("popup-active");
+        }
+      } catch {
         // silently retry on next interval
-      });
+      }
     };
 
     const sendLeave = () => {
       if (disposed) return;
+      if (!isPopupWindow && skipDoctorPresenceLeaveRef.current) {
+        return;
+      }
       void leaveDoctorMeetingPresence(meetingId, token).catch(() => {
         // Best-effort leave marker.
       });
     };
 
-    sendHeartbeat();
+    void sendHeartbeat();
     const interval = window.setInterval(
-      sendHeartbeat,
+      () => {
+        void sendHeartbeat();
+      },
       DOCTOR_PRESENCE_HEARTBEAT_INTERVAL_MS
     );
 
@@ -914,7 +1117,15 @@ export default function MeetingCallPage() {
       sendLeave();
       disposed = true;
     };
-  }, [session, token, meetingId, role, miniWindowStandby, isPopupWindow]);
+  }, [
+    session,
+    token,
+    meetingId,
+    role,
+    isMainWindowParked,
+    isPopupWindow,
+    postMiniWindowMessage,
+  ]);
 
   const callDuration = session ? formatCallDuration(callSeconds) : null;
   const appointmentLabel = patientTime ? formatAppointmentTime(language, patientTime) : null;
@@ -930,7 +1141,60 @@ export default function MeetingCallPage() {
         "โหมดหน้าหลัก"
       );
   const patientInitial = (patientName.trim().charAt(0) || "P").toUpperCase();
-  const showStandbyState = miniWindowStandby && !isPopupWindow;
+  const showStandbyState = handoffState === "popup-active" && !isPopupWindow;
+  const loadingTitle = (() => {
+    if (loadingStep === "checking-media") {
+      return tr(language, "Preparing camera and microphone", "กำลังเตรียมกล้องและไมค์");
+    }
+    if (loadingStep === "connecting-room") {
+      return tr(language, "Connecting appointment room", "กำลังเชื่อมห้องนัดหมาย");
+    }
+    if (loadingStep === "loading-video") {
+      return tr(language, "Loading video engine", "กำลังโหลดระบบวิดีโอ");
+    }
+    return tr(language, "Entering call room", "กำลังเข้าห้องตรวจ");
+  })();
+  const loadingDescription = (() => {
+    if (loadingStep === "checking-media") {
+      return tr(
+        language,
+        "We are checking device access first so the call can start with fewer permission surprises.",
+        "กำลังตรวจสอบสิทธิ์อุปกรณ์ก่อน เพื่อให้เข้าห้องได้ลื่นขึ้นและเจอปัญหาสิทธิ์น้อยลง"
+      );
+    }
+    if (loadingStep === "connecting-room") {
+      return tr(
+        language,
+        "The system is requesting a room token and reserving the appointment channel.",
+        "ระบบกำลังขอโทเคนห้องและจองช่องทางสำหรับนัดหมายนี้"
+      );
+    }
+    if (loadingStep === "loading-video") {
+      return tr(
+        language,
+        "The video bundle is being prepared. This may take longer on slower networks.",
+        "ระบบกำลังเตรียมโมดูลวิดีโอ ขั้นตอนนี้อาจใช้เวลานานขึ้นเมื่อเน็ตช้า"
+      );
+    }
+    return tr(
+      language,
+      "Finalizing room controls and opening the consultation screen.",
+      "กำลังตั้งค่าปุ่มควบคุมและเปิดหน้าตรวจให้พร้อมใช้งาน"
+    );
+  })();
+  const loadingHint = isSlowLoading
+    ? tr(
+        language,
+        "Network looks slow, so we start with a lighter video profile first and keep trying in the background.",
+        "เครือข่ายค่อนข้างช้า ระบบจึงเริ่มด้วยคุณภาพวิดีโอที่เบากว่าก่อน และจะพยายามเชื่อมต่อให้ต่อเนื่อง"
+      )
+    : isSlowNetwork
+      ? tr(
+          language,
+          "Slow-network mode is active to reduce startup time.",
+          "เปิดโหมดเน็ตช้าเพื่อลดเวลารอเริ่มคอล"
+        )
+      : null;
 
   return (
     <>
@@ -1004,9 +1268,12 @@ export default function MeetingCallPage() {
                   variant="secondary"
                   className="h-8 rounded-full border border-white/18 bg-white/96 px-3 text-[11px] font-medium text-slate-900 shadow-sm hover:bg-white focus-visible:ring-white/60"
                   onClick={openMiniWindowAndSwitch}
+                  disabled={handoffState !== "idle"}
                 >
                   <ExternalLink className="mr-1.5 size-3.5" />
-                  {tr(language, "Open mini window", "เปิดหน้าต่างเล็ก")}
+                  {isMiniWindowPending
+                    ? tr(language, "Opening mini window", "กำลังเปิดหน้าต่างเล็ก")
+                    : tr(language, "Open mini window", "เปิดหน้าต่างเล็ก")}
                 </Button>
               ) : null}
               {showStandbyState ? (
@@ -1180,8 +1447,67 @@ export default function MeetingCallPage() {
           ) : null}
 
           {loading ? (
-            <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-white/85">
-              {tr(language, "Starting video room...", "กำลังเริ่มห้องวิดีโอ...")}
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/34 p-5">
+              <div className="w-full max-w-md rounded-[28px] border border-white/10 bg-slate-950/78 p-5 text-white shadow-[0_24px_72px_rgba(2,6,23,0.38)] backdrop-blur-xl">
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-cyan-100/80">
+                  {tr(language, "Loading call", "กำลังโหลดห้องคอล")}
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white">
+                  {overallTimedOut
+                    ? tr(language, "Connection is taking too long", "การเชื่อมต่อใช้เวลานานเกินไป")
+                    : loadingTitle}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-300">
+                  {overallTimedOut
+                    ? tr(
+                        language,
+                        "We could not establish the call within the expected time. Please check your internet connection and try again.",
+                        "ไม่สามารถเชื่อมต่อห้องคอลได้ในเวลาที่กำหนด กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่"
+                      )
+                    : loadingDescription}
+                </p>
+                <div className="relative mt-4 h-2 overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className={cn(
+                      "h-full rounded-full bg-cyan-200 transition-all duration-500",
+                      loadingStep === "checking-media"
+                        ? "w-[28%]"
+                        : loadingStep === "connecting-room"
+                          ? "w-[55%]"
+                          : loadingStep === "loading-video"
+                            ? "w-[78%]"
+                            : "w-[92%]"
+                    )}
+                  />
+                  {/* Indeterminate shimmer overlay so users see movement even when the bar stays still */}
+                  <div
+                    className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                    style={{ animation: "shimmer 1.8s ease-in-out infinite" }}
+                  />
+                  <style>{`@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}`}</style>
+                </div>
+                {loadingHint ? (
+                  <p className="mt-3 text-xs leading-5 text-cyan-100/78">
+                    {loadingHint}
+                  </p>
+                ) : null}
+                {(stageStuck || overallTimedOut) && !error ? (
+                  <div className="mt-4 flex items-center gap-3">
+                    <Button
+                      size="sm"
+                      className="h-9 rounded-full bg-cyan-200 px-4 text-xs font-semibold text-slate-950 shadow-[0_8px_20px_rgba(34,211,238,0.18)] hover:bg-cyan-100"
+                      onClick={handleRetryJoin}
+                    >
+                      {tr(language, "Retry now", "ลองใหม่")}
+                    </Button>
+                    <span className="text-xs text-slate-400">
+                      {overallTimedOut
+                        ? tr(language, "Timed out — please retry", "หมดเวลา — กรุณาลองใหม่")
+                        : tr(language, "This step is taking longer than usual", "ขั้นตอนนี้ช้ากว่าปกติ")}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : null}
         </div>

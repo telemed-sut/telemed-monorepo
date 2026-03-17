@@ -43,8 +43,14 @@ export function isDoctorLeftWhilePatientWaiting(meeting: Meeting): boolean {
 export function getPresenceAwareStatus(meeting: Meeting): MeetingStatus {
   const presence = meeting.room_presence;
   if (!presence) return meeting.status;
+  if (presence.state === "both_in_room") return "in_progress";
   if (isPatientWaitingLive(meeting)) return "waiting";
-  if (meeting.status === "waiting" && !presence.patient_online) return "scheduled";
+  if (
+    (presence.state === "none" || presence.state === "doctor_only") &&
+    (meeting.status === "waiting" || meeting.status === "in_progress")
+  ) {
+    return "scheduled";
+  }
   return meeting.status;
 }
 

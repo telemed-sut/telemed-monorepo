@@ -145,6 +145,9 @@ def test_doctor_can_issue_video_token_for_visible_meeting(
     assert body["room_id"].startswith("telemed_")
     assert body["user_id"] == meeting_video_service.derive_staff_participant_id(str(doctor.id))
     assert body["token"].startswith("mock.")
+    db.refresh(meeting)
+    assert meeting.status == MeetingStatus.scheduled
+    assert meeting.room_presence is None
 
 
 @pytest.mark.meeting_presence_regression
@@ -472,7 +475,8 @@ def test_doctor_can_create_patient_invite_and_exchange_video_token(
     assert token_body["user_id"] == meeting_video_service.derive_patient_participant_id(str(patient.id))
     assert token_body["token"].startswith("mock.")
     db.refresh(meeting)
-    assert meeting.status == MeetingStatus.waiting
+    assert meeting.status == MeetingStatus.scheduled
+    assert meeting.room_presence is None
 
 
 def test_patient_token_rejects_tampered_invite(
@@ -515,6 +519,8 @@ def test_patient_presence_heartbeat_rejects_expired_invite_token(
 
     expired_token = meeting_video_service._build_patient_invite_token(
         meeting_id=str(meeting.id),
+        patient_id=str(meeting.user_id),
+        room_id=meeting_video_service.derive_room_id(meeting),
         expires_at_unix=int((datetime.now(timezone.utc) - timedelta(minutes=5)).timestamp()),
     )
 
@@ -585,7 +591,8 @@ def test_patient_can_exchange_video_token_via_short_code(
     assert token_body["room_id"] == meeting_video_service.derive_room_id(meeting)
     assert token_body["user_id"] == meeting_video_service.derive_patient_participant_id(str(patient.id))
     db.refresh(meeting)
-    assert meeting.status == MeetingStatus.waiting
+    assert meeting.status == MeetingStatus.scheduled
+    assert meeting.room_presence is None
 
 
 def test_doctor_token_promotes_waiting_meeting_to_in_progress(
@@ -610,6 +617,14 @@ def test_doctor_token_promotes_waiting_meeting_to_in_progress(
     )
     assert patient_token_response.status_code == 200
     db.refresh(meeting)
+    assert meeting.status == MeetingStatus.scheduled
+
+    patient_heartbeat_response = client.post(
+        "/meetings/video/patient/presence/heartbeat",
+        json={"invite_token": invite_response.json()["invite_token"]},
+    )
+    assert patient_heartbeat_response.status_code == 200
+    db.refresh(meeting)
     assert meeting.status == MeetingStatus.waiting
 
     doctor_token_response = client.post(
@@ -618,6 +633,15 @@ def test_doctor_token_promotes_waiting_meeting_to_in_progress(
         headers=_auth_headers(doctor),
     )
     assert doctor_token_response.status_code == 200
+    db.refresh(meeting)
+    assert meeting.status == MeetingStatus.waiting
+
+    doctor_heartbeat_response = client.post(
+        f"/meetings/{meeting.id}/video/presence/heartbeat",
+        json={},
+        headers=_auth_headers(doctor),
+    )
+    assert doctor_heartbeat_response.status_code == 200
     db.refresh(meeting)
     assert meeting.status == MeetingStatus.in_progress
 
@@ -664,12 +688,25 @@ def test_doctor_leave_presence_marks_patient_waiting_again(
     )
     assert patient_token_response.status_code == 200
 
+    patient_heartbeat_response = client.post(
+        "/meetings/video/patient/presence/heartbeat",
+        json={"invite_token": invite_payload["invite_token"]},
+    )
+    assert patient_heartbeat_response.status_code == 200
+
     doctor_token_response = client.post(
         f"/meetings/{meeting.id}/video/token",
         json={},
         headers=_auth_headers(doctor),
     )
     assert doctor_token_response.status_code == 200
+
+    doctor_heartbeat_response = client.post(
+        f"/meetings/{meeting.id}/video/presence/heartbeat",
+        json={},
+        headers=_auth_headers(doctor),
+    )
+    assert doctor_heartbeat_response.status_code == 200
     db.refresh(meeting)
     assert meeting.status == MeetingStatus.in_progress
 
@@ -711,6 +748,12 @@ def test_patient_leave_presence_resets_waiting_status_when_doctor_not_online(
         json={"invite_token": invite_payload["invite_token"]},
     )
     assert patient_token_response.status_code == 200
+
+    patient_heartbeat_response = client.post(
+        "/meetings/video/patient/presence/heartbeat",
+        json={"invite_token": invite_payload["invite_token"]},
+    )
+    assert patient_heartbeat_response.status_code == 200
     db.refresh(meeting)
     assert meeting.status == MeetingStatus.waiting
 
@@ -752,12 +795,25 @@ def test_patient_leave_presence_resets_in_progress_status_when_doctor_stays_onli
     )
     assert patient_token_response.status_code == 200
 
+    patient_heartbeat_response = client.post(
+        "/meetings/video/patient/presence/heartbeat",
+        json={"invite_token": invite_payload["invite_token"]},
+    )
+    assert patient_heartbeat_response.status_code == 200
+
     doctor_token_response = client.post(
         f"/meetings/{meeting.id}/video/token",
         json={},
         headers=_auth_headers(doctor),
     )
     assert doctor_token_response.status_code == 200
+
+    doctor_heartbeat_response = client.post(
+        f"/meetings/{meeting.id}/video/presence/heartbeat",
+        json={},
+        headers=_auth_headers(doctor),
+    )
+    assert doctor_heartbeat_response.status_code == 200
     db.refresh(meeting)
     assert meeting.status == MeetingStatus.in_progress
 
@@ -798,6 +854,12 @@ def test_list_meetings_prunes_stale_waiting_presence(
         json={"invite_token": invite_payload["invite_token"]},
     )
     assert patient_token_response.status_code == 200
+
+    patient_heartbeat_response = client.post(
+        "/meetings/video/patient/presence/heartbeat",
+        json={"invite_token": invite_payload["invite_token"]},
+    )
+    assert patient_heartbeat_response.status_code == 200
 
     db.refresh(meeting)
     presence = meeting.room_presence

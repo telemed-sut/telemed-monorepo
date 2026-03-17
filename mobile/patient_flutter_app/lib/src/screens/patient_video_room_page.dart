@@ -74,13 +74,16 @@ class PatientVideoRoomPage extends StatefulWidget {
 class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
     with WidgetsBindingObserver {
   static const _presenceHeartbeatInterval = Duration(seconds: 10);
+  static const _presenceJoinPollInterval = Duration(milliseconds: 500);
   static const _heartbeatDegradedThreshold = 1;
   static const _heartbeatReconnectingThreshold = 3;
   static const _heartbeatRejoinThreshold = 6;
 
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
   Timer? _presenceTimer;
+  Timer? _presenceJoinPollTimer;
   bool _leaveSent = false;
+  bool _presenceStarted = false;
   late final PatientVideoApiClient _videoApiClient;
   late PatientVideoSession _activeSession;
   _CallHealthState _callHealthState = _CallHealthState.healthy;
@@ -90,6 +93,8 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
   bool _isManualRejoinInFlight = false;
   bool _showCallEvents = false;
   final List<_CallReliabilityEvent> _callEvents = [];
+  late final ValueNotifier<ZegoUIKitRoomState> _roomStateNotifier;
+  bool _hasActiveRoomConnection = false;
 
   String _currentClockLabel() {
     final now = DateTime.now();
@@ -108,20 +113,25 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
     _callEvents.add(
       _CallReliabilityEvent(
         at: _currentClockLabel(),
-        message: 'เข้าห้องคอลแล้ว กำลังติดตามสถานะเครือข่าย',
+        message: 'กำลังเชื่อมต่อห้องคอลและรอการยืนยันจากระบบวิดีโอ',
         isCritical: false,
       ),
     );
+    _roomStateNotifier = ZegoUIKit().getRoomStateStream();
+    _roomStateNotifier.addListener(_handleRoomStateChanged);
     WidgetsBinding.instance.addObserver(this);
     _enableImmersiveMode();
-    _startPresenceHeartbeat();
+    _handleRoomStateChanged();
   }
 
   @override
   void dispose() {
+    _roomStateNotifier.removeListener(_handleRoomStateChanged);
     _stopPresenceHeartbeat();
-    // Dispose cannot await network I/O, so leaving room is best-effort here.
-    _sendPresenceLeave();
+    if (_hasActiveRoomConnection) {
+      // Dispose cannot await network I/O, so leaving room is best-effort here.
+      _sendPresenceLeave();
+    }
     _videoApiClient.close();
     _restoreSystemUiMode();
     WidgetsBinding.instance.removeObserver(this);
@@ -141,7 +151,9 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
         _CallHealthState.degraded,
         message: 'กลับเข้าสู่คอลแล้ว ระบบกำลังเช็กการเชื่อมต่ออีกครั้ง',
       );
-      _startPresenceHeartbeat();
+      if (_hasActiveRoomConnection) {
+        _startPresenceHeartbeat();
+      }
     } else if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
@@ -151,20 +163,84 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
         _CallHealthState.degraded,
         message: 'แอปอยู่เบื้องหลัง อาจต้องเช็กการเชื่อมต่อใหม่เมื่อกลับมา',
       );
-      _sendPresenceLeave();
+      if (_hasActiveRoomConnection) {
+        _sendPresenceLeave();
+      }
+    }
+  }
+
+  void _handleRoomStateChanged() {
+    final roomState = _roomStateNotifier.value;
+    final reason = roomState.reason;
+
+    if (reason == ZegoRoomStateChangedReason.Logined) {
+      final wasConnected = _hasActiveRoomConnection;
+      _hasActiveRoomConnection = true;
+      if (!wasConnected) {
+        _appendCallEvent('เชื่อมต่อห้องสำเร็จแล้ว เริ่มอัปเดตสถานะการเข้าห้อง');
+      }
+      if (_lifecycleState == AppLifecycleState.resumed) {
+        _startPresenceHeartbeat();
+      }
+      if (!_isManualRejoinInFlight &&
+          _callHealthState != _CallHealthState.healthy) {
+        _setCallHealthState(_CallHealthState.healthy);
+      }
+      return;
+    }
+
+    if (_hasActiveRoomConnection) {
+      _appendCallEvent('การเชื่อมต่อห้องเปลี่ยนสถานะ ระบบจะหยุดส่ง heartbeat ชั่วคราว');
+    }
+    _hasActiveRoomConnection = false;
+    _stopPresenceHeartbeat();
+
+    if (reason == ZegoRoomStateChangedReason.LoginFailed) {
+      _setCallHealthState(
+        _CallHealthState.rejoinRequired,
+        message: 'เชื่อมต่อห้องไม่สำเร็จ กรุณาเข้าห้องใหม่อีกครั้ง',
+      );
+      return;
+    }
+
+    if (_lifecycleState == AppLifecycleState.resumed &&
+        !_isManualRejoinInFlight) {
+      _setCallHealthState(
+        _CallHealthState.degraded,
+        message: 'กำลังรอการเชื่อมต่อห้องจากระบบวิดีโอ',
+      );
     }
   }
 
   void _startPresenceHeartbeat() {
-    _presenceTimer?.cancel();
+    _stopPresenceHeartbeat();
     _leaveSent = false;
-    _sendPresenceHeartbeat();
+    _startPresenceHeartbeatLoopIfRoomJoined();
+    if (_presenceTimer != null) {
+      return;
+    }
+
+    _presenceJoinPollTimer = Timer.periodic(_presenceJoinPollInterval, (_) {
+      _startPresenceHeartbeatLoopIfRoomJoined();
+    });
+  }
+
+  void _startPresenceHeartbeatLoopIfRoomJoined() {
+    if (!ZegoUIKit().isRoomLogin || _presenceTimer != null) {
+      return;
+    }
+
+    _presenceJoinPollTimer?.cancel();
+    _presenceJoinPollTimer = null;
+    unawaited(_sendPresenceHeartbeat());
     _presenceTimer = Timer.periodic(_presenceHeartbeatInterval, (_) {
-      _sendPresenceHeartbeat();
+      unawaited(_sendPresenceHeartbeat());
     });
   }
 
   void _stopPresenceHeartbeat() {
+    _presenceJoinPollTimer?.cancel();
+    _presenceJoinPollTimer = null;
     _presenceTimer?.cancel();
     _presenceTimer = null;
   }
@@ -174,12 +250,16 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
         (widget.shortCode ?? '').trim().isEmpty) {
       return;
     }
+    if (!ZegoUIKit().isRoomLogin) {
+      return;
+    }
     try {
       await _videoApiClient.sendPatientPresenceHeartbeat(
         meetingId: _activeSession.meetingId,
         inviteToken: widget.inviteToken,
         shortCode: widget.shortCode,
       );
+      _presenceStarted = true;
       _leaveSent = false;
       _heartbeatFailureCount = 0;
       if (_lifecycleState == AppLifecycleState.resumed &&
@@ -252,6 +332,7 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
 
   Future<void> _sendPresenceLeave() async {
     if (_leaveSent) return;
+    if (!_presenceStarted) return;
     if ((widget.inviteToken ?? '').trim().isEmpty &&
         (widget.shortCode ?? '').trim().isEmpty) {
       return;
@@ -263,6 +344,7 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
         shortCode: widget.shortCode,
       );
       _leaveSent = true;
+      _presenceStarted = false;
     } catch (_) {
       // best-effort
     }
@@ -348,6 +430,7 @@ class _PatientVideoRoomPageState extends State<PatientVideoRoomPage>
     });
     _appendCallEvent('คนไข้สั่งเชื่อมต่อห้องใหม่ด้วยตนเอง');
     _stopPresenceHeartbeat();
+    _presenceStarted = false;
 
     try {
       final refreshedSession = await _videoApiClient.issuePatientVideoToken(

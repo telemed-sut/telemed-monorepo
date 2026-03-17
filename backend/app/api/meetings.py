@@ -218,11 +218,6 @@ def issue_meeting_video_token(
         current_user=current_user,
         expires_in_seconds=payload.expires_in_seconds,
     )
-    meeting_presence_service.touch_doctor_presence(db, meeting)
-    if meeting.status in (MeetingStatus.scheduled, MeetingStatus.waiting):
-        meeting.status = MeetingStatus.in_progress
-        db.add(meeting)
-        db.commit()
     return response
 
 
@@ -333,11 +328,6 @@ def issue_patient_video_token(
             invite_token=payload.invite_token or "",
             expires_in_seconds=payload.expires_in_seconds,
         )
-    meeting_presence_service.touch_patient_presence(db, meeting)
-    if meeting.status == MeetingStatus.scheduled:
-        meeting.status = MeetingStatus.waiting
-        db.add(meeting)
-        db.commit()
     return response
 
 
@@ -367,6 +357,10 @@ def doctor_presence_heartbeat(
         )
 
     presence = meeting_presence_service.touch_doctor_presence(db, meeting)
+    if meeting_presence_service.reconcile_active_meeting_status(db, meeting, presence):
+        db.commit()
+        db.refresh(meeting)
+        presence = meeting.room_presence
     return _presence_response(meeting, presence)
 
 
@@ -420,10 +414,10 @@ def patient_presence_heartbeat(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
 
     presence = meeting_presence_service.touch_patient_presence(db, meeting)
-    if meeting.status == MeetingStatus.scheduled:
-        meeting.status = MeetingStatus.waiting
-        db.add(meeting)
+    if meeting_presence_service.reconcile_active_meeting_status(db, meeting, presence):
         db.commit()
+        db.refresh(meeting)
+        presence = meeting.room_presence
     return _presence_response(meeting, presence)
 
 

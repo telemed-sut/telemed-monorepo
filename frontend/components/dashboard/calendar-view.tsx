@@ -71,6 +71,7 @@ import {
   isDoctorLeftWhilePatientWaiting,
   isPatientWaitingLive,
 } from "./meeting-presence";
+import { preloadZegoUIKitPrebuilt } from "@/lib/zego-uikit";
 
 /* ── Helpers ── */
 
@@ -958,6 +959,12 @@ export function EventDetailSheet({
     const qs = callParams.toString();
     window.location.assign(`/meetings/call/${meeting.id}${qs ? `?${qs}` : ""}`);
   };
+  const handleStartCallIntent = () => {
+    if (!canStartCall) {
+      return;
+    }
+    preloadZegoUIKitPrebuilt();
+  };
 
   const handleCopyPatientJoinLink = async () => {
     if (!token || copyingPatientLink) return;
@@ -1136,6 +1143,9 @@ export function EventDetailSheet({
                       size="sm"
                       className="h-10 rounded-xl bg-amber-600 px-3 text-white hover:bg-amber-700"
                       onClick={handleStartCall}
+                      onMouseEnter={handleStartCallIntent}
+                      onFocus={handleStartCallIntent}
+                      onTouchStart={handleStartCallIntent}
                       disabled={!canStartCall}
                     >
                       <HugeiconsIcon icon={CallIcon} className="size-3.5" />
@@ -1193,6 +1203,9 @@ export function EventDetailSheet({
                 <Button
                   className="h-11 justify-center gap-2 rounded-2xl text-sm shadow-sm"
                   onClick={handleStartCall}
+                  onMouseEnter={handleStartCallIntent}
+                  onFocus={handleStartCallIntent}
+                  onTouchStart={handleStartCallIntent}
                   disabled={!canStartCall}
                 >
                   <HugeiconsIcon icon={CallIcon} className="size-4" />
