@@ -53,15 +53,33 @@ class PatientBrief(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MeetingRoomPresenceOut(BaseModel):
+    state: str
+    doctor_online: bool
+    patient_online: bool
+    refreshed_at: Optional[datetime] = None
+    doctor_joined_at: Optional[datetime] = None
+    doctor_last_seen_at: Optional[datetime] = None
+    doctor_left_at: Optional[datetime] = None
+    patient_joined_at: Optional[datetime] = None
+    patient_last_seen_at: Optional[datetime] = None
+    patient_left_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class MeetingOut(MeetingBase):
     id: UUID
     created_at: datetime
     updated_at: datetime
+    patient_invite_url: Optional[str] = None
     reason: Optional[str] = None
     cancelled_at: Optional[datetime] = None
     cancelled_by: Optional[UUID] = None
     doctor: Optional[DoctorBrief] = None
     patient: Optional[PatientBrief] = None
+    room_presence: Optional[MeetingRoomPresenceOut] = None
 
     model_config = {"from_attributes": True}
 

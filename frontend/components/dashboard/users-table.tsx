@@ -321,7 +321,7 @@ const formatInviteTimestamp = (value?: string | null, language: AppLanguage = "e
 
 // --- Component ---
 
-export function UsersTable() {
+export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
     const { role: currentUserRole, token } = useAuthStore();
     const language = useLanguageStore((state) => state.language);
 
@@ -468,7 +468,7 @@ export function UsersTable() {
 
     useEffect(() => {
         void loadUsers();
-    }, [loadUsers]);
+    }, [loadUsers, refreshKey]);
 
     useEffect(() => {
         if (!isInviteSheetOpen) return;
@@ -1144,16 +1144,16 @@ export function UsersTable() {
                             </AvatarFallback>
                         </Avatar>
                         <div className="flex flex-col">
-                            <span className="font-medium truncate text-sm">
+                            <span className="truncate text-[0.95rem] font-medium">
                                 {user.first_name} {user.last_name || ""}
                             </span>
                             {user.deleted_at ? (
-                                <span className="text-xs text-muted-foreground">
+                                <span className="text-sm text-muted-foreground">
                                     {tr(language, "Deleted", "ลบเมื่อ")} {new Date(user.deleted_at).toLocaleString(language === "th" ? "th-TH" : "en-US")}
                                     {user.deleted_by ? tr(language, ` by ${user.deleted_by.slice(0, 8)}`, ` โดย ${user.deleted_by.slice(0, 8)}`) : ""}
                                 </span>
                             ) : isClinicalRole(user.role) && user.specialty ? (
-                                <span className="text-xs text-muted-foreground">{user.specialty}</span>
+                                <span className="text-sm text-muted-foreground">{user.specialty}</span>
                             ) : null}
                         </div>
                     </div>
@@ -1378,8 +1378,8 @@ export function UsersTable() {
                         <Button variant="outline" size="icon" className="size-7 sm:size-8 shrink-0">
                             <UserCog className="size-4 sm:size-[18px] text-muted-foreground" />
                         </Button>
-                        <span className="text-sm sm:text-base font-medium">{tr(language, "User Management", "การจัดการผู้ใช้")}</span>
-                        <Badge variant="secondary" className="ml-1 text-[10px] sm:text-xs">
+                        <span className="text-base font-medium sm:text-lg">{tr(language, "User Management", "การจัดการผู้ใช้")}</span>
+                        <Badge variant="secondary" className="ml-1 text-xs sm:text-sm">
                             {total}
                         </Badge>
                         <div className="hidden md:flex items-center gap-1 rounded-md border border-input p-1 ml-1">
@@ -1387,7 +1387,7 @@ export function UsersTable() {
                                 type="button"
                                 variant={accountView === "active" ? "secondary" : "ghost"}
                                 size="sm"
-                                className="h-7 px-2 text-xs"
+                                className="h-8 px-3 text-sm"
                                 onClick={() => setAccountView("active")}
                             >
                                 {tr(language, "Active", "ใช้งาน")}
@@ -1396,7 +1396,7 @@ export function UsersTable() {
                                 type="button"
                                 variant={accountView === "deleted" ? "secondary" : "ghost"}
                                 size="sm"
-                                className="h-7 px-2 text-xs"
+                                className="h-8 px-3 text-sm"
                                 onClick={() => setAccountView("deleted")}
                             >
                                 {tr(language, "Deleted", "ลบแล้ว")}
@@ -1405,7 +1405,7 @@ export function UsersTable() {
                                 type="button"
                                 variant={accountView === "all" ? "secondary" : "ghost"}
                                 size="sm"
-                                className="h-7 px-2 text-xs"
+                                className="h-8 px-3 text-sm"
                                 onClick={() => setAccountView("all")}
                             >
                                 {tr(language, "All", "ทั้งหมด")}
@@ -1420,14 +1420,14 @@ export function UsersTable() {
                                 placeholder={tr(language, "Search users...", "ค้นหาผู้ใช้...")}
                                 value={searchLocal}
                                 onChange={(e) => setSearchLocal(e.target.value)}
-                                className="pl-9 sm:pl-10 w-full sm:w-[160px] lg:w-[200px] h-8 sm:h-9 text-sm"
+                                className="h-9 w-full pl-9 text-sm sm:h-10 sm:w-[180px] sm:pl-10 lg:w-[220px]"
                             />
                         </div>
 
                         {/* Filter Dropdown */}
                         <DropdownMenu>
                             <DropdownMenuTrigger
-                                className={`inline-flex items-center justify-center whitespace-nowrap rounded-md border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground px-3 text-xs font-medium h-8 sm:h-9 gap-1.5 sm:gap-2 focus-visible:outline-none ${hasActiveFilters ? "border-primary" : ""}`}
+                                className={`inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-input bg-transparent px-3 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground sm:h-10 sm:gap-2 focus-visible:outline-none ${hasActiveFilters ? "border-primary" : ""}`}
                             >
                                 <Filter className="size-3.5 sm:size-4" />
                                 <span className="hidden sm:inline">{tr(language, "Filter", "ตัวกรอง")}</span>
@@ -1578,11 +1578,11 @@ export function UsersTable() {
                 {/* ── Active filter badges ── */}
                 {hasActiveFilters && (
                     <div className="flex flex-wrap items-center gap-2 px-3 sm:px-6 pb-3">
-                        <span className="text-[10px] sm:text-xs text-muted-foreground">{tr(language, "Filters:", "ตัวกรอง:")}</span>
+                        <span className="text-sm text-muted-foreground">{tr(language, "Filters:", "ตัวกรอง:")}</span>
                         {roleFilter !== "clinical" && (
                             <Badge
                                 variant="secondary"
-                                className="gap-1 cursor-pointer text-[10px] sm:text-xs h-5 sm:h-6"
+                                className="h-6 cursor-pointer gap-1 text-sm"
                                 onClick={() => setRoleFilter("clinical")}
                             >
                                 {getRoleLabelByLanguage(roleFilter, language)}
@@ -1592,7 +1592,7 @@ export function UsersTable() {
                         {statusFilterLocal !== "all" && (
                             <Badge
                                 variant="secondary"
-                                className="gap-1 cursor-pointer text-[10px] sm:text-xs h-5 sm:h-6"
+                                className="h-6 cursor-pointer gap-1 text-sm"
                                 onClick={() => setStatusFilterLocal("all")}
                             >
                                 <span className="capitalize">
@@ -1604,7 +1604,7 @@ export function UsersTable() {
                         {accountView !== "active" && (
                             <Badge
                                 variant="secondary"
-                                className="gap-1 cursor-pointer text-[10px] sm:text-xs h-5 sm:h-6"
+                                className="h-6 cursor-pointer gap-1 text-sm"
                                 onClick={() => setAccountView("active")}
                             >
                                 {accountView === "deleted"
@@ -1624,7 +1624,7 @@ export function UsersTable() {
                                 {table.getHeaderGroups().map((headerGroup) => (
                                     <TableRow key={headerGroup.id} className="bg-muted/50 hover:bg-muted/50">
                                         {headerGroup.headers.map((header) => (
-                                            <TableHead key={header.id} className="font-medium text-muted-foreground text-xs sm:text-sm">
+                                            <TableHead key={header.id} className="text-sm font-medium text-muted-foreground">
                                                 {header.isPlaceholder
                                                     ? null
                                                     : flexRender(
@@ -1648,7 +1648,7 @@ export function UsersTable() {
                                             )}
                                         >
                                             {row.getVisibleCells().map((cell) => (
-                                                <TableCell key={cell.id} className="py-2.5 text-xs sm:text-sm">
+                                                <TableCell key={cell.id} className="py-3 text-sm">
                                                     {flexRender(
                                                         cell.column.columnDef.cell,
                                                         cell.getContext()
@@ -1678,8 +1678,8 @@ export function UsersTable() {
 
                 {/* ── Pagination (numbered pages like square-ui) ── */}
                 <div className="flex flex-col gap-3 border-t bg-background/60 px-3 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                    <div className="flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
-                        <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-medium">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-sm font-medium">
                             {selectedIds.length > 0
                                 ? tr(language, `${selectedIds.length} selected`, `เลือกแล้ว ${selectedIds.length} รายการ`)
                                 : tr(
@@ -1692,7 +1692,7 @@ export function UsersTable() {
                             value={pagination.pageSize.toString()}
                             onValueChange={(value) => table.setPageSize(Number(value))}
                         >
-                            <SelectTrigger variant="glass" className="h-8 w-[96px] rounded-full text-xs shadow-sm">
+                            <SelectTrigger variant="glass" className="h-9 w-[108px] rounded-full text-sm shadow-sm">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -1730,7 +1730,7 @@ export function UsersTable() {
                                         size="icon"
                                         disabled={loading}
                                         className={cn(
-                                            "size-8 rounded-full text-xs shadow-sm",
+                                            "size-8 rounded-full text-sm shadow-sm",
                                             currentPage === pageNum
                                                 ? "bg-primary text-primary-foreground"
                                                 : "border-white/20 bg-white/5 hover:bg-white/10"
@@ -1863,7 +1863,7 @@ export function UsersTable() {
                                 placeholder={tr(language, 'Type "PURGE"', 'พิมพ์ "PURGE"')}
                             />
                         </div>
-                        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-muted-foreground">
+                        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-muted-foreground">
                             ระบบบังคับให้ export รายการบัญชีที่ถูกลบก่อน purge ทุกครั้ง
                         </div>
                         <Button
@@ -2080,7 +2080,7 @@ export function UsersTable() {
                         <div className="rounded-md border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">{tr(language, "Invite link expires in 24 hours (fixed by system policy).", "ลิงก์เชิญจะหมดอายุใน 24 ชั่วโมง (ตามนโยบายระบบ)")}</div>
                         {generatedInviteUrl && (
                             <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 space-y-2">
-                                <Label className="text-xs uppercase tracking-wide text-muted-foreground">{tr(language, "Invite Link", "ลิงก์เชิญ")}</Label>
+                                <Label className="text-sm uppercase tracking-wide text-muted-foreground">{tr(language, "Invite Link", "ลิงก์เชิญ")}</Label>
                                 <Input value={generatedInviteUrl || ""} readOnly />
                                 <Button type="button" variant="outline" className="w-full" onClick={handleCopyInviteUrl}><Copy className="mr-2 h-4 w-4" /> {tr(language, "Copy Link", "คัดลอกลิงก์")}</Button>
                             </div>
@@ -2088,13 +2088,13 @@ export function UsersTable() {
 
                         <div className="space-y-3 rounded-md border border-border/70 p-3">
                             <div className="flex items-center justify-between gap-2">
-                                <Label className="text-xs uppercase tracking-wide text-muted-foreground">{tr(language, "Invite Lifecycle", "วงจรคำเชิญ")}</Label>
+                                <Label className="text-sm uppercase tracking-wide text-muted-foreground">{tr(language, "Invite Lifecycle", "วงจรคำเชิญ")}</Label>
                                 <div className="flex items-center gap-2">
                                     <Select
                                         value={inviteStatusFilter}
                                         onValueChange={(value) => setInviteStatusFilter((value as "active" | "expired" | "closed" | "all") ?? "active")}
                                     >
-                                        <SelectTrigger className="h-8 w-[130px]">
+                                        <SelectTrigger className="h-9 w-[144px] text-sm">
                                             <span className="truncate">
                                                 {getInviteStatusFilterLabel(inviteStatusFilter, language)}
                                             </span>
@@ -2122,14 +2122,14 @@ export function UsersTable() {
                                             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                                 <div className="min-w-0 space-y-1">
                                                     <p className="text-sm font-medium truncate">{invite.email}</p>
-                                                    <p className="text-xs text-muted-foreground">
+                                                    <p className="text-sm text-muted-foreground">
                                                         {getRoleLabelByLanguage(invite.role, language)}
                                                     </p>
                                                     <div className="flex flex-wrap gap-2">
-                                                        <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
+                                                        <Badge variant="secondary" className="text-xs uppercase tracking-wide">
                                                             {getInviteStatusLabel(invite.status, language)}
                                                         </Badge>
-                                                        <Badge variant="outline" className="text-[10px]">
+                                                        <Badge variant="outline" className="text-xs">
                                                             {tr(language, "Expires", "หมดอายุ")} {formatInviteTimestamp(invite.expires_at, language)}
                                                         </Badge>
                                                     </div>

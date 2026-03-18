@@ -3,11 +3,14 @@
 Endpoints:
   POST /patient-app/register          — Register patient device (phone + code → set PIN)
   POST /patient-app/login             — Login with phone + PIN
-  GET  /patient-app/me/meetings       — List my meetings with invite URLs
-  POST /patient-app/{patient_id}/code — Staff: generate registration code
+  GET  /patient-app/me/meetings       — List my meetings with current invite snapshot
+  POST /patient-app/me/meetings/{id}/invite — Issue/refresh my invite explicitly
+  POST /patient-app/{patient_id}/code — Admin/Doctor: generate registration code
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.limiter import limiter
@@ -21,13 +24,37 @@ from app.schemas.patient_app import (
     PatientMeetingListResponse,
     PatientRegistrationCodeResponse,
 )
+from app.schemas.meeting_video import MeetingPatientInviteResponse
 from app.services import patient_app as patient_app_service
+from app.services import patient as patient_service
 from app.services.auth import get_current_user, get_db, oauth2_scheme
+from app.core.request_utils import get_client_ip
 
 router = APIRouter(prefix="/patient-app", tags=["patient-app"])
 
 
-# ---------- Staff: generate registration code ----------
+def _parse_updated_after(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    # Query strings that inline "+00:00" without URL encoding are decoded as spaces.
+    if " " in normalized and ("T" in normalized or normalized.count(":") >= 2):
+        normalized = normalized.replace(" ", "+")
+
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="updated_after must be a valid ISO-8601 timestamp.",
+        ) from exc
+
+
+# ---------- Admin/Doctor: generate registration code ----------
 
 @router.post(
     "/{patient_id}/code",
@@ -40,9 +67,20 @@ def generate_registration_code(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Staff/doctor generates a 6-char registration code for a patient."""
+    """Admin or assigned doctor generates a 6-char registration code for a patient."""
     if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    if current_user.role == UserRole.doctor:
+        patient = patient_service.get_patient(db, patient_id)
+        if not patient:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+        patient_service.verify_doctor_patient_access(
+            db,
+            current_user=current_user,
+            patient_id=patient.id,
+            ip_address=get_client_ip(request),
+        )
 
     return patient_app_service.create_registration_code(
         db=db,
@@ -101,6 +139,10 @@ def login_patient(
 @limiter.limit("60/minute")
 def get_my_meetings(
     request: Request,
+    updated_after: str | None = Query(
+        default=None,
+        description="Optional ISO-8601 timestamp to return only meetings updated after that point.",
+    ),
     db: Session = Depends(get_db),
     token: str = Depends(oauth2_scheme),
 ):
@@ -109,8 +151,33 @@ def get_my_meetings(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
     patient = patient_app_service.get_current_patient(token, db)
+    updated_after_dt = _parse_updated_after(updated_after)
 
     return patient_app_service.get_patient_meetings(
         db=db,
         patient_id=str(patient.id),
+        updated_after=updated_after_dt,
+    )
+
+
+@router.post(
+    "/me/meetings/{meeting_id}/invite",
+    response_model=MeetingPatientInviteResponse,
+)
+@limiter.limit("20/minute")
+def issue_my_meeting_invite(
+    request: Request,
+    meeting_id: str,
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+):
+    """Issue or refresh an invite for the authenticated patient's meeting."""
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    patient = patient_app_service.get_current_patient(token, db)
+    return patient_app_service.issue_patient_meeting_invite(
+        db=db,
+        patient_id=str(patient.id),
+        meeting_id=meeting_id,
     )

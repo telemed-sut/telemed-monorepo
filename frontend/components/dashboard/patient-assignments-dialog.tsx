@@ -237,7 +237,7 @@ export function PatientAssignmentsDialog({
                   >
                     <div>
                       <p className="text-sm font-medium">{assignmentName(assignment)}</p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-sm text-muted-foreground">
                         {assignment.doctor?.email ?? assignment.doctor_id}
                       </p>
                     </div>

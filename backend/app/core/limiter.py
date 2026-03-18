@@ -1,10 +1,17 @@
 from fastapi import Request
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from app.core.config import get_settings
+from app.core.request_utils import get_client_ip
 
 settings = get_settings()
+
+
+def _rate_limit_whitelist() -> set[str]:
+    configured = settings.rate_limit_whitelist
+    if isinstance(configured, str):
+        return {item.strip() for item in configured.split(",") if item.strip()}
+    return {item.strip() for item in configured if item and item.strip()}
 
 
 def get_real_user_key(request: Request):
@@ -17,11 +24,10 @@ def get_real_user_key(request: Request):
     3. Physical Device (X-Device-Id): Allows multiple IoT devices behind same hospital IP.
     4. Fallback (IP Address): For unauthenticated public endpoints (login, etc).
     """
-    client_ip = request.client.host if request.client else "127.0.0.1"
-    # print(f"DEBUG: RealUserKey IP={client_ip} Whitelisted={client_ip in settings.rate_limit_whitelist}")
+    client_ip = get_client_ip(request)
 
     # 1. Check for Whitelisted IP (Internal tools, Monitoring)
-    if settings.rate_limit_whitelist and client_ip in settings.rate_limit_whitelist:
+    if client_ip in _rate_limit_whitelist():
         return None  # Returning None bypasses the rate limiter
 
     # 2. Check for Authorization header (User context)
@@ -36,7 +42,7 @@ def get_real_user_key(request: Request):
         return f"device:{device_id}"
 
     # 4. Fallback to IP address for unauthenticated requests
-    return get_remote_address(request)
+    return f"ip:{client_ip}"
 
 
 def get_failed_login_key(request: Request):
@@ -45,13 +51,13 @@ def get_failed_login_key(request: Request):
     Always uses IP address to prevent brute-force attacks from a single source,
     regardless of the user they are trying to hack.
     """
-    client_ip = request.client.host if request.client else "127.0.0.1"
+    client_ip = get_client_ip(request)
     
     # 1. Check for Whitelisted IP (Internal tools, Monitoring)
-    if settings.rate_limit_whitelist and client_ip in settings.rate_limit_whitelist:
+    if client_ip in _rate_limit_whitelist():
         return None  # Returning None bypasses the rate limiter
 
-    return get_remote_address(request)
+    return f"login:{client_ip}"
 
 
 # Initialize Limiter with support for Redis or Memory fallback

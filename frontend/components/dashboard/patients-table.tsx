@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
@@ -33,7 +34,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AnimatedCalendar } from "@/components/ui/calender";
 import { format } from "date-fns";
 import {
   Select,
@@ -72,11 +72,35 @@ import { fetchPatients, createPatient, updatePatient, deletePatient, generatePat
 import { buildProfileSeed, getProfileOrbStyle } from "@/components/ui/profile-avatar-orb";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
-import { PatientAssignmentsDialog } from "./patient-assignments-dialog";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100, 200];
+const PAGE_PREFETCH_DELAY_MS = 300;
+
+const AnimatedCalendar = dynamic(
+  () =>
+    import("@/components/ui/calender").then((module) => ({
+      default: module.AnimatedCalendar,
+    })),
+  {
+    loading: () => (
+      <div className="h-11 w-full rounded-md border bg-muted/60 animate-pulse" />
+    ),
+    ssr: false,
+  }
+);
+
+const PatientAssignmentsDialog = dynamic(
+  () =>
+    import("./patient-assignments-dialog").then((module) => ({
+      default: module.PatientAssignmentsDialog,
+    })),
+  {
+    loading: () => null,
+    ssr: false,
+  }
+);
 
 interface PatientFormState {
   first_name: string;
@@ -163,6 +187,7 @@ export function PatientsTable() {
 
   // Cache for pages to enable instant navigation
   const cacheRef = useRef<Map<string, { items: Patient[]; total: number }>>(new Map());
+  const prefetchTimeoutRef = useRef<number | null>(null);
 
   const getCacheKey = useCallback(
     (p: number) => `${p}-${limit}-${debouncedSearch}-${sort}-${order}`,
@@ -200,20 +225,36 @@ export function PatientsTable() {
           // Cache this page
           cacheRef.current.set(cacheKey, { items: res.items, total: res.total });
 
-          // Prefetch adjacent pages in background (next and previous)
-          const maxPages = Math.ceil(res.total / limit);
-          const pagesToPrefetch = [page - 1, page + 1].filter(p => p >= 1 && p <= maxPages);
+          if (prefetchTimeoutRef.current !== null) {
+            window.clearTimeout(prefetchTimeoutRef.current);
+            prefetchTimeoutRef.current = null;
+          }
 
-          pagesToPrefetch.forEach(prefetchPage => {
-            const prefetchCacheKey = getCacheKey(prefetchPage);
-            if (!cacheRef.current.has(prefetchCacheKey)) {
-              fetchPatients({ page: prefetchPage, limit, q: debouncedSearch, sort, order }, token)
+          const nextPage = page + 1;
+          const maxPages = Math.ceil(res.total / limit);
+
+          if (nextPage <= maxPages) {
+            prefetchTimeoutRef.current = window.setTimeout(() => {
+              if (cancelled) return;
+
+              const prefetchCacheKey = getCacheKey(nextPage);
+              if (cacheRef.current.has(prefetchCacheKey)) {
+                return;
+              }
+
+              void fetchPatients(
+                { page: nextPage, limit, q: debouncedSearch, sort, order },
+                token
+              )
                 .then((prefetchRes) => {
-                  cacheRef.current.set(prefetchCacheKey, { items: prefetchRes.items, total: prefetchRes.total });
+                  cacheRef.current.set(prefetchCacheKey, {
+                    items: prefetchRes.items,
+                    total: prefetchRes.total,
+                  });
                 })
-                .catch(() => { }); // Silently fail prefetch
-            }
-          });
+                .catch(() => undefined);
+            }, PAGE_PREFETCH_DELAY_MS);
+          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -237,6 +278,10 @@ export function PatientsTable() {
     loadPatients();
     return () => {
       cancelled = true;
+      if (prefetchTimeoutRef.current !== null) {
+        window.clearTimeout(prefetchTimeoutRef.current);
+        prefetchTimeoutRef.current = null;
+      }
     };
   }, [token, page, limit, debouncedSearch, sort, order, clearToken, getCacheKey, language, router]);
 
@@ -420,7 +465,7 @@ export function PatientsTable() {
     try {
       const res = await generatePatientRegistrationCode(patient.id, token);
       setRegCode(res.code);
-    } catch (err) {
+    } catch {
       toast.error(tr(language, "Failed to generate registration code", "ไม่สามารถสร้างรหัสลงทะเบียนได้"));
       setRegCodeDialogOpen(false);
     } finally {
@@ -484,58 +529,58 @@ export function PatientsTable() {
 
   return (
     <LazyMotion features={domAnimation}>
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Card className="relative overflow-hidden border-none shadow-md bg-gradient-to-br from-background via-background to-primary/5 hover:shadow-lg transition-all duration-300 group">
-          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-            <HugeiconsIcon icon={UserGroupIcon} className="w-24 h-24 text-primary transform rotate-12 translate-x-4 -translate-y-4" />
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <Card className="group relative overflow-hidden border-none bg-gradient-to-br from-background via-background to-primary/5 shadow-sm transition-all duration-300 hover:shadow-md">
+          <div className="absolute top-0 right-0 p-3 opacity-10 transition-opacity group-hover:opacity-20">
+            <HugeiconsIcon icon={UserGroupIcon} className="h-20 w-20 translate-x-3 -translate-y-3 rotate-12 text-primary" />
           </div>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+          <CardHeader className="relative z-10 flex flex-row items-center justify-between space-y-0 px-5 pb-2 pt-5">
             <CardTitle className="text-sm font-medium text-muted-foreground">{tr(language, "Total Patients", "ผู้ป่วยทั้งหมด")}</CardTitle>
-            <div className="p-2 bg-primary/10 rounded-lg group-hover:bg-primary/20 transition-colors">
+            <div className="rounded-lg bg-primary/10 p-1.5 transition-colors group-hover:bg-primary/20">
               <HugeiconsIcon icon={UserGroupIcon} className="h-4 w-4 text-primary" />
             </div>
           </CardHeader>
-          <CardContent className="relative z-10">
-            <div className="text-3xl font-bold tracking-tight text-foreground">{stats.total}</div>
-            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+          <CardContent className="relative z-10 px-5 pb-5 pt-0">
+            <div className="text-[1.75rem] font-bold tracking-tight text-foreground">{stats.total}</div>
+            <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
               <span className="text-primary font-medium">{tr(language, "Synced", "ซิงก์แล้ว")}</span> {tr(language, "in system", "ในระบบ")}
             </p>
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden border-none shadow-md bg-gradient-to-br from-background via-background to-emerald-500/5 hover:shadow-lg transition-all duration-300 group">
-          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-            <HugeiconsIcon icon={AiPhone01Icon} className="w-24 h-24 text-emerald-500 transform rotate-12 translate-x-4 -translate-y-4" />
+        <Card className="group relative overflow-hidden border-none bg-gradient-to-br from-background via-background to-emerald-500/5 shadow-sm transition-all duration-300 hover:shadow-md">
+          <div className="absolute top-0 right-0 p-3 opacity-10 transition-opacity group-hover:opacity-20">
+            <HugeiconsIcon icon={AiPhone01Icon} className="h-20 w-20 translate-x-3 -translate-y-3 rotate-12 text-emerald-500" />
           </div>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+          <CardHeader className="relative z-10 flex flex-row items-center justify-between space-y-0 px-5 pb-2 pt-5">
             <CardTitle className="text-sm font-medium text-muted-foreground">{tr(language, "Active Contacts", "ผู้ติดต่อที่ใช้งานอยู่")}</CardTitle>
-            <div className="p-2 bg-emerald-500/10 rounded-lg group-hover:bg-emerald-500/20 transition-colors">
+            <div className="rounded-lg bg-emerald-500/10 p-1.5 transition-colors group-hover:bg-emerald-500/20">
               <HugeiconsIcon icon={AiPhone01Icon} className="h-4 w-4 text-emerald-500" />
             </div>
           </CardHeader>
-          <CardContent className="relative z-10">
-            <div className="text-3xl font-bold tracking-tight text-foreground">{stats.active}</div>
-            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+          <CardContent className="relative z-10 px-5 pb-5 pt-0">
+            <div className="text-[1.75rem] font-bold tracking-tight text-foreground">{stats.active}</div>
+            <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
               <span className="text-emerald-500 font-medium">{(stats.active / stats.total * 100).toFixed(0)}%</span> {tr(language, "response rate", "อัตราการตอบกลับ")}
             </p>
           </CardContent>
         </Card>
 
-        <Card className="relative overflow-hidden border-none shadow-md bg-gradient-to-br from-background via-background to-amber-500/5 hover:shadow-lg transition-all duration-300 group">
-          <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-            <HugeiconsIcon icon={CalendarAddIcon} className="w-24 h-24 text-amber-500 transform rotate-12 translate-x-4 -translate-y-4" />
+        <Card className="group relative overflow-hidden border-none bg-gradient-to-br from-background via-background to-amber-500/5 shadow-sm transition-all duration-300 hover:shadow-md">
+          <div className="absolute top-0 right-0 p-3 opacity-10 transition-opacity group-hover:opacity-20">
+            <HugeiconsIcon icon={CalendarAddIcon} className="h-20 w-20 translate-x-3 -translate-y-3 rotate-12 text-amber-500" />
           </div>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+          <CardHeader className="relative z-10 flex flex-row items-center justify-between space-y-0 px-5 pb-2 pt-5">
             <CardTitle className="text-sm font-medium text-muted-foreground">{tr(language, "New This Week", "ใหม่สัปดาห์นี้")}</CardTitle>
-            <div className="p-2 bg-amber-500/10 rounded-lg group-hover:bg-amber-500/20 transition-colors">
+            <div className="rounded-lg bg-amber-500/10 p-1.5 transition-colors group-hover:bg-amber-500/20">
               <HugeiconsIcon icon={CalendarAddIcon} className="h-4 w-4 text-amber-500" />
             </div>
           </CardHeader>
-          <CardContent className="relative z-10">
-            <div className="text-3xl font-bold tracking-tight text-foreground">{stats.recent}</div>
-            <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+          <CardContent className="relative z-10 px-5 pb-5 pt-0">
+            <div className="text-[1.75rem] font-bold tracking-tight text-foreground">{stats.recent}</div>
+            <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
               <span className="text-amber-500 font-medium">+{stats.recent}</span> {tr(language, "last 7 days", "7 วันที่ผ่านมา")}
             </p>
           </CardContent>
@@ -544,16 +589,16 @@ export function PatientsTable() {
 
       {/* Main Patient Table */}
       <Card className="flex flex-col overflow-hidden">
-        <CardHeader className="pb-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-1">
-                <CardTitle className="flex items-center gap-2 text-xl tracking-tight">
-                  <div className="flex items-center justify-center p-2 rounded-lg bg-primary/10">
-                    <HugeiconsIcon icon={MedicalMaskIcon} className="size-5 text-primary" />
+                <CardTitle className="flex items-center gap-2 text-lg tracking-tight sm:text-xl">
+                  <div className="flex items-center justify-center rounded-lg bg-primary/10 p-1.5">
+                    <HugeiconsIcon icon={MedicalMaskIcon} className="size-4 text-primary" />
                   </div>
                 {tr(language, "Patient Directory", "รายชื่อผู้ป่วย")}
               </CardTitle>
-              <CardDescription className="ml-11">
+              <CardDescription className="ml-9 text-sm">
                 {tr(language, "Manage your patient records, appointments, and contact details.", "จัดการข้อมูลผู้ป่วย การนัดหมาย และข้อมูลติดต่อ")}
               </CardDescription>
             </div>
@@ -571,12 +616,12 @@ export function PatientsTable() {
                     setSearch(e.target.value);
                     setPage(1);
                   }}
-                  className="pl-9 w-full sm:w-[280px] h-10 bg-background/50 border-input/60 hover:border-input focus-visible:ring-primary/20 transition-all shadow-sm"
+                  className="h-9 w-full bg-background/50 pl-9 shadow-sm transition-all hover:border-input focus-visible:ring-primary/20 sm:w-[240px]"
                 />
               </div>
               <Button
                 variant="default"
-                className="gap-2 bg-black text-white hover:bg-black/90 dark:bg-black dark:text-white dark:hover:bg-black/90"
+                className="h-9 gap-2 bg-black px-3.5 text-sm text-white hover:bg-black/90 dark:bg-black dark:text-white dark:hover:bg-black/90"
                 onClick={() => resetForm()}
               >
                 <HugeiconsIcon icon={Add01Icon} className="size-4" />
@@ -585,7 +630,7 @@ export function PatientsTable() {
               <Button
                 variant="outline"
                 size="icon"
-                className="size-10 shadow-sm"
+                className="size-9 shadow-sm"
                 title={tr(language, "Reset Filters", "รีเซ็ตตัวกรอง")}
                 onClick={async () => {
                   setSearch("");
@@ -639,41 +684,41 @@ export function PatientsTable() {
             <div className="absolute inset-x-0 top-0 h-10 bg-gradient-to-b from-background/90 to-transparent pointer-events-none animate-pulse z-10" />
           ) : null}
 
-          <div className="overflow-x-auto max-h-[500px] lg:max-h-[600px] overflow-y-auto scroll-smooth border-b">
+          <div className="max-h-[460px] overflow-x-auto overflow-y-auto border-b scroll-smooth lg:max-h-[560px]">
             <table className={cn("w-full caption-bottom text-sm border-separate border-spacing-0", isRefetching && "opacity-60 grayscale transition-all duration-300")}>
               <TableHeader className="[&_tr]:border-b">
                 <TableRow className="sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 hover:bg-transparent shadow-sm border-b transition-colors data-[state=selected]:bg-muted">
-                  <TableHead className="h-12 px-4 text-center align-middle font-medium text-muted-foreground w-[60px]">
+                  <TableHead className="h-12 w-[60px] px-4 text-center align-middle text-sm font-medium text-muted-foreground">
                     #
                   </TableHead>
-                  <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground min-w-[200px]">
+                  <TableHead className="h-12 min-w-[200px] px-4 text-left align-middle text-sm font-medium text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <HugeiconsIcon icon={UserIcon} className="size-4" />
                       {tr(language, "Patient", "ผู้ป่วย")}
                     </div>
                   </TableHead>
-                  <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground min-w-[120px]">
+                  <TableHead className="h-12 min-w-[120px] px-4 text-left align-middle text-sm font-medium text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <HugeiconsIcon icon={Calendar03Icon} className="size-4" />
                       {tr(language, "Age & DOB", "อายุและวันเกิด")}
                     </div>
                   </TableHead>
-                  <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden md:table-cell min-w-[100px]">
+                  <TableHead className="hidden h-12 min-w-[100px] px-4 text-left align-middle text-sm font-medium text-muted-foreground md:table-cell">
                     {tr(language, "Gender", "เพศ")}
                   </TableHead>
-                  <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden lg:table-cell min-w-[180px]">
+                  <TableHead className="hidden h-12 min-w-[180px] px-4 text-left align-middle text-sm font-medium text-muted-foreground lg:table-cell">
                     <div className="flex items-center gap-2">
                       <HugeiconsIcon icon={AiPhone01Icon} className="size-4" />
                       {tr(language, "Contact", "ติดต่อ")}
                     </div>
                   </TableHead>
-                  <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden xl:table-cell min-w-[200px]">
+                  <TableHead className="hidden h-12 min-w-[200px] px-4 text-left align-middle text-sm font-medium text-muted-foreground xl:table-cell">
                     <div className="flex items-center gap-2">
                       <HugeiconsIcon icon={Location01Icon} className="size-4" />
                       {tr(language, "Address", "ที่อยู่")}
                     </div>
                   </TableHead>
-                  <TableHead className="h-12 px-4 align-middle font-medium text-muted-foreground text-right min-w-[100px]">
+                  <TableHead className="h-12 min-w-[100px] px-4 text-right align-middle text-sm font-medium text-muted-foreground">
                     {tr(language, "Actions", "การทำงาน")}
                   </TableHead>
                 </TableRow>
@@ -684,31 +729,31 @@ export function PatientsTable() {
                 {isInitialLoading ? (
                   Array.from({ length: 10 }).map((_, i) => (
                     <TableRow key={`skeleton-${i}`} className="hover:bg-muted/5">
-                      <TableCell className="p-4"><Skeleton className="h-4 w-8 mx-auto" /></TableCell>
-                      <TableCell className="p-4">
-                        <div className="flex items-center gap-3">
-                          <Skeleton className="h-10 w-10 rounded-full" />
+                      <TableCell className="p-3"><Skeleton className="mx-auto h-4 w-8" /></TableCell>
+                      <TableCell className="p-3">
+                        <div className="flex items-center gap-2.5">
+                          <Skeleton className="h-9 w-9 rounded-full" />
                           <div className="space-y-2">
                             <Skeleton className="h-4 w-24" />
                             <Skeleton className="h-3 w-16" />
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="p-4">
+                      <TableCell className="p-3">
                         <div className="space-y-2">
                           <Skeleton className="h-4 w-12" />
                           <Skeleton className="h-3 w-20" />
                         </div>
                       </TableCell>
-                      <TableCell className="p-4 hidden md:table-cell"><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
-                      <TableCell className="p-4 hidden lg:table-cell">
+                      <TableCell className="hidden p-3 md:table-cell"><Skeleton className="h-5 w-16 rounded-full" /></TableCell>
+                      <TableCell className="hidden p-3 lg:table-cell">
                         <div className="space-y-2">
                           <Skeleton className="h-4 w-24" />
                           <Skeleton className="h-3 w-32" />
                         </div>
                       </TableCell>
-                      <TableCell className="p-4 hidden xl:table-cell"><Skeleton className="h-4 w-40" /></TableCell>
-                      <TableCell className="p-4 text-right"><Skeleton className="h-8 w-8 ml-auto rounded-md" /></TableCell>
+                      <TableCell className="hidden p-3 xl:table-cell"><Skeleton className="h-4 w-40" /></TableCell>
+                      <TableCell className="p-3 text-right"><Skeleton className="ml-auto h-8 w-8 rounded-md" /></TableCell>
                     </TableRow>
                   ))
                 ) : patients.length === 0 ? (
@@ -737,12 +782,12 @@ export function PatientsTable() {
                           transition={{ duration: 0.12, delay: index * 0.02 }}
                           className="border-b transition-colors hover:bg-muted/40 data-[state=selected]:bg-muted group"
                         >
-                          <TableCell className="p-4 align-middle text-center font-medium text-muted-foreground">
+                          <TableCell className="p-3 align-middle text-center font-medium text-muted-foreground">
                             {rowNumber}
                           </TableCell>
-                          <TableCell className="p-4 align-middle">
-                            <div className="flex items-center gap-3">
-                              <Avatar className="size-10 ring-2 ring-background transition-shadow group-hover:ring-primary/20">
+                          <TableCell className="p-3 align-middle">
+                            <div className="flex items-center gap-2.5">
+                              <Avatar className="size-9 ring-2 ring-background transition-shadow group-hover:ring-primary/20">
                                 <AvatarFallback
                                   className="transition-transform duration-200 group-hover:scale-[1.03]"
                                   style={getProfileOrbStyle(profileSeed)}
@@ -753,16 +798,16 @@ export function PatientsTable() {
                                 </AvatarFallback>
                               </Avatar>
                               <div>
-                                <div className="font-semibold text-foreground">
+                                <div className="text-sm font-semibold text-foreground">
                                   {patient.first_name} {patient.last_name}
                                 </div>
                               </div>
                             </div>
                           </TableCell>
 
-                          <TableCell className="p-4 align-middle">
-                              <div className="space-y-1">
-                              <div className="font-medium text-foreground">
+                          <TableCell className="p-3 align-middle">
+                              <div className="space-y-0.5">
+                              <div className="text-sm font-medium text-foreground">
                                 {age} {tr(language, "years", "ปี")} <span className="text-muted-foreground font-normal">{tr(language, "old", "อายุ")}</span>
                               </div>
                               <div className="text-xs text-muted-foreground">
@@ -771,7 +816,7 @@ export function PatientsTable() {
                             </div>
                           </TableCell>
 
-                          <TableCell className="p-4 align-middle hidden md:table-cell">
+                          <TableCell className="hidden p-3 align-middle md:table-cell">
                             {patient.gender ? (
                               <Badge variant="secondary" className="capitalize font-normal border-transparent bg-secondary/50 hover:bg-secondary">
                                 {getGenderLabel(patient.gender)}
@@ -781,8 +826,8 @@ export function PatientsTable() {
                             )}
                           </TableCell>
 
-                          <TableCell className="p-4 align-middle hidden lg:table-cell">
-                            <div className="space-y-1.5">
+                          <TableCell className="hidden p-3 align-middle lg:table-cell">
+                            <div className="space-y-1">
                               {patient.phone ? (
                                 <div className="flex items-center gap-2 text-sm text-foreground/90">
                                   <div className="p-1 rounded-sm bg-primary/5 text-primary">
@@ -803,13 +848,13 @@ export function PatientsTable() {
                             </div>
                           </TableCell>
 
-                          <TableCell className="p-4 align-middle hidden xl:table-cell">
+                          <TableCell className="hidden p-3 align-middle xl:table-cell">
                             <div className="text-sm text-muted-foreground max-w-[200px] truncate" title={patient.address || undefined}>
                               {patient.address || <span className="text-muted-foreground/50">—</span>}
                             </div>
                           </TableCell>
 
-                          <TableCell className="p-4 align-middle text-right">
+                          <TableCell className="p-3 align-middle text-right">
                             <DropdownMenu>
                               <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background transition-colors data-[state=open]:bg-muted">
                                 <span className="sr-only">{tr(language, "Open menu", "เปิดเมนู")}</span>
@@ -865,7 +910,7 @@ export function PatientsTable() {
           </div>
         </CardContent>
 
-        <div className="sticky bottom-0 z-20 flex flex-col gap-4 border-t px-6 py-4 bg-background/80 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between transition-all">
+        <div className="sticky bottom-0 z-20 flex flex-col gap-3 border-t bg-background/80 px-4 py-3 backdrop-blur-md transition-all sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2 sm:gap-6 w-full sm:w-auto justify-between sm:justify-start">
             <div className="flex items-center gap-2">
               <Button
@@ -873,7 +918,7 @@ export function PatientsTable() {
                 size="icon"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1 || loading}
-                className="size-8 rounded-full shadow-sm"
+                className="size-7 rounded-full shadow-sm"
               >
                 <HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
               </Button>
@@ -893,7 +938,7 @@ export function PatientsTable() {
 
                   if (i === 3 && totalPages > 5 && page < totalPages - 2) {
                     return (
-                      <span key="ellipsis" className="px-2 py-1 text-xs text-muted-foreground">
+                      <span key="ellipsis" className="px-2 py-1 text-sm text-muted-foreground">
                         ...
                       </span>
                     );
@@ -913,7 +958,7 @@ export function PatientsTable() {
                       onClick={() => setPage(pageNum)}
                       disabled={loading}
                       className={cn(
-                        "size-8 rounded-full p-0 text-xs font-medium transition-all",
+                        "size-7 rounded-full p-0 text-sm font-medium transition-all",
                         isActive ? "shadow-md scale-105" : "hover:bg-muted/80"
                       )}
                     >
@@ -928,7 +973,7 @@ export function PatientsTable() {
                 size="icon"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages || loading}
-                className="size-8 rounded-full shadow-sm"
+                className="size-7 rounded-full shadow-sm"
               >
                 <HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />
               </Button>
@@ -936,7 +981,7 @@ export function PatientsTable() {
           </div>
 
           <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
-            <span className="text-xs text-muted-foreground font-medium bg-muted/30 px-3 py-1 rounded-full">
+            <span className="rounded-full bg-muted/30 px-3 py-1 text-sm font-medium text-muted-foreground">
               {startEntry}-{endEntry} {tr(language, "of", "จาก")} {total}
             </span>
 
@@ -947,7 +992,7 @@ export function PatientsTable() {
                 setSort(newSort);
                 setOrder(newOrder as "asc" | "desc");
               }}>
-                <SelectTrigger variant="glass" className="w-[160px] h-9 text-xs font-medium rounded-full focus:ring-primary/20 transition-all shadow-sm">
+              <SelectTrigger variant="glass" className="h-9 w-[160px] rounded-full text-sm font-medium shadow-sm transition-all focus:ring-primary/20">
                   <div className="flex items-center gap-2">
                     <HugeiconsIcon icon={FilterHorizontalIcon} className="size-3.5 text-muted-foreground" />
                     <span className="truncate">
@@ -998,7 +1043,7 @@ export function PatientsTable() {
               </Select>
 
               <DropdownMenu>
-                <DropdownMenuTrigger className="inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-xl border border-white/25 dark:border-white/15 bg-white/10 dark:bg-white/5 backdrop-blur-xl shadow-[4px_4px_12px_rgba(0,0,0,0.08),-4px_-4px_12px_rgba(255,255,255,0.06),inset_0_1px_0_rgba(255,255,255,0.3)] hover:bg-white/20 dark:hover:bg-white/10 text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20">
+                <DropdownMenuTrigger className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-white/25 bg-white/10 px-3 text-sm font-medium shadow-[4px_4px_12px_rgba(0,0,0,0.08),-4px_-4px_12px_rgba(255,255,255,0.06),inset_0_1px_0_rgba(255,255,255,0.3)] backdrop-blur-xl transition-all hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20 dark:border-white/15 dark:bg-white/5 dark:hover:bg-white/10">
                   {limit === 10000 ? tr(language, "All", "ทั้งหมด") : limit} / {tr(language, "page", "หน้า")}
                   <HugeiconsIcon icon={ArrowRight01Icon} className="size-2.5 rotate-90" />
                 </DropdownMenuTrigger>
@@ -1010,7 +1055,7 @@ export function PatientsTable() {
                         setLimit(size);
                         setPage(1);
                       }}
-                      className={cn(limit === size && "bg-muted", "text-xs justify-center cursor-pointer")}
+                      className={cn(limit === size && "bg-muted", "justify-center text-sm cursor-pointer")}
                     >
                       {size === 10000 ? tr(language, "All", "ทั้งหมด") : size}
                     </DropdownMenuItem>
@@ -1071,9 +1116,9 @@ export function PatientsTable() {
                     className={cn("h-11", formErrors.first_name && "border-red-500 focus-visible:ring-red-500")}
                   />
                   {formErrors.first_name ? (
-                    <p className="text-xs text-red-500">{formErrors.first_name}</p>
+                    <p className="text-sm text-red-500">{formErrors.first_name}</p>
                   ) : (
-                    <p className="text-xs text-muted-foreground">{tr(language, "Patient's given name", "ชื่อจริงของผู้ป่วย")}</p>
+                    <p className="text-sm text-muted-foreground">{tr(language, "Patient's given name", "ชื่อจริงของผู้ป่วย")}</p>
                   )}
                 </div>
 
@@ -1095,9 +1140,9 @@ export function PatientsTable() {
                     className={cn("h-11", formErrors.last_name && "border-red-500 focus-visible:ring-red-500")}
                   />
                   {formErrors.last_name ? (
-                    <p className="text-xs text-red-500">{formErrors.last_name}</p>
+                    <p className="text-sm text-red-500">{formErrors.last_name}</p>
                   ) : (
-                    <p className="text-xs text-muted-foreground">{tr(language, "Patient's family name", "นามสกุลของผู้ป่วย")}</p>
+                    <p className="text-sm text-muted-foreground">{tr(language, "Patient's family name", "นามสกุลของผู้ป่วย")}</p>
                   )}
                 </div>
               </div>
@@ -1140,9 +1185,9 @@ export function PatientsTable() {
                     className="!w-full h-11"
                   />
                   {formErrors.date_of_birth ? (
-                    <p className="text-xs text-red-500">{formErrors.date_of_birth}</p>
+                    <p className="text-sm text-red-500">{formErrors.date_of_birth}</p>
                   ) : (
-                    <p className="text-xs text-muted-foreground">{tr(language, "Patient's date of birth", "วันเกิดของผู้ป่วย")}</p>
+                    <p className="text-sm text-muted-foreground">{tr(language, "Patient's date of birth", "วันเกิดของผู้ป่วย")}</p>
                   )}
                 </div>
 
@@ -1168,7 +1213,7 @@ export function PatientsTable() {
                       <SelectItem value="Other">{tr(language, "Other", "อื่น ๆ")}</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">{tr(language, "Optional: Patient's gender identity", "ไม่บังคับ: อัตลักษณ์ทางเพศของผู้ป่วย")}</p>
+                  <p className="text-sm text-muted-foreground">{tr(language, "Optional: Patient's gender identity", "ไม่บังคับ: อัตลักษณ์ทางเพศของผู้ป่วย")}</p>
                 </div>
               </div>
 
@@ -1193,9 +1238,9 @@ export function PatientsTable() {
                     className={cn("h-11", formErrors.phone && "border-red-500 focus-visible:ring-red-500")}
                   />
                   {formErrors.phone ? (
-                    <p className="text-xs text-red-500">{formErrors.phone}</p>
+                    <p className="text-sm text-red-500">{formErrors.phone}</p>
                   ) : (
-                    <p className="text-xs text-muted-foreground">{tr(language, "Contact phone number", "หมายเลขโทรศัพท์ติดต่อ")}</p>
+                    <p className="text-sm text-muted-foreground">{tr(language, "Contact phone number", "หมายเลขโทรศัพท์ติดต่อ")}</p>
                   )}
                 </div>
 
@@ -1218,9 +1263,9 @@ export function PatientsTable() {
                     className={cn("h-11", formErrors.email && "border-red-500 focus-visible:ring-red-500")}
                   />
                   {formErrors.email ? (
-                    <p className="text-xs text-red-500">{formErrors.email}</p>
+                    <p className="text-sm text-red-500">{formErrors.email}</p>
                   ) : (
-                    <p className="text-xs text-muted-foreground">{tr(language, "Email address for contact", "อีเมลสำหรับติดต่อ")}</p>
+                    <p className="text-sm text-muted-foreground">{tr(language, "Email address for contact", "อีเมลสำหรับติดต่อ")}</p>
                   )}
                 </div>
               </div>
@@ -1245,9 +1290,9 @@ export function PatientsTable() {
                   className={cn("resize-none min-h-[100px] max-h-[150px] overflow-y-auto", formErrors.address && "border-red-500 focus-visible:ring-red-500")}
                 />
                 {formErrors.address ? (
-                  <p className="text-xs text-red-500">{formErrors.address}</p>
+                  <p className="text-sm text-red-500">{formErrors.address}</p>
                 ) : (
-                  <p className="text-xs text-muted-foreground">{tr(language, "Complete residential address", "ที่อยู่ปัจจุบันโดยละเอียด")}</p>
+                  <p className="text-sm text-muted-foreground">{tr(language, "Complete residential address", "ที่อยู่ปัจจุบันโดยละเอียด")}</p>
                 )}
               </div>
 
@@ -1282,16 +1327,18 @@ export function PatientsTable() {
         </DialogContent>
       </Dialog>
 
-      <PatientAssignmentsDialog
-        open={Boolean(assignmentPatient)}
-        patientId={assignmentPatient?.id ?? null}
-        patientName={assignmentPatient ? `${assignmentPatient.first_name} ${assignmentPatient.last_name}` : ""}
-        onOpenChange={(open) => {
-          if (!open) {
-            setAssignmentPatient(null);
-          }
-        }}
-      />
+      {assignmentPatient ? (
+        <PatientAssignmentsDialog
+          open
+          patientId={assignmentPatient.id}
+          patientName={`${assignmentPatient.first_name} ${assignmentPatient.last_name}`}
+          onOpenChange={(open) => {
+            if (!open) {
+              setAssignmentPatient(null);
+            }
+          }}
+        />
+      ) : null}
 
       {/* Registration Code Dialog */}
       <Dialog open={regCodeDialogOpen} onOpenChange={setRegCodeDialogOpen}>
@@ -1314,7 +1361,7 @@ export function PatientsTable() {
                 <div className="text-4xl font-mono font-bold tracking-[0.3em] text-primary select-all">
                   {regCode}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {tr(language, "Valid for 72 hours", "ใช้ได้ภายใน 72 ชั่วโมง")}
                 </p>
                 <Button

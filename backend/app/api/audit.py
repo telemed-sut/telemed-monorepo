@@ -6,7 +6,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -337,8 +337,17 @@ def export_audit_logs(
                     pass
 
     filename = f"audit_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    headers = {"Content-Disposition": f"attachment; filename={filename}"}
+
+    if is_testing:
+        return Response(
+            content="".join(iter_file()),
+            media_type="text/csv",
+            headers=headers,
+        )
+
     return StreamingResponse(
         iter_file(),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers=headers,
     )

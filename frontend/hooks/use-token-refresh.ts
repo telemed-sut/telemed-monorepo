@@ -14,7 +14,7 @@ import { refreshToken } from "@/lib/api";
 export function useTokenRefresh() {
   const router = useRouter();
   const token = useAuthStore((s) => s.token);
-  const setToken = useAuthStore((s) => s.setToken);
+  const setSession = useAuthStore((s) => s.setSession);
   const clearToken = useAuthStore((s) => s.clearToken);
   const getTokenTTL = useAuthStore((s) => s.getTokenTTL);
   const isTokenExpiringSoon = useAuthStore((s) => s.isTokenExpiringSoon);
@@ -38,8 +38,8 @@ export function useTokenRefresh() {
         refreshingRef.current = true;
         try {
           const res = await refreshToken(token);
-          if (res?.access_token) {
-            setToken(res.access_token);
+          if (res?.user) {
+            setSession(res);
           }
         } catch {
           // Refresh failed — token may already be expired
@@ -57,5 +57,5 @@ export function useTokenRefresh() {
     // Then check every 30 seconds
     const interval = setInterval(check, 30_000);
     return () => clearInterval(interval);
-  }, [token, setToken, clearToken, getTokenTTL, isTokenExpiringSoon, router]);
+  }, [token, setSession, clearToken, getTokenTTL, isTokenExpiringSoon, router]);
 }

@@ -27,12 +27,20 @@ def _parse_details(raw):
     import json
     return json.loads(raw)
 
-def _make_user(db: Session, *, email: str, role: UserRole = UserRole.staff, password: str = "TestPass123") -> User:
+def _make_user(
+    db: Session,
+    *,
+    email: str,
+    role: UserRole = UserRole.staff,
+    password: str = "TestPass123",
+    first_name: str = "Test",
+    last_name: str = "User",
+) -> User:
     user = User(
         email=email,
         password_hash=get_password_hash(password),
-        first_name="Test",
-        last_name="User",
+        first_name=first_name,
+        last_name=last_name,
         role=role,
     )
     db.add(user)
@@ -195,6 +203,23 @@ class TestCRUD:
         data = resp.json()
         assert len(data["items"]) == 2
         assert data["total"] == 6  # admin + 5 users
+
+    def test_list_users_searches_full_name_and_ignores_invisible_chars(self, client: TestClient, db: Session):
+        _make_user(db, email="admin-search@example.com", role=UserRole.admin)
+        _make_user(
+            db,
+            email="papon.doctor@example.com",
+            role=UserRole.doctor,
+            first_name="Papon",
+            last_name="Moonkonburee",
+        )
+        token = _login(client, "admin-search@example.com")
+
+        resp = client.get("/users?q=papon\u200b moonkonburee", headers=_auth(token))
+
+        assert resp.status_code == 200
+        emails = {item["email"] for item in resp.json()["items"]}
+        assert "papon.doctor@example.com" in emails
 
     def test_cannot_demote_admin_when_minimum_admins_reached(self, client: TestClient, db: Session):
         admin1 = _make_user(db, email="admin-demote-a@example.com", role=UserRole.admin)
@@ -578,7 +603,7 @@ class TestInviteLifecycle:
 
         resend_resp = client.post(f"/users/invites/{first_invite.id}/resend", headers=_auth(token))
         assert resend_resp.status_code == 200
-        assert "/invite/" in resend_resp.json()["invite_url"]
+        assert "/invite#token=" in resend_resp.json()["invite_url"]
 
         active_list = client.get(
             "/users/invites?status_filter=active&q=doctor-invite-resend@example.com",

@@ -1,6 +1,7 @@
 class PatientVideoSession {
   const PatientVideoSession({
     required this.provider,
+    required this.meetingId,
     required this.roomId,
     required this.userId,
     required this.token,
@@ -10,6 +11,7 @@ class PatientVideoSession {
   });
 
   final String provider;
+  final String meetingId;
   final int? appId;
   final String roomId;
   final String userId;
@@ -19,6 +21,7 @@ class PatientVideoSession {
 
   factory PatientVideoSession.fromJson(Map<String, dynamic> json) {
     final provider = (json['provider'] ?? '').toString();
+    final meetingId = (json['meeting_id'] ?? '').toString();
     final appId = json['app_id'] is int
         ? json['app_id'] as int
         : int.tryParse((json['app_id'] ?? '').toString());
@@ -29,6 +32,7 @@ class PatientVideoSession {
     final expiresAtRaw = (json['expires_at'] ?? '').toString();
 
     if (provider.isEmpty ||
+        meetingId.isEmpty ||
         roomId.isEmpty ||
         userId.isEmpty ||
         token.isEmpty ||
@@ -45,6 +49,7 @@ class PatientVideoSession {
 
     return PatientVideoSession(
       provider: provider,
+      meetingId: meetingId,
       appId: appId,
       roomId: roomId,
       userId: userId,

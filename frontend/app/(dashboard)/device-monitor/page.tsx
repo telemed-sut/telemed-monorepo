@@ -1163,17 +1163,17 @@ export default function DeviceMonitorPage() {
         <div className="space-y-1">
           <h1 className="text-2xl font-bold tracking-tight">{tr(language, "Device Monitor", "มอนิเตอร์อุปกรณ์")}</h1>
           <p className="text-muted-foreground">{tr(language, "Real-time status of physical device API ingestion.", "สถานะเรียลไทม์ของการรับข้อมูลจากอุปกรณ์ผ่าน API")}</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {tr(language, "Range:", "ช่วงเวลา:")} {rangeLabel}
           </p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {tr(language, "Latest error activity:", "ข้อมูลล่าสุด (error):")}{" "}
             {latestErrorActivityAt
               ? toLocalTimeString(new Date(latestErrorActivityAt), language)
               : tr(language, "No error history", "ยังไม่มีประวัติ error")}
           </p>
           {lastUpdated && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {tr(language, "Last refreshed:", "รีเฟรชล่าสุด:")} {toLocalTimeString(lastUpdated, language)}
             </p>
           )}
@@ -1181,7 +1181,7 @@ export default function DeviceMonitorPage() {
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <Select value={timePreset} onValueChange={(value) => setTimePreset(value as TimePreset)}>
-            <SelectTrigger className="h-8 w-[150px]">
+            <SelectTrigger className="h-9 w-[160px] text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1199,13 +1199,13 @@ export default function DeviceMonitorPage() {
                 type="date"
                 value={customFromDate}
                 onChange={(event) => setCustomFromDate(event.target.value)}
-                className="h-8 w-[150px]"
+                className="h-9 w-[160px] text-sm"
               />
               <Input
                 type="date"
                 value={customToDate}
                 onChange={(event) => setCustomToDate(event.target.value)}
-                className="h-8 w-[150px]"
+                className="h-9 w-[160px] text-sm"
               />
             </>
           )}
@@ -1220,7 +1220,7 @@ export default function DeviceMonitorPage() {
               applySavedView(value);
             }}
           >
-            <SelectTrigger className="h-8 w-[170px]">
+            <SelectTrigger className="h-9 w-[180px] text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1261,7 +1261,7 @@ export default function DeviceMonitorPage() {
               }
             }}
           >
-            <SelectTrigger id="refresh-interval" className="h-8 w-[110px]">
+            <SelectTrigger id="refresh-interval" className="h-9 w-[120px] text-sm">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1283,36 +1283,36 @@ export default function DeviceMonitorPage() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-base font-medium">
               {tr(language, "Success Requests", "คำขอสำเร็จ")} ({rangeLabel})
             </CardTitle>
             <CheckCircle className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.success_count}</div>
-            <p className="text-xs text-muted-foreground">{tr(language, "Successful data ingestions", "จำนวนการรับข้อมูลที่สำเร็จ")}</p>
+            <p className="text-sm text-muted-foreground">{tr(language, "Successful data ingestions", "จำนวนการรับข้อมูลที่สำเร็จ")}</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="text-base font-medium">
               {tr(language, "Error Count", "จำนวนข้อผิดพลาด")} ({rangeLabel})
             </CardTitle>
             <AlertTriangle className="h-4 w-4 text-red-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.error_count}</div>
-            <p className="text-xs text-muted-foreground">{tr(language, "Failed requests or validations", "คำขอหรือการตรวจสอบที่ล้มเหลว")}</p>
+            <p className="text-sm text-muted-foreground">{tr(language, "Failed requests or validations", "คำขอหรือการตรวจสอบที่ล้มเหลว")}</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{tr(language, "Error Rate", "อัตราข้อผิดพลาด")}</CardTitle>
+            <CardTitle className="text-base font-medium">{tr(language, "Error Rate", "อัตราข้อผิดพลาด")}</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{(stats.error_rate * 100).toFixed(2)}%</div>
-            <p className="text-xs text-muted-foreground">{tr(language, "Percentage of total requests", "เปอร์เซ็นต์จากคำขอทั้งหมด")}</p>
+            <p className="text-sm text-muted-foreground">{tr(language, "Percentage of total requests", "เปอร์เซ็นต์จากคำขอทั้งหมด")}</p>
           </CardContent>
         </Card>
       </div>
@@ -1323,7 +1323,7 @@ export default function DeviceMonitorPage() {
             <p className="text-sm font-semibold">
               {tr(language, "Compare with Previous Period", "เปรียบเทียบกับช่วงก่อนหน้า")}
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {previousWindow?.label ?? tr(language, "Previous range unavailable", "ไม่มีข้อมูลช่วงก่อนหน้า")}
             </p>
           </div>
@@ -1354,7 +1354,7 @@ export default function DeviceMonitorPage() {
               </div>
               <div className="space-y-1">
                 <p className="text-sm font-semibold">{tr(language, "Alert Threshold", "เกณฑ์แจ้งเตือน")}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {isThresholdBreached
                     ? tr(
                       language,
@@ -1370,7 +1370,7 @@ export default function DeviceMonitorPage() {
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
-              <Label htmlFor="error-threshold" className="text-xs text-muted-foreground whitespace-nowrap">
+              <Label htmlFor="error-threshold" className="whitespace-nowrap text-sm text-muted-foreground">
                 {tr(language, "Alert if Error Rate ≥", "แจ้งเตือนเมื่ออัตราข้อผิดพลาด ≥")}
               </Label>
               <div className="flex items-center gap-2">
@@ -1386,9 +1386,9 @@ export default function DeviceMonitorPage() {
                     if (Number.isNaN(parsed)) return;
                     setErrorRateThreshold(Math.min(100, Math.max(0, parsed)));
                   }}
-                  className="w-24 h-8 text-sm"
+                  className="h-9 w-24 text-sm"
                 />
-                <span className="text-xs text-muted-foreground">%</span>
+                <span className="text-sm text-muted-foreground">%</span>
               </div>
             </div>
           </div>
@@ -1412,8 +1412,8 @@ export default function DeviceMonitorPage() {
                 )}
               </div>
               <div>
-                <p className="text-xs font-semibold">{tr(language, "Spike Alert (Last 1h vs Previous 1h)", "แจ้งเตือนสไปก์ (1 ชม.ล่าสุด เทียบ 1 ชม.ก่อนหน้า)")}</p>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-sm font-semibold">{tr(language, "Spike Alert (Last 1h vs Previous 1h)", "แจ้งเตือนสไปก์ (1 ชม.ล่าสุด เทียบ 1 ชม.ก่อนหน้า)")}</p>
+                <p className="text-sm text-muted-foreground">
                   {selectedDeviceSummary} ·{" "}
                   {spikeAlert.signedChangeLabel} | {tr(language, "Now", "ตอนนี้")} {spikeAlert.currentCount} / {tr(language, "Prev", "ก่อนหน้า")} {spikeAlert.previousCount}
                 </p>
@@ -1444,7 +1444,7 @@ export default function DeviceMonitorPage() {
             <div className="hidden sm:flex items-center gap-3 sm:gap-5">
               <div className="flex items-center gap-1.5">
                 <div className="size-2.5 sm:size-3 rounded-full bg-[var(--med-primary-light)]" />
-                <span className="text-[10px] sm:text-xs text-muted-foreground">
+                <span className="text-sm text-muted-foreground">
                   {isTrendChart
                     ? `${rangeLabel} ${tr(language, "trend", "แนวโน้ม")}`
                     : rangeLabel}
@@ -1526,7 +1526,7 @@ export default function DeviceMonitorPage() {
                 <p className="text-2xl lg:text-[34px] font-semibold leading-tight tracking-tight">
                   {isTrendChart ? filteredErrors.length : totalDeviceErrors}
                 </p>
-                <p className="text-xs sm:text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground">
                   {isTrendChart
                     ? `${tr(language, "Errors in Timeline", "ข้อผิดพลาดตามไทม์ไลน์")} (${rangeLabel})`
                     : `${tr(language, "Total Device Errors", "ข้อผิดพลาดอุปกรณ์ทั้งหมด")} (${rangeLabel})`}
@@ -1534,12 +1534,12 @@ export default function DeviceMonitorPage() {
               </div>
 
               <div className="bg-muted/50 rounded-lg p-3 space-y-2.5">
-                <p className="text-xs sm:text-sm font-semibold">
+                <p className="text-sm font-semibold">
                   {isTrendChart
                     ? tr(language, "Peak Time Window", "ช่วงเวลาที่พีคที่สุด")
                     : tr(language, "Top Failing Device", "อุปกรณ์ที่ผิดพลาดมากสุด")}
                 </p>
-                <p className="text-[10px] sm:text-xs text-muted-foreground leading-relaxed">
+                <p className="text-sm leading-relaxed text-muted-foreground">
                   {isTrendChart
                     ? peakTrendPoint.count > 0
                       ? tr(language, `${peakTrendPoint.label} has the highest activity with ${peakTrendPoint.count} errors`, `${peakTrendPoint.label} มีกิจกรรมสูงสุดด้วยข้อผิดพลาด ${peakTrendPoint.count} ครั้ง`)
@@ -1550,7 +1550,7 @@ export default function DeviceMonitorPage() {
                 </p>
               </div>
 
-              <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 {isTrendChart
                   ? tr(language, `Timeline derived from recent error logs in ${rangeLabel.toLowerCase()}.`, `ไทม์ไลน์อ้างอิงจากบันทึกข้อผิดพลาดล่าสุดในช่วง ${rangeLabel}.`)
                   : tr(language, `Top devices encountering issues in ${rangeLabel.toLowerCase()}.`, `อุปกรณ์ที่พบปัญหามากที่สุดในช่วง ${rangeLabel}.`)}
@@ -1560,7 +1560,7 @@ export default function DeviceMonitorPage() {
             <div className="flex-1 h-[145px] sm:h-[160px] lg:h-[175px] min-w-0">
               {chartType === "bar" && deviceChartData.length === 0 ? (
                 <div className="h-full w-full rounded-md border border-dashed border-border/70 bg-muted/20 flex flex-col items-center justify-center px-4 text-center gap-2">
-                  <p className="text-[10px] sm:text-xs text-muted-foreground">{noDataReasonText}</p>
+                  <p className="text-sm text-muted-foreground">{noDataReasonText}</p>
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
@@ -1689,16 +1689,16 @@ export default function DeviceMonitorPage() {
           </div>
           {(showNoDataFallback || noErrorButHasTraffic) && (
             <div className="rounded-md border border-dashed border-border/70 px-3 py-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-[10px] sm:text-xs text-muted-foreground">{noDataReasonText}</p>
+              <p className="text-sm text-muted-foreground">{noDataReasonText}</p>
               {(showNoDataFallback || latestErrorActivityAt) && (
-                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={jumpToLatestDataWindow}>
+                <Button variant="outline" size="sm" className="h-8 text-sm" onClick={jumpToLatestDataWindow}>
                   {tr(language, "Go to latest data window", "ไปช่วงที่มีข้อมูลล่าสุด")}
                 </Button>
               )}
             </div>
           )}
           {hasSingleDeviceBar && (
-            <p className="text-[10px] sm:text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {tr(
                 language,
                 "Only one device has errors in this period, so hover appears on a single zone.",
@@ -1710,14 +1710,14 @@ export default function DeviceMonitorPage() {
           <div className="rounded-lg border border-border/60 bg-muted/20 p-3 sm:p-3.5 space-y-3">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                <p className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                   {tr(language, "Top Failing Devices Details", "รายละเอียดอุปกรณ์ที่ผิดพลาดสูงสุด")}
                 </p>
-                <p className="text-[10px] sm:text-[11px] text-muted-foreground mt-1">
+                <p className="mt-1 text-sm text-muted-foreground">
                   {tr(language, "Click a device to filter Error by Type and Recent Logs.", "คลิกอุปกรณ์เพื่อกรองประเภทข้อผิดพลาดและบันทึกล่าสุด")}
                 </p>
               </div>
-              <span className="text-[10px] sm:text-xs text-muted-foreground">{tr(language, "Top 3", "อันดับสูงสุด 3 รายการ")}</span>
+              <span className="text-sm text-muted-foreground">{tr(language, "Top 3", "อันดับสูงสุด 3 รายการ")}</span>
             </div>
             {topFailingDeviceDetails.length > 0 ? (
               <div className="grid gap-2.5">
@@ -1739,23 +1739,23 @@ export default function DeviceMonitorPage() {
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs sm:text-sm font-semibold">{device.deviceId}</span>
+                        <span className="text-sm font-semibold">{device.deviceId}</span>
                         <Badge
                           variant={device.isOnline ? "secondary" : "outline"}
-                          className="h-5 px-2 text-[10px] leading-none"
+                          className="h-5 px-2 text-xs leading-none"
                         >
                           {device.isOnline ? tr(language, "Online", "ออนไลน์") : tr(language, "Offline", "ออฟไลน์")}
                         </Badge>
                         {selectedDeviceSet.has(device.deviceId) && (
-                          <Badge variant="secondary" className="h-5 px-2 text-[10px] leading-none">
+                          <Badge variant="secondary" className="h-5 px-2 text-xs leading-none">
                             {tr(language, "Active Filter", "ตัวกรองที่ใช้งาน")}
                           </Badge>
                         )}
-                        <Badge className={`h-5 px-2 text-[10px] leading-none border ${getFreshnessMeta(device.lastSeen, language).className}`}>
+                        <Badge className={`h-5 px-2 text-xs leading-none border ${getFreshnessMeta(device.lastSeen, language).className}`}>
                           {getFreshnessMeta(device.lastSeen, language).label}
                         </Badge>
                       </div>
-                      <span className="text-[11px] sm:text-xs text-muted-foreground tabular-nums">
+                      <span className="text-sm text-muted-foreground tabular-nums">
                         {device.errorCount} {tr(language, "errors", "ข้อผิดพลาด")} · {device.share.toFixed(1)}%
                       </span>
                     </div>
@@ -1767,7 +1767,7 @@ export default function DeviceMonitorPage() {
                       />
                     </div>
 
-                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs text-muted-foreground">
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                       <span>
                         {tr(language, "Type", "ประเภท")}: <span className="font-medium text-foreground">{localizeErrorType(device.dominantType, language)}</span>
                         {device.dominantTypeCount > 0 ? ` (${device.dominantTypeCount})` : ""}
@@ -1781,7 +1781,7 @@ export default function DeviceMonitorPage() {
                 ))}
               </div>
             ) : (
-              <div className="rounded-md border border-dashed border-border/70 p-3 text-xs text-muted-foreground">
+              <div className="rounded-md border border-dashed border-border/70 p-3 text-sm text-muted-foreground">
                 {tr(language, "No device errors found in", "ไม่พบข้อผิดพลาดของอุปกรณ์ในช่วง")} {rangeLabel}.
               </div>
             )}
@@ -1793,7 +1793,7 @@ export default function DeviceMonitorPage() {
           <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Filter className="size-3.5 text-muted-foreground" />
-              <span className="text-[11px] sm:text-xs text-muted-foreground">
+              <span className="text-sm text-muted-foreground">
                 {selectedDeviceIds.length > 0
                   ? tr(language, `Filtered by ${selectedDeviceSummary}`, `กรองโดย ${selectedDeviceSummary}`)
                   : tr(language, "No device filter. Select devices to drill down.", "ยังไม่ได้เลือกตัวกรองอุปกรณ์ เลือกอุปกรณ์เพื่อดูรายละเอียด")}
@@ -1802,7 +1802,7 @@ export default function DeviceMonitorPage() {
             <div className="flex items-center gap-1.5">
               <DropdownMenu>
                 <DropdownMenuTrigger
-                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-7 text-xs")}
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-8 text-sm")}
                 >
                   {tr(language, "Choose Devices", "เลือกอุปกรณ์")}
                 </DropdownMenuTrigger>
@@ -1825,7 +1825,7 @@ export default function DeviceMonitorPage() {
                 </DropdownMenuContent>
               </DropdownMenu>
               {selectedDeviceIds.length > 0 && (
-                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setSelectedDeviceIds([])}>
+                <Button variant="ghost" size="sm" className="h-8 text-sm" onClick={() => setSelectedDeviceIds([])}>
                   {tr(language, "Clear", "ล้าง")}
                 </Button>
               )}
@@ -1883,7 +1883,7 @@ export default function DeviceMonitorPage() {
                   </ResponsiveContainer>
                 </div>
               ) : (
-                <div className="h-[180px] flex items-center justify-center text-xs text-muted-foreground">
+                <div className="flex h-[180px] items-center justify-center text-sm text-muted-foreground">
                   {tr(language, "No error events found for this period", "ไม่พบเหตุการณ์ข้อผิดพลาดในช่วงเวลานี้")}
                   {selectedDeviceIds.length > 0
                     ? tr(language, ` for ${selectedDeviceSummary}`, ` สำหรับ ${selectedDeviceSummary}`)
@@ -1920,17 +1920,17 @@ export default function DeviceMonitorPage() {
                   <TableBody>
                     {recentScopedErrors.slice(0, 50).map((log) => (
                       <TableRow key={log.id}>
-                        <TableCell className="text-xs text-muted-foreground">
+                        <TableCell className="text-sm text-muted-foreground">
                           {new Date(log.occurred_at).toLocaleTimeString(localeOf(language))}
                         </TableCell>
-                        <TableCell className="font-medium text-xs">{log.device_id}</TableCell>
-                        <TableCell className="text-xs font-mono text-amber-600 max-w-[170px] truncate" title={log.error_code || "-"}>
+                        <TableCell className="text-sm font-medium">{log.device_id}</TableCell>
+                        <TableCell className="max-w-[170px] truncate text-sm font-mono text-amber-600" title={log.error_code || "-"}>
                           {log.error_code || "-"}
                         </TableCell>
-                        <TableCell className="text-xs text-red-500 max-w-[220px] truncate" title={log.error_message}>
+                        <TableCell className="max-w-[220px] truncate text-sm text-red-500" title={log.error_message}>
                           {log.error_message}
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground max-w-[340px] truncate" title={log.suggestion || ""}>
+                        <TableCell className="max-w-[340px] truncate text-sm text-muted-foreground" title={log.suggestion || ""}>
                           {log.suggestion || tr(language, "Check backend logs for details", "ดู backend logs เพิ่มเติม")}
                         </TableCell>
                       </TableRow>
@@ -1980,7 +1980,7 @@ export default function DeviceMonitorPage() {
                     <TableCell className="font-medium">{row.deviceId}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.errorCount}</TableCell>
                     <TableCell className="text-right tabular-nums">{row.share.toFixed(1)}%</TableCell>
-                    <TableCell className="text-muted-foreground text-xs">{formatLastSeen(row.lastSeen, language)}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{formatLastSeen(row.lastSeen, language)}</TableCell>
                     <TableCell>
                       <Badge className={`border ${freshness.className}`}>{freshness.label}</Badge>
                     </TableCell>
@@ -2001,7 +2001,7 @@ export default function DeviceMonitorPage() {
           </Table>
 
           <div className="mt-4 pt-4 border-t border-border/60 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-xs text-muted-foreground">
+            <div className="text-sm text-muted-foreground">
               {deviceHealthStart}-{deviceHealthEnd} {tr(language, "of", "จาก")} {deviceHealthRows.length}
             </div>
 
@@ -2013,7 +2013,7 @@ export default function DeviceMonitorPage() {
                   setDeviceHealthPageIndex(0);
                 }}
               >
-                <SelectTrigger className="h-8 w-[78px] rounded-full text-xs">
+                <SelectTrigger className="h-9 w-[88px] rounded-full text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="end">
@@ -2045,7 +2045,7 @@ export default function DeviceMonitorPage() {
                   <ChevronLeft className="size-3.5" />
                 </Button>
 
-                <div className="size-8 rounded-full bg-[#54B3D6] text-white text-xs font-medium flex items-center justify-center">
+                <div className="flex size-8 items-center justify-center rounded-full bg-[#54B3D6] text-sm font-medium text-white">
                   {deviceHealthPageIndex + 1}
                 </div>
 

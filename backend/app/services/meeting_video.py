@@ -30,11 +30,17 @@ PATIENT_INVITE_TOKEN_TYPE = "meeting_patient_invite"
 PATIENT_SHORT_JOIN_PATH = "/p"
 PATIENT_PARTICIPANT_PREFIX = "patient"
 STAFF_PARTICIPANT_PREFIX = "user"
-PATIENT_INVITE_TOKEN_VERSION = "v2"
+PATIENT_INVITE_TOKEN_VERSION = "v3"
 PATIENT_INVITE_SHORT_CODE_PATTERN = re.compile(r"^[a-z0-9]{6,24}$")
 PATIENT_INVITE_SHORT_CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 PATIENT_INVITE_SHORT_CODE_LENGTH = 8
 PATIENT_INVITE_SHORT_CODE_MAX_RETRIES = 16
+
+
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
 
 
 def _normalize_zego_identifier(raw_value: str, *, max_length: int) -> str:
@@ -145,10 +151,26 @@ def _generate_patient_short_code() -> str:
     )
 
 
-def _build_patient_invite_token(*, meeting_id: str, expires_at_unix: int) -> str:
+def build_patient_short_invite_url(code: str) -> str:
+    settings = get_settings()
+    base_url = (
+        settings.meeting_patient_join_base_url or settings.frontend_base_url
+    ).rstrip("/")
+    return f"{base_url}{PATIENT_SHORT_JOIN_PATH}/{code}"
+
+
+def _build_patient_invite_token(
+    *,
+    meeting_id: str,
+    patient_id: str,
+    room_id: str,
+    expires_at_unix: int,
+) -> str:
     nonce = _b64_url(str(time.time_ns()).encode("utf-8"))[:10]
-    payload_v2 = f"{PATIENT_INVITE_TOKEN_VERSION}:{meeting_id}:{expires_at_unix}:{nonce}"
-    compact_payload = _b64_url(payload_v2.encode("utf-8"))
+    payload_v3 = (
+        f"{PATIENT_INVITE_TOKEN_VERSION}:{meeting_id}:{patient_id}:{room_id}:{expires_at_unix}:{nonce}"
+    )
+    compact_payload = _b64_url(payload_v3.encode("utf-8"))
     signature = _sign_compact_payload(compact_payload)
     return f"{PATIENT_INVITE_TOKEN_PREFIX}.{compact_payload}.{signature}"
 
@@ -270,6 +292,7 @@ def _issue_video_token_for_participant(
         )
         return {
             "provider": "mock",
+            "meeting_id": str(meeting.id),
             "app_id": None,
             "room_id": room_id,
             "user_id": participant_id,
@@ -284,6 +307,7 @@ def _issue_video_token_for_participant(
     )
     return {
         "provider": "zego",
+        "meeting_id": str(meeting.id),
         "app_id": settings.zego_app_id,
         "room_id": room_id,
         "user_id": participant_id,
@@ -329,6 +353,27 @@ def _create_patient_short_code_record(
     )
 
 
+def get_active_patient_invite_code(
+    *,
+    db: Session,
+    meeting_id: uuid.UUID,
+) -> MeetingPatientInviteCode | None:
+    now = datetime.now(timezone.utc)
+    invite_codes = db.scalars(
+        select(MeetingPatientInviteCode)
+        .where(MeetingPatientInviteCode.meeting_id == meeting_id)
+        .order_by(
+            MeetingPatientInviteCode.expires_at.desc(),
+            MeetingPatientInviteCode.created_at.desc(),
+        )
+    ).all()
+
+    for invite_code in invite_codes:
+        if _as_utc(invite_code.expires_at) > now:
+            return invite_code
+    return None
+
+
 def _resolve_patient_short_code_record(
     *,
     db: Session,
@@ -358,6 +403,93 @@ def _resolve_patient_short_code_record(
     return short_link
 
 
+def _resolve_patient_invite_expiry(
+    *,
+    meeting: Meeting,
+    issued_at: datetime,
+    expires_in_seconds: int | None = None,
+) -> datetime:
+    settings = get_settings()
+    ttl = expires_in_seconds or settings.meeting_patient_invite_ttl_seconds
+    default_expiry = issued_at + timedelta(seconds=ttl)
+    if not meeting.date_time:
+        return default_expiry
+
+    meeting_time = _as_utc(meeting.date_time)
+    scheduled_expiry = meeting_time + timedelta(seconds=ttl)
+    if scheduled_expiry > default_expiry:
+        return scheduled_expiry
+    return default_expiry
+
+
+def _build_patient_invite_response(
+    *,
+    meeting: Meeting,
+    invite_code: MeetingPatientInviteCode,
+    issued_at: datetime,
+) -> dict[str, Any]:
+    expires_at = _as_utc(invite_code.expires_at)
+    if not meeting.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Meeting has no patient assigned.",
+        )
+    room_id = derive_room_id(meeting)
+    return {
+        "meeting_id": str(meeting.id),
+        "room_id": room_id,
+        "invite_token": _build_patient_invite_token(
+            meeting_id=str(meeting.id),
+            patient_id=str(meeting.user_id),
+            room_id=room_id,
+            expires_at_unix=int(expires_at.timestamp()),
+        ),
+        "short_code": invite_code.code,
+        "invite_url": build_patient_short_invite_url(invite_code.code),
+        "issued_at": issued_at,
+        "expires_at": expires_at,
+    }
+
+
+def deactivate_patient_join_invites(
+    *,
+    db: Session,
+    meeting: Meeting,
+    clear_meeting_url: bool = True,
+) -> None:
+    now = datetime.now(timezone.utc)
+    invite_codes = db.scalars(
+        select(MeetingPatientInviteCode).where(
+            MeetingPatientInviteCode.meeting_id == meeting.id
+        )
+    ).all()
+    for invite_code in invite_codes:
+        if _as_utc(invite_code.expires_at) > now:
+            invite_code.expires_at = now
+            db.add(invite_code)
+
+    if clear_meeting_url:
+        meeting.patient_invite_url = None
+        db.add(meeting)
+
+    db.commit()
+
+
+def ensure_patient_join_invite(
+    *,
+    db: Session,
+    meeting: Meeting,
+    created_by_user_id: str | None = None,
+    expires_in_seconds: int | None = None,
+) -> dict[str, Any]:
+    return create_patient_join_invite(
+        db=db,
+        meeting=meeting,
+        created_by_user_id=created_by_user_id,
+        expires_in_seconds=expires_in_seconds,
+    )
+
+
 def create_patient_join_invite(
     *,
     db: Session,
@@ -373,16 +505,32 @@ def create_patient_join_invite(
 
     _ensure_meeting_is_joinable(meeting)
 
-    settings = get_settings()
     issued_at = datetime.now(timezone.utc)
-    ttl = expires_in_seconds or settings.meeting_patient_invite_ttl_seconds
-    expires_at = issued_at + timedelta(seconds=ttl)
-    room_id = derive_room_id(meeting)
-
-    invite_token = _build_patient_invite_token(
-        meeting_id=str(meeting.id),
-        expires_at_unix=int(expires_at.timestamp()),
+    expires_at = _resolve_patient_invite_expiry(
+        meeting=meeting,
+        issued_at=issued_at,
+        expires_in_seconds=expires_in_seconds,
     )
+    active_short_link = get_active_patient_invite_code(
+        db=db,
+        meeting_id=meeting.id,
+    )
+    if active_short_link:
+        if _as_utc(active_short_link.expires_at) < expires_at:
+            active_short_link.expires_at = expires_at
+            db.add(active_short_link)
+        meeting.patient_invite_url = build_patient_short_invite_url(
+            active_short_link.code
+        )
+        db.add(meeting)
+        db.commit()
+        db.refresh(active_short_link)
+        return _build_patient_invite_response(
+            meeting=meeting,
+            invite_code=active_short_link,
+            issued_at=issued_at,
+        )
+
     short_link = _create_patient_short_code_record(
         db=db,
         meeting=meeting,
@@ -390,24 +538,16 @@ def create_patient_join_invite(
         created_by_user_id=created_by_user_id,
     )
 
-    frontend_base_url = (
-        settings.meeting_patient_join_base_url or settings.frontend_base_url
-    ).rstrip("/")
-    invite_url = f"{frontend_base_url}{PATIENT_SHORT_JOIN_PATH}/{short_link.code}"
-
     # Persist the invite URL on the meeting for the patient app to query
-    meeting.patient_invite_url = invite_url
+    meeting.patient_invite_url = build_patient_short_invite_url(short_link.code)
+    db.add(meeting)
     db.commit()
 
-    return {
-        "meeting_id": str(meeting.id),
-        "room_id": room_id,
-        "invite_token": invite_token,
-        "short_code": short_link.code,
-        "invite_url": invite_url,
-        "issued_at": issued_at,
-        "expires_at": expires_at,
-    }
+    return _build_patient_invite_response(
+        meeting=meeting,
+        invite_code=short_link,
+        issued_at=issued_at,
+    )
 
 
 def _decode_patient_invite_token(invite_token: str) -> dict[str, Any]:
@@ -452,16 +592,43 @@ def _decode_patient_invite_token(invite_token: str) -> dict[str, Any]:
             )
         return payload
 
-    # Compact v2 payload: v2:<meeting_id>:<exp>:<nonce>
-    parts_payload = decoded_payload.split(":", 3)
-    if len(parts_payload) != 4 or parts_payload[0] != PATIENT_INVITE_TOKEN_VERSION:
+    # Compact payload:
+    # v3:<meeting_id>:<patient_id>:<room_id>:<exp>:<nonce>
+    # v2:<meeting_id>:<exp>:<nonce> (legacy)
+    parts_payload = decoded_payload.split(":")
+    if len(parts_payload) not in (4, 6):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid patient invite token payload.",
         )
 
-    _, meeting_id_raw, exp_raw, _nonce = parts_payload
+    version = parts_payload[0]
+    if version == "v2" and len(parts_payload) == 4:
+        _, meeting_id_raw, exp_raw, _nonce = parts_payload
+        meeting_id = _normalize_uuid_text(meeting_id_raw)
+        try:
+            exp = int(exp_raw)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid patient invite token expiry.",
+            ) from exc
+        return {
+            "typ": PATIENT_INVITE_TOKEN_TYPE,
+            "mid": meeting_id,
+            "exp": exp,
+        }
+
+    if version != PATIENT_INVITE_TOKEN_VERSION or len(parts_payload) != 6:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid patient invite token payload.",
+        )
+
+    _, meeting_id_raw, patient_id_raw, room_id_raw, exp_raw, _nonce = parts_payload
     meeting_id = _normalize_uuid_text(meeting_id_raw)
+    patient_id = _normalize_uuid_text(patient_id_raw)
+    room_id = (room_id_raw or "").strip()
     try:
         exp = int(exp_raw)
     except (TypeError, ValueError) as exc:
@@ -473,26 +640,63 @@ def _decode_patient_invite_token(invite_token: str) -> dict[str, Any]:
     return {
         "typ": PATIENT_INVITE_TOKEN_TYPE,
         "mid": meeting_id,
+        "pid": patient_id,
+        "rid": room_id,
         "exp": exp,
     }
 
 
-def _validate_patient_invite_claims(*, meeting: Meeting, claims: dict[str, Any]) -> None:
-    expected_meeting_id = _normalize_uuid_text(str(meeting.id))
-    expected_patient_id = _normalize_uuid_text(str(meeting.user_id)) if meeting.user_id else ""
-
+def _validate_patient_invite_claim_shape(claims: dict[str, Any]) -> None:
     token_type = claims.get("typ")
     meeting_id = _normalize_uuid_text(str(claims.get("mid") or ""))
-    patient_id_raw = str(claims.get("pid") or "")
-    patient_id = _normalize_uuid_text(patient_id_raw) if patient_id_raw else ""
-    room_id = str(claims.get("rid") or "")
-    expires_at = claims.get("exp")
+    patient_id = _normalize_uuid_text(str(claims.get("pid") or ""))
+    room_id = str(claims.get("rid") or "").strip()
 
     if token_type != PATIENT_INVITE_TOKEN_TYPE:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid patient invite token type.",
         )
+
+    if not meeting_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid patient invite token payload.",
+        )
+
+    if not patient_id or not room_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid patient invite token payload.",
+        )
+
+
+def _validate_patient_invite_expiry(claims: dict[str, Any]) -> None:
+    expires_at = claims.get("exp")
+    try:
+        exp = int(expires_at)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid patient invite token expiry.",
+        ) from exc
+
+    if exp <= int(time.time()):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Patient invite token expired.",
+        )
+
+
+def _validate_patient_invite_claims(*, meeting: Meeting, claims: dict[str, Any]) -> None:
+    expected_meeting_id = _normalize_uuid_text(str(meeting.id))
+    expected_patient_id = _normalize_uuid_text(str(meeting.user_id)) if meeting.user_id else ""
+
+    meeting_id = _normalize_uuid_text(str(claims.get("mid") or ""))
+    patient_id_raw = str(claims.get("pid") or "")
+    patient_id = _normalize_uuid_text(patient_id_raw) if patient_id_raw else ""
+    room_id = str(claims.get("rid") or "")
+    _validate_patient_invite_claim_shape(claims)
 
     if meeting_id != expected_meeting_id:
         raise HTTPException(
@@ -517,30 +721,14 @@ def _validate_patient_invite_claims(*, meeting: Meeting, claims: dict[str, Any])
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Patient invite token room mismatch.",
         )
-
-    try:
-        exp = int(expires_at)
-    except (TypeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid patient invite token expiry.",
-        ) from exc
-
-    if exp <= int(time.time()):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Patient invite token expired.",
-        )
+    _validate_patient_invite_expiry(claims)
 
 
 def extract_meeting_id_from_patient_invite_token(invite_token: str) -> str:
     claims = _decode_patient_invite_token(invite_token)
+    _validate_patient_invite_claim_shape(claims)
+    _validate_patient_invite_expiry(claims)
     meeting_id = _normalize_uuid_text(str(claims.get("mid") or ""))
-    if not meeting_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid patient invite token payload.",
-        )
     return meeting_id
 
 

@@ -248,7 +248,7 @@ function SidebarUserMenu({
         aria-expanded={isOpen}
         onClick={() => setIsOpen((prev) => !prev)}
       >
-        <Avatar className="size-7 sm:size-8">
+        <Avatar className="size-8 sm:size-9">
           <AvatarImage
             src={
               currentUser
@@ -256,17 +256,17 @@ function SidebarUserMenu({
                 : undefined
             }
           />
-          <AvatarFallback className="text-xs">
+          <AvatarFallback className="text-[0.82rem]">
             {currentUser ? getUserInitials(currentUser) : "??"}
           </AvatarFallback>
         </Avatar>
         {!isCollapsed && (
           <>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold sm:text-sm">
+              <p className="truncate text-sm font-semibold sm:text-[0.95rem]">
                 {currentUser ? getUserDisplayName(currentUser) : labels.loading}
               </p>
-              <p className="truncate text-[10px] text-muted-foreground sm:text-xs">
+              <p className="truncate text-[0.82rem] text-muted-foreground sm:text-[0.88rem]">
                 {currentUser?.email || ""}
               </p>
             </div>
@@ -288,7 +288,7 @@ function SidebarUserMenu({
               isCollapsed ? "bottom-0 left-full ml-2" : "bottom-full left-0 mb-2"
             )}
           >
-            <div className="px-3 py-2 text-xs text-muted-foreground">{roleLabel}</div>
+            <div className="px-3 py-2 text-[0.82rem] text-muted-foreground">{roleLabel}</div>
             <ul className="space-y-0.5 px-2 pb-2">
               {menuItems.map((item) => {
                 if (item.id === "divider") {
@@ -305,7 +305,7 @@ function SidebarUserMenu({
                     <button
                       type="button"
                       className={cn(
-                        "relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
+                        "relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[0.95rem] transition-colors",
                         item.destructive
                           ? "text-red-600 hover:text-red-700"
                           : "text-foreground/90 hover:text-foreground"
@@ -403,7 +403,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
       )}>
         <div className={cn("flex items-center", isCollapsed ? "justify-center" : "gap-2")}>
           <Logo className={cn("transition-all duration-200", isCollapsed ? "h-14 w-14" : "h-12 w-12")} />
-          {!isCollapsed && <span className="font-semibold text-base sm:text-lg">E Med Help</span>}
+          {!isCollapsed && <span className="font-semibold text-lg sm:text-xl">E Med Help</span>}
         </div>
       </SidebarHeader>
 
@@ -434,7 +434,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                     >
                       <Link
                         href={route.link}
-                        prefetch={true}
+                        prefetch={false}
                         className={cn(
                           "flex w-full items-center",
                           isCollapsed ? "justify-center" : "gap-2.5"
@@ -442,7 +442,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                       >
                         <Icon className="size-4 sm:size-5" />
                         {!isCollapsed && (
-                          <span className="text-sm">{getRouteTitle(route.id, language)}</span>
+                          <span className="text-[0.95rem]">{getRouteTitle(route.id, language)}</span>
                         )}
                         {!isCollapsed && active && (
                           <ChevronRight className="ml-auto size-4 text-muted-foreground opacity-60" />
@@ -470,7 +470,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
               className={cn("h-9 sm:h-[38px]", isCollapsed && "justify-center px-0")}
             >
               <HelpCircle className="size-4 sm:size-5" />
-              {!isCollapsed && <span className="text-sm">{t.helpCenter}</span>}
+              {!isCollapsed && <span className="text-[0.95rem]">{t.helpCenter}</span>}
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

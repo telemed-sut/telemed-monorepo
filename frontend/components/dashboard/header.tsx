@@ -131,14 +131,14 @@ export function DashboardHeader() {
     APP_LANGUAGE_OPTIONS.find((option) => option.value === "en")?.label;
 
   return (
-    <header className="flex items-center gap-2 sm:gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b bg-card sticky top-0 z-30 w-full">
+    <header className="sticky top-0 z-30 flex w-full items-center gap-2 border-b bg-card px-3 py-3 sm:gap-3 sm:px-6 sm:py-4">
       <SidebarTrigger className="-ml-1 sm:-ml-2" />
-      <h1 className="text-base sm:text-lg font-medium truncate">{pageTitle}</h1>
+      <h1 className="truncate text-lg font-medium sm:text-xl">{pageTitle}</h1>
 
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
         {hasEditLayout && (
           <DropdownMenu>
-            <DropdownMenuTrigger id="header-edit-layout-button" className="inline-flex items-center justify-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground h-8 sm:h-9">
+            <DropdownMenuTrigger id="header-edit-layout-button" className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-[0.95rem] font-medium hover:bg-accent hover:text-accent-foreground sm:h-10">
               <Settings className="size-4" />
               <span className="hidden sm:inline">{t.editLayout}</span>
             </DropdownMenuTrigger>
@@ -231,7 +231,7 @@ export function DashboardHeader() {
         <DropdownMenu>
           <DropdownMenuTrigger
             id="header-language-button"
-            className="inline-flex items-center justify-center gap-2 rounded-md border border-input bg-background px-2.5 sm:px-3 py-1.5 text-sm font-medium hover:bg-accent hover:text-accent-foreground h-8 sm:h-9"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-2.5 py-1.5 text-[0.95rem] font-medium hover:bg-accent hover:text-accent-foreground sm:h-10 sm:px-3"
           >
             <Languages className="size-4" />
             <span className="hidden sm:inline">{selectedLanguageLabel}</span>

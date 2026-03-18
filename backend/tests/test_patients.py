@@ -94,6 +94,56 @@ def test_list_patients(db: Session):
     assert total == 5
 
 
+def test_list_patients_matches_full_name_query_with_pasted_spacing(db: Session):
+    patient = create_patient(
+        db,
+        PatientCreate(
+            first_name="Papon",
+            last_name="Moonkonburee",
+            date_of_birth=date(1991, 1, 1),
+            email="papon@example.com",
+        ),
+    )
+
+    patients, total = list_patients(
+        db,
+        page=1,
+        limit=10,
+        q="  papon   moonkonburee  ",
+        sort="created_at",
+        order="desc",
+    )
+
+    assert total == 1
+    assert len(patients) == 1
+    assert patients[0].id == patient.id
+
+
+def test_list_patients_ignores_invisible_characters_in_pasted_query(db: Session):
+    patient = create_patient(
+        db,
+        PatientCreate(
+            first_name="Papon",
+            last_name="Moonkonburee",
+            date_of_birth=date(1991, 1, 1),
+            email="papon@example.com",
+        ),
+    )
+
+    patients, total = list_patients(
+        db,
+        page=1,
+        limit=10,
+        q="papon\u200b moonkonburee",
+        sort="created_at",
+        order="desc",
+    )
+
+    assert total == 1
+    assert len(patients) == 1
+    assert patients[0].id == patient.id
+
+
 def test_patient_api_endpoints(client: TestClient, db: Session):
     doctor = create_test_user(db, UserRole.doctor)
     admin = create_test_user(db, UserRole.admin)

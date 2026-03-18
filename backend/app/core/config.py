@@ -4,7 +4,26 @@ from functools import lru_cache
 from typing import Dict, List, Literal, Union
 
 from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    EnvSettingsSource,
+    PydanticBaseSettingsSource,
+)
+
+
+class RawDeviceSecretsEnvSettingsSource(EnvSettingsSource):
+    def prepare_field_value(self, field_name, field, value, value_is_complex):
+        if field_name == "device_api_secrets" and isinstance(value, str):
+            return value
+        return super().prepare_field_value(field_name, field, value, value_is_complex)
+
+
+class RawDeviceSecretsDotEnvSettingsSource(DotEnvSettingsSource):
+    def prepare_field_value(self, field_name, field, value, value_is_complex):
+        if field_name == "device_api_secrets" and isinstance(value, str):
+            return value
+        return super().prepare_field_value(field_name, field, value, value_is_complex)
 
 
 class Settings(BaseSettings):
@@ -75,6 +94,19 @@ class Settings(BaseSettings):
     meeting_patient_invite_ttl_seconds: int = 86_400
     meeting_patient_join_base_url: str | None = None
     meeting_video_room_prefix: str = "telemed"
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, v: str) -> str:
+        if not isinstance(v, str):
+            return v
+
+        value = v.strip()
+        if value.startswith("postgres://"):
+            return f"postgresql+psycopg://{value[len('postgres://'):]}"
+        if value.startswith("postgresql://"):
+            return f"postgresql+psycopg://{value[len('postgresql://'):]}"
+        return value
 
     @field_validator(
         "cors_origins",
@@ -226,6 +258,15 @@ class Settings(BaseSettings):
             raise ValueError("MEETING_PATIENT_JOIN_BASE_URL must start with http:// or https://.")
         return value.rstrip("/")
 
+    @field_validator("zego_app_id", mode="before")
+    @classmethod
+    def parse_optional_zego_app_id(cls, v: object) -> object:
+        if v is None:
+            return None
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     @model_validator(mode="after")
     def apply_device_api_secret_fallback(self):
         if self.device_api_allow_jwt_secret_fallback:
@@ -263,10 +304,25 @@ class Settings(BaseSettings):
         return self
 
     model_config = {
-        "env_file": ".env",
         "env_prefix": "",
         "case_sensitive": False,
     }
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            init_settings,
+            RawDeviceSecretsEnvSettingsSource(settings_cls),
+            RawDeviceSecretsDotEnvSettingsSource(settings_cls),
+            file_secret_settings,
+        )
 
 
 @lru_cache(maxsize=1)

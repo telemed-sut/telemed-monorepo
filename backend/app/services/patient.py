@@ -4,10 +4,11 @@ from typing import List, Literal, Optional, Tuple
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, literal, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
+from app.core.search import normalize_search_term
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole
 from app.models.patient import Patient
@@ -400,11 +401,19 @@ def list_patients(
         ).where(DoctorPatientAssignment.doctor_id == doctor_id).distinct()
 
     if q:
-        pattern = f"%{q}%"
+        normalized_query = normalize_search_term(q)
+        pattern = f"%{normalized_query}%"
+        full_name = func.trim(
+            func.coalesce(Patient.first_name, "")
+            + literal(" ")
+            + func.coalesce(Patient.last_name, "")
+        )
         stmt = stmt.where(
             or_(
                 Patient.first_name.ilike(pattern),
                 Patient.last_name.ilike(pattern),
+                Patient.name.ilike(pattern),
+                full_name.ilike(pattern),
                 Patient.email.ilike(pattern),
                 Patient.phone.ilike(pattern),
             )

@@ -46,16 +46,16 @@ export default function ForgotPasswordClientPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <Card className="w-full max-w-md mx-4 border-border shadow-xl">
-        <CardHeader className="space-y-1 text-center">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
+      <Card className="mx-4 w-full max-w-lg border-border shadow-xl">
+        <CardHeader className="space-y-2 text-center">
           <div className="flex justify-end">
             <div className="inline-flex rounded-md border border-input bg-background p-0.5">
               {APP_LANGUAGE_OPTIONS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
-                  className={`h-7 rounded px-2 text-xs transition-colors ${option.value === language
+                  className={`h-8 rounded px-2.5 text-[0.9rem] transition-colors ${option.value === language
                     ? "bg-foreground text-background"
                     : "text-muted-foreground hover:bg-muted"
                     }`}
@@ -66,11 +66,11 @@ export default function ForgotPasswordClientPage() {
               ))}
             </div>
           </div>
-          <h2 className="text-2xl font-semibold">{tr(language, "Forgot password", "ลืมรหัสผ่าน")}</h2>
-          <p className="text-sm text-muted-foreground">
+          <h2 className="text-3xl font-semibold tracking-tight">{tr(language, "Forgot password", "ลืมรหัสผ่าน")}</h2>
+          <p className="text-[0.98rem] text-muted-foreground">
             {tr(language, "Enter your work email to request a reset link.", "กรอกอีเมลที่ใช้ทำงานเพื่อขอลิงก์รีเซ็ตรหัสผ่าน")}
           </p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[0.88rem] text-muted-foreground">
             {tr(
               language,
               "This is a closed system. New accounts are provisioned by administrators only.",
@@ -93,22 +93,22 @@ export default function ForgotPasswordClientPage() {
             </div>
 
             {error && (
-              <p className="text-sm text-destructive" role="alert">
+              <p className="text-[0.95rem] text-destructive" role="alert">
                 {error}
               </p>
             )}
 
             {successMessage && (
-              <p className="text-sm text-green-600" role="status">
+              <p className="text-[0.95rem] text-green-600" role="status">
                 {successMessage}
               </p>
             )}
 
             {resetToken && (
-              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3.5 text-[0.95rem]">
                 <p className="font-medium mb-1">{tr(language, "Development token", "โทเคนสำหรับพัฒนา")}</p>
                 <p className="break-all">{resetToken}</p>
-                <Link className="text-primary hover:underline mt-2 inline-block" href={`/reset-password?token=${encodeURIComponent(resetToken)}`}>
+                <Link className="text-primary hover:underline mt-2 inline-block" href={`/reset-password#token=${encodeURIComponent(resetToken)}`}>
                   {tr(language, "Continue to reset password", "ไปหน้าตั้งรหัสผ่านใหม่")}
                 </Link>
               </div>
@@ -121,7 +121,7 @@ export default function ForgotPasswordClientPage() {
             </Button>
           </form>
 
-          <div className="mt-4 text-sm text-center">
+          <div className="mt-4 text-center text-[0.95rem]">
             <Link href="/login" className="text-primary hover:underline">
               {tr(language, "Back to sign in", "กลับไปหน้าเข้าสู่ระบบ")}
             </Link>

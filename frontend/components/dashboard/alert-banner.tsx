@@ -51,9 +51,9 @@ export function AlertBanner() {
   }, [token]);
 
   return (
-    <div className="flex items-start sm:items-center gap-4">
-      <span className="text-4xl">🩺</span>
-      <p className="text-sm sm:text-base leading-relaxed">
+    <div className="flex items-start gap-3 sm:items-center">
+      <span className="text-3xl">🩺</span>
+      <p className="text-sm leading-relaxed sm:text-[0.95rem]">
         <span className="text-muted-foreground">{t.youHave} </span>
         <span className="font-semibold">{t.appointmentsToday(todayCount)}</span>
         <span> {t.and} </span>

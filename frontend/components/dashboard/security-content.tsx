@@ -144,7 +144,7 @@ function SecurityStatsCards({
                             <card.icon className={`size-5 ${card.iconColor}`} />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <p className="text-xs text-muted-foreground font-medium">{card.title}</p>
+                            <p className="text-sm font-medium text-muted-foreground">{card.title}</p>
                             {loading ? (
                                 <Skeleton className="h-8 w-16 mt-1" />
                             ) : (
@@ -152,13 +152,13 @@ function SecurityStatsCards({
                                     {card.value}
                                 </p>
                             )}
-                            <p className="text-xs text-muted-foreground font-medium mt-1">{card.subtitle}</p>
+                            <p className="mt-1 text-sm font-medium text-muted-foreground">{card.subtitle}</p>
                         </div>
                     </div>
                 ))}
             </div>
             {!loading && stats && (
-                <div className="border-t px-4 py-3 text-xs sm:text-sm">
+                <div className="border-t px-4 py-3 text-sm">
                     <div className="flex flex-wrap items-center gap-2">
                         <Badge variant="outline">
                             403 (1h): {stats.forbidden_403_1h}
@@ -409,7 +409,7 @@ export function SecurityContent() {
                             <CardDescription className="flex items-center gap-2">
                                 {tr(language, "Automatically or manually blocked IP addresses. Total:", "รายการ IP ที่ถูกบล็อกอัตโนมัติหรือด้วยผู้ดูแล ทั้งหมด:")} {bansTotal}
                                 {isPolling && (
-                                    <span className="inline-flex items-center gap-1 text-xs text-emerald-500">
+                                    <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
                                         <span className="relative flex h-2 w-2">
                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
                                             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
@@ -432,7 +432,7 @@ export function SecurityContent() {
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className="text-xs"
+                                className="text-sm"
                                 onClick={() => setIsPolling((p) => !p)}
                             >
                                 {isPolling
@@ -528,14 +528,14 @@ export function SecurityContent() {
 
                     {bansTotalPages > 1 && (
                         <div className="flex items-center justify-between gap-2 border-t border-white/10 py-4">
-                            <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-medium text-muted-foreground">
+                            <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-sm font-medium text-muted-foreground">
                                 {tr(language, "Page", "หน้า")} {bansPage} {tr(language, "of", "จาก")} {bansTotalPages}
                             </span>
                             <div className="flex items-center gap-2">
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="h-8 rounded-full border-white/20 bg-white/5 px-4 text-xs shadow-sm hover:bg-white/10"
+                                    className="h-9 rounded-full border-white/20 bg-white/5 px-4 text-sm shadow-sm hover:bg-white/10"
                                     onClick={() => setBansPage((p) => Math.max(1, p - 1))}
                                     disabled={bansPage === 1}
                                 >
@@ -544,7 +544,7 @@ export function SecurityContent() {
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="h-8 rounded-full border-white/20 bg-white/5 px-4 text-xs shadow-sm hover:bg-white/10"
+                                    className="h-9 rounded-full border-white/20 bg-white/5 px-4 text-sm shadow-sm hover:bg-white/10"
                                     onClick={() => setBansPage((p) => p + 1)}
                                     disabled={bansPage >= bansTotalPages}
                                 >
@@ -693,14 +693,14 @@ export function SecurityContent() {
 
                     {/* Pagination */}
                     <div className="flex items-center justify-between gap-2 border-t border-white/10 py-4">
-                        <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-xs font-medium text-muted-foreground">
+                        <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-sm font-medium text-muted-foreground">
                             {tr(language, "Page", "หน้า")} {attemptsPage} {tr(language, "of", "จาก")} {attemptsTotalPages || 1}
                         </span>
                         <div className="flex items-center gap-2">
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-8 rounded-full border-white/20 bg-white/5 px-4 text-xs shadow-sm hover:bg-white/10"
+                                className="h-9 rounded-full border-white/20 bg-white/5 px-4 text-sm shadow-sm hover:bg-white/10"
                                 onClick={() => setAttemptsPage((p) => Math.max(1, p - 1))}
                                 disabled={attemptsPage === 1 || attemptsLoading}
                             >
@@ -709,7 +709,7 @@ export function SecurityContent() {
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-8 rounded-full border-white/20 bg-white/5 px-4 text-xs shadow-sm hover:bg-white/10"
+                                className="h-9 rounded-full border-white/20 bg-white/5 px-4 text-sm shadow-sm hover:bg-white/10"
                                 onClick={() => setAttemptsPage((p) => p + 1)}
                                 disabled={attemptsPage >= attemptsTotalPages || attemptsLoading}
                             >

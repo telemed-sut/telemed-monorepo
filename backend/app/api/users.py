@@ -10,6 +10,7 @@ from sqlalchemy import func, select, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.search import normalize_search_term
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
 from app.models.enums import UserRole, VerificationStatus
@@ -211,12 +212,19 @@ def get_users(
         query = query.where(User.deleted_at.is_(None))
 
     if q:
-        search = f"%{q}%"
+        normalized_query = normalize_search_term(q)
+        search = f"%{normalized_query}%"
+        full_name = func.trim(
+            func.coalesce(User.first_name, "")
+            + " "
+            + func.coalesce(User.last_name, "")
+        )
         query = query.where(
             or_(
                 User.email.ilike(search),
                 User.first_name.ilike(search),
                 User.last_name.ilike(search),
+                full_name.ilike(search),
             )
         )
 
@@ -388,7 +396,7 @@ def create_user_invite(
         expires_in_hours=settings.invite_expires_in_hours,
         created_by=current_user,
     )
-    invite_url = f"{settings.frontend_base_url.rstrip('/')}/invite/{raw_token}"
+    invite_url = f"{settings.frontend_base_url.rstrip('/')}/invite#token={raw_token}"
 
     log_action(
         db,
@@ -834,7 +842,7 @@ def resend_user_invite(
         expires_in_hours=settings.invite_expires_in_hours,
         created_by=current_user,
     )
-    invite_url = f"{settings.frontend_base_url.rstrip('/')}/invite/{raw_token}"
+    invite_url = f"{settings.frontend_base_url.rstrip('/')}/invite#token={raw_token}"
     log_action(
         db,
         user_id=current_user.id,

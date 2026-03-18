@@ -1,28 +1,43 @@
 "use client";
 
-import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
+import { LazyMotion, domAnimation, m, useReducedMotion } from "framer-motion";
 import { usePathname } from "next/navigation";
+
+const TRANSITION_DURATION_SECONDS = 0.12;
+const TRANSITION_OFFSET_PX = 4;
+const TRANSITION_EASE: [number, number, number, number] = [
+  0.22,
+  1,
+  0.36,
+  1,
+];
 
 export function PageTransition({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const prefersReducedMotion = useReducedMotion();
 
   return (
     <LazyMotion features={domAnimation}>
-      <AnimatePresence mode="wait" initial={false}>
-        <m.div
-          key={pathname}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{
-            duration: 0.2,
-            ease: [0.25, 0.46, 0.45, 0.94],
-          }}
-          className="flex-1 overflow-hidden flex flex-col w-full"
-        >
-          {children}
-        </m.div>
-      </AnimatePresence>
+      <m.div
+        key={pathname}
+        initial={
+          prefersReducedMotion
+            ? { opacity: 1 }
+            : { opacity: 0.98, y: TRANSITION_OFFSET_PX }
+        }
+        animate={{ opacity: 1, y: 0 }}
+        transition={
+          prefersReducedMotion
+            ? { duration: 0 }
+            : {
+                duration: TRANSITION_DURATION_SECONDS,
+                ease: TRANSITION_EASE,
+              }
+        }
+        className="flex-1 overflow-hidden flex flex-col w-full"
+      >
+        {children}
+      </m.div>
     </LazyMotion>
   );
 }

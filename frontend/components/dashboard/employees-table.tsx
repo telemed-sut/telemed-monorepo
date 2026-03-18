@@ -170,7 +170,7 @@ export function EmployeesTable() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-[200px]">
               <DropdownMenuGroup>
-                <p className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
+                <p className="text-muted-foreground px-2 py-1.5 text-sm font-medium">
                   Department
                 </p>
                 {["all", "IT", "HR", "Finance", "Marketing", "Sales"].map(
@@ -187,7 +187,7 @@ export function EmployeesTable() {
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <p className="text-muted-foreground px-2 py-1.5 text-xs font-medium">
+                <p className="text-muted-foreground px-2 py-1.5 text-sm font-medium">
                   Status
                 </p>
                 {["all", "Active", "On Leave", "Probation", "Inactive"].map(
@@ -289,7 +289,7 @@ export function EmployeesTable() {
                         {employee.avatar ? (
                           <AvatarImage src={employee.avatar} />
                         ) : null}
-                        <AvatarFallback className="text-[10px] font-semibold">
+                        <AvatarFallback className="text-xs font-semibold">
                           {employee.name
                             .split(" ")
                             .map((n) => n[0])
@@ -303,12 +303,12 @@ export function EmployeesTable() {
                     {employee.email}
                   </TableCell>
                   <TableCell className="hidden lg:table-cell">
-                    <span className="px-2 py-0.5 rounded-md bg-muted text-xs font-medium text-muted-foreground">
+                    <span className="px-2 py-0.5 rounded-md bg-muted text-sm font-medium text-muted-foreground">
                       {employee.department}
                     </span>
                   </TableCell>
                   <TableCell className="hidden lg:table-cell">
-                    <span className="px-2 py-0.5 rounded-md bg-muted text-xs font-medium text-muted-foreground">
+                    <span className="px-2 py-0.5 rounded-md bg-muted text-sm font-medium text-muted-foreground">
                       {employee.jobTitle}
                     </span>
                   </TableCell>
@@ -318,7 +318,7 @@ export function EmployeesTable() {
                   <TableCell>
                     <span
                       className={cn(
-                        "inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-xs font-medium",
+                        "inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-sm font-medium",
                         statusColors[employee.status].bg,
                         statusColors[employee.status].text,
                         statusColors[employee.status].border
@@ -395,7 +395,7 @@ export function EmployeesTable() {
         </div>
 
         <div className="flex items-center gap-4">
-          <span className="text-xs text-muted-foreground">
+          <span className="text-sm text-muted-foreground">
             Showing {(currentPage - 1) * pageSize + 1} to{" "}
             {Math.min(currentPage * pageSize, filteredEmployees.length)} of{" "}
             {filteredEmployees.length} entries
