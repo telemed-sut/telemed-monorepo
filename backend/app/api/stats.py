@@ -88,7 +88,7 @@ def get_overview_stats(
     meetings_by_month: dict[int, int] = {}
     # nosemgrep: generic-sql-fastapi
     # SQLAlchemy compiles this ORM statement with bound parameters; no raw SQL is built from request data here.
-    for row in db.execute(meetings_stmt):
+    for row in db.execute(meetings_stmt):  # nosemgrep: generic-sql-fastapi
         meetings_by_month[int(row.m)] = row.cnt
 
     # Build response
@@ -117,14 +117,14 @@ def get_overview_stats(
         # nosemgrep: generic-sql-fastapi
         # visibility_clause is a typed SQLAlchemy expression, so this remains a parameterized ORM query.
         total_meetings = db.scalar(
-            select(func.count())
+            select(func.count())  # nosemgrep: generic-sql-fastapi
             .select_from(Meeting)
             .where(visibility_clause)
         ) or 0
         # nosemgrep: generic-sql-fastapi
         # Date filters and visibility_clause are compiled by SQLAlchemy without string interpolation.
         today_consultations = db.scalar(
-            select(func.count())
+            select(func.count())  # nosemgrep: generic-sql-fastapi
             .select_from(Meeting)
             .where(
                 visibility_clause,
@@ -133,7 +133,7 @@ def get_overview_stats(
             )
         ) or 0
         this_week_consultations = db.scalar(
-            select(func.count())
+            select(func.count())  # nosemgrep: generic-sql-fastapi
             .select_from(Meeting)
             .where(
                 visibility_clause,

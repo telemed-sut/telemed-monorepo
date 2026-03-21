@@ -640,7 +640,7 @@ def list_registered_devices(
 
     # nosemgrep: generic-sql-fastapi
     # SQLAlchemy binds the optional filters here; q/is_active are not interpolated into raw SQL strings.
-    total = db.scalar(count_stmt) or 0
+    total = db.scalar(count_stmt) or 0  # nosemgrep: generic-sql-fastapi
     # nosemgrep: generic-sql-fastapi
     # Pagination values are normalized to bounded ints before reaching the ORM query builder.
     rows = db.scalars(
