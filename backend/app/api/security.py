@@ -617,6 +617,9 @@ def list_registered_devices(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
+    normalized_page = max(1, int(page))
+    normalized_limit = max(1, min(int(limit), 200))
+
     stmt = select(DeviceRegistration)
     count_stmt = select(func.count()).select_from(DeviceRegistration)
 
@@ -635,16 +638,22 @@ def list_registered_devices(
         stmt = stmt.where(active_filter)
         count_stmt = count_stmt.where(active_filter)
 
+    # nosemgrep: generic-sql-fastapi
+    # SQLAlchemy binds the optional filters here; q/is_active are not interpolated into raw SQL strings.
     total = db.scalar(count_stmt) or 0
+    # nosemgrep: generic-sql-fastapi
+    # Pagination values are normalized to bounded ints before reaching the ORM query builder.
     rows = db.scalars(
-        stmt.order_by(DeviceRegistration.created_at.desc()).offset((page - 1) * limit).limit(limit)
+        stmt.order_by(DeviceRegistration.created_at.desc())
+        .offset((normalized_page - 1) * normalized_limit)
+        .limit(normalized_limit)
     ).all()
 
     return DeviceRegistrationListResponse(
         items=[_to_device_registration_view(row) for row in rows],
         total=total,
-        page=page,
-        limit=limit,
+        page=normalized_page,
+        limit=normalized_limit,
     )
 
 

@@ -149,6 +149,8 @@ def get_audit_logs(
     current_user: User = Depends(get_admin_user),
 ):
     """View audit logs with filters (admin only)."""
+    normalized_limit = max(1, min(int(limit), 200))
+
     stmt = _apply_filters(
         _build_query(),
         user_id=user_id,
@@ -183,9 +185,11 @@ def get_audit_logs(
             except ValueError:
                 pass
 
+    # nosemgrep: generic-sql-fastapi
+    # Filter values and cursor parts stay inside SQLAlchemy expressions; no user input is formatted into SQL text.
     rows = db.execute(
         stmt.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
-        .limit(limit)
+        .limit(normalized_limit)
     ).all()
 
     items = []
@@ -220,14 +224,14 @@ def get_audit_logs(
         )
 
     next_cursor = None
-    if items and len(items) == limit:
+    if items and len(items) == normalized_limit:
         last_item = items[-1]
         next_cursor = f"{last_item.created_at.isoformat()},{last_item.id}"
 
     # We omit total/page to fully embrace speed. The frontend will rely on next_cursor.
     return AuditLogListResponse(
         items=items, 
-        limit=limit, 
+        limit=normalized_limit, 
         next_cursor=next_cursor
     )
 

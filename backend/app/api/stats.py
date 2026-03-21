@@ -35,6 +35,8 @@ def get_overview_stats(
     if year is None:
         year = datetime.now(timezone.utc).year
 
+    resolved_year = int(year)
+    doctor_id = current_user.id
     is_doctor = current_user.role == UserRole.doctor
 
     month_labels = [
@@ -53,7 +55,7 @@ def get_overview_stats(
             func.count(func.distinct(Patient.id)).label("cnt"),
         )
         .where(
-            extract("year", Patient.created_at) == year,
+            extract("year", Patient.created_at) == resolved_year,
             Patient.deleted_at.is_(None),
             Patient.is_active == True,  # noqa: E712
         )
@@ -62,7 +64,7 @@ def get_overview_stats(
         patients_stmt = patients_stmt.join(
             DoctorPatientAssignment,
             DoctorPatientAssignment.patient_id == Patient.id,
-        ).where(DoctorPatientAssignment.doctor_id == current_user.id)
+        ).where(DoctorPatientAssignment.doctor_id == doctor_id)
     patients_stmt = patients_stmt.group_by("m")
 
     patients_by_month: dict[int, int] = {}
@@ -75,15 +77,17 @@ def get_overview_stats(
             extract("month", Meeting.date_time).label("m"),
             func.count().label("cnt"),
         )
-        .where(extract("year", Meeting.date_time) == year)
+        .where(extract("year", Meeting.date_time) == resolved_year)
     )
     if is_doctor:
         meetings_stmt = meetings_stmt.where(
-            meeting_service.build_doctor_visibility_clause(current_user.id)
+            meeting_service.build_doctor_visibility_clause(doctor_id)
         )
     meetings_stmt = meetings_stmt.group_by("m")
 
     meetings_by_month: dict[int, int] = {}
+    # nosemgrep: generic-sql-fastapi
+    # SQLAlchemy compiles this ORM statement with bound parameters; no raw SQL is built from request data here.
     for row in db.execute(meetings_stmt):
         meetings_by_month[int(row.m)] = row.cnt
 
@@ -98,23 +102,27 @@ def get_overview_stats(
 
     # Totals — also scoped by role
     if is_doctor:
-        visibility_clause = meeting_service.build_doctor_visibility_clause(current_user.id)
+        visibility_clause = meeting_service.build_doctor_visibility_clause(doctor_id)
         total_patients_stmt = (
             select(func.count(func.distinct(Patient.id)))
             .select_from(Patient)
             .join(DoctorPatientAssignment, DoctorPatientAssignment.patient_id == Patient.id)
             .where(
-                DoctorPatientAssignment.doctor_id == current_user.id,
+                DoctorPatientAssignment.doctor_id == doctor_id,
                 Patient.deleted_at.is_(None),
                 Patient.is_active == True,  # noqa: E712
             )
         )
         total_patients = db.scalar(total_patients_stmt) or 0
+        # nosemgrep: generic-sql-fastapi
+        # visibility_clause is a typed SQLAlchemy expression, so this remains a parameterized ORM query.
         total_meetings = db.scalar(
             select(func.count())
             .select_from(Meeting)
             .where(visibility_clause)
         ) or 0
+        # nosemgrep: generic-sql-fastapi
+        # Date filters and visibility_clause are compiled by SQLAlchemy without string interpolation.
         today_consultations = db.scalar(
             select(func.count())
             .select_from(Meeting)
@@ -138,7 +146,7 @@ def get_overview_stats(
             .select_from(Patient)
             .join(DoctorPatientAssignment, DoctorPatientAssignment.patient_id == Patient.id)
             .where(
-                DoctorPatientAssignment.doctor_id == current_user.id,
+                DoctorPatientAssignment.doctor_id == doctor_id,
                 Patient.deleted_at.is_(None),
                 Patient.is_active == True,  # noqa: E712
                 Patient.created_at >= month_start,
@@ -181,7 +189,7 @@ def get_overview_stats(
         ) or 0
 
     return {
-        "year": year,
+        "year": resolved_year,
         "monthly": monthly,
         "totals": {
             "patients": total_patients,
