@@ -8,6 +8,7 @@ import secrets
 import time
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
@@ -231,6 +232,9 @@ def _send_once(
     timeout_seconds: float,
 ) -> tuple[int, float, str]:
     request_url = f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+    parsed = urlsplit(request_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("request URL must use http or https")
     start = time.perf_counter()
     req = urllib_request.Request(
         request_url,
@@ -240,6 +244,8 @@ def _send_once(
     )
 
     try:
+        # nosemgrep: dynamic-urllib-use-detected
+        # Device simulator validates request_url before use and only targets operator-provided endpoints.
         with urllib_request.urlopen(req, timeout=timeout_seconds) as response:
             response_body = response.read().decode("utf-8", errors="replace")
             status_code = response.getcode()

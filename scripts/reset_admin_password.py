@@ -1,4 +1,3 @@
-
 import os
 import sys
 # Add backend to path to import modules
@@ -7,8 +6,15 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../bac
 from sqlalchemy import create_engine, text
 import bcrypt
 
-# Get DB URL from environment or fallback
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://user:password@localhost:5432/patient_db")
+def require_database_url() -> str:
+    value = (os.getenv("DATABASE_URL") or "").strip()
+    if value:
+        return value
+    print("Missing DATABASE_URL environment variable.", file=sys.stderr)
+    sys.exit(1)
+
+
+DATABASE_URL = require_database_url()
 ADMIN_EMAIL = os.getenv("RESET_ADMIN_EMAIL")
 NEW_PASSWORD = os.getenv("RESET_ADMIN_NEW_PASSWORD")
 

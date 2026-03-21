@@ -1,3 +1,5 @@
+import hashlib
+
 from fastapi import Request
 from slowapi import Limiter
 
@@ -33,8 +35,8 @@ def get_real_user_key(request: Request):
     # 2. Check for Authorization header (User context)
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
-        # Use the token itself as the unique key for the user session
-        return auth_header
+        # Hash the token so we don't keep raw bearer tokens in limiter keys or logs.
+        return f"bearer:{hashlib.sha256(auth_header.encode('utf-8')).hexdigest()}"
 
     # 3. Check for X-Device-Id header (IoT Device context)
     device_id = request.headers.get("X-Device-Id")

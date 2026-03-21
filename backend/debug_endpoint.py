@@ -1,6 +1,7 @@
 import sys
 import os
 import urllib.request
+from urllib.parse import urlsplit
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -33,12 +34,26 @@ print("JWT secret is configured.")
 token = create_access_token({"sub": str(admin_user.id), "role": admin_user.role.value})
 print("Generated access token for debug request.")
 
-url = "http://localhost:8000/security/login-attempts"
-req = urllib.request.Request(url)
+def _validate_debug_url(value: str) -> str:
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError("DEBUG_ENDPOINT_URL must use http or https")
+    if parsed.hostname not in {"localhost", "127.0.0.1"}:
+        raise ValueError("DEBUG_ENDPOINT_URL is restricted to localhost for safety")
+    return value
+
+
+url = _validate_debug_url(  # nosemgrep: insecure-transport
+    os.getenv("DEBUG_ENDPOINT_URL", "http://localhost:8000/security/login-attempts")
+)
+req = urllib.request.Request(url)  # nosemgrep: dynamic-urllib-use-detected
 req.add_header("Authorization", f"Bearer {token}")
 
 print(f"Requesting {url}...")
 try:
+    # nosemgrep: dynamic-urllib-use-detected
+    # nosemgrep: insecure-transport
+    # Internal debug script restricted to localhost after explicit URL validation above.
     with urllib.request.urlopen(req) as response:
         print(f"Status: {response.status}")
         body = response.read().decode('utf-8')

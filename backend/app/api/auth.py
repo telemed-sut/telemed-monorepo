@@ -778,7 +778,7 @@ def forgot_password(request: Request, payload: ForgotPasswordRequest, db: Sessio
     reset_token = None
     if user:
         reset_token = auth_service.create_password_reset_token(user)
-        logger.info("Password reset requested for user_id=%s", user.id)
+        logger.info("Credential recovery flow requested for an existing account")
 
     response = ForgotPasswordResponse(
         message="If the account exists, a reset instruction has been generated.",

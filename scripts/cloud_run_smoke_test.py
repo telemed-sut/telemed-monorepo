@@ -6,6 +6,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 
 def _require_env(name: str) -> str:
@@ -33,6 +34,8 @@ def _request_json(url: str, method: str = "GET", body: dict | None = None, heade
 
     req = urllib.request.Request(url=url, method=method, data=data, headers=req_headers)
     try:
+        # nosemgrep: dynamic-urllib-use-detected
+        # URLs are normalized and scheme-validated before reaching this smoke test helper.
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode("utf-8").strip()
             payload = json.loads(raw) if raw else {}
@@ -53,7 +56,11 @@ def _assert(condition: bool, message: str) -> None:
 
 
 def _normalize_base_url(url: str) -> str:
-    return url[:-1] if url.endswith("/") else url
+    normalized = url[:-1] if url.endswith("/") else url
+    parsed = urlsplit(normalized)
+    if parsed.scheme not in {"http", "https"}:
+        raise ValueError(f"Unsupported URL scheme for smoke test: {normalized}")
+    return normalized
 
 
 def _smoke_health(backend_base_url: str) -> None:
@@ -67,6 +74,8 @@ def _smoke_frontend(frontend_base_url: str) -> None:
     timeout = float(os.getenv("SMOKE_TEST_TIMEOUT_SECONDS", "20"))
     req = urllib.request.Request(url=frontend_base_url, method="GET")
     try:
+        # nosemgrep: dynamic-urllib-use-detected
+        # Frontend base URL is normalized and validated before this smoke request runs.
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             _assert(resp.status < 500, f"Frontend returned status={resp.status}")
     except urllib.error.HTTPError as err:
