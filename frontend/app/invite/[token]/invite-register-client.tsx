@@ -14,10 +14,24 @@ import { useLanguageStore } from "@/store/language-store";
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
 
+function timingSafeEqualStrings(left: string, right: string): boolean {
+  const encoder = new TextEncoder();
+  const leftBytes = encoder.encode(left.normalize("NFKC"));
+  const rightBytes = encoder.encode(right.normalize("NFKC"));
+  const maxLength = Math.max(leftBytes.length, rightBytes.length);
+
+  let mismatch = leftBytes.length ^ rightBytes.length;
+  for (let index = 0; index < maxLength; index += 1) {
+    mismatch |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
+  }
+
+  return mismatch === 0;
+}
+
 export default function InviteRegisterClientPage() {
   const router = useRouter();
   const params = useParams<{ token?: string }>();
-  const routeToken = typeof params?.token === "string" ? params.token : "";
+  const routeToken = Array.isArray(params?.token) ? (params.token[0] ?? "") : (params?.token ?? "");
   const language = useLanguageStore((state) => state.language);
   const setLanguage = useLanguageStore((state) => state.setLanguage);
 
@@ -99,7 +113,7 @@ export default function InviteRegisterClientPage() {
       setError(tr(language, "Password must be at least 8 characters", "รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร"));
       return;
     }
-    if (password !== confirmPassword) {
+    if (!timingSafeEqualStrings(password, confirmPassword)) {
       setError(tr(language, "Passwords do not match", "รหัสผ่านไม่ตรงกัน"));
       return;
     }

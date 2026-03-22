@@ -899,7 +899,6 @@ function PatientJoinPageContent() {
                   } catch (err: unknown) {
                     const errorName =
                       err instanceof Error ? err.name : "";
-                    console.error("PiP failed:", err);
                     if (errorName === "InvalidStateError") {
                       alert("ไม่สามารถเปิดจอย่อได้ กรุณารอให้อีกฝ่ายเปิดกล้องและรอให้วิดีโอโหลดก่อนครับ");
                     } else if (errorName === "NotSupportedError") {

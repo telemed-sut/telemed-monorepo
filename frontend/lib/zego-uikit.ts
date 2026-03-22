@@ -1,5 +1,7 @@
 import type { ZegoUIKitPrebuilt } from "@zegocloud/zego-uikit-prebuilt";
 
+import { generateSecureId } from "@/lib/secure-random";
+
 export type ZegoUIKitPrebuiltInstance = ZegoUIKitPrebuilt;
 export type ZegoUIKitPrebuiltStatic = typeof ZegoUIKitPrebuilt;
 
@@ -151,7 +153,7 @@ function canUseStorage(): boolean {
 }
 
 function generateCallStartupRecordId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return generateSecureId();
 }
 
 function parseCallStartupHistory(raw: string | null): CallStartupRecord[] {
@@ -241,9 +243,6 @@ export class CallStartupMetrics {
 
   logSummary(): void {
     this.measure("total", "start");
-    const summary = this.summarize();
-    // Structured log for monitoring/debugging — not user-facing
-    console.info("[CallStartup]", JSON.stringify(summary));
   }
 
   recordSummary(options: {
@@ -261,7 +260,6 @@ export class CallStartupMetrics {
       meetingId: options.meetingId ?? null,
       errorMessage: options.errorMessage ?? null,
     });
-    console.info("[CallStartup]", JSON.stringify(record));
     return record;
   }
 }

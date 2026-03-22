@@ -1,3 +1,5 @@
+import { generateSecureId } from "@/lib/secure-random";
+
 export type MeetingLinkMode = "off" | "jitsi" | "internal" | "template";
 
 const DEFAULT_MODE: MeetingLinkMode = "off";
@@ -19,10 +21,7 @@ function slugify(input: string): string {
 }
 
 function createKey(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return generateSecureId();
 }
 
 function buildTemplateLink(template: string, key: string, origin: string): string {

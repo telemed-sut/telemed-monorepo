@@ -132,7 +132,7 @@ def handle_failed_login(db: Session, ip: str, email: str, user: Optional[User], 
                     banned_until=_now_utc() + timedelta(minutes=settings.ip_ban_duration_minutes),
                 )
                 db.add(ban)
-                logger.warning("IP %s auto-banned after %d failed attempts", ip, ip_fail_count)
+                logger.warning("Login source auto-banned after repeated failed attempts")
             else:
                 existing_ban.failed_attempts = ip_fail_count
                 existing_ban.banned_until = _now_utc() + timedelta(minutes=settings.ip_ban_duration_minutes)

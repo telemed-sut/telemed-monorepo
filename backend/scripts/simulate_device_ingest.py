@@ -3,7 +3,6 @@ from collections import Counter
 import hashlib
 import hmac
 import json
-import random
 import secrets
 import time
 import uuid
@@ -39,15 +38,16 @@ DEFAULT_ERROR_SCENARIOS = (
     "unknown_patient",
     "device_id_mismatch",
 )
+RNG = secrets.SystemRandom()
 
 
 def _build_payload(patient_id: str, device_id: str, wave_points: int) -> dict:
-    heart_rate = random.randint(62, 98)
-    dia_rate = random.randint(68, 92)
-    sys_rate = random.randint(max(dia_rate + 8, 105), 145)
+    heart_rate = RNG.randint(62, 98)
+    dia_rate = RNG.randint(68, 92)
+    sys_rate = RNG.randint(max(dia_rate + 8, 105), 145)
 
-    wave_a = [random.randint(0, 1024) for _ in range(wave_points)]
-    wave_b = [random.randint(0, 1024) for _ in range(wave_points)]
+    wave_a = [RNG.randint(0, 1024) for _ in range(wave_points)]
+    wave_b = [RNG.randint(0, 1024) for _ in range(wave_points)]
 
     return {
         "user_id": patient_id,
@@ -161,11 +161,11 @@ def _choose_error_scenario(
         # alternate mode: 1st success, 2nd error, 3rd success, ...
         inject_error = sent_index % 2 == 0
     elif error_rate > 0:
-        inject_error = random.random() < error_rate
+        inject_error = RNG.random() < error_rate
 
     if not inject_error:
         return None
-    return random.choice(scenarios)
+    return RNG.choice(scenarios)
 
 
 def _request_blueprint(

@@ -1,0 +1,5 @@
+scan:
+  skip-dirs:
+    - frontend/.next
+    - backend/.next
+    - report_screenshots

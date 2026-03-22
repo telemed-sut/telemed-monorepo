@@ -1,4 +1,4 @@
-import random
+import secrets
 from datetime import datetime
 
 from faker import Faker
@@ -10,6 +10,7 @@ from app.models.patient import Patient
 from app.models.user import User, UserRole
 
 faker = Faker()
+RNG = secrets.SystemRandom()
 
 
 def seed_users(db):
@@ -52,7 +53,7 @@ def seed_patients(db, count: int = 15):
                 first_name=faker.first_name(),
                 last_name=faker.last_name(),
                 date_of_birth=birth_date,
-                gender=random.choice(["male", "female", "other", None]),
+                gender=RNG.choice(["male", "female", "other", None]),
                 phone=faker.phone_number(),
                 email=faker.email(),
                 address=faker.address().replace("\n", ", "),

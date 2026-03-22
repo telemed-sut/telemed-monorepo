@@ -34,6 +34,7 @@ import {
   API_TIMEOUT_MS,
   type ZegoUIKitPrebuiltInstance,
 } from "@/lib/zego-uikit";
+import { generateSecureId } from "@/lib/secure-random";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
@@ -536,9 +537,7 @@ export default function MeetingCallPage() {
       return;
     }
 
-    const handoffId = `${meetingId}-${Date.now()}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}`;
+    const handoffId = generateSecureId(meetingId);
     const popupParams = new URLSearchParams({ popup: "1", handoff: handoffId });
     if (patientName) popupParams.set("pn", patientName);
     if (patientTime) popupParams.set("pt", patientTime);

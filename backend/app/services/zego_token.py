@@ -1,6 +1,6 @@
 import base64
 import json
-import random
+import secrets
 import struct
 import time
 from typing import Final
@@ -17,7 +17,7 @@ class ZegoTokenGenerationError(RuntimeError):
 
 def _random_str(length: int) -> str:
     chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    return "".join(random.choice(chars) for _ in range(length))
+    return "".join(secrets.choice(chars) for _ in range(length))
 
 
 def _pad_pkcs7(data: bytes, block_size: int) -> bytes:
@@ -69,7 +69,7 @@ def generate_token04(
     token_info = {
         "app_id": app_id,
         "user_id": user_id,
-        "nonce": random.randint(0, INT32_MAX),
+        "nonce": secrets.randbelow(INT32_MAX + 1),
         "ctime": created_at,
         "expire": expire_at,
     }

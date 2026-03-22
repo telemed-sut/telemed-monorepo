@@ -1,6 +1,6 @@
-import random
 import time
 import argparse
+import secrets
 from datetime import datetime
 from typing import Dict
 import uuid
@@ -26,22 +26,23 @@ ERROR_MESSAGES = [
     "Network unreachable",
     "Data checksum mismatch"
 ]
+RNG = secrets.SystemRandom()
 
 class DeviceSimulator:
     def __init__(self, device_id: str, patient_id: uuid.UUID):
         self.device_id = device_id
         self.patient_id = patient_id
         # Initial random state
-        self.hr = random.randint(60, 90)
-        self.sys = random.randint(110, 140)
-        self.dia = random.randint(70, 90)
+        self.hr = RNG.randint(60, 90)
+        self.sys = RNG.randint(110, 140)
+        self.dia = RNG.randint(70, 90)
     
     def update_state(self):
         """Apply random walk to simulated vitals."""
         # Random walk: vary slightly from previous state
-        self.hr += random.randint(-2, 2)
-        self.sys += random.randint(-3, 3)
-        self.dia += random.randint(-2, 2)
+        self.hr += RNG.randint(-2, 2)
+        self.sys += RNG.randint(-3, 3)
+        self.dia += RNG.randint(-2, 2)
         
         # Keep within physiological bounds
         self.hr = max(40, min(180, self.hr))
@@ -55,8 +56,8 @@ class DeviceSimulator:
     def generate_record(self) -> PressureRecord:
         """Create a PressureRecord based on current state."""
         # Generate some noisy waveform data
-        wave_a = [random.randint(0, 1024) for _ in range(50)]
-        wave_b = [random.randint(0, 1024) for _ in range(50)]
+        wave_a = [RNG.randint(0, 1024) for _ in range(50)]
+        wave_b = [RNG.randint(0, 1024) for _ in range(50)]
         
         return PressureRecord(
             patient_id=self.patient_id,
@@ -114,11 +115,11 @@ def main():
                 db.add(record)
                 
                 # 3. Random Chance for Error (low probability)
-                if random.random() < 0.02:  # 2% chance per tick
+                if RNG.random() < 0.02:  # 2% chance per tick
                     error_log = DeviceErrorLog(
                         device_id=sim.device_id,
-                        error_message=random.choice(ERROR_MESSAGES),
-                        ip_address=f"192.168.1.{random.randint(2, 254)}",
+                        error_message=RNG.choice(ERROR_MESSAGES),
+                        ip_address=f"192.168.1.{RNG.randint(2, 254)}",
                         endpoint="/api/v1/ingest",
                         occurred_at=datetime.utcnow()
                     )

@@ -1,10 +1,10 @@
 import logging
 from datetime import datetime, timezone
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -54,7 +54,6 @@ from app.services.user_events import publish_user_registered
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
 settings = get_settings()
-THAI_TZ = ZoneInfo("Asia/Bangkok")
 
 
 def _retired_email(user_id: UUID) -> str:
@@ -108,11 +107,6 @@ def _clear_trusted_device_cookie(response: Response) -> None:
 
 def _get_trusted_device_cookie(request: Request) -> str | None:
     return request.cookies.get(settings.trusted_device_cookie_name)
-
-
-def _format_thai_time(dt) -> str:
-    local_dt = dt.astimezone(THAI_TZ)
-    return local_dt.strftime("%d/%m/%Y %H:%M:%S น.")
 
 
 # Use shared utility for consistent IP extraction across all routes.
@@ -576,10 +570,9 @@ def login(
     # Check if account is locked
     locked_until = security_service.check_account_locked(user)
     if locked_until:
-        thai_time = _format_thai_time(locked_until)
         raise HTTPException(
             status_code=423,
-            detail=f"บัญชีถูกล็อกเนื่องจากพยายามเข้าสู่ระบบผิดหลายครั้ง โปรดลองอีกครั้งหลังเวลา {thai_time} (เวลาไทย)",
+            detail="บัญชีถูกล็อกชั่วคราวเนื่องจากพยายามเข้าสู่ระบบผิดหลายครั้ง โปรดลองอีกครั้งภายหลังหรือติดต่อผู้ดูแลระบบ",
         )
 
     # Attempt authentication
@@ -643,7 +636,7 @@ def login(
 
             if not verified:
                 if not payload.otp_code:
-                    detail = _build_two_factor_challenge_detail(authenticated_user)
+                    challenge_detail = _build_two_factor_challenge_detail(authenticated_user)
                     db.add(
                         AuditLog(
                             user_id=authenticated_user.id,
@@ -657,9 +650,9 @@ def login(
                         )
                     )
                     db.commit()
-                    raise HTTPException(
+                    return JSONResponse(
                         status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail=detail,
+                        content={"detail": challenge_detail},
                         headers={"WWW-Authenticate": "Bearer"},
                     )
 
