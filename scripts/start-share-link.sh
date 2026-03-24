@@ -156,7 +156,11 @@ verify_backend_tunnel_env() {
   local actual_url
 
   actual_url="$(
-    cd "$ROOT_DIR" && docker compose exec -T backend sh -lc 'printf "%s" "${MEETING_PATIENT_JOIN_BASE_URL:-}"' 2>/dev/null || true
+    docker inspect patient-backend \
+      --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+      | grep '^MEETING_PATIENT_JOIN_BASE_URL=' \
+      | head -n 1 \
+      | cut -d= -f2- || true
   )"
 
   if [[ "$actual_url" != "$expected_url" ]]; then

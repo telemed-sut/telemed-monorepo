@@ -7,7 +7,7 @@ from app.services import zego_token
 
 
 def test_generate_token04_binary_layout(monkeypatch):
-    monkeypatch.setattr(zego_token.random, "randint", lambda _a, _b: 7)
+    monkeypatch.setattr(zego_token.secrets, "randbelow", lambda _upper: 7)
     monkeypatch.setattr(zego_token.time, "time", lambda: 1_700_000_000)
     monkeypatch.setattr(zego_token, "_random_str", lambda _length: "A" * 16)
     monkeypatch.setattr(
