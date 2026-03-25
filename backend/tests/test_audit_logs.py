@@ -81,7 +81,11 @@ def test_audit_logs_filter_by_user_result_and_date(client: TestClient, db: Sessi
         first_name="Audit",
         last_name="Doctor",
     )
-    other = _make_user(db, email="staff-audit-filter@example.com", role=UserRole.staff)
+    other = _make_user(
+        db,
+        email="medical-student-audit-filter@example.com",
+        role=UserRole.medical_student,
+    )
     token = _login(client, admin.email)
 
     now = datetime.now(timezone.utc)

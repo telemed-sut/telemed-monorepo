@@ -15,7 +15,7 @@ from app.models.enums import UserRole
 from app.models.user import User
 
 
-def _make_user(db: Session, *, email: str, role: UserRole = UserRole.staff, password: str = "TestPass123") -> User:
+def _make_user(db: Session, *, email: str, role: UserRole = UserRole.medical_student, password: str = "TestPass123") -> User:
     user = User(
         email=email,
         password_hash=get_password_hash(password),
@@ -153,7 +153,7 @@ def test_trusted_device_bypasses_2fa_challenge(client: TestClient, db: Session, 
 
 
 def test_backup_code_is_one_time_use(client: TestClient, db: Session):
-    user = _make_user(db, email="backup-user@example.com", role=UserRole.staff)
+    user = _make_user(db, email="backup-user@example.com", role=UserRole.medical_student)
     secret = generate_totp_secret()
     user.two_factor_secret = secret
     user.two_factor_enabled = True
@@ -193,7 +193,7 @@ def test_backup_code_is_one_time_use(client: TestClient, db: Session):
 
 def test_super_admin_can_reset_user_2fa(client: TestClient, db: Session):
     super_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
-    target = _make_user(db, email="target-user@example.com", role=UserRole.staff)
+    target = _make_user(db, email="target-user@example.com", role=UserRole.medical_student)
     old_secret = generate_totp_secret()
     target.two_factor_secret = old_secret
     target.two_factor_enabled = True
@@ -216,7 +216,7 @@ def test_super_admin_can_reset_user_2fa(client: TestClient, db: Session):
 
 def test_non_super_admin_cannot_reset_user_2fa(client: TestClient, db: Session):
     normal_admin = _make_user(db, email="normal-admin-reset@example.com", role=UserRole.admin)
-    target = _make_user(db, email="target-reset-denied@example.com", role=UserRole.staff)
+    target = _make_user(db, email="target-reset-denied@example.com", role=UserRole.medical_student)
     token = _login(client, normal_admin.email).json()["access_token"]
 
     response = client.post(
@@ -236,7 +236,7 @@ def test_non_super_admin_cannot_reset_user_2fa(client: TestClient, db: Session):
 
 def test_super_admin_can_reset_user_password(client: TestClient, db: Session):
     super_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
-    target = _make_user(db, email="target-password-reset@example.com", role=UserRole.staff, password="OldPass123")
+    target = _make_user(db, email="target-password-reset@example.com", role=UserRole.medical_student, password="OldPass123")
     token = _login(client, super_admin.email).json()["access_token"]
 
     response = client.post(
@@ -269,7 +269,7 @@ def test_super_admin_can_reset_user_password(client: TestClient, db: Session):
 
 def test_non_super_admin_cannot_reset_user_password(client: TestClient, db: Session):
     normal_admin = _make_user(db, email="normal-admin-password-reset@example.com", role=UserRole.admin)
-    target = _make_user(db, email="target-password-reset-denied@example.com", role=UserRole.staff)
+    target = _make_user(db, email="target-password-reset-denied@example.com", role=UserRole.medical_student)
     token = _login(client, normal_admin.email).json()["access_token"]
 
     response = client.post(
@@ -289,7 +289,7 @@ def test_non_super_admin_cannot_reset_user_password(client: TestClient, db: Sess
 
 def test_admin_can_resolve_user_for_emergency_toolkit(client: TestClient, db: Session):
     admin = _make_user(db, email="resolve-admin@example.com", role=UserRole.admin)
-    target = _make_user(db, email="resolve-target@example.com", role=UserRole.staff)
+    target = _make_user(db, email="resolve-target@example.com", role=UserRole.medical_student)
     token = _login(client, admin.email).json()["access_token"]
 
     response = client.get(
@@ -364,24 +364,32 @@ def test_admin_can_manage_device_registry(client: TestClient, db: Session):
 
 
 def test_non_admin_cannot_access_device_registry(client: TestClient, db: Session):
-    staff = _make_user(db, email="registry-staff@example.com", role=UserRole.staff)
-    token = _login(client, staff.email).json()["access_token"]
+    medical_student = _make_user(
+        db,
+        email="registry-medical-student@example.com",
+        role=UserRole.medical_student,
+    )
+    token = _login(client, medical_student.email).json()["access_token"]
     response = client.get("/security/devices", headers=_auth(token))
     assert response.status_code == 403
 
 
 def test_security_stats_tracks_403_spike_counter(client: TestClient, db: Session):
     admin = _make_user(db, email="metrics-admin@example.com", role=UserRole.admin)
-    staff = _make_user(db, email="metrics-staff@example.com", role=UserRole.staff)
+    medical_student = _make_user(
+        db,
+        email="metrics-medical-student@example.com",
+        role=UserRole.medical_student,
+    )
     admin_token = _login(client, admin.email).json()["access_token"]
-    staff_token = _login(client, staff.email).json()["access_token"]
+    medical_student_token = _login(client, medical_student.email).json()["access_token"]
 
-    blocked = client.get("/users", headers=_auth(staff_token))
+    blocked = client.get("/users", headers=_auth(medical_student_token))
     assert blocked.status_code == 403
 
     db.add(
         AuditLog(
-            user_id=staff.id,
+            user_id=medical_student.id,
             action="http_403_denied",
             resource_type="http_request",
             details={"path": "/users", "status_code": 403},

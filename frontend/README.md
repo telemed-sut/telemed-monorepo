@@ -75,7 +75,8 @@ Use the following accounts to test the application (provided by Backend):
 | Role  | Email | Password | Permissions |
 | :--- | :--- | :--- | :--- |
 | **Admin** | `admin@example.com` | `AdminPass123` | Full access (View, Create, Edit, **Delete**) |
-| **Staff** | `staff@example.com` | `StaffPass123` | Limited access (View, Create, Edit) |
+| **Doctor** | `doctor@example.com` | `DoctorPass123` | Assigned clinical access with create and edit actions |
+| **Medical Student** | `medical-student@example.com` | `MedicalStudentPass123` | Assigned clinical and meeting access in read-only mode |
 
 ## 📂 Project Structure
 

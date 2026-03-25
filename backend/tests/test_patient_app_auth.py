@@ -298,16 +298,20 @@ def test_assigned_doctor_can_generate_code_and_invalidate_previous_unused_code(
     assert new_registration.is_used is False
 
 
-def test_staff_cannot_generate_patient_app_registration_code(
+def test_medical_student_cannot_generate_patient_app_registration_code(
     client: TestClient,
     db: Session,
 ):
-    staff = _create_user(db, email="patient-app-staff@example.com", role=UserRole.staff)
+    medical_student = _create_user(
+        db,
+        email="patient-app-medical-student@example.com",
+        role=UserRole.medical_student,
+    )
     patient = _create_patient(db, first_name="Code", last_name="Denied", phone="+66812345670")
 
     response = client.post(
         f"/patient-app/{patient.id}/code",
-        headers=_auth_headers(staff),
+        headers=_auth_headers(medical_student),
     )
 
     assert response.status_code == 403

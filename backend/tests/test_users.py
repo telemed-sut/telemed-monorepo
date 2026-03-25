@@ -155,7 +155,7 @@ class TestCRUD:
 
     def test_update_user(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-upd@example.com", role=UserRole.admin)
-        target = _make_user(db, email="updtarget@example.com", role=UserRole.staff)
+        target = _make_user(db, email="updtarget@example.com", role=UserRole.medical_student)
         token = _login(client, "admin-upd@example.com")
         resp = client.put(f"/users/{target.id}", json={
             "first_name": "Updated",
@@ -170,7 +170,11 @@ class TestCRUD:
     def test_list_users_filters(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-filt@example.com", role=UserRole.admin)
         _make_user(db, email="doc1@example.com", role=UserRole.doctor)
-        _make_user(db, email="nurse1@example.com", role=UserRole.nurse)
+        _make_user(
+            db,
+            email="medical-student1@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-filt@example.com")
 
         # Filter by role
@@ -239,7 +243,7 @@ class TestCRUD:
 class TestSoftDelete:
     def test_delete_sets_deleted_at(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-del@example.com", role=UserRole.admin)
-        target = _make_user(db, email="delme@example.com", role=UserRole.staff)
+        target = _make_user(db, email="delme@example.com", role=UserRole.medical_student)
         token = _login(client, "admin-del@example.com")
         resp = client.delete(f"/users/{target.id}", headers=_auth(token))
         assert resp.status_code == 204
@@ -276,7 +280,7 @@ class TestSoftDelete:
 
     def test_can_reuse_email_after_soft_delete(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-reuse@example.com", role=UserRole.admin)
-        target = _make_user(db, email="reuse@example.com", role=UserRole.staff)
+        target = _make_user(db, email="reuse@example.com", role=UserRole.medical_student)
         token = _login(client, "admin-reuse@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
@@ -289,7 +293,7 @@ class TestSoftDelete:
                 "password": "NewPass123",
                 "first_name": "Reuse",
                 "last_name": "Account",
-                "role": "staff",
+                "role": "admin",
             },
             headers=_auth(token),
         )
@@ -334,7 +338,11 @@ class TestSoftDelete:
 
     def test_restore_soft_deleted_user(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-restore@example.com", role=UserRole.admin)
-        target = _make_user(db, email="restore-target@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="restore-target@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-restore@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
@@ -349,7 +357,11 @@ class TestSoftDelete:
 
     def test_restore_soft_deleted_user_from_legacy_string_audit_details(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-restore-legacy@example.com", role=UserRole.admin)
-        target = _make_user(db, email="restore-legacy@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="restore-legacy@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-restore-legacy@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
@@ -375,7 +387,11 @@ class TestSoftDelete:
 
     def test_restore_keeps_retired_email_when_original_is_taken(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-restore2@example.com", role=UserRole.admin)
-        target = _make_user(db, email="restore-conflict@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="restore-conflict@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-restore2@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
@@ -388,7 +404,7 @@ class TestSoftDelete:
                 "password": "NewPass123",
                 "first_name": "Conflict",
                 "last_name": "Owner",
-                "role": "staff",
+                "role": "admin",
             },
             headers=_auth(token),
         )
@@ -404,10 +420,10 @@ class TestSoftDelete:
     def test_bulk_delete_requires_confirm_text_when_more_than_three(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-bulk-confirm@example.com", role=UserRole.admin)
         users = [
-            _make_user(db, email="bulk-c1@example.com", role=UserRole.staff),
-            _make_user(db, email="bulk-c2@example.com", role=UserRole.staff),
-            _make_user(db, email="bulk-c3@example.com", role=UserRole.staff),
-            _make_user(db, email="bulk-c4@example.com", role=UserRole.staff),
+            _make_user(db, email="bulk-c1@example.com", role=UserRole.medical_student),
+            _make_user(db, email="bulk-c2@example.com", role=UserRole.medical_student),
+            _make_user(db, email="bulk-c3@example.com", role=UserRole.medical_student),
+            _make_user(db, email="bulk-c4@example.com", role=UserRole.medical_student),
         ]
         token = _login(client, "admin-bulk-confirm@example.com")
 
@@ -430,8 +446,8 @@ class TestSoftDelete:
     def test_bulk_restore_users(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-bulk-restore@example.com", role=UserRole.admin)
         users = [
-            _make_user(db, email="bulk-r1@example.com", role=UserRole.staff),
-            _make_user(db, email="bulk-r2@example.com", role=UserRole.staff),
+            _make_user(db, email="bulk-r1@example.com", role=UserRole.medical_student),
+            _make_user(db, email="bulk-r2@example.com", role=UserRole.medical_student),
         ]
         token = _login(client, "admin-bulk-restore@example.com")
 
@@ -476,7 +492,11 @@ class TestSoftDelete:
 
     def test_purge_deleted_hard_deletes_old_soft_deleted_accounts(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-purge@example.com", role=UserRole.admin)
-        target = _make_user(db, email="purge-target@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="purge-target@example.com",
+            role=UserRole.medical_student,
+        )
         target_id = target.id
         token = _login(client, "admin-purge@example.com")
 
@@ -758,7 +778,11 @@ class TestAuditLog:
 
     def test_bulk_delete_logs_summary_audit(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-bulk-aud@example.com", role=UserRole.admin)
-        target = _make_user(db, email="bulk-aud-target@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="bulk-aud-target@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-bulk-aud@example.com")
 
         invalid_id = "not-a-uuid"
@@ -784,7 +808,11 @@ class TestAuditLog:
 
     def test_restore_user_logs_audit(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-audrestore@example.com", role=UserRole.admin)
-        target = _make_user(db, email="audrestore-target@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="audrestore-target@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-audrestore@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
@@ -803,7 +831,11 @@ class TestAuditLog:
 
     def test_bulk_restore_logs_summary_audit(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-audbulkrestore@example.com", role=UserRole.admin)
-        target = _make_user(db, email="audbulkrestore-target@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="audbulkrestore-target@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-audbulkrestore@example.com")
 
         delete_resp = client.post(
@@ -830,7 +862,11 @@ class TestAuditLog:
 
     def test_purge_deleted_logs_summary_audit(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-audpurge@example.com", role=UserRole.admin)
-        target = _make_user(db, email="audpurge-target@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="audpurge-target@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-audpurge@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))

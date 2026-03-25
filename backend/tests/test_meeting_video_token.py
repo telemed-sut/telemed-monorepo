@@ -366,20 +366,24 @@ def test_hidden_doctor_cannot_view_reliability_snapshot(
     assert response.status_code == 403
 
 
-def test_staff_cannot_issue_meeting_video_token(
+def test_medical_student_cannot_issue_meeting_video_token(
     client: TestClient,
     db: Session,
     use_mock_video_provider,
 ):
-    staff = _create_user(db, "staff-video@example.com", UserRole.staff)
-    doctor = _create_user(db, "doctor-video-staff@example.com", UserRole.doctor)
-    patient = _create_patient(db, "Staff", "Denied")
+    medical_student = _create_user(
+        db,
+        "medical-student-video@example.com",
+        UserRole.medical_student,
+    )
+    doctor = _create_user(db, "doctor-video-student@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Medical Student", "Denied")
     meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
 
     response = client.post(
         f"/meetings/{meeting.id}/video/token",
         json={},
-        headers=_auth_headers(staff),
+        headers=_auth_headers(medical_student),
     )
     assert response.status_code == 403
 
@@ -646,20 +650,24 @@ def test_doctor_token_promotes_waiting_meeting_to_in_progress(
     assert meeting.status == MeetingStatus.in_progress
 
 
-def test_staff_cannot_create_patient_invite(
+def test_medical_student_cannot_create_patient_invite(
     client: TestClient,
     db: Session,
     use_mock_video_provider,
 ):
-    staff = _create_user(db, "staff-video-patient-invite@example.com", UserRole.staff)
+    medical_student = _create_user(
+        db,
+        "medical-student-video-patient-invite@example.com",
+        UserRole.medical_student,
+    )
     doctor = _create_user(db, "doctor-video-owner2@example.com", UserRole.doctor)
-    patient = _create_patient(db, "Staff", "Blocked")
+    patient = _create_patient(db, "Medical Student", "Blocked")
     meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
 
     response = client.post(
         f"/meetings/{meeting.id}/video/patient-invite",
         json={},
-        headers=_auth_headers(staff),
+        headers=_auth_headers(medical_student),
     )
     assert response.status_code == 403
 

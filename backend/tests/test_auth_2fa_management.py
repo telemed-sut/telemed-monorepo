@@ -23,7 +23,7 @@ def _create_user(
     db: Session,
     *,
     email: str,
-    role: UserRole = UserRole.staff,
+    role: UserRole = UserRole.medical_student,
     password: str = "TestPass123",
 ) -> User:
     user = User(
@@ -80,13 +80,13 @@ def test_get_me_returns_current_user_profile(client: TestClient, db: Session):
 
 
 def test_get_two_factor_status_provisions_secret(client: TestClient, db: Session):
-    user = _create_user(db, email="status@example.com", role=UserRole.staff)
+    user = _create_user(db, email="status@example.com", role=UserRole.medical_student)
 
     response = client.get("/auth/2fa/status", headers=_auth_headers(user))
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["role"] == "staff"
+    assert payload["role"] == "medical_student"
     assert payload["required"] is False
     assert payload["enabled"] is False
     assert payload["setup_required"] is True
@@ -101,7 +101,7 @@ def test_verify_two_factor_enables_user_two_factor(
     client: TestClient,
     db: Session,
 ):
-    user = _create_user(db, email="verify-2fa@example.com", role=UserRole.staff)
+    user = _create_user(db, email="verify-2fa@example.com", role=UserRole.medical_student)
     status_response = client.get("/auth/2fa/status", headers=_auth_headers(user))
     assert status_response.status_code == 200
 
@@ -125,7 +125,7 @@ def test_disable_two_factor_clears_secret_for_non_admin_user(
     db: Session,
 ):
     secret = generate_totp_secret()
-    user = _create_user(db, email="disable-2fa@example.com", role=UserRole.staff)
+    user = _create_user(db, email="disable-2fa@example.com", role=UserRole.medical_student)
     user.two_factor_secret = secret
     user.two_factor_enabled = True
     user.two_factor_enabled_at = datetime.now(timezone.utc)
@@ -151,7 +151,7 @@ def test_reset_two_factor_rotates_secret_and_revokes_backup_codes(
     db: Session,
 ):
     secret = generate_totp_secret()
-    user = _create_user(db, email="reset-2fa@example.com", role=UserRole.staff)
+    user = _create_user(db, email="reset-2fa@example.com", role=UserRole.medical_student)
     user.two_factor_secret = secret
     user.two_factor_enabled = True
     user.two_factor_enabled_at = datetime.now(timezone.utc)
@@ -195,7 +195,7 @@ def test_list_and_revoke_trusted_device(
     db: Session,
 ):
     secret = generate_totp_secret()
-    user = _create_user(db, email="trusted-device@example.com", role=UserRole.staff)
+    user = _create_user(db, email="trusted-device@example.com", role=UserRole.medical_student)
     user.two_factor_secret = secret
     user.two_factor_enabled = True
     user.two_factor_enabled_at = datetime.now(timezone.utc)
@@ -237,7 +237,7 @@ def test_revoke_all_trusted_devices_returns_revoked_count(
     client: TestClient,
     db: Session,
 ):
-    user = _create_user(db, email="revoke-all@example.com", role=UserRole.staff)
+    user = _create_user(db, email="revoke-all@example.com", role=UserRole.medical_student)
     now = datetime.now(timezone.utc)
     db.add_all(
         [

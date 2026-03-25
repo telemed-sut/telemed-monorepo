@@ -100,14 +100,15 @@ INFISICAL_RUN_ARGS="--env=dev" ./scripts/dev-api.sh
 - Logout endpoint: POST /auth/logout (stateless JWT - client should discard token).
 - Demo credentials:
 	- admin@example.com / AdminPass123
-	- staff@example.com / StaffPass123
+	- doctor@example.com / DoctorPass123
+	- medical-student@example.com / MedicalStudentPass123
 
 JWT payload: sub (user id), role, exp. Token type bearer.
 
 ### Role-based Access Control (Phase-1)
 - **Admin users**: Full access to patient operations and assignment management.
 - **Doctor users**: Access only assigned patients (own + explicitly assigned).
-- **Staff users**: No patient clinical access.
+- **Medical student users**: Read-only access to assigned patient data.
 - **Break-glass**: disabled by policy in phase-1.
 
 ### Patients API
@@ -219,4 +220,4 @@ python -m scripts.simulate_device_ingest \
 
 ### Notes
 - CORS allows only configured origins and Authorization header.
-- Role enum scaffold (admin|staff) present; all authenticated users can use CRUD by default.
+- Compatibility enum values still exist for older data, but the active access model is `admin`, `doctor`, and `medical_student`.

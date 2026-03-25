@@ -190,8 +190,12 @@ def test_non_admin_cannot_access_ip_bans_or_login_attempts(
     client: TestClient,
     db: Session,
 ):
-    staff = _create_user(db, email="security-staff@example.com", role=UserRole.staff)
-    headers = _auth_headers(staff)
+    medical_student = _create_user(
+        db,
+        email="security-medical-student@example.com",
+        role=UserRole.medical_student,
+    )
+    headers = _auth_headers(medical_student)
 
     ip_bans_response = client.get("/security/ip-bans", headers=headers)
     attempts_response = client.get("/security/login-attempts", headers=headers)
