@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { acceptInvite, getInviteInfo, ROLE_LABEL_MAP, CLINICAL_ROLES } from "@/lib/api";
+import { acceptInvite, getInviteInfo, getRoleLabel, CLINICAL_ROLES } from "@/lib/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -197,18 +197,7 @@ export default function InviteRegisterClientPage() {
               <div className="space-y-2">
                 <Label>{tr(language, "Assigned role", "บทบาทที่ได้รับมอบหมาย")}</Label>
                 <Input
-                  value={language === "th"
-                    ? ({
-                      admin: "ผู้ดูแลระบบ",
-                      doctor: "แพทย์",
-                      medical_student: "นักศึกษาแพทย์",
-                      staff: "เจ้าหน้าที่",
-                      nurse: "พยาบาล",
-                      pharmacist: "เภสัชกร",
-                      medical_technologist: "นักเทคนิคการแพทย์",
-                      psychologist: "นักจิตวิทยา",
-                    }[role] || role)
-                    : (ROLE_LABEL_MAP[role] || role)}
+                  value={getRoleLabel(role, language)}
                   disabled
                 />
               </div>

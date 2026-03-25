@@ -45,9 +45,9 @@ import {
 import {
   fetchUsers,
   fetchCurrentUser,
+  getRoleLabel,
   type User,
   type UserMe,
-  ROLE_LABEL_MAP,
 } from "@/lib/api";
 import {
   AreaChart,
@@ -706,25 +706,6 @@ function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: 
 // ── Users by Role Chart (Donut/Pie — Lead Sources style) ──
 function UsersByRoleChart({ users, language }: { users: User[]; language: AppLanguage }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const getRoleLabel = useCallback(
-    (role: string) => {
-      if (language !== "th") {
-        return ROLE_LABEL_MAP[role] || role.charAt(0).toUpperCase() + role.slice(1);
-      }
-      const labels: Record<string, string> = {
-        admin: "ผู้ดูแลระบบ",
-        doctor: "แพทย์",
-        medical_student: "นักศึกษาแพทย์",
-        staff: "เจ้าหน้าที่",
-        nurse: "พยาบาล",
-        pharmacist: "เภสัชกร",
-        medical_technologist: "นักเทคนิคการแพทย์",
-        psychologist: "นักจิตวิทยา",
-      };
-      return labels[role] || role;
-    },
-    [language]
-  );
 
   const roleData = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -735,21 +716,15 @@ function UsersByRoleChart({ users, language }: { users: User[]; language: AppLan
       admin: "var(--med-primary-light)",
       doctor: "var(--med-primary)",
       medical_student: "#8b5cf6",
-      staff: "#3d98d0",
-      nurse: "#2d88c0",
-      pharmacist: "#a855f7",
-      medical_technologist: "#06b6d4",
-      psychologist: "#ec4899",
     };
     return Object.entries(counts)
       .sort(([, a], [, b]) => b - a)
       .map(([role, count]) => ({
-        name:
-          getRoleLabel(role),
+        name: getRoleLabel(role, language),
         value: count,
         color: colors[role] || "var(--med-primary-light)",
       }));
-  }, [users, getRoleLabel]);
+  }, [users, language]);
 
   const totalUsers = roleData.reduce((acc, item) => acc + item.value, 0);
 
@@ -1021,7 +996,7 @@ export function UsersContent() {
             }
           }
         }
-      } catch (error) {
+      } catch {
         if (!active) return;
         scheduleReconnect();
       }

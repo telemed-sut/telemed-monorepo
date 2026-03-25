@@ -12,6 +12,7 @@ import {
   canManageUsers,
   canViewClinicalData,
   canWriteClinicalData,
+  getRoleLabel,
   isMedicalStudentRole,
 } from "@/lib/api";
 
@@ -118,6 +119,12 @@ describe("Role constants", () => {
     expect(ROLE_LABEL_MAP["admin"]).toBe("Admin");
     expect(ROLE_LABEL_MAP["doctor"]).toBe("Doctor");
     expect(ROLE_LABEL_MAP["medical_student"]).toBe("Medical Student");
+  });
+
+  it("getRoleLabel localizes active roles and preserves legacy fallback labels", () => {
+    expect(getRoleLabel("medical_student", "th")).toBe("นักศึกษาแพทย์");
+    expect(getRoleLabel("staff", "th")).toBe("เจ้าหน้าที่");
+    expect(getRoleLabel("medical_technologist", "en")).toBe("Medical Technologist");
   });
 
   it("CLINICAL_ROLES includes doctor but not admin/medical_student", () => {

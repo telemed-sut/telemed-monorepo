@@ -98,6 +98,36 @@ export const ROLE_LABEL_MAP: Record<string, string> = Object.fromEntries(
   ROLE_OPTIONS.map((r) => [r.value, r.label])
 );
 
+export const ROLE_LABEL_MAP_TH: Record<string, string> = {
+  admin: "ผู้ดูแลระบบ",
+  doctor: "แพทย์",
+  medical_student: "นักศึกษาแพทย์",
+};
+
+const LEGACY_ROLE_LABEL_MAP_TH: Record<string, string> = {
+  staff: "เจ้าหน้าที่",
+  nurse: "พยาบาล",
+  pharmacist: "เภสัชกร",
+  medical_technologist: "นักเทคนิคการแพทย์",
+  psychologist: "นักจิตวิทยา",
+};
+
+function humanizeRoleLabel(role: string): string {
+  return role
+    .split("_")
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(" ");
+}
+
+export function getRoleLabel(role: string, language: "en" | "th" = "en"): string {
+  if (!role) return "";
+  if (language === "th") {
+    return ROLE_LABEL_MAP_TH[role] ?? LEGACY_ROLE_LABEL_MAP_TH[role] ?? humanizeRoleLabel(role);
+  }
+  return ROLE_LABEL_MAP[role] ?? humanizeRoleLabel(role);
+}
+
 /** Roles that are considered clinical (require license verification) */
 export const CLINICAL_ROLES = new Set([
   "doctor",

@@ -22,7 +22,7 @@ def get_real_user_key(request: Request):
 
     Priority order:
     1. Whitelisted IP: Bypass limits entirely (return None).
-    2. Authenticated User (Bearer Token): Allows multiple staff behind same hospital IP.
+    2. Authenticated User (Bearer Token): Allows multiple authenticated users behind same hospital IP.
     3. Physical Device (X-Device-Id): Allows multiple IoT devices behind same hospital IP.
     4. Fallback (IP Address): For unauthenticated public endpoints (login, etc).
     """

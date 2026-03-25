@@ -30,6 +30,7 @@ import {
   superAdminResetUser2FA,
   superAdminResetUserPassword,
   verify2FA,
+  getRoleLabel,
   type AdminSecurityUserLookup,
   type Admin2FAStatus,
   type TrustedDevice,
@@ -55,22 +56,6 @@ const UI_TONE_OPTIONS: UITone[] = [
   "fffdf1",
   "faf3e1",
 ];
-
-const ROLE_LABEL_MAP_TH: Record<string, string> = {
-  admin: "ผู้ดูแลระบบ",
-  doctor: "แพทย์",
-  medical_student: "นักศึกษาแพทย์",
-  staff: "เจ้าหน้าที่",
-  nurse: "พยาบาล",
-  pharmacist: "เภสัชกร",
-  medical_technologist: "นักเทคนิคการแพทย์",
-  psychologist: "นักจิตวิทยา",
-};
-
-const getRoleLabel = (role: string, language: AppLanguage): string => {
-  if (language === "th") return ROLE_LABEL_MAP_TH[role] || role;
-  return role;
-};
 
 function extractSetupKey(uri: string | null | undefined): string | null {
   if (!uri) return null;

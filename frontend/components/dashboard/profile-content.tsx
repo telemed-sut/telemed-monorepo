@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ROLE_LABEL_MAP, fetchCurrentUser, updateUser, type UserMe } from "@/lib/api";
+import { fetchCurrentUser, getRoleLabel, updateUser, type UserMe } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
@@ -163,20 +163,7 @@ export function ProfileContent() {
                   <Label htmlFor="role">{tr(language, "Role", "บทบาท")}</Label>
                   <Input
                     id="role"
-                    value={currentUser
-                      ? (language === "th"
-                        ? ({
-                          admin: "ผู้ดูแลระบบ",
-                          doctor: "แพทย์",
-                          medical_student: "นักศึกษาแพทย์",
-                          staff: "เจ้าหน้าที่",
-                          nurse: "พยาบาล",
-                          pharmacist: "เภสัชกร",
-                          medical_technologist: "นักเทคนิคการแพทย์",
-                          psychologist: "นักจิตวิทยา",
-                        }[currentUser.role] || currentUser.role)
-                        : (ROLE_LABEL_MAP[currentUser.role] || currentUser.role))
-                      : ""}
+                    value={currentUser ? getRoleLabel(currentUser.role, language) : ""}
                     disabled
                     readOnly
                   />

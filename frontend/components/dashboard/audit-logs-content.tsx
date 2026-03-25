@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
-import { exportAuditLogs, fetchAuditLogs, getErrorMessage, type ApiError, type AuditLogItem } from "@/lib/api";
+import { exportAuditLogs, fetchAuditLogs, getErrorMessage, getRoleLabel, type ApiError, type AuditLogItem } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -380,20 +380,6 @@ const FIELD_LABELS: Record<AuditLanguage, Record<string, string>> = {
     },
 };
 
-const ROLE_VALUE_LABELS: Record<AuditLanguage, Record<string, string>> = {
-    en: {},
-    th: {
-        admin: "ผู้ดูแลระบบ",
-        doctor: "แพทย์",
-        medical_student: "นักศึกษาแพทย์",
-        staff: "เจ้าหน้าที่",
-        nurse: "พยาบาล",
-        pharmacist: "เภสัชกร",
-        medical_technologist: "นักเทคนิคการแพทย์",
-        psychologist: "นักจิตวิทยา",
-    },
-};
-
 const STATUS_VALUE_LABELS: Record<AuditLanguage, Record<string, string>> = {
     en: {},
     th: {
@@ -441,7 +427,7 @@ function translateFieldValue(field: string, value: unknown, language: AuditLangu
 
     const normalized = String(value);
     if (field === "role") {
-        return ROLE_VALUE_LABELS[language][normalized] ?? normalized;
+        return getRoleLabel(normalized, language);
     }
     if (field === "status" || field === "verification_status" || field.startsWith("is_")) {
         return STATUS_VALUE_LABELS[language][normalized] ?? normalized;

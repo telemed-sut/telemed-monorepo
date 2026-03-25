@@ -21,9 +21,14 @@ def seed_users(db):
             "role": UserRole.admin,
         },
         {
-            "email": "staff@example.com",
-            "password": "StaffPass123",
-            "role": UserRole.staff,
+            "email": "doctor@example.com",
+            "password": "DoctorPass123",
+            "role": UserRole.doctor,
+        },
+        {
+            "email": "medical-student@example.com",
+            "password": "MedicalStudentPass123",
+            "role": UserRole.medical_student,
         },
     ]
 
