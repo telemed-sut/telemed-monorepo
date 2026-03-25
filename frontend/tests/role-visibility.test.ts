@@ -121,10 +121,10 @@ describe("Role constants", () => {
     expect(ROLE_LABEL_MAP["medical_student"]).toBe("Medical Student");
   });
 
-  it("getRoleLabel localizes active roles and preserves legacy fallback labels", () => {
+  it("getRoleLabel localizes active roles and humanizes unknown values", () => {
     expect(getRoleLabel("medical_student", "th")).toBe("นักศึกษาแพทย์");
-    expect(getRoleLabel("staff", "th")).toBe("เจ้าหน้าที่");
-    expect(getRoleLabel("medical_technologist", "en")).toBe("Medical Technologist");
+    expect(getRoleLabel("support_agent", "th")).toBe("Support Agent");
+    expect(getRoleLabel("support_agent", "en")).toBe("Support Agent");
   });
 
   it("CLINICAL_ROLES includes doctor but not admin/medical_student", () => {

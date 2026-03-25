@@ -104,14 +104,6 @@ export const ROLE_LABEL_MAP_TH: Record<string, string> = {
   medical_student: "นักศึกษาแพทย์",
 };
 
-const LEGACY_ROLE_LABEL_MAP_TH: Record<string, string> = {
-  staff: "เจ้าหน้าที่",
-  nurse: "พยาบาล",
-  pharmacist: "เภสัชกร",
-  medical_technologist: "นักเทคนิคการแพทย์",
-  psychologist: "นักจิตวิทยา",
-};
-
 function humanizeRoleLabel(role: string): string {
   return role
     .split("_")
@@ -123,7 +115,7 @@ function humanizeRoleLabel(role: string): string {
 export function getRoleLabel(role: string, language: "en" | "th" = "en"): string {
   if (!role) return "";
   if (language === "th") {
-    return ROLE_LABEL_MAP_TH[role] ?? LEGACY_ROLE_LABEL_MAP_TH[role] ?? humanizeRoleLabel(role);
+    return ROLE_LABEL_MAP_TH[role] ?? humanizeRoleLabel(role);
   }
   return ROLE_LABEL_MAP[role] ?? humanizeRoleLabel(role);
 }

@@ -376,7 +376,7 @@ def test_invite_non_clinical_role_rejected(client: TestClient, db: Session):
 
     response = client.post(
         "/users/invites",
-        json={"email": "non-clinical@example.com", "role": "staff"},
+        json={"email": "non-clinical@example.com", "role": "support_agent"},
         headers=headers,
     )
     assert response.status_code == 422

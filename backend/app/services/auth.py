@@ -363,14 +363,12 @@ def require_roles(allowed_roles: List[UserRole]):
 
 # Common role dependencies
 get_admin_user = require_roles([UserRole.admin])
-get_admin_or_staff_user = require_roles([UserRole.admin, UserRole.medical_student])
 get_clinical_user = require_roles([
     UserRole.admin,
     UserRole.doctor,
     UserRole.medical_student,
 ])
 get_doctor_user = require_roles([UserRole.admin, UserRole.doctor])
-get_doctor_or_nurse_user = require_roles([UserRole.admin, UserRole.doctor])
 
 # Break-glass session window (hours)
 BREAK_GLASS_WINDOW_HOURS = 8
@@ -441,18 +439,3 @@ def verify_patient_access_doctor(
     )
     return current_user
 
-
-def verify_patient_access_doctor_or_nurse(
-    request: Request,
-    patient_id: UUID = Path(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_doctor_or_nurse_user),
-) -> User:
-    """Same as verify_patient_access_doctor but retained for compatibility."""
-    patient_service.verify_doctor_patient_access(
-        db,
-        current_user=current_user,
-        patient_id=patient_id,
-        ip_address=get_client_ip(request),
-    )
-    return current_user
