@@ -529,6 +529,16 @@ class TestSoftDelete:
 # ──────────────────────────────────────────────────────────
 
 class TestValidation:
+    def test_direct_create_legacy_role_rejected_by_contract(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-val-legacy@example.com", role=UserRole.admin)
+        token = _login(client, "admin-val-legacy@example.com")
+        resp = client.post("/users", json={
+            "email": "legacy-direct@example.com",
+            "password": "LegacyPass123",
+            "role": "staff",
+        }, headers=_auth(token))
+        assert resp.status_code == 422
+
     def test_direct_create_clinical_role_blocked_when_invite_only(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-val@example.com", role=UserRole.admin)
         token = _login(client, "admin-val@example.com")
@@ -563,6 +573,21 @@ class TestValidation:
         }, headers=_auth(token))
         assert resp.status_code == 400
         assert "invite flow" in resp.json()["detail"].lower()
+
+    def test_update_legacy_role_rejected_by_contract(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-val4@example.com", role=UserRole.admin)
+        target = _make_user(
+            db,
+            email="medical-student-update-legacy@example.com",
+            role=UserRole.medical_student,
+        )
+        token = _login(client, "admin-val4@example.com")
+        resp = client.put(
+            f"/users/{target.id}",
+            json={"role": "staff"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 422
 
 
 # ──────────────────────────────────────────────────────────

@@ -12,8 +12,20 @@ CLINICAL_ROLES = {
     UserRole.doctor,
 }
 
+ACTIVE_USER_ROLES = {
+    UserRole.admin,
+    UserRole.doctor,
+    UserRole.medical_student,
+}
+
 # Thai medical license pattern: ว.NNNNN, พ.NNNNN, MD12345, MD-TEST, or plain digits
 LICENSE_NO_PATTERN = re.compile(r"^([A-Za-z\u0E00-\u0E7F]{1,10}[.-]?[A-Za-z0-9]{0,10}|\d{4,10})$")
+
+
+def _validate_active_user_role(value: UserRole) -> UserRole:
+    if value not in ACTIVE_USER_ROLES:
+        raise ValueError("Role must be one of: admin, doctor, medical_student.")
+    return value
 
 
 class UserBase(BaseModel):
@@ -36,6 +48,11 @@ class UserBase(BaseModel):
                 "Invalid license number format. Expected pattern like ว.12345 or MD12345."
             )
         return v
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, value: UserRole) -> UserRole:
+        return _validate_active_user_role(value)
 
     @field_validator("license_expiry")
     @classmethod
@@ -75,6 +92,13 @@ class UserUpdate(BaseModel):
             )
         return v
 
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, value: Optional[UserRole]) -> Optional[UserRole]:
+        if value is None:
+            return value
+        return _validate_active_user_role(value)
+
 
 class UserOut(BaseModel):
     id: UUID
@@ -110,6 +134,11 @@ class UserListResponse(BaseModel):
 class UserInviteCreateRequest(BaseModel):
     email: EmailStr
     role: UserRole = UserRole.medical_student
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, value: UserRole) -> UserRole:
+        return _validate_active_user_role(value)
 
 
 class UserInviteCreateResponse(BaseModel):
