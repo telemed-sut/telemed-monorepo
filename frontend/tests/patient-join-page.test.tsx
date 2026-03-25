@@ -174,7 +174,7 @@ describe("Patient join bootstrap", () => {
   });
 
   it("ignores async join completion after unmount", async () => {
-    let resolveToken: (value: unknown) => void;
+    let resolveToken: ((value: unknown) => void) | undefined;
     const tokenPromise = new Promise((resolve) => {
       resolveToken = resolve;
     });
