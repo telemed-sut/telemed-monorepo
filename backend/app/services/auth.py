@@ -43,6 +43,7 @@ CLINICAL_WRITE_ROLES = frozenset({
     UserRole.doctor,
 })
 INVITABLE_ROLES = frozenset({
+    UserRole.admin,
     UserRole.doctor,
     UserRole.medical_student,
 })

@@ -287,7 +287,7 @@ def create_user(
     if settings.specialist_invite_only and auth_service.can_receive_user_invite(user_in.role):
         raise HTTPException(
             status_code=400,
-            detail="Doctor and medical student accounts must be onboarded via invite flow.",
+            detail="Accounts for this role must be onboarded via invite flow.",
         )
 
     requested_email = user_in.email.lower()
@@ -377,10 +377,15 @@ def create_user_invite(
     current_user: User = Depends(get_admin_user),
 ) -> Any:
     """Create an invite link. Admin only."""
+    if payload.role == UserRole.admin and not auth_service.is_super_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin only.",
+        )
     if not auth_service.can_receive_user_invite(payload.role):
         raise HTTPException(
             status_code=422,
-            detail="Invite onboarding is restricted to doctor and medical student roles in this phase.",
+            detail="Invite onboarding is restricted to supported roles in this phase.",
         )
 
     requested_email = payload.email.lower()
@@ -835,10 +840,16 @@ def resend_user_invite(
     if not invite:
         raise HTTPException(status_code=404, detail="Invite not found.")
 
+    if invite.role == UserRole.admin and not auth_service.is_super_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin only.",
+        )
+
     if not auth_service.can_receive_user_invite(invite.role):
         raise HTTPException(
             status_code=400,
-            detail="Invite onboarding is restricted to doctor and medical student roles in this phase.",
+            detail="Invite onboarding is restricted to supported roles in this phase.",
         )
 
     existing_user = db.scalar(

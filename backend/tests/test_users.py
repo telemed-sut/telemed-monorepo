@@ -6,6 +6,7 @@ from uuid import UUID as PyUUID
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash
@@ -127,32 +128,28 @@ class TestRBAC:
 # ──────────────────────────────────────────────────────────
 
 class TestCRUD:
-    def test_super_admin_can_create_admin_without_preset_password(self, client: TestClient, db: Session):
+    def test_super_admin_can_create_admin_invite(self, client: TestClient, db: Session):
         _make_user(db, email="admin@example.com", role=UserRole.admin)
         token = _login(client, "admin@example.com")
-        resp = client.post("/users", json={
+        resp = client.post("/users/invites", json={
             "email": "newuser@example.com",
-            "first_name": "New",
-            "last_name": "User",
             "role": "admin",
         }, headers=_auth(token))
         assert resp.status_code == 200
         data = resp.json()
-        assert data["email"] == "newuser@example.com"
-        assert data["role"] == "admin"
-        assert data["is_active"] is True
+        assert "/invite#token=" in data["invite_url"]
 
-    def test_non_super_admin_cannot_create_admin(self, client: TestClient, db: Session):
+    def test_non_super_admin_cannot_create_admin_invite(self, client: TestClient, db: Session):
         _make_user(db, email="admin-crud@example.com", role=UserRole.admin)
         token = _login(client, "admin-crud@example.com")
-        resp = client.post("/users", json={
+        resp = client.post("/users/invites", json={
             "email": "blocked-admin@example.com",
             "role": "admin",
         }, headers=_auth(token))
         assert resp.status_code == 403
         assert "super admin only" in resp.json()["detail"].lower()
 
-    def test_create_admin_with_preset_password_rejected(self, client: TestClient, db: Session):
+    def test_create_admin_directly_requires_invite_flow(self, client: TestClient, db: Session):
         _make_user(db, email="admin@example.com", role=UserRole.admin)
         token = _login(client, "admin@example.com")
         resp = client.post("/users", json={
@@ -160,8 +157,8 @@ class TestCRUD:
             "password": "NewPass123",
             "role": "admin",
         }, headers=_auth(token))
-        assert resp.status_code == 422
-        assert "preset password" in resp.json()["detail"].lower()
+        assert resp.status_code == 400
+        assert "invite flow" in resp.json()["detail"].lower()
 
     def test_create_duplicate_email_fails(self, client: TestClient, db: Session):
         _make_user(db, email="dup@example.com", role=UserRole.admin)
@@ -306,20 +303,31 @@ class TestSoftDelete:
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
         assert delete_resp.status_code == 204
 
-        create_resp = client.post(
-            "/users",
+        invite_resp = client.post(
+            "/users/invites",
             json={
                 "email": "reuse@example.com",
-                "first_name": "Reuse",
-                "last_name": "Account",
                 "role": "admin",
             },
             headers=_auth(token),
         )
-        assert create_resp.status_code == 200, create_resp.text
-        created = create_resp.json()
-        assert created["email"] == "reuse@example.com"
-        assert created["id"] != str(target.id)
+        assert invite_resp.status_code == 200, invite_resp.text
+        invite_token = invite_resp.json()["invite_url"].split("#token=", 1)[-1]
+
+        accept_resp = client.post(
+            "/auth/invite/accept",
+            json={
+                "token": invite_token,
+                "first_name": "Reuse",
+                "last_name": "Account",
+                "password": "ReusePass123",
+            },
+        )
+        assert accept_resp.status_code == 200, accept_resp.text
+
+        created = db.scalar(select(User).where(User.email == "reuse@example.com", User.deleted_at.is_(None)))
+        assert created is not None
+        assert str(created.id) != str(target.id)
 
         db.refresh(target)
         assert target.email.startswith("deleted+")
@@ -416,17 +424,27 @@ class TestSoftDelete:
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
         assert delete_resp.status_code == 204
 
-        create_resp = client.post(
-            "/users",
+        invite_resp = client.post(
+            "/users/invites",
             json={
                 "email": "restore-conflict@example.com",
-                "first_name": "Conflict",
-                "last_name": "Owner",
                 "role": "admin",
             },
             headers=_auth(token),
         )
-        assert create_resp.status_code == 200, create_resp.text
+        assert invite_resp.status_code == 200, invite_resp.text
+
+        invite_token = invite_resp.json()["invite_url"].split("#token=", 1)[-1]
+        accept_resp = client.post(
+            "/auth/invite/accept",
+            json={
+                "token": invite_token,
+                "first_name": "Conflict",
+                "last_name": "Owner",
+                "password": "ConflictPass123",
+            },
+        )
+        assert accept_resp.status_code == 200, accept_resp.text
 
         restore_resp = client.post(f"/users/{target.id}/restore", headers=_auth(token))
         assert restore_resp.status_code == 200, restore_resp.text
@@ -569,16 +587,15 @@ class TestValidation:
         assert resp.status_code == 400
         assert "invite flow" in resp.json()["detail"].lower()
 
-    def test_direct_create_admin_without_password_allowed_for_super_admin(self, client: TestClient, db: Session):
+    def test_direct_create_admin_without_password_blocked_by_invite_policy(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
         token = _login(client, "admin@example.com")
         resp = client.post("/users", json={
             "email": "admin-direct@example.com",
             "role": "admin",
         }, headers=_auth(token))
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["role"] == "admin"
+        assert resp.status_code == 400
+        assert "invite flow" in resp.json()["detail"].lower()
 
     def test_direct_create_admin_without_password_blocked_for_non_super_admin(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-val2@example.com", role=UserRole.admin)
@@ -587,8 +604,8 @@ class TestValidation:
             "email": "admin-direct-blocked-no-super@example.com",
             "role": "admin",
         }, headers=_auth(token))
-        assert resp.status_code == 403
-        assert "super admin only" in resp.json()["detail"].lower()
+        assert resp.status_code == 400
+        assert "invite flow" in resp.json()["detail"].lower()
 
     def test_direct_create_admin_with_password_blocked(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
@@ -598,8 +615,8 @@ class TestValidation:
             "password": "StaffPass123",
             "role": "admin",
         }, headers=_auth(token))
-        assert resp.status_code == 422
-        assert "preset password" in resp.json()["detail"].lower()
+        assert resp.status_code == 400
+        assert "invite flow" in resp.json()["detail"].lower()
 
     def test_direct_create_medical_student_blocked_when_invite_only(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-val3@example.com", role=UserRole.admin)
@@ -710,6 +727,51 @@ class TestInviteLifecycle:
         assert closed_list.status_code == 200
         assert closed_list.json()["total"] >= 1
 
+    def test_super_admin_can_create_admin_invite(self, client: TestClient, db: Session):
+        _make_user(db, email="admin@example.com", role=UserRole.admin)
+        token = _login(client, "admin@example.com")
+
+        create_resp = client.post(
+            "/users/invites",
+            json={"email": "admin-invite@example.com", "role": "admin"},
+            headers=_auth(token),
+        )
+        assert create_resp.status_code == 200
+        assert "/invite#token=" in create_resp.json()["invite_url"]
+
+    def test_non_super_admin_cannot_create_admin_invite(self, client: TestClient, db: Session):
+        _make_user(db, email="admin-nonsuper-invite@example.com", role=UserRole.admin)
+        token = _login(client, "admin-nonsuper-invite@example.com")
+
+        create_resp = client.post(
+            "/users/invites",
+            json={"email": "admin-blocked-invite@example.com", "role": "admin"},
+            headers=_auth(token),
+        )
+        assert create_resp.status_code == 403
+        assert "super admin only" in create_resp.json()["detail"].lower()
+
+    def test_non_super_admin_cannot_resend_admin_invite(self, client: TestClient, db: Session):
+        _make_user(db, email="admin@example.com", role=UserRole.admin)
+        super_token = _login(client, "admin@example.com")
+        create_resp = client.post(
+            "/users/invites",
+            json={"email": "resend-admin-invite@example.com", "role": "admin"},
+            headers=_auth(super_token),
+        )
+        assert create_resp.status_code == 200
+
+        invite = db.query(UserInvite).filter(
+            UserInvite.email == "resend-admin-invite@example.com"
+        ).order_by(UserInvite.created_at.desc()).first()
+        assert invite is not None
+
+        _make_user(db, email="admin-resend-nonsuper@example.com", role=UserRole.admin)
+        token = _login(client, "admin-resend-nonsuper@example.com")
+        resend_resp = client.post(f"/users/invites/{invite.id}/resend", headers=_auth(token))
+        assert resend_resp.status_code == 403
+        assert "super admin only" in resend_resp.json()["detail"].lower()
+
     def test_list_expired_invites(self, client: TestClient, db: Session):
         _make_user(db, email="admin-invite-expired@example.com", role=UserRole.admin)
         token = _login(client, "admin-invite-expired@example.com")
@@ -763,24 +825,29 @@ class TestVerify:
 # ──────────────────────────────────────────────────────────
 
 class TestAuditLog:
-    def test_create_user_logs_audit(self, client: TestClient, db: Session):
+    def test_create_invite_logs_audit(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
         token = _login(client, "admin@example.com")
-        resp = client.post("/users", json={
+        resp = client.post("/users/invites", json={
             "email": "audited@example.com",
             "role": "admin",
         }, headers=_auth(token))
         assert resp.status_code == 200
-        new_id = PyUUID(resp.json()["id"])
+
+        invite = db.query(UserInvite).filter(
+            UserInvite.email == "audited@example.com"
+        ).order_by(UserInvite.created_at.desc()).first()
+        assert invite is not None
 
         logs = db.query(AuditLog).filter(
-            AuditLog.action == "user_create",
-            AuditLog.resource_id == new_id,
+            AuditLog.action == "user_invite",
+            AuditLog.resource_id == invite.id,
         ).all()
         assert len(logs) == 1
         assert logs[0].user_id == admin.id
         detail = _parse_details(logs[0].details)
-        assert "after" in detail
+        assert detail["email"] == "audited@example.com"
+        assert detail["role"] == "admin"
 
     def test_update_user_logs_audit(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-audupd@example.com", role=UserRole.admin)

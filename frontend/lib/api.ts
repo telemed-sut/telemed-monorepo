@@ -239,7 +239,7 @@ const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /confirm_text=\"?delete\"?/i, message: "ต้องพิมพ์คำยืนยัน DELETE ก่อนดำเนินการ" },
   { pattern: /reason must be at least|purge reason must be at least/i, message: "เหตุผลต้องมีอย่างน้อย 8 ตัวอักษร" },
   { pattern: /temporary password must be at least/i, message: "รหัสผ่านชั่วคราวต้องมีอย่างน้อย 8 ตัวอักษร" },
-  { pattern: /invite onboarding is restricted to clinical specialist roles in this phase|clinical specialist roles/i, message: "ขณะนี้ระบบอนุญาตส่งคำเชิญเฉพาะบทบาทสายคลินิกเท่านั้น" },
+  { pattern: /invite onboarding is restricted to supported roles in this phase|supported invite roles/i, message: "ขณะนี้ระบบอนุญาตส่งคำเชิญเฉพาะบทบาทที่รองรับเท่านั้น" },
   { pattern: /invite.*expired|expired invite|link.*expired/i, message: "คำเชิญนี้หมดอายุแล้ว กรุณาสร้างลิงก์คำเชิญใหม่" },
   { pattern: /invite.*closed|invite.*revoked|already revoked/i, message: "คำเชิญนี้ไม่อยู่ในสถานะใช้งานแล้ว" },
   { pattern: /too many requests|rate limit/i, message: "คุณทำรายการถี่เกินไป กรุณาลองใหม่อีกครั้ง" },

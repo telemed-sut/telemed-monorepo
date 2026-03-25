@@ -969,7 +969,7 @@ def accept_invite(request: Request, payload: InviteAcceptRequest, db: Session = 
     if settings.specialist_invite_only and not auth_service.can_receive_user_invite(invite.role):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This onboarding flow currently accepts only doctor and medical student invites.",
+            detail="This onboarding flow currently accepts only supported invite roles.",
         )
 
     if invite.role in CLINICAL_ROLES and not payload.license_no:

@@ -5,11 +5,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api import auth as auth_api
+from app.core.security import generate_totp_code, generate_totp_secret
 from app.models.audit_log import AuditLog
 from app.models.invite import UserInvite
 from app.models.patient import Patient
 from app.models.user import User, UserRole
 from app.core.security import get_password_hash
+from app.services import auth as auth_service
 
 
 def test_login_endpoint(client: TestClient, db: Session):
@@ -465,6 +468,64 @@ def test_invite_acceptance_marks_used_and_writes_audit(client: TestClient, db: S
         )
     )
     assert audit is not None
+
+
+def test_super_admin_can_create_admin_invite_and_accept_it(client: TestClient, db: Session, monkeypatch):
+    monkeypatch.setattr(auth_api.settings, "admin_2fa_required", True)
+    monkeypatch.setattr(auth_service.settings, "admin_2fa_required", True)
+    secret = generate_totp_secret()
+    admin = User(
+        email="admin@example.com",
+        password_hash=get_password_hash("AdminPass123"),
+        role=UserRole.admin,
+        two_factor_secret=secret,
+    )
+    db.add(admin)
+    db.commit()
+
+    login_response = client.post(
+        "/auth/login",
+        json={
+            "email": "admin@example.com",
+            "password": "AdminPass123",
+            "otp_code": generate_totp_code(secret),
+        },
+    )
+    assert login_response.status_code == 200, login_response.text
+    token = login_response.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    invite_url = client.post(
+        "/users/invites",
+        json={"email": "new-admin@example.com", "role": "admin"},
+        headers=headers,
+    ).json()["invite_url"]
+    invite_token = invite_url.split("#token=", 1)[-1]
+
+    invite_info_response = client.post(
+        "/auth/invite/inspect",
+        json={"token": invite_token},
+    )
+    assert invite_info_response.status_code == 200
+    assert invite_info_response.json()["role"] == "admin"
+
+    accept_response = client.post(
+        "/auth/invite/accept",
+        json={
+            "token": invite_token,
+            "first_name": "New",
+            "last_name": "Admin",
+            "password": "AdminPass456",
+        },
+    )
+    assert accept_response.status_code == 200
+
+    login_new_user = client.post(
+        "/auth/login",
+        json={"email": "new-admin@example.com", "password": "AdminPass456"},
+    )
+    assert login_new_user.status_code == 401
+    assert login_new_user.json()["detail"]["code"] == "two_factor_required"
 
 
 def test_invite_non_clinical_role_rejected(client: TestClient, db: Session):

@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   adminEmergencyUnlock,
-  createUser,
+  createUserInvite,
   disable2FA,
   fetch2FAStatus,
   fetchTrustedDevices,
@@ -32,7 +32,6 @@ import {
   superAdminResetUserPassword,
   verify2FA,
   getRoleLabel,
-  type User,
   type AdminSecurityUserLookup,
   type Admin2FAStatus,
   type TrustedDevice,
@@ -115,12 +114,9 @@ export function SettingsContent() {
   const [generatedResetTokenTTL, setGeneratedResetTokenTTL] = useState<number | null>(null);
   const [onboardingBusy, setOnboardingBusy] = useState(false);
   const [newAdminEmail, setNewAdminEmail] = useState("");
-  const [newAdminFirstName, setNewAdminFirstName] = useState("");
-  const [newAdminLastName, setNewAdminLastName] = useState("");
-  const [newAdminReason, setNewAdminReason] = useState("Initial admin onboarding");
-  const [createdAdmin, setCreatedAdmin] = useState<User | null>(null);
-  const [createdAdminResetToken, setCreatedAdminResetToken] = useState("");
-  const [createdAdminResetTokenTTL, setCreatedAdminResetTokenTTL] = useState<number | null>(null);
+  const [createdAdminInviteEmail, setCreatedAdminInviteEmail] = useState("");
+  const [createdAdminInviteUrl, setCreatedAdminInviteUrl] = useState("");
+  const [createdAdminInviteExpiresAt, setCreatedAdminInviteExpiresAt] = useState<string | null>(null);
 
   const isAdmin = role === "admin";
 
@@ -463,11 +459,11 @@ export function SettingsContent() {
     }
   };
 
-  const handleCopyCreatedAdminResetToken = async () => {
-    if (!createdAdminResetToken) return;
+  const handleCopyCreatedAdminInvite = async () => {
+    if (!createdAdminInviteUrl) return;
     try {
-      await navigator.clipboard.writeText(createdAdminResetToken);
-      toast.success(tr(language, "Onboarding token copied", "คัดลอกโทเคนเริ่มต้นใช้งานแล้ว"));
+      await navigator.clipboard.writeText(createdAdminInviteUrl);
+      toast.success(tr(language, "Invite link copied", "คัดลอกลิงก์คำเชิญแล้ว"));
     } catch {
       toast.error(tr(language, "Copy failed", "คัดลอกไม่สำเร็จ"));
     }
@@ -477,37 +473,25 @@ export function SettingsContent() {
     if (!token || !isSuperAdmin) return;
 
     const email = newAdminEmail.trim().toLowerCase();
-    const reason = newAdminReason.trim();
     if (!email) {
       toast.error(tr(language, "Please enter admin email", "กรุณากรอกอีเมลแอดมิน"));
-      return;
-    }
-    if (reason.length < 8) {
-      toast.error(tr(language, "Please enter reason with at least 8 characters", "กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร"));
       return;
     }
 
     setOnboardingBusy(true);
     try {
-      const created = await createUser(
-        {
-          email,
-          first_name: newAdminFirstName.trim() || undefined,
-          last_name: newAdminLastName.trim() || undefined,
-          role: "admin",
-        },
-        token
+      const invite = await createUserInvite(
+        { email, role: "admin" },
+        token,
       );
-      setCreatedAdmin(created);
-
-      const reset = await superAdminResetUserPassword(created.id, reason, token);
-      setCreatedAdminResetToken(reset.reset_token);
-      setCreatedAdminResetTokenTTL(reset.reset_token_expires_in);
-      toast.success(tr(language, "Admin created and onboarding token generated", "สร้างบัญชีแอดมินและสร้างโทเคนเริ่มต้นใช้งานแล้ว"));
+      setCreatedAdminInviteEmail(email);
+      setCreatedAdminInviteUrl(invite.invite_url);
+      setCreatedAdminInviteExpiresAt(invite.expires_at);
+      toast.success(tr(language, "Admin invite generated", "สร้างลิงก์คำเชิญแอดมินแล้ว"));
     } catch (error: unknown) {
-      setCreatedAdmin(null);
-      setCreatedAdminResetToken("");
-      setCreatedAdminResetTokenTTL(null);
+      setCreatedAdminInviteEmail("");
+      setCreatedAdminInviteUrl("");
+      setCreatedAdminInviteExpiresAt(null);
       toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
     } finally {
       setOnboardingBusy(false);
@@ -774,13 +758,13 @@ export function SettingsContent() {
             <CardDescription>
               {tr(
                 language,
-                "Create an admin account without a preset password, then immediately generate a one-time onboarding reset token.",
-                "สร้างบัญชีแอดมินโดยไม่ตั้งรหัสล่วงหน้า แล้วออกโทเคนเริ่มต้นใช้งานแบบครั้งเดียวได้ทันที"
+                "Generate an admin invite link so the account owner can set password and complete onboarding securely.",
+                "สร้างลิงก์คำเชิญสำหรับแอดมิน เพื่อให้เจ้าของบัญชีตั้งรหัสผ่านและเริ่มต้นใช้งานได้อย่างปลอดภัย"
               )}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-1">
               <div className="space-y-2">
                 <Label htmlFor="new_admin_email">{tr(language, "Admin email", "อีเมลแอดมิน")}</Label>
                 <Input
@@ -789,37 +773,10 @@ export function SettingsContent() {
                   value={newAdminEmail}
                   onChange={(event) => {
                     setNewAdminEmail(event.target.value);
-                    setCreatedAdmin(null);
-                    setCreatedAdminResetToken("");
-                    setCreatedAdminResetTokenTTL(null);
+                    setCreatedAdminInviteEmail("");
+                    setCreatedAdminInviteUrl("");
+                    setCreatedAdminInviteExpiresAt(null);
                   }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="new_admin_reason">{tr(language, "Audit reason", "เหตุผลสำหรับ audit")}</Label>
-                <Input
-                  id="new_admin_reason"
-                  placeholder={tr(language, "Initial admin onboarding", "เริ่มต้นใช้งานแอดมิน")}
-                  value={newAdminReason}
-                  onChange={(event) => setNewAdminReason(event.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="new_admin_first_name">{tr(language, "First name", "ชื่อจริง")}</Label>
-                <Input
-                  id="new_admin_first_name"
-                  placeholder={tr(language, "John", "สมชาย")}
-                  value={newAdminFirstName}
-                  onChange={(event) => setNewAdminFirstName(event.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="new_admin_last_name">{tr(language, "Last name", "นามสกุล")}</Label>
-                <Input
-                  id="new_admin_last_name"
-                  placeholder={tr(language, "Doe", "ใจดี")}
-                  value={newAdminLastName}
-                  onChange={(event) => setNewAdminLastName(event.target.value)}
                 />
               </div>
             </div>
@@ -827,33 +784,33 @@ export function SettingsContent() {
             <div className="rounded-md border border-border/60 bg-muted/20 p-3 text-sm text-muted-foreground">
               {tr(
                 language,
-                "This creates the admin account and immediately issues a one-time reset token. Share the token securely and require the user to set password + 2FA on first use.",
-                "ระบบจะสร้างบัญชีแอดมินและออกโทเคนรีเซ็ตแบบครั้งเดียวทันที ควรส่งโทเคนอย่างปลอดภัย และให้ผู้ใช้ตั้งรหัสผ่านพร้อมเปิด 2FA ในการใช้งานครั้งแรก"
+                "This issues an admin invite link. Share it securely. The invited admin will set password during invite acceptance and will still be required to complete 2FA.",
+                "ระบบจะออกลิงก์คำเชิญสำหรับแอดมิน ควรส่งลิงก์อย่างปลอดภัย โดยผู้ได้รับเชิญจะตั้งรหัสผ่านในขั้นตอนรับคำเชิญ และยังต้องทำ 2FA ให้ครบ"
               )}
             </div>
 
             <Button type="button" onClick={handleCreateAdminOnboarding} disabled={onboardingBusy}>
-              {tr(language, "Create admin onboarding", "สร้างบัญชีแอดมินเริ่มต้น")}
+              {tr(language, "Generate admin invite", "สร้างลิงก์คำเชิญแอดมิน")}
             </Button>
 
-            {createdAdmin && (
+            {createdAdminInviteEmail && (
               <div className="rounded-md border border-border/60 p-3 text-sm space-y-2">
-                <p><span className="text-muted-foreground">{tr(language, "Created account", "บัญชีที่สร้าง")}:</span> {createdAdmin.email}</p>
-                <p><span className="text-muted-foreground">{tr(language, "Role", "บทบาท")}:</span> {getRoleLabel(createdAdmin.role, language)}</p>
+                <p><span className="text-muted-foreground">{tr(language, "Invite target", "อีเมลปลายทาง")}:</span> {createdAdminInviteEmail}</p>
+                <p><span className="text-muted-foreground">{tr(language, "Role", "บทบาท")}:</span> {getRoleLabel("admin", language)}</p>
               </div>
             )}
 
-            {createdAdminResetToken && (
+            {createdAdminInviteUrl && (
               <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
                 <p className="text-sm text-muted-foreground">
-                  {tr(language, "One-time admin onboarding token:", "โทเคนเริ่มต้นใช้งานแอดมินแบบครั้งเดียว:")}
+                  {tr(language, "One-time admin invite link:", "ลิงก์คำเชิญแอดมินแบบครั้งเดียว:")}
                 </p>
-                <Input value={createdAdminResetToken} readOnly />
+                <Input value={createdAdminInviteUrl} readOnly />
                 <p className="text-sm text-muted-foreground">
-                  {tr(language, "Expires in", "หมดอายุใน")} {createdAdminResetTokenTTL ?? "-"} {tr(language, "seconds", "วินาที")}
+                  {tr(language, "Expires", "หมดอายุ")} {formatDateTime(createdAdminInviteExpiresAt, language)}
                 </p>
-                <Button type="button" variant="outline" onClick={handleCopyCreatedAdminResetToken}>
-                  {tr(language, "Copy onboarding token", "คัดลอกโทเคนเริ่มต้นใช้งาน")}
+                <Button type="button" variant="outline" onClick={handleCopyCreatedAdminInvite}>
+                  {tr(language, "Copy invite link", "คัดลอกลิงก์คำเชิญ")}
                 </Button>
               </div>
             )}

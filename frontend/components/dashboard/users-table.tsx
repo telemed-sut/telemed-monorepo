@@ -266,9 +266,9 @@ const INVITE_ERROR_MESSAGE_RULES: Array<{
     th: string;
 }> = [
     {
-        pattern: /invite onboarding is restricted to clinical specialist roles in this phase|clinical specialist roles/i,
-        en: "Invites are currently limited to clinical specialist roles.",
-        th: "ขณะนี้ระบบอนุญาตส่งคำเชิญเฉพาะบทบาทสายคลินิกเท่านั้น",
+        pattern: /invite onboarding is restricted to supported roles in this phase|supported invite roles/i,
+        en: "Invites are currently limited to supported roles.",
+        th: "ขณะนี้ระบบอนุญาตส่งคำเชิญเฉพาะบทบาทที่รองรับเท่านั้น",
     },
     {
         pattern: /invite.*expired|expired invite|link.*expired/i,
