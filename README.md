@@ -56,6 +56,14 @@ Roles currently supported in the backend:
 
 Clinical-role onboarding is enforced through invite flow policies where configured.
 
+## Operational runbooks
+
+Production admin operations now have repo-backed policy and runbook documents:
+
+- [Admin access policy](/Volumes/P1Back/telemed-monorepo/docs/security/admin-access-policy.md)
+- [Admin emergency access runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md)
+- [Secret rotation runbook](/Volumes/P1Back/telemed-monorepo/docs/security/secret-rotation-runbook.md)
+
 ## Tech Stack
 
 ### Frontend

@@ -120,6 +120,17 @@ JWT payload: sub (user id), role, exp. Token type bearer.
 - **Medical student users**: Read-only access to assigned patient data.
 - **Break-glass**: disabled by policy in phase-1.
 
+### Admin operations and recovery
+- Admin onboarding uses invite flow in production-oriented paths.
+- Only `super-admin` users can issue `admin` invites or perform emergency
+  security actions on other admin accounts.
+- Emergency unlock is available through the security toolkit and
+  [scripts/emergency_unlock_admin.py](scripts/emergency_unlock_admin.py).
+- Operational docs:
+  - [docs/security/admin-access-policy.md](/Volumes/P1Back/telemed-monorepo/docs/security/admin-access-policy.md)
+  - [docs/security/admin-emergency-access-runbook.md](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md)
+  - [docs/security/secret-rotation-runbook.md](/Volumes/P1Back/telemed-monorepo/docs/security/secret-rotation-runbook.md)
+
 ### Patients API
 - POST /patients (create) - Admin/Doctor
 - GET /patients?page=1&limit=20&q=term&sort=created_at&order=desc - Admin/Doctor
