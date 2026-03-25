@@ -93,12 +93,12 @@ def _ensure_doctor_can_view_meeting(
     current_user: User,
     meeting,
 ) -> None:
-    if current_user.role not in (UserRole.admin, UserRole.doctor):
+    if not auth_service.can_view_clinical_data(current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    if current_user.role == UserRole.doctor and not meeting_service.can_doctor_view_meeting(
+    if current_user.role != UserRole.admin and not meeting_service.can_assigned_user_view_meeting(
         db=db,
-        doctor_id=current_user.id,
+        user_id=current_user.id,
         meeting=meeting,
     ):
         raise HTTPException(
@@ -143,12 +143,12 @@ def list_meetings(
     current_user: User = Depends(get_current_user),
 ):
     """List meetings with pagination and filters."""
-    if current_user.role not in (UserRole.admin, UserRole.doctor):
+    if not auth_service.can_view_clinical_data(current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
 
     meeting_presence_service.reconcile_active_meetings(db)
 
-    visible_doctor_id = current_user.id if current_user.role == UserRole.doctor else None
+    visible_doctor_id = current_user.id if current_user.role != UserRole.admin else None
 
     items, total = meeting_service.list_meetings(
         db, page, min(limit, settings.max_limit), q, doctor_id, patient_id, sort, order,
@@ -167,15 +167,15 @@ def get_meeting(
     current_user: User = Depends(get_current_user),
 ):
     """Get meeting by ID."""
-    if current_user.role not in (UserRole.admin, UserRole.doctor):
+    if not auth_service.can_view_clinical_data(current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
     meeting = meeting_service.get_meeting(db, meeting_id)
     if not meeting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
 
-    if current_user.role == UserRole.doctor and not meeting_service.can_doctor_view_meeting(
+    if current_user.role != UserRole.admin and not meeting_service.can_assigned_user_view_meeting(
         db=db,
-        doctor_id=current_user.id,
+        user_id=current_user.id,
         meeting=meeting,
     ):
         raise HTTPException(
@@ -203,7 +203,7 @@ def issue_meeting_video_token(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Issue a short-lived meeting video token for authorized staff."""
+    """Issue a short-lived meeting video token for authorized care-team users."""
     if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
 
@@ -232,6 +232,9 @@ def get_meeting_video_reliability(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if not auth_service.can_view_clinical_data(current_user.role):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     meeting = meeting_service.get_meeting(db, meeting_id)
     if not meeting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
@@ -455,7 +458,7 @@ def update_meeting(
     current_user: User = Depends(get_current_user),
 ):
     """Update meeting. Doctors can only update their own meetings."""
-    if current_user.role not in (UserRole.admin, UserRole.doctor):
+    if not auth_service.can_write_clinical_data(current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
     meeting = meeting_service.get_meeting(db, meeting_id)
     if not meeting:

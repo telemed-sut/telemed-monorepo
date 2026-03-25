@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/toast";
 import {
+  CARE_TEAM_ASSIGNMENT_ROLES,
   createPatientAssignment,
   deletePatientAssignment,
   fetchPatientAssignments,
@@ -46,7 +47,7 @@ const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
 
 function displayName(user: User | undefined, language: AppLanguage): string {
-  if (!user) return tr(language, "Unknown Doctor", "ไม่พบข้อมูลแพทย์");
+  if (!user) return tr(language, "Unknown Care Team Member", "ไม่พบข้อมูลทีมดูแล");
   const fullName = `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim();
   return fullName || user.email;
 }
@@ -84,18 +85,18 @@ export function PatientAssignmentsDialog({
         {
           page,
           limit: USERS_PAGE_LIMIT,
-          role: "doctor",
-          clinical_only: true,
           sort: "first_name",
           order: "asc",
         },
         token
       );
 
-      doctors.push(...response.items.filter((item) => item.role === "doctor"));
+      doctors.push(
+        ...response.items.filter((item) => CARE_TEAM_ASSIGNMENT_ROLES.has(item.role))
+      );
       total = response.total;
       page += 1;
-    } while (doctors.length < total);
+    } while (doctors.length < total && (page - 1) * USERS_PAGE_LIMIT < total);
 
     return doctors;
   }, [token]);
@@ -139,12 +140,12 @@ export function PatientAssignmentsDialog({
     setSubmitting(true);
     try {
       await createPatientAssignment(patientId, { doctor_id: selectedDoctorId }, token);
-      toast.success(tr(language, "Doctor assigned", "เพิ่มแพทย์ผู้ดูแลแล้ว"));
+      toast.success(tr(language, "Care team member assigned", "เพิ่มสมาชิกทีมดูแลแล้ว"));
       setSelectedDoctorId("");
       await refreshData();
     } catch (error) {
       toast.error(tr(language, "Assign failed", "มอบหมายไม่สำเร็จ"), {
-        description: getErrorMessage(error, "ไม่สามารถเพิ่มแพทย์ให้ผู้ป่วยได้"),
+        description: getErrorMessage(error, "ไม่สามารถเพิ่มสมาชิกทีมดูแลให้ผู้ป่วยได้"),
       });
     } finally {
       setSubmitting(false);
@@ -156,11 +157,11 @@ export function PatientAssignmentsDialog({
     setSubmitting(true);
     try {
       await updatePatientAssignment(patientId, assignmentId, { role: "primary" }, token);
-      toast.success(tr(language, "Primary doctor updated", "อัปเดตแพทย์หลักแล้ว"));
+      toast.success(tr(language, "Primary assignee updated", "อัปเดตผู้ดูแลหลักแล้ว"));
       await refreshData();
     } catch (error) {
       toast.error(tr(language, "Update failed", "อัปเดตไม่สำเร็จ"), {
-        description: getErrorMessage(error, "ไม่สามารถเปลี่ยนแพทย์หลักได้"),
+        description: getErrorMessage(error, "ไม่สามารถเปลี่ยนผู้ดูแลหลักได้"),
       });
     } finally {
       setSubmitting(false);
@@ -172,11 +173,11 @@ export function PatientAssignmentsDialog({
     setSubmitting(true);
     try {
       await deletePatientAssignment(patientId, assignmentId, token);
-      toast.success(tr(language, "Doctor removed from patient", "ถอดแพทย์ออกจากผู้ป่วยแล้ว"));
+      toast.success(tr(language, "Care team member removed from patient", "ถอดสมาชิกทีมดูแลออกจากผู้ป่วยแล้ว"));
       await refreshData();
     } catch (error) {
       toast.error(tr(language, "Remove failed", "ถอดไม่สำเร็จ"), {
-        description: getErrorMessage(error, "ไม่สามารถถอดแพทย์ออกจากผู้ป่วยได้"),
+        description: getErrorMessage(error, "ไม่สามารถถอดสมาชิกทีมดูแลออกจากผู้ป่วยได้"),
       });
     } finally {
       setSubmitting(false);
@@ -187,22 +188,22 @@ export function PatientAssignmentsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{tr(language, "Manage Doctors", "จัดการแพทย์ผู้ดูแล")}</DialogTitle>
+          <DialogTitle>{tr(language, "Manage Care Team", "จัดการทีมดูแล")}</DialogTitle>
           <DialogDescription>
-            {tr(language, "Manage doctor assignments for patient:", "จัดการแพทย์ผู้ดูแลของผู้ป่วย:")} <span className="font-medium">{patientName}</span>
+            {tr(language, "Manage care team assignments for patient:", "จัดการทีมดูแลของผู้ป่วย:")} <span className="font-medium">{patientName}</span>
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="rounded-md border p-3">
-            <Label className="text-sm font-medium">{tr(language, "Add doctor", "เพิ่มแพทย์")}</Label>
+            <Label className="text-sm font-medium">{tr(language, "Add care team member", "เพิ่มสมาชิกทีมดูแล")}</Label>
             <div className="mt-2 flex flex-col gap-2 sm:flex-row">
               <Select value={selectedDoctorId} onValueChange={(value) => setSelectedDoctorId(value ?? "")}>
                 <SelectTrigger className="sm:flex-1">
                   {selectedDoctorId ? (
                     <SelectValue />
                   ) : (
-                    <span className="text-sm text-muted-foreground">{tr(language, "Select doctor", "เลือกแพทย์")}</span>
+                    <span className="text-sm text-muted-foreground">{tr(language, "Select care team member", "เลือกสมาชิกทีมดูแล")}</span>
                   )}
                 </SelectTrigger>
                 <SelectContent>
@@ -223,11 +224,11 @@ export function PatientAssignmentsDialog({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-sm font-medium">{tr(language, "Assigned doctors", "แพทย์ที่มอบหมายแล้ว")}</Label>
+            <Label className="text-sm font-medium">{tr(language, "Assigned care team", "ทีมดูแลที่มอบหมายแล้ว")}</Label>
             {loading ? (
               <p className="text-sm text-muted-foreground">{tr(language, "Loading assignments...", "กำลังโหลดข้อมูลการมอบหมาย...")}</p>
             ) : assignments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{tr(language, "No doctors assigned.", "ยังไม่มีการมอบหมายแพทย์")}</p>
+              <p className="text-sm text-muted-foreground">{tr(language, "No care team members assigned.", "ยังไม่มีการมอบหมายทีมดูแล")}</p>
             ) : (
               <div className="space-y-2">
                 {assignments.map((assignment) => (

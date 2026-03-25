@@ -10,10 +10,6 @@ from app.models.enums import UserRole, VerificationStatus
 # Roles considered clinical (require license info)
 CLINICAL_ROLES = {
     UserRole.doctor,
-    UserRole.nurse,
-    UserRole.pharmacist,
-    UserRole.medical_technologist,
-    UserRole.psychologist,
 }
 
 # Thai medical license pattern: ว.NNNNN, พ.NNNNN, MD12345, MD-TEST, or plain digits
@@ -24,7 +20,7 @@ class UserBase(BaseModel):
     email: EmailStr
     first_name: Optional[str] = None
     last_name: Optional[str] = None
-    role: UserRole = UserRole.staff
+    role: UserRole = UserRole.medical_student
     is_active: bool = True
     specialty: Optional[str] = None
     department: Optional[str] = None
@@ -113,7 +109,7 @@ class UserListResponse(BaseModel):
 
 class UserInviteCreateRequest(BaseModel):
     email: EmailStr
-    role: UserRole = UserRole.staff
+    role: UserRole = UserRole.medical_student
 
 
 class UserInviteCreateResponse(BaseModel):

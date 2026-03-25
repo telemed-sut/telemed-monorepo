@@ -145,7 +145,7 @@ def register_patient_app(
     if expires_at <= now:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Registration code has expired. Please ask staff for a new one.",
+            detail="Registration code has expired. Please ask your care team for a new one.",
         )
 
     # Find patient and verify phone.

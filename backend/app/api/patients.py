@@ -48,14 +48,14 @@ def _patient_audit_details(patient) -> dict:
     }
 
 
-def notify_staff(
+def notify_care_team(
     db: Session,
     current_user: User,
     background_tasks: BackgroundTasks,
     action: str,
     patient_id: str,
 ):
-    """Send notification to all staff except the current user.
+    """Send notification to care-team members except the current user.
 
     Uses Novu notification service when enabled. Silently skips if Novu is
     disabled or not configured (``NOVU_ENABLED=false``).
@@ -68,7 +68,7 @@ def notify_staff(
     # Lazy import — only loaded when Novu is actually enabled.
     from app.services import novu as novu_service  # noqa: E402
 
-    stmt = select(User.id).where(User.role.in_([UserRole.admin, UserRole.staff]))
+    stmt = select(User.id).where(User.role.in_([UserRole.admin, UserRole.doctor]))
     user_ids = [str(row[0]) for row in db.execute(stmt).fetchall() if str(row[0]) != str(current_user.id)]
     
     if not user_ids:
@@ -108,7 +108,7 @@ def create_patient(
         details={"patient_id": str(patient.id)},
         ip_address=get_client_ip(request),
     )
-    notify_staff(db, current_user, background_tasks, "created", str(patient.id))
+    notify_care_team(db, current_user, background_tasks, "created", str(patient.id))
     return patient
 
 
@@ -127,7 +127,8 @@ def list_patients(
     """List patients with pagination.
 
     - Admin: can list all patients.
-    - Doctor: can list all patients.
+    - Doctor: can list assigned patients.
+    - Medical student: can list assigned patients read-only.
     """
     items, total = patient_service.list_patients_for_user(
         db,
@@ -153,6 +154,7 @@ def get_patient(
 
     - Admin: can access all.
     - Doctor: only assigned.
+    - Medical student: only assigned (read-only).
     """
     patient = patient_service.get_patient(db, patient_id)
     if not patient:
@@ -179,6 +181,9 @@ def update_patient(
     current_user: User = Depends(auth_service.get_current_user),
 ):
     """Update patient (admin or assigned doctor)."""
+    if not auth_service.can_write_clinical_data(current_user.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     patient = patient_service.get_patient(db, patient_id)
     if not patient:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
@@ -191,7 +196,7 @@ def update_patient(
     )
 
     updated = patient_service.update_patient(db, patient, payload)
-    notify_staff(db, current_user, background_tasks, "updated", str(updated.id))
+    notify_care_team(db, current_user, background_tasks, "updated", str(updated.id))
 
     # Audit: Store only metadata about changed fields (no PHI field values).
     try:
@@ -369,7 +374,7 @@ def delete_patient(
         details=_patient_audit_details(patient),
         ip_address=get_client_ip(request),
     )
-    notify_staff(db, current_user, background_tasks, "deleted", str(patient.id))
+    notify_care_team(db, current_user, background_tasks, "deleted", str(patient.id))
     return None
 
 
@@ -411,7 +416,7 @@ def bulk_delete_patients(
             details={**_patient_audit_details(patient), "bulk": True},
             ip_address=get_client_ip(request),
         )
-        notify_staff(db, current_user, background_tasks, "deleted", str(patient.id))
+        notify_care_team(db, current_user, background_tasks, "deleted", str(patient.id))
         deleted += 1
         deleted_ids.append(str(patient.id))
 

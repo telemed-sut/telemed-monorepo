@@ -34,7 +34,14 @@ import {
 import { useEffect, useState } from "react";
 import { Logo } from "@/components/ui/logo";
 import { useAuthStore } from "@/store/auth-store";
-import { fetchCurrentUser, logout, UserMe, ROLE_LABEL_MAP } from "@/lib/api";
+import {
+  canManageUsers,
+  canViewClinicalData,
+  fetchCurrentUser,
+  logout,
+  ROLE_LABEL_MAP,
+  UserMe,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
 import { type AppLanguage } from "@/store/language-config";
@@ -129,11 +136,7 @@ const ROLE_LABELS_BY_LANGUAGE: Record<AppLanguage, Record<string, string>> = {
   th: {
     admin: "ผู้ดูแลระบบ",
     doctor: "แพทย์",
-    staff: "เจ้าหน้าที่",
-    nurse: "พยาบาล",
-    pharmacist: "เภสัชกร",
-    medical_technologist: "นักเทคนิคการแพทย์",
-    psychologist: "นักจิตวิทยา",
+    medical_student: "นักศึกษาแพทย์",
   },
 };
 
@@ -369,11 +372,11 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
     return () => { cancelled = true; };
   }, [token]);
 
-  const showMeetings = userRole === "admin" || userRole === "doctor";
+  const showMeetings = canViewClinicalData(userRole);
   const navRoutes = [
     ...baseRoutes,
     ...(showMeetings ? [meetingsRoute] : []),
-    ...(userRole === "admin" ? adminOnlyRoutes : []),
+    ...(canManageUsers(userRole) ? adminOnlyRoutes : []),
   ];
 
   const isActive = (link: string) => {

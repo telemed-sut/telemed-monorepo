@@ -5,6 +5,7 @@ class UserRole(str, enum.Enum):
     admin = "admin"
     staff = "staff"
     doctor = "doctor"
+    medical_student = "medical_student"
     nurse = "nurse"
     pharmacist = "pharmacist"
     medical_technologist = "medical_technologist"

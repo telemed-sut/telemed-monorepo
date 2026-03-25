@@ -28,8 +28,9 @@ def get_overview_stats(
 
     - Admin: global data across all patients and meetings.
     - Doctor: scoped to own meetings + assigned patient meetings.
+    - Medical student: scoped to assigned patient meetings (read-only).
     """
-    if current_user.role not in (UserRole.admin, UserRole.doctor):
+    if not auth_service.can_view_clinical_data(current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
 
     if year is None:
@@ -37,7 +38,7 @@ def get_overview_stats(
 
     resolved_year = int(year)
     doctor_id = current_user.id
-    is_doctor = current_user.role == UserRole.doctor
+    is_scoped_clinical_user = current_user.role != UserRole.admin
 
     month_labels = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -60,7 +61,7 @@ def get_overview_stats(
             Patient.is_active == True,  # noqa: E712
         )
     )
-    if is_doctor:
+    if is_scoped_clinical_user:
         patients_stmt = patients_stmt.join(
             DoctorPatientAssignment,
             DoctorPatientAssignment.patient_id == Patient.id,
@@ -79,7 +80,7 @@ def get_overview_stats(
         )
         .where(extract("year", Meeting.date_time) == resolved_year)
     )
-    if is_doctor:
+    if is_scoped_clinical_user:
         meetings_stmt = meetings_stmt.where(
             meeting_service.build_doctor_visibility_clause(doctor_id)
         )
@@ -101,7 +102,7 @@ def get_overview_stats(
         })
 
     # Totals — also scoped by role
-    if is_doctor:
+    if is_scoped_clinical_user:
         visibility_clause = meeting_service.build_doctor_visibility_clause(doctor_id)
         total_patients_stmt = (
             select(func.count(func.distinct(Patient.id)))

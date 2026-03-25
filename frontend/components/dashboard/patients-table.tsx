@@ -68,7 +68,16 @@ import {
   FilterHorizontalIcon,
   Stethoscope02Icon,
 } from "@hugeicons/core-free-icons";
-import { fetchPatients, createPatient, updatePatient, deletePatient, generatePatientRegistrationCode, type Patient } from "@/lib/api";
+import {
+  canManageUsers,
+  canWriteClinicalData,
+  createPatient,
+  deletePatient,
+  fetchPatients,
+  generatePatientRegistrationCode,
+  type Patient,
+  updatePatient,
+} from "@/lib/api";
 import { buildProfileSeed, getProfileOrbStyle } from "@/components/ui/profile-avatar-orb";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
@@ -151,6 +160,8 @@ export function PatientsTable() {
   const [regCode, setRegCode] = useState<string | null>(null);
   const [regCodePatientName, setRegCodePatientName] = useState("");
   const [regCodeLoading, setRegCodeLoading] = useState(false);
+  const canManagePatients = canWriteClinicalData(role);
+  const canManageAssignments = canManageUsers(role);
 
   const isInitialLoading = loading && patients.length === 0;
   const isRefetching = loading && patients.length > 0;
@@ -518,7 +529,7 @@ export function PatientsTable() {
           {tr(language, "Clear Search", "ล้างการค้นหา")}
         </Button>
       )}
-      {!search && (
+      {!search && canManagePatients && (
         <Button onClick={() => resetForm()} size="lg" className="mt-6 shadow-md hover:shadow-lg transition-all rounded-full">
           <HugeiconsIcon icon={Add01Icon} className="size-4 mr-2" />
           {tr(language, "Add first patient", "เพิ่มผู้ป่วยคนแรก")}
@@ -619,14 +630,16 @@ export function PatientsTable() {
                   className="h-9 w-full bg-background/50 pl-9 shadow-sm transition-all hover:border-input focus-visible:ring-primary/20 sm:w-[240px]"
                 />
               </div>
-              <Button
-                variant="default"
-                className="h-9 gap-2 bg-black px-3.5 text-sm text-white hover:bg-black/90 dark:bg-black dark:text-white dark:hover:bg-black/90"
-                onClick={() => resetForm()}
-              >
-                <HugeiconsIcon icon={Add01Icon} className="size-4" />
-                {tr(language, "Add Patient", "เพิ่มผู้ป่วย")}
-              </Button>
+              {canManagePatients ? (
+                <Button
+                  variant="default"
+                  className="h-9 gap-2 bg-black px-3.5 text-sm text-white hover:bg-black/90 dark:bg-black dark:text-white dark:hover:bg-black/90"
+                  onClick={() => resetForm()}
+                >
+                  <HugeiconsIcon icon={Add01Icon} className="size-4" />
+                  {tr(language, "Add Patient", "เพิ่มผู้ป่วย")}
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 size="icon"
@@ -872,23 +885,25 @@ export function PatientsTable() {
                                   <HugeiconsIcon icon={Copy01Icon} className="size-4 mr-2" />
                                   {tr(language, "Copy ID", "คัดลอก ID")}
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => resetForm(patient)}>
-                                  <HugeiconsIcon icon={Edit01Icon} className="size-4 mr-2" />
-                                  {tr(language, "Edit Patient", "แก้ไขผู้ป่วย")}
-                                </DropdownMenuItem>
-                                {role === "admin" && (
+                                {canManagePatients ? (
+                                  <DropdownMenuItem onClick={() => resetForm(patient)}>
+                                    <HugeiconsIcon icon={Edit01Icon} className="size-4 mr-2" />
+                                    {tr(language, "Edit Patient", "แก้ไขผู้ป่วย")}
+                                  </DropdownMenuItem>
+                                ) : null}
+                                {canManageAssignments ? (
                                   <DropdownMenuItem onClick={() => setAssignmentPatient(patient)}>
                                     <HugeiconsIcon icon={Stethoscope02Icon} className="size-4 mr-2" />
-                                    {tr(language, "Manage Doctors", "จัดการแพทย์")}
+                                    {tr(language, "Manage Care Team", "จัดการทีมดูแล")}
                                   </DropdownMenuItem>
-                                )}
-                                {(role === "admin" || role === "doctor") && (
+                                ) : null}
+                                {canManagePatients ? (
                                   <DropdownMenuItem onClick={() => { void handleGenerateRegCode(patient); }}>
                                     <HugeiconsIcon icon={AiPhone01Icon} className="size-4 mr-2" />
                                     {tr(language, "App Reg Code", "รหัสลงทะเบียนแอป")}
                                   </DropdownMenuItem>
-                                )}
-                                {role === "admin" && (
+                                ) : null}
+                                {canManageAssignments ? (
                                   <DropdownMenuItem
                                     onClick={() => handleDelete(patient.id)}
                                     className="text-destructive focus:text-destructive"
@@ -896,7 +911,7 @@ export function PatientsTable() {
                                     <HugeiconsIcon icon={Delete01Icon} className="size-4 mr-2" />
                                     {tr(language, "Delete", "ลบ")}
                                   </DropdownMenuItem>
-                                )}
+                                ) : null}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </TableCell>

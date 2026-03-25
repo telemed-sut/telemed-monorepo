@@ -201,6 +201,7 @@ export default function InviteRegisterClientPage() {
                     ? ({
                       admin: "ผู้ดูแลระบบ",
                       doctor: "แพทย์",
+                      medical_student: "นักศึกษาแพทย์",
                       staff: "เจ้าหน้าที่",
                       nurse: "พยาบาล",
                       pharmacist: "เภสัชกร",

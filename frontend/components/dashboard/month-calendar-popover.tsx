@@ -42,6 +42,7 @@ import {
 } from "@/lib/meeting-datetime";
 import { cn } from "@/lib/utils";
 import {
+  canWriteClinicalData,
   createMeeting,
   deleteMeeting,
   updateMeeting,
@@ -822,6 +823,7 @@ export function MonthCalendarPopover({
 }: MonthCalendarPopoverProps) {
   const language = useLanguageStore((state) => state.language);
   const isDoctorUser = userRole === "doctor";
+  const canManageMeetings = canWriteClinicalData(userRole);
 
   const [open, setOpen] = useState(false);
   const [viewMode, setViewMode] = useState<CalendarPopupView>("month");
@@ -1381,6 +1383,12 @@ export function MonthCalendarPopover({
     startHour: number,
     startMinute: number
   ) => {
+    if (!canManageMeetings) {
+      toast.error(
+        tr(language, "This meeting view is read-only for your account", "บัญชีของคุณดูนัดหมายได้อย่างเดียว")
+      );
+      return;
+    }
     const startTotal = startHour * 60 + startMinute;
     const endTotal = Math.min(startTotal + 60, 23 * 60 + 55);
     const positioned = clampInContainer(
@@ -1621,6 +1629,7 @@ export function MonthCalendarPopover({
     meeting: Meeting,
     mode: DraftDragMode
   ) => {
+    if (!canManageMeetings) return;
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -1827,6 +1836,10 @@ export function MonthCalendarPopover({
 
   const handleNewEventAction = () => {
     if (!contextMenu.date) return;
+    if (!canManageMeetings) {
+      setContextMenu(CLOSED_CONTEXT_MENU);
+      return;
+    }
 
     if (viewMode === "day" || viewMode === "week") {
       setFocusedDate(contextMenu.date);
@@ -1946,6 +1959,12 @@ export function MonthCalendarPopover({
 
   const handleCreateEvent = async () => {
     if (!composer) return;
+    if (!canManageMeetings) {
+      toast.error(
+        tr(language, "This meeting view is read-only for your account", "บัญชีของคุณดูนัดหมายได้อย่างเดียว")
+      );
+      return;
+    }
     if (!token) {
       toast.error(tr(language, "Session expired. Please sign in again", "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่"));
       return;
@@ -2024,6 +2043,12 @@ export function MonthCalendarPopover({
     meetingId: string,
     payload: MeetingUpdatePayload
   ) => {
+    if (!canManageMeetings) {
+      toast.error(
+        tr(language, "This meeting view is read-only for your account", "บัญชีของคุณดูนัดหมายได้อย่างเดียว")
+      );
+      throw new Error("read-only");
+    }
     if (!token) {
       toast.error(
         tr(

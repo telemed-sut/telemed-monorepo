@@ -15,6 +15,7 @@ from app.models.patient import Patient
 from app.models.user import User
 from app.schemas.patient import PatientCreate, PatientUpdate
 from app.services import audit as audit_service
+from app.services import auth as auth_service
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -71,8 +72,8 @@ def _validate_patient_and_doctor(db: Session, patient_id: UUID, doctor_id: UUID)
     )
     if not doctor:
         raise ValueError("Doctor account not found.")
-    if doctor.role != UserRole.doctor:
-        raise ValueError("Only doctor accounts can be assigned to patients.")
+    if not auth_service.can_receive_patient_assignments(doctor.role):
+        raise ValueError("Only doctor or medical student accounts can be assigned to patients.")
     return doctor
 
 
@@ -147,7 +148,7 @@ def verify_doctor_patient_access(
     """Enforce phase-1 assignment policy at service layer.
 
     - Admin: full access
-    - Doctor: only assigned patients
+    - Doctor/medical student: only assigned patients
     - Others: forbidden
     """
     if not _patient_exists(db, patient_id):
@@ -159,7 +160,7 @@ def verify_doctor_patient_access(
     if current_user.role == UserRole.admin:
         return
 
-    if current_user.role != UserRole.doctor:
+    if current_user.role not in (UserRole.doctor, UserRole.medical_student):
         _log_patient_access_denied(
             db,
             current_user=current_user,
@@ -169,7 +170,7 @@ def verify_doctor_patient_access(
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. Required roles: ['admin', 'doctor']",
+            detail="Access denied. Required roles: ['admin', 'doctor', 'medical_student']",
         )
 
     if _has_active_assignment(db, current_user.id, patient_id):
@@ -450,12 +451,14 @@ def list_patients_for_user(
     order: str,
 ) -> Tuple[List[Patient], int]:
     """List patients with role-aware filtering enforced in service layer."""
-    if current_user.role in (UserRole.admin, UserRole.doctor):
+    if current_user.role == UserRole.admin:
         doctor_id: Optional[UUID] = None
+    elif current_user.role in (UserRole.doctor, UserRole.medical_student):
+        doctor_id = current_user.id
     else:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. Required roles: ['admin', 'doctor']",
+            detail="Access denied. Required roles: ['admin', 'doctor', 'medical_student']",
         )
 
     return list_patients(

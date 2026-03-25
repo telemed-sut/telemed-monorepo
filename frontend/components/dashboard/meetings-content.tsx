@@ -62,6 +62,7 @@ import { MonthCalendarView } from "./month-calendar-view";
 import { useCalendarStore } from "@/store/calendar-store";
 import { useAuthStore } from "@/store/auth-store";
 import {
+  canWriteClinicalData,
   fetchAllMeetings,
   fetchAllPatients,
   fetchPatients,
@@ -2107,6 +2108,7 @@ export function MeetingsContent() {
   const userRole = useAuthStore((state) => state.role);
   const clearToken = useAuthStore((state) => state.clearToken);
   const language = useLanguageStore((state) => state.language);
+  const canManageMeetings = canWriteClinicalData(userRole);
 
   // Pre-warm the ZEGO SDK bundle so it's cached before the doctor clicks "Start call".
   // On 3G this can take 20-40s, so starting early is critical.
@@ -2302,9 +2304,15 @@ export function MeetingsContent() {
   );
 
   const handleSlotSelect = useCallback((slot: CalendarSlotSelection) => {
+    if (!canManageMeetings) {
+      toast.error(
+        tr(language, "This meeting view is read-only for your account", "บัญชีของคุณดูนัดหมายได้อย่างเดียว")
+      );
+      return;
+    }
     setCreateInitialSlot(slot);
     setCreateOpen(true);
-  }, []);
+  }, [canManageMeetings, language]);
 
   useEffect(() => {
     loadMeetings();
@@ -2557,19 +2565,21 @@ export function MeetingsContent() {
                     </div>
                   </PopoverContent>
                 </Popover>
-                <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.985 }}>
-                  <Button
-                    size="icon"
-                    className="size-8 shrink-0 rounded-2xl border border-slate-900 bg-slate-900 text-white shadow-[0_14px_28px_rgba(15,23,42,0.16)] transition-[transform,box-shadow,background-color] hover:bg-slate-800 hover:shadow-[0_18px_34px_rgba(15,23,42,0.18)] md:h-9 md:w-auto md:px-3 md:gap-2"
-                    onClick={() => {
-                      setCreateInitialSlot(null);
-                      setCreateOpen(true);
-                    }}
-                  >
-                    <HugeiconsIcon icon={Add01Icon} className="size-4" />
-                    <span className="hidden text-sm lg:inline">{tr(language, "Create Event", "สร้างอีเวนต์")}</span>
-                  </Button>
-                </motion.div>
+                {canManageMeetings ? (
+                  <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.985 }}>
+                    <Button
+                      size="icon"
+                      className="size-8 shrink-0 rounded-2xl border border-slate-900 bg-slate-900 text-white shadow-[0_14px_28px_rgba(15,23,42,0.16)] transition-[transform,box-shadow,background-color] hover:bg-slate-800 hover:shadow-[0_18px_34px_rgba(15,23,42,0.18)] md:h-9 md:w-auto md:px-3 md:gap-2"
+                      onClick={() => {
+                        setCreateInitialSlot(null);
+                        setCreateOpen(true);
+                      }}
+                    >
+                      <HugeiconsIcon icon={Add01Icon} className="size-4" />
+                      <span className="hidden text-sm lg:inline">{tr(language, "Create Event", "สร้างอีเวนต์")}</span>
+                    </Button>
+                  </motion.div>
+                ) : null}
               </motion.div>
             </div>
           </div>
@@ -2687,22 +2697,24 @@ export function MeetingsContent() {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <SchedulePopover
-                language={language}
-                onSchedule={() => {
-                  setCreateInitialSlot(null);
-                  setCreateOpen(true);
-                }}
-              >
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-9 rounded-2xl border-slate-200/80 bg-white/80 px-3.5 text-sm font-medium text-slate-700 shadow-none transition-colors hover:bg-slate-50 md:w-auto md:gap-2"
+              {canManageMeetings ? (
+                <SchedulePopover
+                  language={language}
+                  onSchedule={() => {
+                    setCreateInitialSlot(null);
+                    setCreateOpen(true);
+                  }}
                 >
-                  <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
-                  <span className="hidden md:inline">{tr(language, "Schedule", "นัดหมาย")}</span>
-                </Button>
-              </SchedulePopover>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-9 rounded-2xl border-slate-200/80 bg-white/80 px-3.5 text-sm font-medium text-slate-700 shadow-none transition-colors hover:bg-slate-50 md:w-auto md:gap-2"
+                  >
+                    <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
+                    <span className="hidden md:inline">{tr(language, "Schedule", "นัดหมาย")}</span>
+                  </Button>
+                </SchedulePopover>
+              ) : null}
 
               <Popover open={filterOpen} onOpenChange={setFilterOpen}>
                 <PopoverTrigger
@@ -2905,6 +2917,9 @@ export function MeetingsContent() {
           <CalendarView
             onSlotSelect={handleSlotSelect}
             onEditMeeting={(meeting) => {
+              if (!canManageMeetings) {
+                return;
+              }
               setEditMeeting(meeting);
               setCreateInitialSlot(null);
               setCreateOpen(true);
@@ -2916,6 +2931,9 @@ export function MeetingsContent() {
         <div className="flex-1 flex flex-col overflow-auto">
           <MonthCalendarView
             onEditMeeting={(meeting) => {
+              if (!canManageMeetings) {
+                return;
+              }
               setEditMeeting(meeting);
               setCreateInitialSlot(null);
               setCreateOpen(true);
@@ -2932,6 +2950,9 @@ export function MeetingsContent() {
         <QueueView
           onRefresh={loadMeetings}
           onEditMeeting={(meeting) => {
+            if (!canManageMeetings) {
+              return;
+            }
             setEditMeeting(meeting);
             setCreateInitialSlot(null);
             setCreateOpen(true);

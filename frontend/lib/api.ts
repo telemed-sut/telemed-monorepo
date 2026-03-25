@@ -90,12 +90,8 @@ export interface BackupCodesResponse {
 
 export const ROLE_OPTIONS = [
   { value: "admin", label: "Admin" },
-  { value: "staff", label: "Staff" },
   { value: "doctor", label: "Doctor" },
-  { value: "nurse", label: "Nurse" },
-  { value: "pharmacist", label: "Pharmacist" },
-  { value: "medical_technologist", label: "Medical Technologist" },
-  { value: "psychologist", label: "Psychologist" },
+  { value: "medical_student", label: "Medical Student" },
 ] as const;
 
 export const ROLE_LABEL_MAP: Record<string, string> = Object.fromEntries(
@@ -104,8 +100,29 @@ export const ROLE_LABEL_MAP: Record<string, string> = Object.fromEntries(
 
 /** Roles that are considered clinical (require license verification) */
 export const CLINICAL_ROLES = new Set([
-  "doctor", "nurse", "pharmacist", "medical_technologist", "psychologist",
+  "doctor",
 ]);
+
+export const CARE_TEAM_ASSIGNMENT_ROLES = new Set([
+  "doctor",
+  "medical_student",
+]);
+
+export function canManageUsers(role: string | null | undefined): boolean {
+  return role === "admin";
+}
+
+export function canViewClinicalData(role: string | null | undefined): boolean {
+  return role === "admin" || role === "doctor" || role === "medical_student";
+}
+
+export function canWriteClinicalData(role: string | null | undefined): boolean {
+  return role === "admin" || role === "doctor";
+}
+
+export function isMedicalStudentRole(role: string | null | undefined): boolean {
+  return role === "medical_student";
+}
 
 export interface Patient {
   id: string;

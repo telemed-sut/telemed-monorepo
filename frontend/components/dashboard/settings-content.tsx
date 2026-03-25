@@ -59,6 +59,7 @@ const UI_TONE_OPTIONS: UITone[] = [
 const ROLE_LABEL_MAP_TH: Record<string, string> = {
   admin: "ผู้ดูแลระบบ",
   doctor: "แพทย์",
+  medical_student: "นักศึกษาแพทย์",
   staff: "เจ้าหน้าที่",
   nurse: "พยาบาล",
   pharmacist: "เภสัชกร",

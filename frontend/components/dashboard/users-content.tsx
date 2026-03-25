@@ -714,6 +714,7 @@ function UsersByRoleChart({ users, language }: { users: User[]; language: AppLan
       const labels: Record<string, string> = {
         admin: "ผู้ดูแลระบบ",
         doctor: "แพทย์",
+        medical_student: "นักศึกษาแพทย์",
         staff: "เจ้าหน้าที่",
         nurse: "พยาบาล",
         pharmacist: "เภสัชกร",
@@ -733,6 +734,7 @@ function UsersByRoleChart({ users, language }: { users: User[]; language: AppLan
     const colors: Record<string, string> = {
       admin: "var(--med-primary-light)",
       doctor: "var(--med-primary)",
+      medical_student: "#8b5cf6",
       staff: "#3d98d0",
       nurse: "#2d88c0",
       pharmacist: "#a855f7",

@@ -128,15 +128,11 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 const ROLE_OPTIONS = [
     { value: "admin", label: "Administrator" },
     { value: "doctor", label: "Doctor" },
-    { value: "nurse", label: "Nurse" },
-    { value: "pharmacist", label: "Pharmacist" },
-    { value: "medical_technologist", label: "Medical Technologist" },
-    { value: "psychologist", label: "Psychologist" },
-    { value: "staff", label: "Staff" },
+    { value: "medical_student", label: "Medical Student" },
 ];
 
 const CLINICAL_ROLE_OPTIONS = ROLE_OPTIONS.filter((option) =>
-    ["doctor", "nurse", "pharmacist", "medical_technologist", "psychologist"].includes(option.value)
+    ["doctor", "medical_student"].includes(option.value)
 );
 
 const ROLE_LABEL_MAP: Record<string, string> = ROLE_OPTIONS.reduce(
@@ -147,11 +143,7 @@ const ROLE_LABEL_MAP: Record<string, string> = ROLE_OPTIONS.reduce(
 const ROLE_LABEL_MAP_TH: Record<string, string> = {
     admin: "ผู้ดูแลระบบ",
     doctor: "แพทย์",
-    nurse: "พยาบาล",
-    pharmacist: "เภสัชกร",
-    medical_technologist: "นักเทคนิคการแพทย์",
-    psychologist: "นักจิตวิทยา",
-    staff: "เจ้าหน้าที่",
+    medical_student: "นักศึกษาแพทย์",
 };
 
 const STATUS_LABEL_MAP_TH: Record<string, string> = {
@@ -161,7 +153,7 @@ const STATUS_LABEL_MAP_TH: Record<string, string> = {
 };
 
 const isClinicalRole = (role: string) => {
-    return CLINICAL_ROLE_OPTIONS.some((option) => option.value === role);
+    return role === "doctor";
 };
 
 const TEAM_MEMBER_COLORS = [
@@ -1192,8 +1184,7 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                             "capitalize",
                             role === "admin" && "bg-amber-500/10 text-amber-500 hover:bg-amber-500/20",
                             role === "doctor" && "bg-blue-500/10 text-blue-500 hover:bg-blue-500/20",
-                            role === "nurse" && "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20",
-                            role === "staff" && "bg-slate-500/10 text-slate-500 hover:bg-slate-500/20"
+                            role === "medical_student" && "bg-violet-500/10 text-violet-500 hover:bg-violet-500/20"
                         )}
                     >
                         {getRoleLabelByLanguage(role, language)}

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { MeetingsContent } from "@/components/dashboard/meetings-content";
 import { Button } from "@/components/ui/button";
+import { canViewClinicalData } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
@@ -17,7 +18,7 @@ export default function MeetingsPage() {
   const token = useAuthStore((state) => state.token);
   const hydrated = useAuthStore((state) => state.hydrated);
   const language = useLanguageStore((state) => state.language);
-  const canAccess = role === "admin" || role === "doctor";
+  const canAccess = canViewClinicalData(role);
 
   useEffect(() => {
     if (hydrated && token && !canAccess) {
@@ -37,8 +38,8 @@ export default function MeetingsPage() {
           <p className="text-sm text-muted-foreground">
             {tr(
               language,
-              "Meetings is available for admin and doctor roles only.",
-              "หน้านัดหมายใช้งานได้เฉพาะบทบาทผู้ดูแลระบบและแพทย์เท่านั้น"
+              "Meetings is available for admin, doctor, and medical student roles only.",
+              "หน้านัดหมายใช้งานได้เฉพาะบทบาทผู้ดูแลระบบ แพทย์ และนักศึกษาแพทย์เท่านั้น"
             )}
           </p>
           <Button onClick={() => router.replace("/overview")}>

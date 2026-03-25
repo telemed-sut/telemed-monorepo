@@ -283,10 +283,10 @@ def create_user(
     current_user: User = Depends(get_admin_user),
 ) -> Any:
     """Create a new user. Admin only."""
-    if settings.specialist_invite_only and user_in.role in CLINICAL_ROLES:
+    if settings.specialist_invite_only and auth_service.can_receive_user_invite(user_in.role):
         raise HTTPException(
             status_code=400,
-            detail="Clinical specialist accounts must be onboarded via invite flow.",
+            detail="Doctor and medical student accounts must be onboarded via invite flow.",
         )
 
     requested_email = user_in.email.lower()
@@ -359,10 +359,10 @@ def create_user_invite(
     current_user: User = Depends(get_admin_user),
 ) -> Any:
     """Create an invite link. Admin only."""
-    if payload.role not in CLINICAL_ROLES:
+    if not auth_service.can_receive_user_invite(payload.role):
         raise HTTPException(
             status_code=422,
-            detail="Invite onboarding is restricted to clinical specialist roles in this phase.",
+            detail="Invite onboarding is restricted to doctor and medical student roles in this phase.",
         )
 
     requested_email = payload.email.lower()
@@ -817,10 +817,10 @@ def resend_user_invite(
     if not invite:
         raise HTTPException(status_code=404, detail="Invite not found.")
 
-    if invite.role not in CLINICAL_ROLES:
+    if not auth_service.can_receive_user_invite(invite.role):
         raise HTTPException(
             status_code=400,
-            detail="Invite onboarding is restricted to clinical specialist roles in this phase.",
+            detail="Invite onboarding is restricted to doctor and medical student roles in this phase.",
         )
 
     existing_user = db.scalar(

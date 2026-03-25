@@ -43,6 +43,10 @@ def can_doctor_view_meeting(db: Session, doctor_id: UUID, meeting: Meeting) -> b
     return is_patient_assigned_to_doctor(db, doctor_id, meeting.user_id)
 
 
+def can_assigned_user_view_meeting(db: Session, user_id: UUID, meeting: Meeting) -> bool:
+    return can_doctor_view_meeting(db, user_id, meeting)
+
+
 def can_doctor_edit_meeting(doctor_id: UUID, meeting: Meeting) -> bool:
     return meeting.doctor_id == doctor_id
 

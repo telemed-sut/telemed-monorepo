@@ -20,7 +20,7 @@ class User(Base):
     role = Column(
         Enum(UserRole, name="user_role", create_type=False),
         nullable=False,
-        default=UserRole.staff,
+        default=UserRole.medical_student,
     )
     is_active = Column(Boolean, nullable=False, server_default="true", default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

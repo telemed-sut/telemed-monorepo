@@ -17,7 +17,7 @@ class UserInvite(Base):
     role = Column(
         Enum(UserRole, name="user_role", create_type=False),
         nullable=False,
-        default=UserRole.staff,
+        default=UserRole.medical_student,
     )
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used_at = Column(DateTime(timezone=True), nullable=True)

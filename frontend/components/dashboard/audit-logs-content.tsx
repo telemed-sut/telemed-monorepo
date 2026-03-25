@@ -385,6 +385,7 @@ const ROLE_VALUE_LABELS: Record<AuditLanguage, Record<string, string>> = {
     th: {
         admin: "ผู้ดูแลระบบ",
         doctor: "แพทย์",
+        medical_student: "นักศึกษาแพทย์",
         staff: "เจ้าหน้าที่",
         nurse: "พยาบาล",
         pharmacist: "เภสัชกร",
