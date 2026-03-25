@@ -77,6 +77,18 @@ def test_get_me_returns_current_user_profile(client: TestClient, db: Session):
     assert payload["email"] == "me@example.com"
     assert payload["role"] == "doctor"
     assert payload["two_factor_enabled"] is False
+    assert payload["is_super_admin"] is False
+
+
+def test_get_me_marks_super_admin_accounts(client: TestClient, db: Session):
+    user = _create_user(db, email="admin@example.com", role=UserRole.admin)
+
+    response = client.get("/auth/me", headers=_auth_headers(user))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["email"] == "admin@example.com"
+    assert payload["is_super_admin"] is True
 
 
 def test_get_two_factor_status_provisions_secret(client: TestClient, db: Session):

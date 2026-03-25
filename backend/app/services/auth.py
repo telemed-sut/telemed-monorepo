@@ -97,6 +97,7 @@ def create_login_response(user: User, *, mfa_verified: bool = True) -> dict:
             "verification_status": user.verification_status.value if user.verification_status else None,
             "two_factor_enabled": bool(user.two_factor_enabled),
             "mfa_verified": effective_mfa_verified,
+            "is_super_admin": is_super_admin(user),
         },
     }
 

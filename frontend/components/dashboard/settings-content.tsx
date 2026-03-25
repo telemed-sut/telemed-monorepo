@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   adminEmergencyUnlock,
+  createUser,
   disable2FA,
   fetch2FAStatus,
   fetchTrustedDevices,
@@ -31,6 +32,7 @@ import {
   superAdminResetUserPassword,
   verify2FA,
   getRoleLabel,
+  type User,
   type AdminSecurityUserLookup,
   type Admin2FAStatus,
   type TrustedDevice,
@@ -88,6 +90,7 @@ export function SettingsContent() {
   const language = useLanguageStore((state) => state.language);
   const token = useAuthStore((state) => state.token);
   const role = useAuthStore((state) => state.role);
+  const isSuperAdmin = useAuthStore((state) => state.isSuperAdmin);
   const hydrated = useAuthStore((state) => state.hydrated);
   const clearToken = useAuthStore((state) => state.clearToken);
   const getTokenTTL = useAuthStore((state) => state.getTokenTTL);
@@ -110,6 +113,14 @@ export function SettingsContent() {
   const [emergencyReason, setEmergencyReason] = useState("");
   const [generatedResetToken, setGeneratedResetToken] = useState("");
   const [generatedResetTokenTTL, setGeneratedResetTokenTTL] = useState<number | null>(null);
+  const [onboardingBusy, setOnboardingBusy] = useState(false);
+  const [newAdminEmail, setNewAdminEmail] = useState("");
+  const [newAdminFirstName, setNewAdminFirstName] = useState("");
+  const [newAdminLastName, setNewAdminLastName] = useState("");
+  const [newAdminReason, setNewAdminReason] = useState("Initial admin onboarding");
+  const [createdAdmin, setCreatedAdmin] = useState<User | null>(null);
+  const [createdAdminResetToken, setCreatedAdminResetToken] = useState("");
+  const [createdAdminResetTokenTTL, setCreatedAdminResetTokenTTL] = useState<number | null>(null);
 
   const isAdmin = role === "admin";
 
@@ -452,6 +463,69 @@ export function SettingsContent() {
     }
   };
 
+  const handleCopyCreatedAdminResetToken = async () => {
+    if (!createdAdminResetToken) return;
+    try {
+      await navigator.clipboard.writeText(createdAdminResetToken);
+      toast.success(tr(language, "Onboarding token copied", "คัดลอกโทเคนเริ่มต้นใช้งานแล้ว"));
+    } catch {
+      toast.error(tr(language, "Copy failed", "คัดลอกไม่สำเร็จ"));
+    }
+  };
+
+  const handleCreateAdminOnboarding = async () => {
+    if (!token) return;
+
+    const email = newAdminEmail.trim().toLowerCase();
+    const reason = newAdminReason.trim();
+    if (!email) {
+      toast.error(tr(language, "Please enter admin email", "กรุณากรอกอีเมลแอดมิน"));
+      return;
+    }
+    if (reason.length < 8) {
+      toast.error(tr(language, "Please enter reason with at least 8 characters", "กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร"));
+      return;
+    }
+
+    setOnboardingBusy(true);
+    try {
+      const created = await createUser(
+        {
+          email,
+          first_name: newAdminFirstName.trim() || undefined,
+          last_name: newAdminLastName.trim() || undefined,
+          role: "admin",
+        },
+        token
+      );
+      setCreatedAdmin(created);
+
+      if (isSuperAdmin) {
+        const reset = await superAdminResetUserPassword(created.id, reason, token);
+        setCreatedAdminResetToken(reset.reset_token);
+        setCreatedAdminResetTokenTTL(reset.reset_token_expires_in);
+        toast.success(tr(language, "Admin created and onboarding token generated", "สร้างบัญชีแอดมินและสร้างโทเคนเริ่มต้นใช้งานแล้ว"));
+      } else {
+        setCreatedAdminResetToken("");
+        setCreatedAdminResetTokenTTL(null);
+        toast.success(
+          tr(
+            language,
+            "Admin account created. A super admin must generate the onboarding reset token from the emergency toolkit.",
+            "สร้างบัญชีแอดมินแล้ว แต่ต้องให้ super admin สร้างโทเคนเริ่มต้นใช้งานต่อจากชุดเครื่องมือฉุกเฉิน"
+          )
+        );
+      }
+    } catch (error: unknown) {
+      setCreatedAdmin(null);
+      setCreatedAdminResetToken("");
+      setCreatedAdminResetTokenTTL(null);
+      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
+    } finally {
+      setOnboardingBusy(false);
+    }
+  };
+
   return (
     <main className="w-full flex-1 overflow-auto p-4 sm:p-6 space-y-6">
       <Card>
@@ -704,6 +778,115 @@ export function SettingsContent() {
           )}
         </CardContent>
       </Card>
+
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{tr(language, "Admin Onboarding", "เริ่มต้นใช้งานแอดมิน")}</CardTitle>
+            <CardDescription>
+              {tr(
+                language,
+                "Create an admin account without a preset password. Super admins can immediately generate a one-time onboarding reset token.",
+                "สร้างบัญชีแอดมินโดยไม่ตั้งรหัสล่วงหน้า และถ้าเป็น super admin จะสร้างโทเคนเริ่มต้นใช้งานแบบครั้งเดียวได้ทันที"
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="new_admin_email">{tr(language, "Admin email", "อีเมลแอดมิน")}</Label>
+                <Input
+                  id="new_admin_email"
+                  placeholder="admin@hospital.org"
+                  value={newAdminEmail}
+                  onChange={(event) => {
+                    setNewAdminEmail(event.target.value);
+                    setCreatedAdmin(null);
+                    setCreatedAdminResetToken("");
+                    setCreatedAdminResetTokenTTL(null);
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new_admin_reason">{tr(language, "Audit reason", "เหตุผลสำหรับ audit")}</Label>
+                <Input
+                  id="new_admin_reason"
+                  placeholder={tr(language, "Initial admin onboarding", "เริ่มต้นใช้งานแอดมิน")}
+                  value={newAdminReason}
+                  onChange={(event) => setNewAdminReason(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new_admin_first_name">{tr(language, "First name", "ชื่อจริง")}</Label>
+                <Input
+                  id="new_admin_first_name"
+                  placeholder={tr(language, "John", "สมชาย")}
+                  value={newAdminFirstName}
+                  onChange={(event) => setNewAdminFirstName(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new_admin_last_name">{tr(language, "Last name", "นามสกุล")}</Label>
+                <Input
+                  id="new_admin_last_name"
+                  placeholder={tr(language, "Doe", "ใจดี")}
+                  value={newAdminLastName}
+                  onChange={(event) => setNewAdminLastName(event.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-md border border-border/60 bg-muted/20 p-3 text-sm text-muted-foreground">
+              {isSuperAdmin
+                ? tr(
+                    language,
+                    "This will create the admin account and immediately issue a one-time reset token. Share the token securely and require the user to set password + 2FA on first use.",
+                    "ระบบจะสร้างบัญชีแอดมินและออกโทเคนรีเซ็ตแบบครั้งเดียวทันที ควรส่งโทเคนอย่างปลอดภัย และให้ผู้ใช้ตั้งรหัสผ่านพร้อมเปิด 2FA ในการใช้งานครั้งแรก"
+                  )
+                : tr(
+                    language,
+                    "This will create the admin account only. A configured super admin must then generate the onboarding reset token from the Admin Emergency Toolkit below.",
+                    "ระบบจะสร้างบัญชีแอดมินอย่างเดียว จากนั้นต้องให้ super admin ที่กำหนดไว้ ออกโทเคนเริ่มต้นใช้งานจากชุดเครื่องมือฉุกเฉินด้านล่าง"
+                  )}
+            </div>
+
+            <Button type="button" onClick={handleCreateAdminOnboarding} disabled={onboardingBusy}>
+              {tr(language, "Create admin onboarding", "สร้างบัญชีแอดมินเริ่มต้น")}
+            </Button>
+
+            {createdAdmin && (
+              <div className="rounded-md border border-border/60 p-3 text-sm space-y-2">
+                <p><span className="text-muted-foreground">{tr(language, "Created account", "บัญชีที่สร้าง")}:</span> {createdAdmin.email}</p>
+                <p><span className="text-muted-foreground">{tr(language, "Role", "บทบาท")}:</span> {getRoleLabel(createdAdmin.role, language)}</p>
+                {!createdAdminResetToken && (
+                  <p className="text-muted-foreground">
+                    {tr(
+                      language,
+                      "Next step: use the Admin Emergency Toolkit password reset action for this email to generate the onboarding token.",
+                      "ขั้นตอนถัดไป: ใช้การรีเซ็ตรหัสผ่านในชุดเครื่องมือฉุกเฉินสำหรับอีเมลนี้ เพื่อสร้างโทเคนเริ่มต้นใช้งาน"
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {createdAdminResetToken && (
+              <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
+                <p className="text-sm text-muted-foreground">
+                  {tr(language, "One-time admin onboarding token:", "โทเคนเริ่มต้นใช้งานแอดมินแบบครั้งเดียว:")}
+                </p>
+                <Input value={createdAdminResetToken} readOnly />
+                <p className="text-sm text-muted-foreground">
+                  {tr(language, "Expires in", "หมดอายุใน")} {createdAdminResetTokenTTL ?? "-"} {tr(language, "seconds", "วินาที")}
+                </p>
+                <Button type="button" variant="outline" onClick={handleCopyCreatedAdminResetToken}>
+                  {tr(language, "Copy onboarding token", "คัดลอกโทเคนเริ่มต้นใช้งาน")}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {isAdmin && (
         <Card>

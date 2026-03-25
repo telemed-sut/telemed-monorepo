@@ -54,6 +54,7 @@ export interface UserMe {
   verification_status?: string | null;
   two_factor_enabled?: boolean;
   mfa_verified?: boolean;
+  is_super_admin?: boolean;
 }
 
 export interface Admin2FAStatus {
@@ -1321,7 +1322,7 @@ export interface User {
 
 export interface UserCreate {
   email: string;
-  password: string;
+  password?: string;
   first_name?: string;
   last_name?: string;
   role?: string;

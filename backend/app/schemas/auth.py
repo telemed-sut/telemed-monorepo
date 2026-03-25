@@ -21,6 +21,7 @@ class UserMeResponse(BaseModel):
     verification_status: str | None = None
     two_factor_enabled: bool = False
     mfa_verified: bool = False
+    is_super_admin: bool = False
 
 
 class TokenResponse(BaseModel):
