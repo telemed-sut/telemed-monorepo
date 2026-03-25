@@ -10,6 +10,7 @@ from app.models.ip_ban import IPBan
 from app.models.login_attempt import LoginAttempt
 from app.models.user import User
 from app.core.security import get_password_hash
+from app.services import auth as auth_service
 from app.services.auth import create_login_response
 
 
@@ -202,3 +203,21 @@ def test_non_admin_cannot_access_ip_bans_or_login_attempts(
 
     assert ip_bans_response.status_code == 403
     assert attempts_response.status_code == 403
+
+
+def test_admin_security_endpoints_require_mfa_verified_token(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    monkeypatch.setattr(auth_service.settings, "admin_2fa_required", True)
+    admin = _create_user(db, email="security-mfa-admin@example.com", role=UserRole.admin)
+    token = create_login_response(admin, mfa_verified=False)["access_token"]
+
+    response = client.get(
+        "/security/ip-bans",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Two-factor verification required"

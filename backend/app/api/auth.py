@@ -603,6 +603,7 @@ def login(
         )
 
     trusted_device_raw_token: str | None = None
+    mfa_verified = not auth_service.requires_token_mfa(authenticated_user)
     if _two_factor_required_for_user(authenticated_user):
         _ensure_two_factor_secret(db, authenticated_user)
 
@@ -617,6 +618,7 @@ def login(
             )
             if trusted:
                 security_service.mark_trusted_device_used(db, trusted)
+                mfa_verified = True
 
         if not trusted:
             otp_code = normalize_totp_code(payload.otp_code)
@@ -682,6 +684,8 @@ def login(
                     headers={"WWW-Authenticate": "Bearer"},
                 )
 
+            mfa_verified = True
+
             if used_backup:
                 db.add(
                     AuditLog(
@@ -725,7 +729,10 @@ def login(
     security_service.handle_successful_login(db, ip, authenticated_user)
     db.commit()
 
-    login_response = auth_service.create_login_response(authenticated_user)
+    login_response = auth_service.create_login_response(
+        authenticated_user,
+        mfa_verified=mfa_verified,
+    )
     _set_auth_cookie(response, login_response["access_token"])
     if trusted_device_raw_token:
         _set_trusted_device_cookie(
@@ -744,7 +751,7 @@ def refresh_token(
     current_user: User = Depends(auth_service.get_current_user),
 ):
     """Refresh access token for authenticated user"""
-    refreshed = auth_service.create_login_response(current_user)
+    refreshed = auth_service.create_login_response(current_user, mfa_verified=True)
     _set_auth_cookie(response, refreshed["access_token"])
     return refreshed
 

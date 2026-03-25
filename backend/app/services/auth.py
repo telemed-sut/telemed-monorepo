@@ -1,7 +1,7 @@
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Path, Request, status
@@ -68,8 +68,21 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     return user
 
 
-def create_login_response(user: User) -> dict:
-    token = create_access_token({"sub": str(user.id), "role": user.role.value})
+def requires_token_mfa(user: User | None) -> bool:
+    if user is None:
+        return False
+    return (settings.admin_2fa_required and user.role == UserRole.admin) or bool(user.two_factor_enabled)
+
+
+def create_login_response(user: User, *, mfa_verified: bool = True) -> dict:
+    token = create_access_token(
+        {
+            "sub": str(user.id),
+            "role": user.role.value,
+            "type": "access",
+            "mfa_verified": bool(mfa_verified),
+        }
+    )
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -112,8 +125,9 @@ def verify_password_reset_token(token: str) -> str:
 
 def reset_user_password(db: Session, user: User, new_password: str) -> None:
     user.password_hash = get_password_hash(new_password)
+    user.password_changed_at = _now_utc()
     db.add(user)
-    db.commit()
+    db.flush()
 
 
 def _now_utc() -> datetime:
@@ -235,8 +249,11 @@ def get_current_user(
 
     try:
         payload = decode_token(raw_token)
+        token_type = payload.get("type")
         user_id: str = payload.get("sub")
         if user_id is None:
+            raise credentials_exception
+        if token_type not in (None, "access"):
             raise credentials_exception
     except JWTError:
         raise credentials_exception
@@ -255,6 +272,7 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated",
         )
+    _validate_token_session(user, payload, credentials_exception)
     return user
 
 
@@ -269,8 +287,11 @@ def get_optional_current_user(
 
     try:
         payload = decode_token(raw_token)
+        token_type = payload.get("type")
         user_id: str = payload.get("sub")
         if user_id is None:
+            return None
+        if token_type not in (None, "access"):
             return None
     except JWTError:
         return None
@@ -283,7 +304,45 @@ def get_optional_current_user(
     user = db.scalar(select(User).where(User.id == uid, User.deleted_at.is_(None)))
     if user is None or not user.is_active:
         return None
+    try:
+        credentials_exception = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        _validate_token_session(user, payload, credentials_exception)
+    except HTTPException:
+        return None
     return user
+
+
+def _coerce_timestamp(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return _normalize_dt(value)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+    return None
+
+
+def _validate_token_session(
+    user: User,
+    payload: dict[str, Any],
+    credentials_exception: HTTPException,
+) -> None:
+    token_issued_at = _coerce_timestamp(payload.get("iat"))
+    password_changed_at = _normalize_dt(user.password_changed_at) if user.password_changed_at else None
+    if password_changed_at is not None:
+        if token_issued_at is None or token_issued_at < password_changed_at:
+            raise credentials_exception
+
+    if requires_token_mfa(user) and not bool(payload.get("mfa_verified")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Two-factor verification required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def _validate_cookie_csrf(request: Request) -> None:
@@ -438,4 +497,3 @@ def verify_patient_access_doctor(
         ip_address=get_client_ip(request),
     )
     return current_user
-

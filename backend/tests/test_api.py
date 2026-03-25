@@ -180,6 +180,68 @@ def test_reset_password_with_valid_token(client: TestClient, db: Session, monkey
     get_settings.cache_clear()
 
 
+def test_reset_password_invalidates_existing_access_token(client: TestClient, db: Session, monkeypatch):
+    user = User(
+        email="reset-invalidate@example.com",
+        password_hash=get_password_hash("OldPassword123"),
+        role=UserRole.medical_student,
+    )
+    db.add(user)
+    db.commit()
+
+    login_response = client.post("/auth/login", json={"email": "reset-invalidate@example.com", "password": "OldPassword123"})
+    assert login_response.status_code == 200
+    old_token = login_response.json()["access_token"]
+
+    monkeypatch.setenv("PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE", "true")
+    from app.core.config import get_settings
+    get_settings.cache_clear()
+
+    forgot_response = client.post("/auth/forgot-password", json={"email": "reset-invalidate@example.com"})
+    reset_token = forgot_response.json().get("reset_token")
+    assert reset_token
+
+    reset_response = client.post(
+        "/auth/reset-password",
+        json={"token": reset_token, "new_password": "NewPassword123"},
+    )
+    assert reset_response.status_code == 200
+
+    stale_token_response = client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {old_token}"},
+    )
+    assert stale_token_response.status_code == 401
+
+    get_settings.cache_clear()
+
+
+def test_password_reset_token_cannot_be_used_as_access_token(client: TestClient, db: Session, monkeypatch):
+    user = User(
+        email="reset-token-access@example.com",
+        password_hash=get_password_hash("Password123"),
+        role=UserRole.medical_student,
+    )
+    db.add(user)
+    db.commit()
+
+    monkeypatch.setenv("PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE", "true")
+    from app.core.config import get_settings
+    get_settings.cache_clear()
+
+    forgot_response = client.post("/auth/forgot-password", json={"email": "reset-token-access@example.com"})
+    reset_token = forgot_response.json().get("reset_token")
+    assert reset_token
+
+    response = client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {reset_token}"},
+    )
+    assert response.status_code == 401
+
+    get_settings.cache_clear()
+
+
 def test_reset_password_with_invalid_token(client: TestClient):
     response = client.post(
         "/auth/reset-password",

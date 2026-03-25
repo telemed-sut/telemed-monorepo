@@ -43,8 +43,9 @@ def create_access_token(data: Dict[str, Any], expires_in: int | None = None) -> 
     settings = get_settings()
     to_encode = data.copy()
     ttl = expires_in if expires_in is not None else settings.jwt_expires_in
+    issued_at = jwt.datetime.now(timezone.utc)
     expire = jwt.datetime.now(timezone.utc) + timedelta(seconds=ttl)
-    to_encode.update({"exp": expire})
+    to_encode.update({"iat": issued_at, "exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.jwt_secret, algorithm=ALGORITHM)
     return encoded_jwt
 
