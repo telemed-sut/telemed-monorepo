@@ -312,6 +312,11 @@ def create_user(
         )
 
     normalized_password = user_in.password.strip() if isinstance(user_in.password, str) else None
+    if user_in.role == UserRole.admin and not auth_service.is_super_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin only.",
+        )
     if user_in.role == UserRole.admin and normalized_password:
         raise HTTPException(
             status_code=422,

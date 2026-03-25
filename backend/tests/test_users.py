@@ -127,9 +127,9 @@ class TestRBAC:
 # ──────────────────────────────────────────────────────────
 
 class TestCRUD:
-    def test_create_admin_without_preset_password(self, client: TestClient, db: Session):
-        _make_user(db, email="admin-crud@example.com", role=UserRole.admin)
-        token = _login(client, "admin-crud@example.com")
+    def test_super_admin_can_create_admin_without_preset_password(self, client: TestClient, db: Session):
+        _make_user(db, email="admin@example.com", role=UserRole.admin)
+        token = _login(client, "admin@example.com")
         resp = client.post("/users", json={
             "email": "newuser@example.com",
             "first_name": "New",
@@ -142,9 +142,19 @@ class TestCRUD:
         assert data["role"] == "admin"
         assert data["is_active"] is True
 
+    def test_non_super_admin_cannot_create_admin(self, client: TestClient, db: Session):
+        _make_user(db, email="admin-crud@example.com", role=UserRole.admin)
+        token = _login(client, "admin-crud@example.com")
+        resp = client.post("/users", json={
+            "email": "blocked-admin@example.com",
+            "role": "admin",
+        }, headers=_auth(token))
+        assert resp.status_code == 403
+        assert "super admin only" in resp.json()["detail"].lower()
+
     def test_create_admin_with_preset_password_rejected(self, client: TestClient, db: Session):
-        _make_user(db, email="admin-crud-reject@example.com", role=UserRole.admin)
-        token = _login(client, "admin-crud-reject@example.com")
+        _make_user(db, email="admin@example.com", role=UserRole.admin)
+        token = _login(client, "admin@example.com")
         resp = client.post("/users", json={
             "email": "new-admin-reject@example.com",
             "password": "NewPass123",
@@ -289,9 +299,9 @@ class TestSoftDelete:
         assert resp.status_code == 401
 
     def test_can_reuse_email_after_soft_delete(self, client: TestClient, db: Session):
-        admin = _make_user(db, email="admin-reuse@example.com", role=UserRole.admin)
+        admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
         target = _make_user(db, email="reuse@example.com", role=UserRole.medical_student)
-        token = _login(client, "admin-reuse@example.com")
+        token = _login(client, "admin@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
         assert delete_resp.status_code == 204
@@ -395,13 +405,13 @@ class TestSoftDelete:
         assert restored["is_active"] is True
 
     def test_restore_keeps_retired_email_when_original_is_taken(self, client: TestClient, db: Session):
-        admin = _make_user(db, email="admin-restore2@example.com", role=UserRole.admin)
+        admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
         target = _make_user(
             db,
             email="restore-conflict@example.com",
             role=UserRole.medical_student,
         )
-        token = _login(client, "admin-restore2@example.com")
+        token = _login(client, "admin@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
         assert delete_resp.status_code == 204
@@ -559,9 +569,9 @@ class TestValidation:
         assert resp.status_code == 400
         assert "invite flow" in resp.json()["detail"].lower()
 
-    def test_direct_create_admin_without_password_still_allowed(self, client: TestClient, db: Session):
-        admin = _make_user(db, email="admin-val2@example.com", role=UserRole.admin)
-        token = _login(client, "admin-val2@example.com")
+    def test_direct_create_admin_without_password_allowed_for_super_admin(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+        token = _login(client, "admin@example.com")
         resp = client.post("/users", json={
             "email": "admin-direct@example.com",
             "role": "admin",
@@ -570,9 +580,19 @@ class TestValidation:
         data = resp.json()
         assert data["role"] == "admin"
 
+    def test_direct_create_admin_without_password_blocked_for_non_super_admin(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-val2@example.com", role=UserRole.admin)
+        token = _login(client, "admin-val2@example.com")
+        resp = client.post("/users", json={
+            "email": "admin-direct-blocked-no-super@example.com",
+            "role": "admin",
+        }, headers=_auth(token))
+        assert resp.status_code == 403
+        assert "super admin only" in resp.json()["detail"].lower()
+
     def test_direct_create_admin_with_password_blocked(self, client: TestClient, db: Session):
-        admin = _make_user(db, email="admin-val5@example.com", role=UserRole.admin)
-        token = _login(client, "admin-val5@example.com")
+        admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+        token = _login(client, "admin@example.com")
         resp = client.post("/users", json={
             "email": "admin-direct-blocked@example.com",
             "password": "StaffPass123",
@@ -744,8 +764,8 @@ class TestVerify:
 
 class TestAuditLog:
     def test_create_user_logs_audit(self, client: TestClient, db: Session):
-        admin = _make_user(db, email="admin-aud@example.com", role=UserRole.admin)
-        token = _login(client, "admin-aud@example.com")
+        admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+        token = _login(client, "admin@example.com")
         resp = client.post("/users", json={
             "email": "audited@example.com",
             "role": "admin",

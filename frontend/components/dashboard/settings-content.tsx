@@ -474,7 +474,7 @@ export function SettingsContent() {
   };
 
   const handleCreateAdminOnboarding = async () => {
-    if (!token) return;
+    if (!token || !isSuperAdmin) return;
 
     const email = newAdminEmail.trim().toLowerCase();
     const reason = newAdminReason.trim();
@@ -500,22 +500,10 @@ export function SettingsContent() {
       );
       setCreatedAdmin(created);
 
-      if (isSuperAdmin) {
-        const reset = await superAdminResetUserPassword(created.id, reason, token);
-        setCreatedAdminResetToken(reset.reset_token);
-        setCreatedAdminResetTokenTTL(reset.reset_token_expires_in);
-        toast.success(tr(language, "Admin created and onboarding token generated", "สร้างบัญชีแอดมินและสร้างโทเคนเริ่มต้นใช้งานแล้ว"));
-      } else {
-        setCreatedAdminResetToken("");
-        setCreatedAdminResetTokenTTL(null);
-        toast.success(
-          tr(
-            language,
-            "Admin account created. A super admin must generate the onboarding reset token from the emergency toolkit.",
-            "สร้างบัญชีแอดมินแล้ว แต่ต้องให้ super admin สร้างโทเคนเริ่มต้นใช้งานต่อจากชุดเครื่องมือฉุกเฉิน"
-          )
-        );
-      }
+      const reset = await superAdminResetUserPassword(created.id, reason, token);
+      setCreatedAdminResetToken(reset.reset_token);
+      setCreatedAdminResetTokenTTL(reset.reset_token_expires_in);
+      toast.success(tr(language, "Admin created and onboarding token generated", "สร้างบัญชีแอดมินและสร้างโทเคนเริ่มต้นใช้งานแล้ว"));
     } catch (error: unknown) {
       setCreatedAdmin(null);
       setCreatedAdminResetToken("");
@@ -779,15 +767,15 @@ export function SettingsContent() {
         </CardContent>
       </Card>
 
-      {isAdmin && (
+      {isSuperAdmin && (
         <Card>
           <CardHeader>
             <CardTitle>{tr(language, "Admin Onboarding", "เริ่มต้นใช้งานแอดมิน")}</CardTitle>
             <CardDescription>
               {tr(
                 language,
-                "Create an admin account without a preset password. Super admins can immediately generate a one-time onboarding reset token.",
-                "สร้างบัญชีแอดมินโดยไม่ตั้งรหัสล่วงหน้า และถ้าเป็น super admin จะสร้างโทเคนเริ่มต้นใช้งานแบบครั้งเดียวได้ทันที"
+                "Create an admin account without a preset password, then immediately generate a one-time onboarding reset token.",
+                "สร้างบัญชีแอดมินโดยไม่ตั้งรหัสล่วงหน้า แล้วออกโทเคนเริ่มต้นใช้งานแบบครั้งเดียวได้ทันที"
               )}
             </CardDescription>
           </CardHeader>
@@ -837,17 +825,11 @@ export function SettingsContent() {
             </div>
 
             <div className="rounded-md border border-border/60 bg-muted/20 p-3 text-sm text-muted-foreground">
-              {isSuperAdmin
-                ? tr(
-                    language,
-                    "This will create the admin account and immediately issue a one-time reset token. Share the token securely and require the user to set password + 2FA on first use.",
-                    "ระบบจะสร้างบัญชีแอดมินและออกโทเคนรีเซ็ตแบบครั้งเดียวทันที ควรส่งโทเคนอย่างปลอดภัย และให้ผู้ใช้ตั้งรหัสผ่านพร้อมเปิด 2FA ในการใช้งานครั้งแรก"
-                  )
-                : tr(
-                    language,
-                    "This will create the admin account only. A configured super admin must then generate the onboarding reset token from the Admin Emergency Toolkit below.",
-                    "ระบบจะสร้างบัญชีแอดมินอย่างเดียว จากนั้นต้องให้ super admin ที่กำหนดไว้ ออกโทเคนเริ่มต้นใช้งานจากชุดเครื่องมือฉุกเฉินด้านล่าง"
-                  )}
+              {tr(
+                language,
+                "This creates the admin account and immediately issues a one-time reset token. Share the token securely and require the user to set password + 2FA on first use.",
+                "ระบบจะสร้างบัญชีแอดมินและออกโทเคนรีเซ็ตแบบครั้งเดียวทันที ควรส่งโทเคนอย่างปลอดภัย และให้ผู้ใช้ตั้งรหัสผ่านพร้อมเปิด 2FA ในการใช้งานครั้งแรก"
+              )}
             </div>
 
             <Button type="button" onClick={handleCreateAdminOnboarding} disabled={onboardingBusy}>
@@ -858,15 +840,6 @@ export function SettingsContent() {
               <div className="rounded-md border border-border/60 p-3 text-sm space-y-2">
                 <p><span className="text-muted-foreground">{tr(language, "Created account", "บัญชีที่สร้าง")}:</span> {createdAdmin.email}</p>
                 <p><span className="text-muted-foreground">{tr(language, "Role", "บทบาท")}:</span> {getRoleLabel(createdAdmin.role, language)}</p>
-                {!createdAdminResetToken && (
-                  <p className="text-muted-foreground">
-                    {tr(
-                      language,
-                      "Next step: use the Admin Emergency Toolkit password reset action for this email to generate the onboarding token.",
-                      "ขั้นตอนถัดไป: ใช้การรีเซ็ตรหัสผ่านในชุดเครื่องมือฉุกเฉินสำหรับอีเมลนี้ เพื่อสร้างโทเคนเริ่มต้นใช้งาน"
-                    )}
-                  </p>
-                )}
               </div>
             )}
 
