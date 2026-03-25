@@ -51,12 +51,8 @@ All work in this repository should be treated as production-impacting.
 Roles currently supported in the backend:
 
 - `admin`
-- `staff`
 - `doctor`
-- `nurse`
-- `pharmacist`
-- `medical_technologist`
-- `psychologist`
+- `medical_student`
 
 Clinical-role onboarding is enforced through invite flow policies where configured.
 
@@ -303,13 +299,15 @@ CI workflow currently validates backend and frontend quality gates on `main` and
 `python -m scripts.seed` creates local bootstrap users:
 
 - `admin@example.com` / `AdminPass123`
-- `staff@example.com` / `StaffPass123`
+- `doctor@example.com` / `DoctorPass123`
+- `medical-student@example.com` / `MedicalStudentPass123`
 
 These credentials are for local development only and must never be used in production.
 
 ## Additional Documentation
 
 - Backend details: `backend/README.md`
+- Three-role rollout: `docs/three-role-rollout-checklist.md`
 - Frontend details: `frontend/README.md`
 - Cloud Run deployment guide: `infra/gcp/README.md`
 - Monitoring runbook: `infra/gcp/monitoring-runbook.md`

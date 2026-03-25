@@ -2,7 +2,7 @@
 
 This document defines the backend and client changes required to make a
 patient meeting join link available immediately after an appointment is
-created. The goal is simple: when staff creates an appointment, the patient
+created. The goal is simple: when an admin or doctor creates an appointment, the patient
 app must show a usable **Join** action right away without requiring a doctor
 or admin to first click **Copy patient link**.
 
@@ -23,12 +23,12 @@ Today, the flow is split across two contracts:
 
 That split causes an undesirable user experience:
 
-1. Staff creates a meeting.
+1. An admin or doctor creates a meeting.
 2. The meeting appears in doctor and patient systems.
 3. The patient app still sees no `patient_invite_url`.
 4. The patient card renders a disabled state such as
    "กำลังเตรียมห้อง".
-5. Staff must manually create the link by copying it first, or the patient
+5. A clinician or admin must manually create the link by copying it first, or the patient
    must rely on a fallback request when tapping join.
 
 The design goal is to remove step 5 from the normal workflow.
@@ -60,7 +60,8 @@ creation while preserving the current security model for video access.
 ### Goals
 
 - Show a patient join action immediately after appointment creation.
-- Remove the need for staff to manually create the first patient link.
+- Remove the need for an admin or doctor to manually create the first patient
+  link.
 - Keep video access protected by short-lived tokens.
 - Preserve current presence heartbeat and status reconciliation behavior.
 - Keep fallback invite refresh endpoints for recovery and backward
@@ -313,7 +314,8 @@ This change introduces a few lifecycle decisions that must be explicit.
 
 ### Meeting created without patient
 
-If staff creates a meeting without a patient attached, the backend must not
+If an admin or doctor creates a meeting without a patient attached, the backend
+must not
 generate an invite. The invite is created only after a patient is assigned.
 
 ### Patient reassignment
