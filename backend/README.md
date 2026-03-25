@@ -1,6 +1,8 @@
 ## Patient Management API (FastAPI)
 
-FastAPI backend with JWT auth, PostgreSQL (Neon/Supabase), patient CRUD, Alembic migrations, and seed data. Default CORS origins are http://localhost:3000 and http://localhost:8080, backend runs on port 8000.
+FastAPI backend with JWT auth, PostgreSQL (Neon/Supabase), patient CRUD,
+Alembic migrations, and local-only demo seed data. Default CORS origins are
+http://localhost:3000 and http://localhost:8080, backend runs on port 8000.
 
 ### Stack
 - FastAPI, Pydantic v2
@@ -16,7 +18,7 @@ FastAPI backend with JWT auth, PostgreSQL (Neon/Supabase), patient CRUD, Alembic
 - [app/schemas](app/schemas) – Pydantic schemas
 - [app/core](app/core) – settings and security helpers
 - [alembic](alembic) – migrations (env + versions)
-- [scripts/seed.py](scripts/seed.py) – demo data (users + patients)
+- [scripts/seed.py](scripts/seed.py) – local demo data (users + patients)
 - [backend/Dockerfile](backend/Dockerfile), [docker-compose.yml](docker-compose.yml)
 
 ### Environment variables
@@ -70,7 +72,7 @@ Optional environment overrides:
 3) Load env vars via Infisical (`infisical run -- ...`) or by exporting env vars
    in your shell.
 4) Run migrations: `alembic upgrade head`.
-5) Seed demo data: `python -m scripts.seed`.
+5) Optional: seed local demo data: `python -m scripts.seed`.
 6) Start API: `infisical run -- uvicorn app.main:app --reload` (defaults to
    8000).
 
@@ -92,16 +94,23 @@ INFISICAL_RUN_ARGS="--env=dev" ./scripts/dev-api.sh
 ### Running with Docker Compose
 1) Preferred: run the team script from repo root (`./scripts/dev-backend.sh`).
 2) Alternative: export the required env vars in your shell, then run `docker compose up --build`.
-3) Backend runs on port 8000; migrations and seed run automatically before uvicorn starts.
+3) Backend runs on port 8000; local Docker Compose can run migrations and demo
+   seed before uvicorn starts.
 
-### Auth and demo users
+### Auth and local demo users
 - Login endpoint: POST /auth/login with {"email", "password"}.
 - Refresh endpoint: POST /auth/refresh (requires valid JWT token).
 - Logout endpoint: POST /auth/logout (stateless JWT - client should discard token).
-- Demo credentials:
-	- admin@example.com / AdminPass123
-	- doctor@example.com / DoctorPass123
-	- medical-student@example.com / MedicalStudentPass123
+- Local seed creates bootstrap accounts for:
+  - `admin@example.com`
+  - `doctor@example.com`
+  - `medical-student@example.com`
+- For deterministic local passwords, export these env vars before seeding:
+  - `SEED_ADMIN_PASSWORD`
+  - `SEED_DOCTOR_PASSWORD`
+  - `SEED_MEDICAL_STUDENT_PASSWORD`
+- The seed script refuses to run against non-local database targets unless you
+  set `ALLOW_DEMO_SEED=true` explicitly.
 
 JWT payload: sub (user id), role, exp. Token type bearer.
 
@@ -216,7 +225,9 @@ python -m scripts.simulate_device_ingest \
 - `--error-rate 0.2`: random error injection (20%) instead of alternating
 
 ### Seeds
-`python -m scripts.seed` inserts demo users and ~15 realistic patients if tables are empty. In Docker Compose this runs automatically after alembic upgrade.
+`python -m scripts.seed` inserts local demo users and around 15 realistic
+patients if tables are empty. The script is blocked for non-local database
+targets unless you opt in with `ALLOW_DEMO_SEED=true`.
 
 ### Notes
 - CORS allows only configured origins and Authorization header.

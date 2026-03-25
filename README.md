@@ -171,7 +171,8 @@ Services:
 Notes:
 
 - Official scripts ignore root `.env`; the source of truth is Infisical runtime env.
-- Backend container runs migrations and seed step on startup via `backend/entrypoint.sh`.
+- Backend container runs migrations on startup and can run the local demo seed
+  step via `backend/entrypoint.sh`.
 - Compose includes a local PostgreSQL service.
 - The backend CI workflow in [.github/workflows/backend-tests.yml](/Volumes/P1Back/telemed-monorepo/.github/workflows/backend-tests.yml) already runs the main backend suite against PostgreSQL.
 
@@ -296,13 +297,17 @@ CI workflow currently validates backend and frontend quality gates on `main` and
 
 ## Local Bootstrap Accounts (Development Only)
 
-`python -m scripts.seed` creates local bootstrap users:
+`python -m scripts.seed` creates local bootstrap users for:
 
-- `admin@example.com` / `AdminPass123`
-- `doctor@example.com` / `DoctorPass123`
-- `medical-student@example.com` / `MedicalStudentPass123`
+- `admin@example.com`
+- `doctor@example.com`
+- `medical-student@example.com`
 
-These credentials are for local development only and must never be used in production.
+The seed script is intended for local development only. It refuses to run
+against non-local database targets unless you set `ALLOW_DEMO_SEED=true`
+explicitly. If you want deterministic local passwords, export
+`SEED_ADMIN_PASSWORD`, `SEED_DOCTOR_PASSWORD`, and
+`SEED_MEDICAL_STUDENT_PASSWORD` before seeding.
 
 ## Additional Documentation
 

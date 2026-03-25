@@ -68,15 +68,19 @@ The application is fully containerized. To run the frontend in a container:
     ./scripts/dev-backend.sh
     ```
 
-## 🔐 Demo Credentials
+## 🔐 Local bootstrap accounts
 
-Use the following accounts to test the application (provided by Backend):
+When you seed the backend locally, it creates these bootstrap accounts:
 
-| Role  | Email | Password | Permissions |
-| :--- | :--- | :--- | :--- |
-| **Admin** | `admin@example.com` | `AdminPass123` | Full access (View, Create, Edit, **Delete**) |
-| **Doctor** | `doctor@example.com` | `DoctorPass123` | Assigned clinical access with create and edit actions |
-| **Medical Student** | `medical-student@example.com` | `MedicalStudentPass123` | Assigned clinical and meeting access in read-only mode |
+| Role  | Email | Permissions |
+| :--- | :--- | :--- |
+| **Admin** | `admin@example.com` | Full access (View, Create, Edit, **Delete**) |
+| **Doctor** | `doctor@example.com` | Assigned clinical access with create and edit actions |
+| **Medical Student** | `medical-student@example.com` | Assigned clinical and meeting access in read-only mode |
+
+Set local passwords through the backend seed env vars before running the seed:
+`SEED_ADMIN_PASSWORD`, `SEED_DOCTOR_PASSWORD`, and
+`SEED_MEDICAL_STUDENT_PASSWORD`.
 
 ## 📂 Project Structure
 
