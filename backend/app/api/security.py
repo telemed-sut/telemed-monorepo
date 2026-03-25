@@ -304,7 +304,7 @@ def _write_device_registry_audit(
 
 
 @router.post("/admin-unlock", response_model=AdminEmergencyUnlockResponse)
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")
 def emergency_unlock_admin(
     request: Request,
     payload: AdminEmergencyUnlockRequest,
@@ -440,7 +440,7 @@ def resolve_user_for_security_actions(
 
 
 @router.post("/users/{user_id}/2fa/reset", response_model=AdminUserTwoFactorResetResponse)
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")
 def reset_user_two_factor_by_super_admin(
     request: Request,
     user_id: UUID,
@@ -519,7 +519,7 @@ def reset_user_two_factor_by_super_admin(
 
 
 @router.post("/users/{user_id}/password/reset", response_model=AdminUserPasswordResetResponse)
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")
 def reset_user_password_by_super_admin(
     request: Request,
     user_id: UUID,

@@ -62,6 +62,19 @@ def get_failed_login_key(request: Request):
     return f"login:{client_ip}"
 
 
+def get_client_ip_rate_limit_key(request: Request):
+    """
+    Generic strict IP-based rate limit key for unauthenticated sensitive flows
+    such as password-reset request/confirm endpoints.
+    """
+    client_ip = get_client_ip(request)
+
+    if client_ip in _rate_limit_whitelist():
+        return None
+
+    return f"ip:{client_ip}"
+
+
 # Initialize Limiter with support for Redis or Memory fallback
 # Default limits:
 # - Users/Dashboards: 200/minute (allows concurrent API calls)

@@ -12,6 +12,7 @@ from app.core.security import (
     get_password_hash,
     hash_security_token,
 )
+from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.models.user_backup_code import UserBackupCode
 from app.models.user_trusted_device import UserTrustedDevice
@@ -132,6 +133,31 @@ def test_verify_two_factor_enables_user_two_factor(
     assert user.two_factor_enabled_at is not None
 
 
+def test_verify_two_factor_invalid_code_writes_failure_audit(
+    client: TestClient,
+    db: Session,
+):
+    user = _create_user(db, email="verify-2fa-fail@example.com", role=UserRole.medical_student)
+    status_response = client.get("/auth/2fa/status", headers=_auth_headers(user))
+    assert status_response.status_code == 200
+
+    response = client.post(
+        "/auth/2fa/verify",
+        json={"otp_code": "000000"},
+        headers=_auth_headers(user),
+    )
+
+    assert response.status_code == 400
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "two_factor_verify_failed",
+            AuditLog.user_id == user.id,
+        )
+    )
+    assert audit is not None
+    assert audit.status == "failure"
+
+
 def test_disable_two_factor_clears_secret_for_non_admin_user(
     client: TestClient,
     db: Session,
@@ -156,6 +182,35 @@ def test_disable_two_factor_clears_secret_for_non_admin_user(
     assert user.two_factor_enabled is False
     assert user.two_factor_enabled_at is None
     assert user.two_factor_secret is None
+
+
+def test_disable_two_factor_invalid_code_writes_failure_audit(
+    client: TestClient,
+    db: Session,
+):
+    secret = generate_totp_secret()
+    user = _create_user(db, email="disable-2fa-fail@example.com", role=UserRole.medical_student)
+    user.two_factor_secret = secret
+    user.two_factor_enabled = True
+    user.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+
+    response = client.post(
+        "/auth/2fa/disable",
+        json={"current_otp_code": "000000"},
+        headers=_auth_headers(user),
+    )
+
+    assert response.status_code == 400
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "two_factor_disable_denied",
+            AuditLog.user_id == user.id,
+        )
+    )
+    assert audit is not None
+    assert audit.status == "failure"
 
 
 def test_reset_two_factor_rotates_secret_and_revokes_backup_codes(
@@ -200,6 +255,35 @@ def test_reset_two_factor_rotates_secret_and_revokes_backup_codes(
     ).all()
     assert backup_codes
     assert all(code.used_at is not None for code in backup_codes)
+
+
+def test_reset_two_factor_invalid_code_writes_failure_audit(
+    client: TestClient,
+    db: Session,
+):
+    secret = generate_totp_secret()
+    user = _create_user(db, email="reset-2fa-fail@example.com", role=UserRole.medical_student)
+    user.two_factor_secret = secret
+    user.two_factor_enabled = True
+    user.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+
+    response = client.post(
+        "/auth/2fa/reset",
+        json={"current_otp_code": "000000", "reason": "Rotate authenticator"},
+        headers=_auth_headers(user),
+    )
+
+    assert response.status_code == 400
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "two_factor_reset_denied",
+            AuditLog.user_id == user.id,
+        )
+    )
+    assert audit is not None
+    assert audit.status == "failure"
 
 
 def test_list_and_revoke_trusted_device(
@@ -281,6 +365,35 @@ def test_revoke_all_trusted_devices_returns_revoked_count(
     ).all()
     assert devices
     assert all(device.revoked_at is not None for device in devices)
+
+
+def test_use_backup_code_invalid_writes_failure_audit(
+    client: TestClient,
+    db: Session,
+):
+    secret = generate_totp_secret()
+    user = _create_user(db, email="backup-code-fail@example.com", role=UserRole.medical_student)
+    user.two_factor_secret = secret
+    user.two_factor_enabled = True
+    user.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+
+    response = client.post(
+        "/auth/2fa/backup-codes/use",
+        json={"code": "NOT-VALID"},
+        headers=_auth_headers(user),
+    )
+
+    assert response.status_code == 400
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "two_factor_backup_code_use_denied",
+            AuditLog.user_id == user.id,
+        )
+    )
+    assert audit is not None
+    assert audit.status == "failure"
 
 
 def test_get_admin_two_factor_status_for_admin_when_required(

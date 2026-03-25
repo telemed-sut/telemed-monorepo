@@ -2,7 +2,11 @@ from starlette.requests import Request
 
 from app.core import limiter as limiter_module
 from app.core import request_utils
-from app.core.limiter import get_failed_login_key, get_real_user_key
+from app.core.limiter import (
+    get_client_ip_rate_limit_key,
+    get_failed_login_key,
+    get_real_user_key,
+)
 from app.core.request_utils import get_client_ip
 
 
@@ -62,3 +66,14 @@ def test_failed_login_key_uses_forwarded_client_ip(monkeypatch):
     )
 
     assert get_failed_login_key(request) == "login:198.51.100.77"
+
+
+def test_client_ip_rate_limit_key_uses_forwarded_client_ip(monkeypatch):
+    monkeypatch.setattr(request_utils.settings, "trusted_proxy_ips", ["10.0.0.1"])
+    monkeypatch.setattr(limiter_module.settings, "rate_limit_whitelist", [])
+    request = _build_request(
+        client_host="10.0.0.1",
+        headers={"x-forwarded-for": "198.51.100.77, 10.0.0.1"},
+    )
+
+    assert get_client_ip_rate_limit_key(request) == "ip:198.51.100.77"

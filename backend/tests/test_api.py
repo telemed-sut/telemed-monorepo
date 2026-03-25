@@ -152,6 +152,27 @@ def test_forgot_password_endpoint(client: TestClient, db: Session):
     assert response.status_code == 200
     assert "message" in response.json()
 
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "password_reset_requested",
+            AuditLog.user_id == user.id,
+        )
+    )
+    assert audit is not None
+    assert audit.status == "success"
+
+
+def test_forgot_password_unknown_email_writes_failure_audit(client: TestClient, db: Session):
+    response = client.post("/auth/forgot-password", json={"email": "missing@example.com"})
+
+    assert response.status_code == 200
+    audit = db.scalar(
+        select(AuditLog).where(AuditLog.action == "password_reset_requested")
+    )
+    assert audit is not None
+    assert audit.status == "failure"
+    assert audit.user_id is None
+
 
 def test_reset_password_with_valid_token(client: TestClient, db: Session, monkeypatch):
     """Reset password should update stored password hash when token is valid"""
@@ -176,6 +197,15 @@ def test_reset_password_with_valid_token(client: TestClient, db: Session, monkey
         json={"token": reset_token, "new_password": "NewPassword123"},
     )
     assert reset_response.status_code == 200
+
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "password_reset_completed",
+            AuditLog.user_id == user.id,
+        )
+    )
+    assert audit is not None
+    assert audit.status == "success"
 
     login_response = client.post("/auth/login", json={"email": "reset@example.com", "password": "NewPassword123"})
     assert login_response.status_code == 200
@@ -250,6 +280,20 @@ def test_reset_password_with_invalid_token(client: TestClient):
         json={"token": "invalid-token", "new_password": "NewPassword123"},
     )
     assert response.status_code == 400
+
+
+def test_reset_password_invalid_token_writes_failure_audit(client: TestClient, db: Session):
+    response = client.post(
+        "/auth/reset-password",
+        json={"token": "invalid-token", "new_password": "NewPassword123"},
+    )
+
+    assert response.status_code == 400
+    audit = db.scalar(
+        select(AuditLog).where(AuditLog.action == "password_reset_denied")
+    )
+    assert audit is not None
+    assert audit.status == "failure"
 
 
 def test_admin_can_create_invite_and_accept_it(client: TestClient, db: Session):

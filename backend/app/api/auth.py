@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.limiter import limiter, get_failed_login_key
+from app.core.limiter import limiter, get_client_ip_rate_limit_key, get_failed_login_key
 from app.core.security import (
     build_totp_uri,
     generate_totp_secret,
@@ -177,6 +177,31 @@ def _build_two_factor_challenge_detail(user: User) -> dict[str, str | bool | int
     return detail
 
 
+def _write_auth_audit(
+    db: Session,
+    *,
+    action: str,
+    ip_address: str,
+    status_value: str,
+    user: User | None = None,
+    resource_type: str = "user",
+    resource_id: UUID | None = None,
+    details: dict | str | None = None,
+) -> None:
+    db.add(
+        AuditLog(
+            user_id=user.id if user else None,
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id if resource_id is not None else (user.id if user else None),
+            details=details,
+            ip_address=ip_address,
+            is_break_glass=False,
+            status=status_value,
+        )
+    )
+
+
 def _revoke_user_two_factor_artifacts(db: Session, user: User) -> tuple[int, int]:
     revoked_devices = security_service.revoke_all_trusted_devices(db, user_id=user.id)
     revoked_codes = security_service.revoke_backup_codes(db, user_id=user.id)
@@ -213,7 +238,7 @@ def get_two_factor_status(
 
 
 @router.post("/2fa/verify", response_model=MessageResponse)
-@limiter.limit("30/minute")
+@limiter.limit("10/minute")
 def verify_two_factor(
     request: Request,
     payload: TwoFactorVerifyRequest,
@@ -224,29 +249,34 @@ def verify_two_factor(
 
     otp_code = normalize_totp_code(payload.otp_code)
     if not otp_code or not verify_totp_code(current_user.two_factor_secret, otp_code):
+        _write_auth_audit(
+            db,
+            action="two_factor_verify_failed",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            user=current_user,
+            details={"reason": "invalid_two_factor_code"},
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid two-factor authentication code.")
 
     current_user.two_factor_enabled = True
     current_user.two_factor_enabled_at = datetime.now(timezone.utc)
     db.add(current_user)
-    db.add(
-        AuditLog(
-            user_id=current_user.id,
-            action="two_factor_verified",
-            resource_type="user",
-            resource_id=current_user.id,
-            details={"event": "two_factor_verified"},
-            ip_address=_client_ip(request),
-            is_break_glass=False,
-            status="success",
-        )
+    _write_auth_audit(
+        db,
+        action="two_factor_verified",
+        ip_address=_client_ip(request),
+        status_value="success",
+        user=current_user,
+        details={"event": "two_factor_verified"},
     )
     db.commit()
     return MessageResponse(message="Two-factor authentication verified successfully.")
 
 
 @router.post("/2fa/disable", response_model=MessageResponse)
-@limiter.limit("20/minute")
+@limiter.limit("10/minute")
 def disable_two_factor(
     request: Request,
     payload: TwoFactorDisableRequest,
@@ -254,12 +284,30 @@ def disable_two_factor(
     current_user: User = Depends(auth_service.get_current_user),
 ):
     if current_user.role == UserRole.admin and settings.admin_2fa_required:
+        _write_auth_audit(
+            db,
+            action="two_factor_disable_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            user=current_user,
+            details={"reason": "policy_required"},
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Admin 2FA cannot be disabled by policy.")
     if not current_user.two_factor_enabled or not current_user.two_factor_secret:
         return MessageResponse(message="Two-factor authentication is already disabled.")
 
     otp_code = normalize_totp_code(payload.current_otp_code)
     if not otp_code or not verify_totp_code(current_user.two_factor_secret, otp_code):
+        _write_auth_audit(
+            db,
+            action="two_factor_disable_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            user=current_user,
+            details={"reason": "invalid_current_two_factor_code"},
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current 2FA code is invalid.")
 
     current_user.two_factor_enabled = False
@@ -267,24 +315,20 @@ def disable_two_factor(
     current_user.two_factor_secret = None
     revoked_devices, revoked_codes = _revoke_user_two_factor_artifacts(db, current_user)
     db.add(current_user)
-    db.add(
-        AuditLog(
-            user_id=current_user.id,
-            action="two_factor_disabled",
-            resource_type="user",
-            resource_id=current_user.id,
-            details={"revoked_devices": revoked_devices, "revoked_backup_codes": revoked_codes},
-            ip_address=_client_ip(request),
-            is_break_glass=False,
-            status="success",
-        )
+    _write_auth_audit(
+        db,
+        action="two_factor_disabled",
+        ip_address=_client_ip(request),
+        status_value="success",
+        user=current_user,
+        details={"revoked_devices": revoked_devices, "revoked_backup_codes": revoked_codes},
     )
     db.commit()
     return MessageResponse(message="Two-factor authentication disabled.")
 
 
 @router.post("/2fa/reset", response_model=TwoFactorStatusResponse)
-@limiter.limit("20/minute")
+@limiter.limit("10/minute")
 def reset_two_factor(
     request: Request,
     payload: Admin2FAResetRequest,
@@ -294,6 +338,15 @@ def reset_two_factor(
     if current_user.two_factor_enabled and current_user.two_factor_secret:
         current_code = normalize_totp_code(payload.current_otp_code)
         if not current_code or not verify_totp_code(current_user.two_factor_secret, current_code):
+            _write_auth_audit(
+                db,
+                action="two_factor_reset_denied",
+                ip_address=_client_ip(request),
+                status_value="failure",
+                user=current_user,
+                details={"reason": "invalid_current_two_factor_code"},
+            )
+            db.commit()
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current 2FA code is required to reset.")
 
     current_user.two_factor_secret = generate_totp_secret()
@@ -301,21 +354,17 @@ def reset_two_factor(
     current_user.two_factor_enabled_at = None
     revoked_devices, revoked_codes = _revoke_user_two_factor_artifacts(db, current_user)
     db.add(current_user)
-    db.add(
-        AuditLog(
-            user_id=current_user.id,
-            action="two_factor_reset",
-            resource_type="user",
-            resource_id=current_user.id,
-            details={
-                "reason": payload.reason or "",
-                "revoked_devices": revoked_devices,
-                "revoked_backup_codes": revoked_codes,
-            },
-            ip_address=_client_ip(request),
-            is_break_glass=False,
-            status="success",
-        )
+    _write_auth_audit(
+        db,
+        action="two_factor_reset",
+        ip_address=_client_ip(request),
+        status_value="success",
+        user=current_user,
+        details={
+            "reason": payload.reason or "",
+            "revoked_devices": revoked_devices,
+            "revoked_backup_codes": revoked_codes,
+        },
     )
     db.commit()
     db.refresh(current_user)
@@ -323,35 +372,40 @@ def reset_two_factor(
 
 
 @router.post("/2fa/backup-codes/regenerate", response_model=BackupCodesResponse)
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")
 def regenerate_backup_codes(
     request: Request,
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):
     if not current_user.two_factor_enabled:
+        _write_auth_audit(
+            db,
+            action="two_factor_backup_codes_regenerate_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            user=current_user,
+            details={"reason": "two_factor_not_enabled"},
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Enable 2FA before generating backup codes.")
 
     codes, expires_at = security_service.generate_backup_codes(db, user_id=current_user.id)
     generated_at = datetime.now(timezone.utc)
-    db.add(
-        AuditLog(
-            user_id=current_user.id,
-            action="two_factor_backup_codes_regenerated",
-            resource_type="user",
-            resource_id=current_user.id,
-            details={"count": len(codes)},
-            ip_address=_client_ip(request),
-            is_break_glass=False,
-            status="success",
-        )
+    _write_auth_audit(
+        db,
+        action="two_factor_backup_codes_regenerated",
+        ip_address=_client_ip(request),
+        status_value="success",
+        user=current_user,
+        details={"count": len(codes)},
     )
     db.commit()
     return BackupCodesResponse(codes=codes, generated_at=generated_at, expires_at=expires_at)
 
 
 @router.post("/2fa/backup-codes/use", response_model=MessageResponse)
-@limiter.limit("20/minute")
+@limiter.limit("10/minute")
 def use_backup_code(
     request: Request,
     payload: TwoFactorBackupCodeUseRequest,
@@ -359,22 +413,36 @@ def use_backup_code(
     current_user: User = Depends(auth_service.get_current_user),
 ):
     if not current_user.two_factor_enabled:
+        _write_auth_audit(
+            db,
+            action="two_factor_backup_code_use_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            user=current_user,
+            details={"reason": "two_factor_not_enabled"},
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Two-factor authentication is not enabled.")
 
     if not security_service.use_backup_code(db, user_id=current_user.id, code=payload.code):
+        _write_auth_audit(
+            db,
+            action="two_factor_backup_code_use_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            user=current_user,
+            details={"reason": "invalid_or_used_backup_code"},
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or already used backup code.")
 
-    db.add(
-        AuditLog(
-            user_id=current_user.id,
-            action="two_factor_backup_code_used",
-            resource_type="user",
-            resource_id=current_user.id,
-            details="Backup code used from authenticated session",
-            ip_address=_client_ip(request),
-            is_break_glass=False,
-            status="success",
-        )
+    _write_auth_audit(
+        db,
+        action="two_factor_backup_code_used",
+        ip_address=_client_ip(request),
+        status_value="success",
+        user=current_user,
+        details="Backup code used from authenticated session",
     )
     db.commit()
     return MessageResponse(message="Backup code accepted.")
@@ -501,7 +569,7 @@ def get_admin_2fa_status(
 
 
 @router.post("/2fa/admin/verify", response_model=MessageResponse)
-@limiter.limit("30/minute")
+@limiter.limit("10/minute")
 def verify_admin_2fa(
     request: Request,
     payload: Admin2FAVerifyRequest,
@@ -519,7 +587,7 @@ def verify_admin_2fa(
 
 
 @router.post("/2fa/admin/reset", response_model=Admin2FAStatusResponse)
-@limiter.limit("20/minute")
+@limiter.limit("10/minute")
 def reset_admin_2fa(
     request: Request,
     payload: Admin2FAResetRequest,
@@ -771,6 +839,7 @@ def logout(
 
 @router.post("/forgot-password", response_model=ForgotPasswordResponse)
 @limiter.limit("10/minute")
+@limiter.limit("5/minute", key_func=get_client_ip_rate_limit_key)
 def forgot_password(request: Request, payload: ForgotPasswordRequest, db: Session = Depends(auth_service.get_db)):
     """
     Request a password reset token.
@@ -781,6 +850,24 @@ def forgot_password(request: Request, payload: ForgotPasswordRequest, db: Sessio
     if user:
         reset_token = auth_service.create_password_reset_token(user)
         logger.info("Credential recovery flow requested for an existing account")
+        _write_auth_audit(
+            db,
+            action="password_reset_requested",
+            ip_address=_client_ip(request),
+            status_value="success",
+            user=user,
+            details={"email": user.email},
+        )
+    else:
+        _write_auth_audit(
+            db,
+            action="password_reset_requested",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"email": payload.email.lower(), "reason": "account_not_found"},
+        )
+
+    db.commit()
 
     response = ForgotPasswordResponse(
         message="If the account exists, a reset instruction has been generated.",
@@ -793,20 +880,57 @@ def forgot_password(request: Request, payload: ForgotPasswordRequest, db: Sessio
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-@limiter.limit("20/minute")
+@limiter.limit("10/minute")
+@limiter.limit("5/minute", key_func=get_client_ip_rate_limit_key)
 def reset_password(request: Request, payload: ResetPasswordRequest, db: Session = Depends(auth_service.get_db)):
-    user_id = auth_service.verify_password_reset_token(payload.token)
+    ip = _client_ip(request)
+    try:
+        user_id = auth_service.verify_password_reset_token(payload.token)
+    except HTTPException:
+        _write_auth_audit(
+            db,
+            action="password_reset_denied",
+            ip_address=ip,
+            status_value="failure",
+            details={"reason": "invalid_reset_token"},
+        )
+        db.commit()
+        raise
     try:
         parsed_user_id = UUID(user_id)
     except ValueError:
+        _write_auth_audit(
+            db,
+            action="password_reset_denied",
+            ip_address=ip,
+            status_value="failure",
+            details={"reason": "invalid_reset_token_user_id"},
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset token")
 
     user = db.scalar(select(User).where(User.id == parsed_user_id))
     if not user:
+        _write_auth_audit(
+            db,
+            action="password_reset_denied",
+            ip_address=ip,
+            status_value="failure",
+            details={"reason": "target_not_found", "user_id": str(parsed_user_id)},
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset token")
 
     auth_service.reset_user_password(db, user, payload.new_password)
-    _revoke_user_two_factor_artifacts(db, user)
+    revoked_devices, revoked_codes = _revoke_user_two_factor_artifacts(db, user)
+    _write_auth_audit(
+        db,
+        action="password_reset_completed",
+        ip_address=ip,
+        status_value="success",
+        user=user,
+        details={"revoked_devices": revoked_devices, "revoked_backup_codes": revoked_codes},
+    )
     db.commit()
     return MessageResponse(message="Password reset successful")
 
