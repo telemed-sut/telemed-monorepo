@@ -52,9 +52,9 @@ def test_device_health_endpoint_is_public(client: TestClient):
 
 
 def test_device_stats_requires_admin_role(client: TestClient, db: Session):
-    staff = _create_user(db, email="device-staff@example.com", role=UserRole.staff)
+    medical_student = _create_user(db, email="device-medical-student@example.com", role=UserRole.medical_student)
 
-    response = client.get("/device/v1/stats", headers=_auth_headers(staff))
+    response = client.get("/device/v1/stats", headers=_auth_headers(medical_student))
 
     assert response.status_code == 403
 

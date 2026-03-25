@@ -22,7 +22,7 @@ def test_authenticate_user_success(db: Session):
     user = User(
         email="test@example.com",
         password_hash=get_password_hash("TestPassword123"),
-        role=UserRole.staff
+        role=UserRole.medical_student
     )
     db.add(user)
     db.commit()
@@ -45,7 +45,7 @@ def test_authenticate_user_invalid_password(db: Session):
     user = User(
         email="test@example.com",
         password_hash=get_password_hash("correct_password"),
-        role=UserRole.staff
+        role=UserRole.medical_student
     )
     db.add(user)
     db.commit()

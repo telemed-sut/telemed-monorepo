@@ -13,12 +13,8 @@ function isClinicalRole(role: string): boolean {
 
 describe("isClinicalRole", () => {
   it("doctor is clinical", () => expect(isClinicalRole("doctor")).toBe(true));
-  it("nurse is clinical", () => expect(isClinicalRole("nurse")).toBe(true));
-  it("pharmacist is clinical", () => expect(isClinicalRole("pharmacist")).toBe(true));
-  it("medical_technologist is clinical", () => expect(isClinicalRole("medical_technologist")).toBe(true));
-  it("psychologist is clinical", () => expect(isClinicalRole("psychologist")).toBe(true));
   it("admin is NOT clinical", () => expect(isClinicalRole("admin")).toBe(false));
-  it("staff is NOT clinical", () => expect(isClinicalRole("staff")).toBe(false));
+  it("medical_student is NOT clinical", () => expect(isClinicalRole("medical_student")).toBe(false));
 });
 
 // ── License expiry helpers (replicated from users-table.tsx) ──
@@ -115,7 +111,7 @@ describe("Create user form validation", () => {
     password: "password123",
     first_name: "Test",
     last_name: "User",
-    role: "staff",
+    role: "medical_student",
     is_active: true,
     specialty: "",
     department: "",
@@ -124,7 +120,7 @@ describe("Create user form validation", () => {
     verification_status: "unverified",
   };
 
-  it("valid staff form passes", () => {
+  it("valid medical_student form passes", () => {
     expect(validateCreateForm(baseForm)).toEqual([]);
   });
 
@@ -143,16 +139,6 @@ describe("Create user form validation", () => {
     expect(errors).toContain("Clinical roles require a license number");
   });
 
-  it("nurse without license fails", () => {
-    const errors = validateCreateForm({ ...baseForm, role: "nurse", license_no: "" });
-    expect(errors).toContain("Clinical roles require a license number");
-  });
-
-  it("pharmacist without license fails", () => {
-    const errors = validateCreateForm({ ...baseForm, role: "pharmacist", license_no: "" });
-    expect(errors).toContain("Clinical roles require a license number");
-  });
-
   it("doctor with license passes", () => {
     const errors = validateCreateForm({
       ...baseForm,
@@ -168,8 +154,8 @@ describe("Create user form validation", () => {
     expect(errors).toEqual([]);
   });
 
-  it("staff without license passes (non-clinical)", () => {
-    const errors = validateCreateForm({ ...baseForm, role: "staff", license_no: "" });
+  it("medical_student without license passes (non-clinical)", () => {
+    const errors = validateCreateForm({ ...baseForm, role: "medical_student", license_no: "" });
     expect(errors).toEqual([]);
   });
 });
@@ -192,24 +178,24 @@ describe("Verify button visibility", () => {
     expect(shouldShowVerifyButton("doctor", "unverified", "admin")).toBe(true);
   });
 
-  it("shows for admin viewing pending nurse", () => {
-    expect(shouldShowVerifyButton("nurse", "pending", "admin")).toBe(true);
+  it("shows for admin viewing pending doctor", () => {
+    expect(shouldShowVerifyButton("doctor", "pending", "admin")).toBe(true);
   });
 
   it("hides for admin viewing already verified doctor", () => {
     expect(shouldShowVerifyButton("doctor", "verified", "admin")).toBe(false);
   });
 
-  it("hides for staff viewing unverified doctor", () => {
-    expect(shouldShowVerifyButton("doctor", "unverified", "staff")).toBe(false);
+  it("hides for medical_student viewing unverified doctor", () => {
+    expect(shouldShowVerifyButton("doctor", "unverified", "medical_student")).toBe(false);
   });
 
   it("shows for admin viewing admin (non-clinical, unverified)", () => {
     expect(shouldShowVerifyButton("admin", "unverified", "admin")).toBe(true);
   });
 
-  it("shows for admin viewing staff (non-clinical, unverified)", () => {
-    expect(shouldShowVerifyButton("staff", "unverified", "admin")).toBe(true);
+  it("shows for admin viewing medical_student (non-clinical, unverified)", () => {
+    expect(shouldShowVerifyButton("medical_student", "unverified", "admin")).toBe(true);
   });
 
   it("handles null verification status", () => {

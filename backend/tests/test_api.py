@@ -18,7 +18,7 @@ def test_login_endpoint(client: TestClient, db: Session):
     user = User(
         email="test@example.com",
         password_hash=get_password_hash("TestPassword123"),
-        role=UserRole.staff
+        role=UserRole.medical_student
     )
     db.add(user)
     db.commit()
@@ -35,7 +35,7 @@ def test_login_endpoint(client: TestClient, db: Session):
     assert data["token_type"] == "bearer"
     assert "expires_in" in data
     assert data["user"]["email"] == "test@example.com"
-    assert data["user"]["role"] == "staff"
+    assert data["user"]["role"] == "medical_student"
     assert "set-cookie" in response.headers
 
 
@@ -107,7 +107,7 @@ def test_logout_endpoint(client: TestClient, db: Session):
     user = User(
         email="logout@example.com",
         password_hash=get_password_hash("TestPassword123"),
-        role=UserRole.staff
+        role=UserRole.medical_student
     )
     db.add(user)
     db.commit()
@@ -141,7 +141,7 @@ def test_forgot_password_endpoint(client: TestClient, db: Session):
     user = User(
         email="forgot@example.com",
         password_hash=get_password_hash("TestPassword123"),
-        role=UserRole.staff
+        role=UserRole.medical_student
     )
     db.add(user)
     db.commit()
@@ -156,7 +156,7 @@ def test_reset_password_with_valid_token(client: TestClient, db: Session, monkey
     user = User(
         email="reset@example.com",
         password_hash=get_password_hash("OldPassword123"),
-        role=UserRole.staff
+        role=UserRole.medical_student
     )
     db.add(user)
     db.commit()

@@ -15,7 +15,7 @@ from app.services.auth import create_login_response
 from app.services.patient import create_patient, get_patient, list_patients
 
 
-def create_test_user(db: Session, role: UserRole = UserRole.staff) -> User:
+def create_test_user(db: Session, role: UserRole = UserRole.medical_student) -> User:
     user = User(
         email=f"test_{uuid4()}@example.com",
         password_hash=get_password_hash("password"),
@@ -219,17 +219,17 @@ def test_patient_api_unauthorized(client: TestClient):
     assert response.status_code == 401
 
 
-def test_staff_is_forbidden_on_patient_endpoints(client: TestClient, db: Session):
-    staff = create_test_user(db, UserRole.staff)
+def test_medical_student_patient_access_is_read_only_and_assignment_scoped(client: TestClient, db: Session):
+    medical_student = create_test_user(db, UserRole.medical_student)
     admin = create_test_user(db, UserRole.admin)
 
-    staff_headers = get_auth_headers(staff)
+    medical_student_headers = get_auth_headers(medical_student)
     admin_headers = get_auth_headers(admin)
 
     create_response = client.post(
         "/patients",
-        json={"first_name": "Blocked", "last_name": "Staff", "date_of_birth": "1990-01-01"},
-        headers=staff_headers,
+        json={"first_name": "Blocked", "last_name": "MedicalStudent", "date_of_birth": "1990-01-01"},
+        headers=medical_student_headers,
     )
     assert create_response.status_code == 403
 
@@ -241,12 +241,28 @@ def test_staff_is_forbidden_on_patient_endpoints(client: TestClient, db: Session
     assert patient_response.status_code == 201
     patient_id = patient_response.json()["id"]
 
-    assert client.get("/patients", headers=staff_headers).status_code == 403
-    assert client.get(f"/patients/{patient_id}", headers=staff_headers).status_code == 403
-    assert client.put(f"/patients/{patient_id}", json={"first_name": "No"}, headers=staff_headers).status_code == 403
+    unassigned_list = client.get("/patients", headers=medical_student_headers)
+    assert unassigned_list.status_code == 200
+    assert unassigned_list.json()["total"] == 0
+
+    unassigned_get = client.get(f"/patients/{patient_id}", headers=medical_student_headers)
+    assert unassigned_get.status_code == 403
+
+    assign_doctor_to_patient(db, medical_student.id, patient_id)
+
+    assigned_list = client.get("/patients", headers=medical_student_headers)
+    assert assigned_list.status_code == 200
+    assigned_ids = {item["id"] for item in assigned_list.json()["items"]}
+    assert patient_id in assigned_ids
+
+    assigned_get = client.get(f"/patients/{patient_id}", headers=medical_student_headers)
+    assert assigned_get.status_code == 200
+    assert assigned_get.json()["id"] == patient_id
+
+    assert client.put(f"/patients/{patient_id}", json={"first_name": "No"}, headers=medical_student_headers).status_code == 403
 
 
-def test_doctor_list_includes_unassigned_patients(client: TestClient, db: Session):
+def test_doctor_list_excludes_unassigned_patients(client: TestClient, db: Session):
     doctor = create_test_user(db, UserRole.doctor)
     admin = create_test_user(db, UserRole.admin)
 
@@ -275,7 +291,7 @@ def test_doctor_list_includes_unassigned_patients(client: TestClient, db: Sessio
     items = list_response.json()["items"]
     ids = {item["id"] for item in items}
     assert assigned_id in ids
-    assert unassigned_id in ids
+    assert unassigned_id not in ids
 
 
 def test_doctor_get_unassigned_patient_is_blocked(client: TestClient, db: Session):
@@ -381,11 +397,11 @@ def test_admin_manage_assignments_and_primary_rules(client: TestClient, db: Sess
 def test_non_admin_cannot_manage_assignments(client: TestClient, db: Session):
     admin = create_test_user(db, UserRole.admin)
     doctor = create_test_user(db, UserRole.doctor)
-    staff = create_test_user(db, UserRole.staff)
+    medical_student = create_test_user(db, UserRole.medical_student)
 
     admin_headers = get_auth_headers(admin)
     doctor_headers = get_auth_headers(doctor)
-    staff_headers = get_auth_headers(staff)
+    medical_student_headers = get_auth_headers(medical_student)
 
     patient_resp = client.post(
         "/patients",
@@ -395,7 +411,7 @@ def test_non_admin_cannot_manage_assignments(client: TestClient, db: Session):
     assert patient_resp.status_code == 201
     patient_id = patient_resp.json()["id"]
 
-    for headers in (doctor_headers, staff_headers):
+    for headers in (doctor_headers, medical_student_headers):
         assert client.get(f"/patients/{patient_id}/assignments", headers=headers).status_code == 403
         assert client.post(
             f"/patients/{patient_id}/assignments",

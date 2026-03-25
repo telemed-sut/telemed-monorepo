@@ -85,8 +85,8 @@ def test_stats_overview_returns_expected_contract(
 
 
 def test_audit_endpoints_require_admin_role(client: TestClient, db: Session):
-    staff = _create_user(db, email="audit-staff@example.com", role=UserRole.staff)
-    headers = _auth_headers(staff)
+    medical_student = _create_user(db, email="audit-medical-student@example.com", role=UserRole.medical_student)
+    headers = _auth_headers(medical_student)
 
     logs_response = client.get("/audit/logs", headers=headers)
     export_response = client.get("/audit/export", headers=headers)

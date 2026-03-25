@@ -31,7 +31,7 @@ def _make_user(
     db: Session,
     *,
     email: str,
-    role: UserRole = UserRole.staff,
+    role: UserRole = UserRole.medical_student,
     password: str = "TestPass123",
     first_name: str = "Test",
     last_name: str = "User",
@@ -64,9 +64,9 @@ def _auth(token: str) -> dict:
 # ──────────────────────────────────────────────────────────
 
 class TestRBAC:
-    def test_staff_cannot_list_users(self, client: TestClient, db: Session):
-        _make_user(db, email="staff@example.com", role=UserRole.staff)
-        token = _login(client, "staff@example.com")
+    def test_medical_student_cannot_list_users(self, client: TestClient, db: Session):
+        _make_user(db, email="medical-student@example.com", role=UserRole.medical_student)
+        token = _login(client, "medical-student@example.com")
         resp = client.get("/users", headers=_auth(token))
         assert resp.status_code == 403
 
@@ -79,19 +79,19 @@ class TestRBAC:
         assert "items" in data
         assert data["total"] >= 1
 
-    def test_staff_cannot_create_user(self, client: TestClient, db: Session):
-        _make_user(db, email="staff2@example.com", role=UserRole.staff)
-        token = _login(client, "staff2@example.com")
+    def test_medical_student_cannot_create_user(self, client: TestClient, db: Session):
+        _make_user(db, email="medical-student2@example.com", role=UserRole.medical_student)
+        token = _login(client, "medical-student2@example.com")
         resp = client.post("/users", json={
             "email": "new@example.com",
             "password": "NewPass123",
         }, headers=_auth(token))
         assert resp.status_code == 403
 
-    def test_staff_cannot_delete_user(self, client: TestClient, db: Session):
-        target = _make_user(db, email="target@example.com", role=UserRole.staff)
-        staff = _make_user(db, email="staff3@example.com", role=UserRole.staff)
-        token = _login(client, "staff3@example.com")
+    def test_medical_student_cannot_delete_user(self, client: TestClient, db: Session):
+        target = _make_user(db, email="target@example.com", role=UserRole.medical_student)
+        medical_student = _make_user(db, email="medical-student3@example.com", role=UserRole.medical_student)
+        token = _login(client, "medical-student3@example.com")
         resp = client.delete(f"/users/{target.id}", headers=_auth(token))
         assert resp.status_code == 403
 
@@ -102,21 +102,21 @@ class TestRBAC:
         assert resp.status_code == 403
 
     def test_user_can_read_self(self, client: TestClient, db: Session):
-        user = _make_user(db, email="self@example.com", role=UserRole.staff)
+        user = _make_user(db, email="self@example.com", role=UserRole.medical_student)
         token = _login(client, "self@example.com")
         resp = client.get(f"/users/{user.id}", headers=_auth(token))
         assert resp.status_code == 200
         assert resp.json()["email"] == "self@example.com"
 
     def test_user_cannot_read_other(self, client: TestClient, db: Session):
-        other = _make_user(db, email="other@example.com", role=UserRole.staff)
-        user = _make_user(db, email="me@example.com", role=UserRole.staff)
+        other = _make_user(db, email="other@example.com", role=UserRole.medical_student)
+        user = _make_user(db, email="me@example.com", role=UserRole.medical_student)
         token = _login(client, "me@example.com")
         resp = client.get(f"/users/{other.id}", headers=_auth(token))
         assert resp.status_code == 403
 
     def test_non_admin_cannot_change_role(self, client: TestClient, db: Session):
-        user = _make_user(db, email="norole@example.com", role=UserRole.staff)
+        user = _make_user(db, email="norole@example.com", role=UserRole.medical_student)
         token = _login(client, "norole@example.com")
         resp = client.put(f"/users/{user.id}", json={"role": "admin"}, headers=_auth(token))
         assert resp.status_code == 403
@@ -135,12 +135,12 @@ class TestCRUD:
             "password": "NewPass123",
             "first_name": "New",
             "last_name": "User",
-            "role": "staff",
+            "role": "admin",
         }, headers=_auth(token))
         assert resp.status_code == 200
         data = resp.json()
         assert data["email"] == "newuser@example.com"
-        assert data["role"] == "staff"
+        assert data["role"] == "admin"
         assert data["is_active"] is True
 
     def test_create_duplicate_email_fails(self, client: TestClient, db: Session):
@@ -182,17 +182,14 @@ class TestCRUD:
     def test_list_users_clinical_only_scope(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-scope@example.com", role=UserRole.admin)
         _make_user(db, email="doctor-scope@example.com", role=UserRole.doctor)
-        _make_user(db, email="staff-scope@example.com", role=UserRole.staff)
+        _make_user(db, email="medical-student-scope@example.com", role=UserRole.medical_student)
         token = _login(client, "admin-scope@example.com")
 
         resp = client.get("/users?clinical_only=true", headers=_auth(token))
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["items"]) > 0
-        assert all(
-            item["role"] in {"doctor", "nurse", "pharmacist", "medical_technologist", "psychologist"}
-            for item in data["items"]
-        )
+        assert all(item["role"] == "doctor" for item in data["items"])
 
     def test_list_pagination(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-page@example.com", role=UserRole.admin)
@@ -228,7 +225,7 @@ class TestCRUD:
 
         resp = client.put(
             f"/users/{admin2.id}",
-            json={"role": "staff"},
+            json={"role": "medical_student"},
             headers=_auth(token),
         )
         assert resp.status_code == 400
@@ -528,13 +525,24 @@ class TestValidation:
         admin = _make_user(db, email="admin-val2@example.com", role=UserRole.admin)
         token = _login(client, "admin-val2@example.com")
         resp = client.post("/users", json={
-            "email": "staff-direct@example.com",
+            "email": "admin-direct@example.com",
             "password": "StaffPass123",
-            "role": "staff",
+            "role": "admin",
         }, headers=_auth(token))
         assert resp.status_code == 200
         data = resp.json()
-        assert data["role"] == "staff"
+        assert data["role"] == "admin"
+
+    def test_direct_create_medical_student_blocked_when_invite_only(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-val3@example.com", role=UserRole.admin)
+        token = _login(client, "admin-val3@example.com")
+        resp = client.post("/users", json={
+            "email": "medical-student-direct@example.com",
+            "password": "StudentPass123",
+            "role": "medical_student",
+        }, headers=_auth(token))
+        assert resp.status_code == 400
+        assert "invite flow" in resp.json()["detail"].lower()
 
 
 # ──────────────────────────────────────────────────────────
@@ -659,10 +667,10 @@ class TestVerify:
         assert resp.status_code == 200
         assert resp.json()["verification_status"] == "verified"
 
-    def test_staff_cannot_verify_user(self, client: TestClient, db: Session):
+    def test_medical_student_cannot_verify_user(self, client: TestClient, db: Session):
         doc = _make_user(db, email="doc-nver@example.com", role=UserRole.doctor)
-        staff = _make_user(db, email="staff-nver@example.com", role=UserRole.staff)
-        token = _login(client, "staff-nver@example.com")
+        medical_student = _make_user(db, email="medical-student-nver@example.com", role=UserRole.medical_student)
+        token = _login(client, "medical-student-nver@example.com")
         resp = client.post(f"/users/{doc.id}/verify", headers=_auth(token))
         assert resp.status_code == 403
 
@@ -678,6 +686,7 @@ class TestAuditLog:
         resp = client.post("/users", json={
             "email": "audited@example.com",
             "password": "AuditPass123",
+            "role": "admin",
         }, headers=_auth(token))
         assert resp.status_code == 200
         new_id = PyUUID(resp.json()["id"])

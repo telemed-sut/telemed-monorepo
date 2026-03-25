@@ -52,7 +52,7 @@ describe("User type structure", () => {
       email: "deleted@example.com",
       first_name: null,
       last_name: null,
-      role: "staff",
+      role: "medical_student",
       is_active: false,
       deleted_at: "2026-02-15T10:00:00Z",
     };
@@ -95,6 +95,21 @@ describe("UserCreate type structure", () => {
     expect(create.specialty).toBe("Dermatology");
     expect(create.license_no).toBe("MD99999");
     expect(create.is_active).toBe(true);
+  });
+
+  it("supports medical_student as a non-clinical invite-only role", () => {
+    const create: UserCreate = {
+      email: "student@example.com",
+      password: "password123",
+      first_name: "Med",
+      last_name: "Student",
+      role: "medical_student",
+      is_active: true,
+      verification_status: "unverified",
+    };
+
+    expect(create.role).toBe("medical_student");
+    expect(create.license_no).toBeUndefined();
   });
 });
 
