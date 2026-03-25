@@ -10,6 +10,7 @@ interface AuthState {
   token: string | null;
   role: string | null;
   userId: string | null;
+  mfaVerified: boolean;
   hydrated: boolean;
   sessionExpiresAt: number | null;
   setSession: (response: LoginResponse) => void;
@@ -34,6 +35,7 @@ function getSessionState(response: LoginResponse) {
     token: COOKIE_SESSION_TOKEN,
     role: response.user?.role ?? null,
     userId: response.user?.id ?? null,
+    mfaVerified: Boolean(response.user?.mfa_verified),
     sessionExpiresAt: getExpiryEpoch(response.expires_in),
   };
 }
@@ -42,6 +44,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   role: null,
   userId: null,
+  mfaVerified: false,
   hydrated: false,
   sessionExpiresAt: null,
   setSession: (response) => {
@@ -58,6 +61,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       token: null,
       role: null,
       userId: null,
+      mfaVerified: false,
       hydrated: true,
       sessionExpiresAt: null,
     });
@@ -82,6 +86,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         token: null,
         role: null,
         userId: null,
+        mfaVerified: false,
         hydrated: true,
         sessionExpiresAt: null,
       });

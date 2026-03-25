@@ -46,3 +46,21 @@ export async function fetchCurrentUserRoleServer(token: string): Promise<string 
   });
   return typeof payload?.role === "string" ? payload.role : null;
 }
+
+export interface CurrentUserSessionServer {
+  role: string | null;
+  mfaVerified: boolean;
+}
+
+export async function fetchCurrentUserSessionServer(token: string): Promise<CurrentUserSessionServer | null> {
+  const payload = await serverApiFetch<{ role?: unknown; mfa_verified?: unknown }>("/auth/me", token, {
+    method: "GET",
+  });
+  if (typeof payload?.role !== "string") {
+    return null;
+  }
+  return {
+    role: payload.role,
+    mfaVerified: payload.mfa_verified === true,
+  };
+}

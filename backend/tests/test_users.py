@@ -127,12 +127,11 @@ class TestRBAC:
 # ──────────────────────────────────────────────────────────
 
 class TestCRUD:
-    def test_create_user(self, client: TestClient, db: Session):
+    def test_create_admin_without_preset_password(self, client: TestClient, db: Session):
         _make_user(db, email="admin-crud@example.com", role=UserRole.admin)
         token = _login(client, "admin-crud@example.com")
         resp = client.post("/users", json={
             "email": "newuser@example.com",
-            "password": "NewPass123",
             "first_name": "New",
             "last_name": "User",
             "role": "admin",
@@ -142,6 +141,17 @@ class TestCRUD:
         assert data["email"] == "newuser@example.com"
         assert data["role"] == "admin"
         assert data["is_active"] is True
+
+    def test_create_admin_with_preset_password_rejected(self, client: TestClient, db: Session):
+        _make_user(db, email="admin-crud-reject@example.com", role=UserRole.admin)
+        token = _login(client, "admin-crud-reject@example.com")
+        resp = client.post("/users", json={
+            "email": "new-admin-reject@example.com",
+            "password": "NewPass123",
+            "role": "admin",
+        }, headers=_auth(token))
+        assert resp.status_code == 422
+        assert "preset password" in resp.json()["detail"].lower()
 
     def test_create_duplicate_email_fails(self, client: TestClient, db: Session):
         _make_user(db, email="dup@example.com", role=UserRole.admin)
@@ -290,7 +300,6 @@ class TestSoftDelete:
             "/users",
             json={
                 "email": "reuse@example.com",
-                "password": "NewPass123",
                 "first_name": "Reuse",
                 "last_name": "Account",
                 "role": "admin",
@@ -401,7 +410,6 @@ class TestSoftDelete:
             "/users",
             json={
                 "email": "restore-conflict@example.com",
-                "password": "NewPass123",
                 "first_name": "Conflict",
                 "last_name": "Owner",
                 "role": "admin",
@@ -551,17 +559,27 @@ class TestValidation:
         assert resp.status_code == 400
         assert "invite flow" in resp.json()["detail"].lower()
 
-    def test_direct_create_non_clinical_role_still_allowed(self, client: TestClient, db: Session):
+    def test_direct_create_admin_without_password_still_allowed(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-val2@example.com", role=UserRole.admin)
         token = _login(client, "admin-val2@example.com")
         resp = client.post("/users", json={
             "email": "admin-direct@example.com",
-            "password": "StaffPass123",
             "role": "admin",
         }, headers=_auth(token))
         assert resp.status_code == 200
         data = resp.json()
         assert data["role"] == "admin"
+
+    def test_direct_create_admin_with_password_blocked(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-val5@example.com", role=UserRole.admin)
+        token = _login(client, "admin-val5@example.com")
+        resp = client.post("/users", json={
+            "email": "admin-direct-blocked@example.com",
+            "password": "StaffPass123",
+            "role": "admin",
+        }, headers=_auth(token))
+        assert resp.status_code == 422
+        assert "preset password" in resp.json()["detail"].lower()
 
     def test_direct_create_medical_student_blocked_when_invite_only(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-val3@example.com", role=UserRole.admin)
@@ -730,7 +748,6 @@ class TestAuditLog:
         token = _login(client, "admin-aud@example.com")
         resp = client.post("/users", json={
             "email": "audited@example.com",
-            "password": "AuditPass123",
             "role": "admin",
         }, headers=_auth(token))
         assert resp.status_code == 200

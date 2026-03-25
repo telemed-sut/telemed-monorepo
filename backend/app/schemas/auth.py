@@ -20,6 +20,7 @@ class UserMeResponse(BaseModel):
     role: str
     verification_status: str | None = None
     two_factor_enabled: bool = False
+    mfa_verified: bool = False
 
 
 class TokenResponse(BaseModel):

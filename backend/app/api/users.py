@@ -1,3 +1,4 @@
+import secrets
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -310,9 +311,21 @@ def create_user(
             detail="Clinical roles require a license number.",
         )
 
+    normalized_password = user_in.password.strip() if isinstance(user_in.password, str) else None
+    if user_in.role == UserRole.admin and normalized_password:
+        raise HTTPException(
+            status_code=422,
+            detail="Admin accounts cannot be created with a preset password. Use the password reset onboarding flow.",
+        )
+    if user_in.role != UserRole.admin and not normalized_password:
+        raise HTTPException(
+            status_code=422,
+            detail="Direct user creation requires a password.",
+        )
+
     user = User(
         email=requested_email,
-        password_hash=get_password_hash(user_in.password),
+        password_hash=get_password_hash(normalized_password or secrets.token_urlsafe(32)),
         first_name=user_in.first_name,
         last_name=user_in.last_name,
         role=user_in.role,

@@ -53,6 +53,7 @@ export interface UserMe {
   role: string;
   verification_status?: string | null;
   two_factor_enabled?: boolean;
+  mfa_verified?: boolean;
 }
 
 export interface Admin2FAStatus {

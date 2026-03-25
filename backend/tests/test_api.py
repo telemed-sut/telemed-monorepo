@@ -36,6 +36,7 @@ def test_login_endpoint(client: TestClient, db: Session):
     assert "expires_in" in data
     assert data["user"]["email"] == "test@example.com"
     assert data["user"]["role"] == "medical_student"
+    assert data["user"]["mfa_verified"] is True
     assert "set-cookie" in response.headers
 
 

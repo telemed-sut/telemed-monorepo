@@ -75,12 +75,13 @@ def requires_token_mfa(user: User | None) -> bool:
 
 
 def create_login_response(user: User, *, mfa_verified: bool = True) -> dict:
+    effective_mfa_verified = not requires_token_mfa(user) or bool(mfa_verified)
     token = create_access_token(
         {
             "sub": str(user.id),
             "role": user.role.value,
             "type": "access",
-            "mfa_verified": bool(mfa_verified),
+            "mfa_verified": effective_mfa_verified,
         }
     )
     return {
@@ -95,6 +96,7 @@ def create_login_response(user: User, *, mfa_verified: bool = True) -> dict:
             "role": user.role.value,
             "verification_status": user.verification_status.value if user.verification_status else None,
             "two_factor_enabled": bool(user.two_factor_enabled),
+            "mfa_verified": effective_mfa_verified,
         },
     }
 

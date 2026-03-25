@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { fetchCurrentUserRoleServer } from "@/app/server-api";
+import { fetchCurrentUserSessionServer } from "@/app/server-api";
 
 const AUTH_COOKIE_NAME = "access_token";
 
@@ -15,13 +15,17 @@ export default async function AdminLayout({
     redirect("/login");
   }
 
-  const role = await fetchCurrentUserRoleServer(token);
-  if (!role) {
+  const session = await fetchCurrentUserSessionServer(token);
+  if (!session) {
     redirect("/login");
   }
 
-  if (role !== "admin") {
+  if (session.role !== "admin") {
     redirect("/overview");
+  }
+
+  if (!session.mfaVerified) {
+    redirect("/login");
   }
 
   return <>{children}</>;

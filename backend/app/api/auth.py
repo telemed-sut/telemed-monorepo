@@ -194,6 +194,7 @@ def get_me(current_user: User = Depends(auth_service.get_current_user)):
         role=current_user.role.value,
         verification_status=current_user.verification_status.value if current_user.verification_status else None,
         two_factor_enabled=current_user.two_factor_enabled,
+        mfa_verified=True,
     )
 
 
