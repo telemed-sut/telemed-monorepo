@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { fetchCurrentUserSessionServer } from "@/app/server-api";
 
 const AUTH_COOKIE_NAME = "access_token";
+const TRUSTED_DEVICE_COOKIE_NAME = "trusted_device_token";
 
 export default async function AdminLayout({
   children,
@@ -11,6 +12,7 @@ export default async function AdminLayout({
 }) {
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+  const trustedDeviceToken = cookieStore.get(TRUSTED_DEVICE_COOKIE_NAME)?.value;
   if (!token) {
     redirect("/login");
   }
@@ -24,7 +26,7 @@ export default async function AdminLayout({
     redirect("/overview");
   }
 
-  if (!session.mfaVerified) {
+  if (!session.mfaVerified && !trustedDeviceToken) {
     redirect("/login");
   }
 

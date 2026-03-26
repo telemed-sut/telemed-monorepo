@@ -186,6 +186,7 @@ export function PatientsTable() {
       recent: recentPatients,
     };
   }, [total, patients]);
+  const activeContactRate = stats.total > 0 ? Math.round((stats.active / stats.total) * 100) : 0;
 
   const totalPages = useMemo(() => {
     return Math.max(1, Math.ceil(total / limit));
@@ -574,7 +575,7 @@ export function PatientsTable() {
           <CardContent className="relative z-10 px-5 pb-5 pt-0">
             <div className="text-[1.75rem] font-bold tracking-tight text-foreground">{stats.active}</div>
             <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-              <span className="text-emerald-500 font-medium">{(stats.active / stats.total * 100).toFixed(0)}%</span> {tr(language, "response rate", "อัตราการตอบกลับ")}
+              <span className="text-emerald-500 font-medium">{activeContactRate}%</span> {tr(language, "response rate", "อัตราการตอบกลับ")}
             </p>
           </CardContent>
         </Card>
@@ -774,7 +775,7 @@ export function PatientsTable() {
                     <TableCell colSpan={7}>{emptyStateContent}</TableCell>
                   </TableRow>
                 ) : (
-                  <AnimatePresence mode="wait">
+                  <AnimatePresence>
                     {patients.map((patient, index) => {
                       const age = getAgeFromDOB(patient.date_of_birth);
                       const hasContact = !!(patient.phone || patient.email);

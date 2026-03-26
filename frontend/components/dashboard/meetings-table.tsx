@@ -547,7 +547,7 @@ export function MeetingsTable() {
                                         <TableCell colSpan={7}>{emptyStateContent}</TableCell>
                                     </TableRow>
                                 ) : (
-                                    <AnimatePresence mode="wait">
+                                    <AnimatePresence>
                                         {meetings.map((meeting, index) => {
                                             const rowNumber = (page - 1) * limit + index + 1;
                                             const upcoming = isUpcoming(meeting.date_time);

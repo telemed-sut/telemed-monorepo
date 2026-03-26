@@ -206,6 +206,7 @@ export default function LoginClientPage() {
                 <Input
                   id="email"
                   type="email"
+                  autoComplete="username"
                   placeholder={tr(language, "Enter your email", "กรอกอีเมล")}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -226,6 +227,7 @@ export default function LoginClientPage() {
                 <Input
                   id="password"
                   className="pe-9"
+                  autoComplete="current-password"
                   placeholder={tr(language, "Enter your password", "กรอกรหัสผ่าน")}
                   type={isPasswordVisible ? "text" : "password"}
                   value={password}

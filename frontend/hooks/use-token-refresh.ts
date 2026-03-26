@@ -14,6 +14,7 @@ import { refreshToken } from "@/lib/api";
 export function useTokenRefresh() {
   const router = useRouter();
   const token = useAuthStore((s) => s.token);
+  const sessionExpiresAt = useAuthStore((s) => s.sessionExpiresAt);
   const setSession = useAuthStore((s) => s.setSession);
   const clearToken = useAuthStore((s) => s.clearToken);
   const getTokenTTL = useAuthStore((s) => s.getTokenTTL);
@@ -22,6 +23,7 @@ export function useTokenRefresh() {
 
   useEffect(() => {
     if (!token) return;
+    if (sessionExpiresAt === null) return;
 
     const check = async () => {
       const ttl = getTokenTTL();
@@ -57,5 +59,5 @@ export function useTokenRefresh() {
     // Then check every 30 seconds
     const interval = setInterval(check, 30_000);
     return () => clearInterval(interval);
-  }, [token, setSession, clearToken, getTokenTTL, isTokenExpiringSoon, router]);
+  }, [token, sessionExpiresAt, setSession, clearToken, getTokenTTL, isTokenExpiringSoon, router]);
 }

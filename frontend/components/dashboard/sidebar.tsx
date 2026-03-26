@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -353,7 +352,7 @@ function SidebarUserMenu({
 }
 
 export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
-  const { state } = useSidebar();
+  const { state, isMobile, setOpenMobile } = useSidebar();
   const pathname = usePathname();
   const router = useRouter();
   const language = useLanguageStore((state) => state.language);
@@ -372,6 +371,12 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
     return () => { cancelled = true; };
   }, [token]);
 
+  useEffect(() => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  }, [isMobile, pathname, setOpenMobile]);
+
   const showMeetings = canViewClinicalData(userRole);
   const navRoutes = [
     ...baseRoutes,
@@ -384,7 +389,19 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
     return pathname.startsWith(link);
   };
 
+  const closeMobileSidebar = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
+
+  const handleRouteChange = (link: string) => {
+    closeMobileSidebar();
+    router.push(link);
+  };
+
   const handleLogout = () => {
+    closeMobileSidebar();
     void logout(token || undefined).catch(() => undefined).finally(() => {
       clearToken();
       router.replace("/login");
@@ -430,27 +447,19 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                       id={`sidebar-item-${route.id}`}
                       isActive={active}
                       tooltip={getRouteTitle(route.id, language)}
+                      onClick={() => handleRouteChange(route.link)}
                       className={cn(
                         "h-9 border border-sidebar-border/60 transition-[padding,border-color,background-color] duration-200 hover:border-sidebar-border sm:h-[38px] data-[active=true]:border-sidebar-border data-[active=true]:shadow-[0_0_0_1px_hsl(var(--sidebar-border))]",
                         isCollapsed && "justify-center px-0"
                       )}
                     >
-                      <Link
-                        href={route.link}
-                        prefetch={false}
-                        className={cn(
-                          "flex w-full items-center",
-                          isCollapsed ? "justify-center" : "gap-2.5"
-                        )}
-                      >
-                        <Icon className="size-4 sm:size-5" />
-                        {!isCollapsed && (
-                          <span className="text-[0.95rem]">{getRouteTitle(route.id, language)}</span>
-                        )}
-                        {!isCollapsed && active && (
-                          <ChevronRight className="ml-auto size-4 text-muted-foreground opacity-60" />
-                        )}
-                      </Link>
+                      <Icon className="size-4 sm:size-5" />
+                      {!isCollapsed && (
+                        <span className="text-[0.95rem]">{getRouteTitle(route.id, language)}</span>
+                      )}
+                      {!isCollapsed && active && (
+                        <ChevronRight className="ml-auto size-4 text-muted-foreground opacity-60" />
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -484,8 +493,14 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
           roleLabel={currentUser ? getRoleLabel(currentUser.role, language) : t.account}
           labels={t}
           activeItem={activeProfileMenuItem}
-          onProfile={() => router.push("/profile")}
-          onSettings={() => router.push("/settings")}
+          onProfile={() => {
+            closeMobileSidebar();
+            router.push("/profile");
+          }}
+          onSettings={() => {
+            closeMobileSidebar();
+            router.push("/settings");
+          }}
           onLogout={handleLogout}
         />
       </SidebarFooter>

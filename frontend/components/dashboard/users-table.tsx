@@ -131,10 +131,6 @@ const ROLE_OPTIONS = [
     { value: "medical_student", label: "Medical Student" },
 ];
 
-const CLINICAL_ROLE_OPTIONS = ROLE_OPTIONS.filter((option) =>
-    ["doctor", "medical_student"].includes(option.value)
-);
-
 const ROLE_LABEL_MAP: Record<string, string> = ROLE_OPTIONS.reduce(
     (acc, curr) => ({ ...acc, [curr.value]: curr.label }),
     {}
@@ -155,6 +151,9 @@ const STATUS_LABEL_MAP_TH: Record<string, string> = {
 const isClinicalRole = (role: string) => {
     return role === "doctor";
 };
+
+const isSupportedRole = (role: string) =>
+    ROLE_OPTIONS.some((option) => option.value === role);
 
 const TEAM_MEMBER_COLORS = [
     "bg-emerald-200 text-emerald-800",
@@ -313,7 +312,13 @@ const formatInviteTimestamp = (value?: string | null, language: AppLanguage = "e
 
 // --- Component ---
 
-export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
+export function UsersTable({
+    refreshKey = 0,
+    inviteRequestKey = 0,
+}: {
+    refreshKey?: number;
+    inviteRequestKey?: number;
+}) {
     const { role: currentUserRole, token } = useAuthStore();
     const language = useLanguageStore((state) => state.language);
 
@@ -346,7 +351,7 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
 
     const [isBulkDeleting, setIsBulkDeleting] = useState(false);
     const [isBulkRestoring, setIsBulkRestoring] = useState(false);
-    const [roleFilter, setRoleFilter] = useState("clinical");
+    const [roleFilter, setRoleFilter] = useState("all");
     const [statusFilterLocal, setStatusFilterLocal] = useState("all");
     const [accountView, setAccountView] = useState<"active" | "all" | "deleted">("active");
     const [searchLocal, setSearchLocal] = useState("");
@@ -402,8 +407,7 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                 q: debouncedSearch.trim() || undefined,
                 sort: sortField,
                 order: sorting.length > 0 && sorting[0].desc ? "desc" : "asc",
-                clinical_only: true,
-                role: roleFilter !== "clinical" ? roleFilter : undefined,
+                role: roleFilter !== "all" ? roleFilter : undefined,
                 verification_status: statusFilterLocal !== "all" ? statusFilterLocal : undefined,
                 include_deleted: accountView !== "active",
                 deleted_only: accountView === "deleted",
@@ -479,6 +483,19 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
         setPagination((prev) => ({ ...prev, pageIndex: 0 }));
     }, [debouncedSearch, roleFilter, statusFilterLocal, accountView]);
 
+    const handleOpenInvite = useCallback(() => {
+        setGeneratedInviteUrl("");
+        setInviteFormData({
+            email: "",
+            role: "doctor",
+        });
+        setInviteSheetOpen(true);
+    }, []);
+
+    useEffect(() => {
+        if (inviteRequestKey === 0) return;
+        handleOpenInvite();
+    }, [inviteRequestKey, handleOpenInvite]);
 
     // --- Handlers from Original ---
 
@@ -987,7 +1004,6 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                         limit,
                         include_deleted: true,
                         deleted_only: true,
-                        clinical_only: true,
                     },
                     token
                 );
@@ -1353,9 +1369,9 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
     const selectedIds = selectedUsers.map((user) => user.id);
 
     const hasActiveFilters =
-        roleFilter !== "clinical" || statusFilterLocal !== "all" || accountView !== "active";
+        roleFilter !== "all" || statusFilterLocal !== "all" || accountView !== "active";
     const clearLocalFilters = () => {
-        setRoleFilter("clinical");
+        setRoleFilter("all");
         setStatusFilterLocal("all");
         setAccountView("active");
     };
@@ -1430,12 +1446,12 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                                 <DropdownMenuGroup>
                                     <DropdownMenuLabel>{tr(language, "Filter by Role", "กรองตามบทบาท")}</DropdownMenuLabel>
                                     <DropdownMenuCheckboxItem
-                                        checked={roleFilter === "clinical"}
-                                        onCheckedChange={() => setRoleFilter("clinical")}
+                                        checked={roleFilter === "all"}
+                                        onCheckedChange={() => setRoleFilter("all")}
                                     >
-                                        {tr(language, "All Clinical Roles", "ทุกบทบาทสายคลินิก")}
+                                        {tr(language, "All Roles", "ทุกบทบาท")}
                                     </DropdownMenuCheckboxItem>
-                                    {CLINICAL_ROLE_OPTIONS.map((r) => (
+                                    {ROLE_OPTIONS.map((r) => (
                                         <DropdownMenuCheckboxItem
                                             key={r.value}
                                             checked={roleFilter === r.value}
@@ -1570,11 +1586,11 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                 {hasActiveFilters && (
                     <div className="flex flex-wrap items-center gap-2 px-3 sm:px-6 pb-3">
                         <span className="text-sm text-muted-foreground">{tr(language, "Filters:", "ตัวกรอง:")}</span>
-                        {roleFilter !== "clinical" && (
+                        {roleFilter !== "all" && (
                             <Badge
                                 variant="secondary"
                                 className="h-6 cursor-pointer gap-1 text-sm"
-                                onClick={() => setRoleFilter("clinical")}
+                                onClick={() => setRoleFilter("all")}
                             >
                                 {getRoleLabelByLanguage(roleFilter, language)}
                                 <X className="size-2.5 sm:size-3" />
@@ -1921,22 +1937,28 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                         </SheetDescription>
                     </SheetHeader>
 
-                    <form onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto max-h-[calc(88vh-120px)]">
+                    <form
+                        onSubmit={handleSubmit}
+                        autoComplete="off"
+                        className="p-6 space-y-5 overflow-y-auto max-h-[calc(88vh-120px)]"
+                    >
                         <div className="space-y-5">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                <Label htmlFor="first_name">{tr(language, "First Name", "ชื่อจริง")}</Label>
+                                <Label htmlFor={editingUser ? "edit_user_first_name" : "create_user_first_name"}>{tr(language, "First Name", "ชื่อจริง")}</Label>
                                 <Input
-                                    id="first_name"
+                                    id={editingUser ? "edit_user_first_name" : "create_user_first_name"}
+                                    autoComplete={editingUser ? "off" : "given-name"}
                                     placeholder={tr(language, "John", "สมชาย")}
                                     value={formData.first_name || ""}
                                     onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
                                 />
                             </div>
                                 <div className="space-y-2">
-                                <Label htmlFor="last_name">{tr(language, "Last Name", "นามสกุล")}</Label>
+                                <Label htmlFor={editingUser ? "edit_user_last_name" : "create_user_last_name"}>{tr(language, "Last Name", "นามสกุล")}</Label>
                                 <Input
-                                    id="last_name"
+                                    id={editingUser ? "edit_user_last_name" : "create_user_last_name"}
+                                    autoComplete={editingUser ? "off" : "family-name"}
                                     placeholder={tr(language, "Doe", "ใจดี")}
                                     value={formData.last_name || ""}
                                     onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
@@ -1945,22 +1967,32 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                             </div>
                             {/* ... (Other form fields - mostly identical to logic above but reconstructed) ... */}
                             <div className="space-y-2">
-                                <Label htmlFor="email">{tr(language, "Email Address", "อีเมล")} <span className="text-red-500">*</span></Label>
+                                <Label htmlFor={editingUser ? "edit_user_email" : "create_user_email"}>{tr(language, "Email Address", "อีเมล")} <span className="text-red-500">*</span></Label>
                                 <Input
-                                    id="email" type="email" placeholder={tr(language, "john.doe@example.com", "somchai@example.com")}
+                                    id={editingUser ? "edit_user_email" : "create_user_email"}
+                                    type="email"
+                                    autoComplete={editingUser ? "off" : "email"}
+                                    data-1p-ignore={editingUser ? "true" : undefined}
+                                    data-lpignore={editingUser ? "true" : undefined}
+                                    placeholder={tr(language, "john.doe@example.com", "somchai@example.com")}
                                     required value={formData.email}
                                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="password">
+                                <Label htmlFor={editingUser ? "edit_user_password" : "create_user_password"}>
                                     {editingUser
                                         ? tr(language, "Password (leave blank to keep)", "รหัสผ่าน (เว้นว่างเพื่อคงเดิม)")
                                         : tr(language, "Password", "รหัสผ่าน")}
                                     {!editingUser && <span className="text-red-500">*</span>}
                                 </Label>
                                 <Input
-                                    id="password" type="password" placeholder={tr(language, "••••••••", "••••••••")}
+                                    id={editingUser ? "edit_user_password" : "create_user_password"}
+                                    type="password"
+                                    autoComplete="new-password"
+                                    data-1p-ignore={editingUser ? "true" : undefined}
+                                    data-lpignore={editingUser ? "true" : undefined}
+                                    placeholder={tr(language, "••••••••", "••••••••")}
                                     required={!editingUser} minLength={8}
                                     value={formData.password}
                                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
@@ -1974,7 +2006,7 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                                 >
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                        {CLINICAL_ROLE_OPTIONS.map((r) => (
+                                        {ROLE_OPTIONS.map((r) => (
                                             <SelectItem key={r.value} value={r.value}>{getRoleLabelByLanguage(r.value, language)}</SelectItem>
                                         ))}
                                     </SelectContent>
@@ -2002,22 +2034,22 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                                     <p className="text-sm font-medium text-muted-foreground">{tr(language, "Professional Information", "ข้อมูลวิชาชีพ")}</p>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <Label htmlFor="specialty">{tr(language, "Specialty", "สาขา")}</Label>
-                                            <Input id="specialty" value={formData.specialty || ""} onChange={e => setFormData({ ...formData, specialty: e.target.value })} />
+                                            <Label htmlFor="user_specialty">{tr(language, "Specialty", "สาขา")}</Label>
+                                            <Input id="user_specialty" autoComplete="off" value={formData.specialty || ""} onChange={e => setFormData({ ...formData, specialty: e.target.value })} />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label htmlFor="department">{tr(language, "Department", "แผนก")}</Label>
-                                            <Input id="department" value={formData.department || ""} onChange={e => setFormData({ ...formData, department: e.target.value })} />
+                                            <Label htmlFor="user_department">{tr(language, "Department", "แผนก")}</Label>
+                                            <Input id="user_department" autoComplete="off" value={formData.department || ""} onChange={e => setFormData({ ...formData, department: e.target.value })} />
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <Label htmlFor="license_no">{tr(language, "License No.", "เลขใบอนุญาต")} <span className="text-red-500">*</span></Label>
-                                            <Input id="license_no" required value={formData.license_no || ""} onChange={e => setFormData({ ...formData, license_no: e.target.value })} />
+                                            <Label htmlFor="user_license_no">{tr(language, "License No.", "เลขใบอนุญาต")} <span className="text-red-500">*</span></Label>
+                                            <Input id="user_license_no" autoComplete="off" required value={formData.license_no || ""} onChange={e => setFormData({ ...formData, license_no: e.target.value })} />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label htmlFor="license_expiry">{tr(language, "License Expiry", "วันหมดอายุใบอนุญาต")}</Label>
-                                            <Input type="date" id="license_expiry" value={formData.license_expiry || ""} onChange={e => setFormData({ ...formData, license_expiry: e.target.value })} />
+                                            <Label htmlFor="user_license_expiry">{tr(language, "License Expiry", "วันหมดอายุใบอนุญาต")}</Label>
+                                            <Input type="date" id="user_license_expiry" autoComplete="off" value={formData.license_expiry || ""} onChange={e => setFormData({ ...formData, license_expiry: e.target.value })} />
                                         </div>
                                     </div>
                                     {editingUser && (
@@ -2056,16 +2088,20 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                         <SheetTitle className="flex items-center gap-2"><Link2 className="w-5 h-5 text-primary" /> {tr(language, "Create Invite Link", "สร้างลิงก์เชิญ")}</SheetTitle>
                         <SheetDescription>{tr(language, "Only admins can generate registration links for approved healthcare users.", "เฉพาะผู้ดูแลระบบเท่านั้นที่สร้างลิงก์ลงทะเบียนสำหรับบุคลากรที่ได้รับอนุมัติได้")}</SheetDescription>
                     </SheetHeader>
-                    <form onSubmit={handleCreateInviteRequest} className="p-6 space-y-5 overflow-y-auto max-h-[calc(84vh-120px)]">
+                    <form
+                        onSubmit={handleCreateInviteRequest}
+                        autoComplete="off"
+                        className="p-6 space-y-5 overflow-y-auto max-h-[calc(84vh-120px)]"
+                    >
                         <div className="space-y-2">
                             <Label htmlFor="invite_email">{tr(language, "Email", "อีเมล")} <span className="text-red-500">*</span></Label>
-                            <Input id="invite_email" type="email" required value={inviteFormData.email || ""} onChange={e => setInviteFormData({ ...inviteFormData, email: e.target.value })} placeholder="doctor@hospital.org" />
+                            <Input id="invite_email" type="email" autoComplete="email" required value={inviteFormData.email || ""} onChange={e => setInviteFormData({ ...inviteFormData, email: e.target.value })} placeholder="doctor@hospital.org" />
                         </div>
                         <div className="space-y-2">
                             <Label>{tr(language, "Role", "บทบาท")}</Label>
                             <Select value={inviteFormData.role} onValueChange={val => setInviteFormData({ ...inviteFormData, role: val ?? "" })}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>{CLINICAL_ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{getRoleLabelByLanguage(r.value, language)}</SelectItem>)}</SelectContent>
+                                <SelectContent>{ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{getRoleLabelByLanguage(r.value, language)}</SelectItem>)}</SelectContent>
                             </Select>
                         </div>
                         <div className="rounded-md border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">{tr(language, "Invite link expires in 24 hours (fixed by system policy).", "ลิงก์เชิญจะหมดอายุใน 24 ชั่วโมง (ตามนโยบายระบบ)")}</div>
@@ -2130,13 +2166,13 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                                                         type="button"
                                                         variant="outline"
                                                         size="sm"
-                                                        disabled={isInviteSubmitting || !isClinicalRole(invite.role)}
+                                                        disabled={isInviteSubmitting || !isSupportedRole(invite.role)}
                                                         title={
-                                                            !isClinicalRole(invite.role)
+                                                            !isSupportedRole(invite.role)
                                                                 ? tr(
                                                                     language,
-                                                                    "Resend is currently available only for clinical specialist roles.",
-                                                                    "ขณะนี้การส่งซ้ำใช้ได้เฉพาะบทบาทสายคลินิก"
+                                                                    "Resend is currently available only for supported roles.",
+                                                                    "ขณะนี้การส่งซ้ำใช้ได้เฉพาะบทบาทที่ระบบรองรับ"
                                                                 )
                                                                 : undefined
                                                         }

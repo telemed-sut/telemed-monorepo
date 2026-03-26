@@ -106,6 +106,46 @@ def test_refresh_endpoint_uses_auth_cookie(client: TestClient, db: Session):
     assert response.json()["user"]["email"] == "refresh-cookie@example.com"
 
 
+def test_refresh_endpoint_allows_same_origin_cookie_csrf(client: TestClient, db: Session):
+    user = User(
+        email="refresh-same-origin@example.com",
+        password_hash=get_password_hash("TestPassword123"),
+        role=UserRole.admin,
+    )
+    db.add(user)
+    db.commit()
+
+    login_response = client.post("/auth/login", json={
+        "email": "refresh-same-origin@example.com",
+        "password": "TestPassword123",
+    })
+    assert login_response.status_code == 200
+
+    response = client.post("/auth/refresh", headers={"origin": str(client.base_url).rstrip("/")})
+    assert response.status_code == 200
+    assert response.json()["user"]["email"] == "refresh-same-origin@example.com"
+
+
+def test_refresh_endpoint_rejects_cross_origin_cookie_csrf(client: TestClient, db: Session):
+    user = User(
+        email="refresh-cross-origin@example.com",
+        password_hash=get_password_hash("TestPassword123"),
+        role=UserRole.admin,
+    )
+    db.add(user)
+    db.commit()
+
+    login_response = client.post("/auth/login", json={
+        "email": "refresh-cross-origin@example.com",
+        "password": "TestPassword123",
+    })
+    assert login_response.status_code == 200
+
+    response = client.post("/auth/refresh", headers={"origin": "https://evil.example.com"})
+    assert response.status_code == 403
+    assert response.json()["detail"] == "CSRF validation failed."
+
+
 def test_logout_endpoint(client: TestClient, db: Session):
     """Test logout endpoint"""
     # Create user and login

@@ -114,10 +114,12 @@ function WelcomeSection({
   users,
   currentUser,
   language,
+  onCreateInvite,
 }: {
   users: User[];
   currentUser: UserMe | null;
   language: AppLanguage;
+  onCreateInvite: () => void;
 }) {
   const active = users.filter((u) => u.is_active).length;
   const pending = users.filter(
@@ -175,6 +177,7 @@ function WelcomeSection({
         <Button
           size="sm"
           className="h-9 gap-2 sm:gap-3 text-sm bg-linear-to-b from-foreground to-foreground/90 text-background"
+          onClick={onCreateInvite}
         >
           <Plus className="size-3 sm:size-4" />
           <span className="hidden xs:inline">{tr(language, "Create New", "สร้างใหม่")}</span>
@@ -871,6 +874,7 @@ export function UsersContent() {
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [inviteRequestKey, setInviteRequestKey] = useState(0);
 
   const showUserStats = useDashboardStore((s) => s.showUserStats);
   const showUserCharts = useDashboardStore((s) => s.showUserCharts);
@@ -886,6 +890,10 @@ export function UsersContent() {
     setRefreshKey((prev) => prev + 1);
   }, []);
 
+  const triggerCreateInvite = useCallback(() => {
+    setInviteRequestKey((prev) => prev + 1);
+  }, []);
+
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -897,7 +905,7 @@ export function UsersContent() {
       const allUsers: User[] = [];
 
       do {
-        const res = await fetchUsers({ page, limit: pageSize, clinical_only: true }, token);
+        const res = await fetchUsers({ page, limit: pageSize }, token);
         allUsers.push(...res.items);
         total = res.total;
         page += 1;
@@ -1019,7 +1027,12 @@ export function UsersContent() {
 
   return (
     <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 bg-background w-full">
-      <WelcomeSection users={users} currentUser={currentUser} language={language} />
+      <WelcomeSection
+        users={users}
+        currentUser={currentUser}
+        language={language}
+        onCreateInvite={triggerCreateInvite}
+      />
       {showUserStats && <UserStatsCards users={users} language={language} />}
       {showUserCharts && (
         <div className="flex flex-col xl:flex-row gap-4 sm:gap-6">
@@ -1027,7 +1040,7 @@ export function UsersContent() {
           <UsersByRoleChart users={users} language={language} />
         </div>
       )}
-      {showUserTable && <UsersTable refreshKey={refreshKey} />}
+      {showUserTable && <UsersTable refreshKey={refreshKey} inviteRequestKey={inviteRequestKey} />}
     </main>
   );
 }

@@ -2428,17 +2428,24 @@ export function MeetingsContent() {
     })
       .then((items) => setPatients(items))
       .catch(() => { });
-    // Doctors can't access /users endpoint; use /auth/me for their own info
+    // Doctors can't access /users endpoint; use /auth/me for their own info.
+    // Read-only roles should not preload doctor options for a form they cannot submit.
     if (userRole === "doctor") {
       fetchCurrentUser(token)
         .then((me) => setDoctors([{ id: me.id, email: me.email, first_name: me.first_name, last_name: me.last_name, role: me.role, is_active: true }]))
         .catch(() => { });
-    } else {
+      return;
+    }
+
+    if (canManageMeetings) {
       fetchUsers({ page: 1, limit: 100, role: "doctor", clinical_only: true, sort: "first_name", order: "asc" }, token)
         .then((res) => setDoctors(res.items))
         .catch(() => { });
+      return;
     }
-  }, [token, userRole]);
+
+    setDoctors([]);
+  }, [canManageMeetings, token, userRole]);
 
   return (
     <main className="flex h-full w-full flex-1 flex-col overflow-hidden">

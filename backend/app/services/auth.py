@@ -354,10 +354,31 @@ def _validate_cookie_csrf(request: Request) -> None:
     if request.method.upper() in safe_methods:
         return
 
+    def normalize_origin(value: str | None) -> str | None:
+        if not value:
+            return None
+        normalized = value.strip().rstrip("/")
+        if not normalized.startswith(("http://", "https://")):
+            return None
+        return normalized
+
+    def derive_request_origin() -> str | None:
+        forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+        forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
+        host = forwarded_host or request.headers.get("host", "").split(",")[0].strip()
+        scheme = forwarded_proto or request.url.scheme
+        if not host or not scheme:
+            return None
+        return normalize_origin(f"{scheme}://{host}")
+
     allowed_origins: set[str] = set()
-    frontend_origin = settings.frontend_base_url.rstrip("/")
+    frontend_origin = normalize_origin(settings.frontend_base_url)
     if frontend_origin:
         allowed_origins.add(frontend_origin)
+
+    request_origin = derive_request_origin()
+    if request_origin:
+        allowed_origins.add(request_origin)
 
     raw_cors_origins = settings.cors_origins
     if isinstance(raw_cors_origins, str):
@@ -366,8 +387,8 @@ def _validate_cookie_csrf(request: Request) -> None:
         cors_origins = [origin.strip() for origin in raw_cors_origins if origin and origin.strip()]
 
     for origin in cors_origins:
-        normalized = origin.rstrip("/")
-        if normalized.startswith("http://") or normalized.startswith("https://"):
+        normalized = normalize_origin(origin)
+        if normalized:
             allowed_origins.add(normalized)
 
     if not allowed_origins:

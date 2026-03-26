@@ -52,6 +52,22 @@ export interface CurrentUserSessionServer {
   mfaVerified: boolean;
 }
 
+function readJwtBooleanClaim(token: string, claim: string): boolean | null {
+  try {
+    const [, payloadSegment] = token.split(".");
+    if (!payloadSegment) {
+      return null;
+    }
+
+    const normalized = payloadSegment.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const payload = JSON.parse(Buffer.from(padded, "base64").toString("utf8")) as Record<string, unknown>;
+    return typeof payload[claim] === "boolean" ? payload[claim] : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchCurrentUserSessionServer(token: string): Promise<CurrentUserSessionServer | null> {
   const payload = await serverApiFetch<{ role?: unknown; mfa_verified?: unknown }>("/auth/me", token, {
     method: "GET",
@@ -59,8 +75,12 @@ export async function fetchCurrentUserSessionServer(token: string): Promise<Curr
   if (typeof payload?.role !== "string") {
     return null;
   }
+
+  const mfaVerifiedFromPayload =
+    typeof payload.mfa_verified === "boolean" ? payload.mfa_verified : null;
+
   return {
     role: payload.role,
-    mfaVerified: payload.mfa_verified === true,
+    mfaVerified: mfaVerifiedFromPayload ?? readJwtBooleanClaim(token, "mfa_verified") === true,
   };
 }

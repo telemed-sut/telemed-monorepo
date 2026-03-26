@@ -347,7 +347,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                     </div>
                 ) : (
                     <div className="space-y-2">
-                        <AnimatePresence mode="wait">
+                        <AnimatePresence>
                             {meetings.map((meeting, index) => {
                                 const isPast = new Date(meeting.date_time) < new Date();
                                 const doctorName = meeting.doctor

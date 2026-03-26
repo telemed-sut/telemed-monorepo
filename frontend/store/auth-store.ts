@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { LoginResponse } from "@/lib/api";
+import type { LoginResponse, UserMe } from "@/lib/api";
 
 /** Refresh token 5 minutes before expiry */
 const REFRESH_BUFFER_SECONDS = 300;
@@ -42,6 +42,17 @@ function getSessionState(response: LoginResponse) {
   };
 }
 
+function getCookieSessionState(user: UserMe) {
+  return {
+    token: COOKIE_SESSION_TOKEN,
+    role: user.role ?? null,
+    userId: user.id ?? null,
+    mfaVerified: Boolean(user.mfa_verified),
+    isSuperAdmin: Boolean(user.is_super_admin),
+    sessionExpiresAt: null,
+  };
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   role: null,
@@ -76,7 +87,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     hydratePromise = (async () => {
       try {
-        const { refreshToken } = await import("@/lib/api");
+        const { fetchCurrentUser, refreshToken } = await import("@/lib/api");
+
+        try {
+          const currentUser = await fetchCurrentUser();
+          if (currentUser) {
+            set({ ...getCookieSessionState(currentUser), hydrated: true });
+
+            try {
+              const refreshed = await refreshToken();
+              if (refreshed?.user) {
+                set({ ...getSessionState(refreshed), hydrated: true });
+              }
+            } catch {
+              // Cookie session is already valid for this route; keep it even if
+              // refresh is temporarily unavailable (for example on an alternate
+              // host/origin used during QA).
+            }
+
+            return;
+          }
+        } catch {
+          // Fall back to refresh-only hydration when /auth/me is unavailable.
+        }
+
         const refreshed = await refreshToken();
         if (refreshed?.user) {
           set({ ...getSessionState(refreshed), hydrated: true });
