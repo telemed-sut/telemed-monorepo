@@ -1,5 +1,6 @@
 "use client";
 
+import { DashboardPageSkeleton } from "@/components/dashboard/dashboard-page-skeletons";
 import { PatientsTable } from "./patients-table";
 
 export function DashboardContent() {

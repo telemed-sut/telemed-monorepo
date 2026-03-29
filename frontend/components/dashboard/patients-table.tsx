@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
+import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -78,6 +79,7 @@ import {
   type Patient,
   updatePatient,
 } from "@/lib/api";
+import { preloadPatientWorkspaceBundles } from "@/lib/patient-workspace-prefetch";
 import { buildProfileSeed, getProfileOrbStyle } from "@/components/ui/profile-avatar-orb";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
@@ -86,6 +88,44 @@ import type { AppLanguage } from "@/store/language-config";
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100, 200];
 const PAGE_PREFETCH_DELAY_MS = 300;
+const PATIENTS_CACHE_MAX_ENTRIES = 24;
+
+interface PatientsCacheEntry {
+  items: Patient[];
+  total: number;
+}
+
+const patientsListCache = new Map<string, PatientsCacheEntry>();
+
+function getPatientsListCacheEntry(key: string) {
+  const entry = patientsListCache.get(key);
+  if (!entry) {
+    return null;
+  }
+
+  patientsListCache.delete(key);
+  patientsListCache.set(key, entry);
+  return entry;
+}
+
+function setPatientsListCacheEntry(key: string, entry: PatientsCacheEntry) {
+  if (patientsListCache.has(key)) {
+    patientsListCache.delete(key);
+  }
+  patientsListCache.set(key, entry);
+
+  while (patientsListCache.size > PATIENTS_CACHE_MAX_ENTRIES) {
+    const oldestKey = patientsListCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    patientsListCache.delete(oldestKey);
+  }
+}
+
+function clearPatientsListCache() {
+  patientsListCache.clear();
+}
 
 const AnimatedCalendar = dynamic(
   () =>
@@ -197,8 +237,7 @@ export function PatientsTable() {
     return () => clearTimeout(id);
   }, [search]);
 
-  // Cache for pages to enable instant navigation
-  const cacheRef = useRef<Map<string, { items: Patient[]; total: number }>>(new Map());
+  // Cache for pages to enable instant navigation across tab switches.
   const prefetchTimeoutRef = useRef<number | null>(null);
 
   const getCacheKey = useCallback(
@@ -206,12 +245,29 @@ export function PatientsTable() {
     [limit, debouncedSearch, sort, order]
   );
 
+  const openPatientWorkspace = useCallback(
+    (patientId: string) => {
+      router.push(`/patients/${patientId}`);
+    },
+    [router]
+  );
+
+  const prefetchPatientWorkspace = useCallback(
+    (patientId: string) => {
+      getPatientWorkspaceHrefs(patientId).forEach((href) => {
+        router.prefetch(href);
+      });
+      void preloadPatientWorkspaceBundles();
+    },
+    [router]
+  );
+
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
 
     const cacheKey = getCacheKey(page);
-    const cached = cacheRef.current.get(cacheKey);
+    const cached = getPatientsListCacheEntry(cacheKey);
 
     // If we have cached data, show it immediately
     if (cached) {
@@ -235,7 +291,7 @@ export function PatientsTable() {
           setPatients(res.items);
           setTotal(res.total);
           // Cache this page
-          cacheRef.current.set(cacheKey, { items: res.items, total: res.total });
+          setPatientsListCacheEntry(cacheKey, { items: res.items, total: res.total });
 
           if (prefetchTimeoutRef.current !== null) {
             window.clearTimeout(prefetchTimeoutRef.current);
@@ -250,7 +306,7 @@ export function PatientsTable() {
               if (cancelled) return;
 
               const prefetchCacheKey = getCacheKey(nextPage);
-              if (cacheRef.current.has(prefetchCacheKey)) {
+              if (patientsListCache.has(prefetchCacheKey)) {
                 return;
               }
 
@@ -259,7 +315,7 @@ export function PatientsTable() {
                 token
               )
                 .then((prefetchRes) => {
-                  cacheRef.current.set(prefetchCacheKey, {
+                  setPatientsListCacheEntry(prefetchCacheKey, {
                     items: prefetchRes.items,
                     total: prefetchRes.total,
                   });
@@ -296,6 +352,12 @@ export function PatientsTable() {
       }
     };
   }, [token, page, limit, debouncedSearch, sort, order, clearToken, getCacheKey, language, router]);
+
+  useEffect(() => {
+    patients.slice(0, 3).forEach((patient) => {
+      prefetchPatientWorkspace(patient.id);
+    });
+  }, [patients, prefetchPatientWorkspace]);
 
   const resetForm = (patient?: Patient) => {
     if (patient) {
@@ -381,6 +443,7 @@ export function PatientsTable() {
       } else {
         await createPatient(cleanedData, token);
       }
+      clearPatientsListCache();
       toast.success(
         editing
           ? tr(language, "Patient updated successfully", "อัปเดตผู้ป่วยสำเร็จ")
@@ -435,6 +498,7 @@ export function PatientsTable() {
     setError(null);
     try {
       await deletePatient(id, token);
+      clearPatientsListCache();
       toast.success(tr(language, "Patient deleted successfully", "ลบข้อมูลผู้ป่วยสำเร็จ"));
       const res = await fetchPatients({ page, limit, q: debouncedSearch, sort, order }, token);
       setPatients(res.items);
@@ -775,7 +839,7 @@ export function PatientsTable() {
                     <TableCell colSpan={7}>{emptyStateContent}</TableCell>
                   </TableRow>
                 ) : (
-                  <AnimatePresence>
+                  <AnimatePresence initial={false}>
                     {patients.map((patient, index) => {
                       const age = getAgeFromDOB(patient.date_of_birth);
                       const hasContact = !!(patient.phone || patient.email);
@@ -793,7 +857,7 @@ export function PatientsTable() {
                           initial={{ opacity: 0, y: 5 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0 }}
-                          transition={{ duration: 0.12, delay: index * 0.02 }}
+                          transition={{ duration: 0.08 }}
                           className="border-b transition-colors hover:bg-muted/40 data-[state=selected]:bg-muted group"
                         >
                           <TableCell className="p-3 align-middle text-center font-medium text-muted-foreground">
@@ -812,9 +876,20 @@ export function PatientsTable() {
                                 </AvatarFallback>
                               </Avatar>
                               <div>
-                                <div className="text-sm font-semibold text-foreground">
+                                <button
+                                  type="button"
+                                  onClick={() => openPatientWorkspace(patient.id)}
+                                  onFocus={() => prefetchPatientWorkspace(patient.id)}
+                                  onMouseEnter={() => prefetchPatientWorkspace(patient.id)}
+                                  className="text-left text-sm font-semibold text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-sm"
+                                  aria-label={tr(
+                                    language,
+                                    `Open ${patient.first_name} ${patient.last_name} workspace`,
+                                    `เปิดพื้นที่ทำงานของ ${patient.first_name} ${patient.last_name}`
+                                  )}
+                                >
                                   {patient.first_name} {patient.last_name}
-                                </div>
+                                </button>
                               </div>
                             </div>
                           </TableCell>
@@ -878,7 +953,15 @@ export function PatientsTable() {
                                   <circle cx="5" cy="12" r="1" />
                                 </svg>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuContent align="end" className="w-40">
+                                <DropdownMenuItem
+                                  onFocus={() => prefetchPatientWorkspace(patient.id)}
+                                  onMouseEnter={() => prefetchPatientWorkspace(patient.id)}
+                                  onClick={() => openPatientWorkspace(patient.id)}
+                                >
+                                  <HugeiconsIcon icon={UserIcon} className="size-4 mr-2" />
+                                  {tr(language, "Open Workspace", "เปิดพื้นที่ทำงาน")}
+                                </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => {
                                   navigator.clipboard.writeText(patient.id);
                                   toast.success(tr(language, "ID copied to clipboard", "คัดลอก ID แล้ว"));

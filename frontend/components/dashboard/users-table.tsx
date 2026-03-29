@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
     ColumnDef,
     ColumnFiltersState,
@@ -315,9 +315,17 @@ const formatInviteTimestamp = (value?: string | null, language: AppLanguage = "e
 export function UsersTable({
     refreshKey = 0,
     inviteRequestKey = 0,
+    initialUsers = [],
+    initialTotal = 0,
+    initialSeedKey = 0,
+    initialSeedReady = false,
 }: {
     refreshKey?: number;
     inviteRequestKey?: number;
+    initialUsers?: User[];
+    initialTotal?: number;
+    initialSeedKey?: number;
+    initialSeedReady?: boolean;
 }) {
     const { role: currentUserRole, token } = useAuthStore();
     const language = useLanguageStore((state) => state.language);
@@ -365,6 +373,7 @@ export function UsersTable({
     const [purgeOlderThanDays, setPurgeOlderThanDays] = useState(90);
     const [isPurging, setIsPurging] = useState(false);
     const [hasExportedForPurge, setHasExportedForPurge] = useState(false);
+    const lastAppliedSeedKeyRef = useRef<number | null>(null);
 
     // Form Data State
     interface UserFormData extends Partial<User> {
@@ -393,6 +402,25 @@ export function UsersTable({
     // Load Data
     const loadUsers = useCallback(async () => {
         if (!token) return;
+        const shouldUseInitialSeed =
+            initialSeedReady &&
+            initialSeedKey !== lastAppliedSeedKeyRef.current &&
+            pagination.pageIndex === 0 &&
+            pagination.pageSize === 10 &&
+            sorting.length === 0 &&
+            debouncedSearch.length === 0 &&
+            roleFilter === "all" &&
+            statusFilterLocal === "all" &&
+            accountView === "active";
+
+        if (shouldUseInitialSeed) {
+            setUsers(initialUsers);
+            setTotal(initialTotal);
+            setLoading(false);
+            lastAppliedSeedKeyRef.current = initialSeedKey;
+            return;
+        }
+
         setLoading(true);
         try {
             const sortField =
@@ -433,6 +461,10 @@ export function UsersTable({
         statusFilterLocal,
         accountView,
         language,
+        initialUsers,
+        initialTotal,
+        initialSeedKey,
+        initialSeedReady,
     ]);
 
     const loadInviteItems = useCallback(async () => {

@@ -58,3 +58,8 @@ class Patient(Base):
     current_conditions = relationship("CurrentCondition", back_populates="patient")
     treatments = relationship("Treatment", back_populates="patient")
     pressure_records = relationship("PressureRecord", back_populates="patient", order_by="PressureRecord.measured_at.desc()")
+    heart_sound_records = relationship(
+        "HeartSoundRecord",
+        back_populates="patient",
+        order_by="HeartSoundRecord.recorded_at.desc()",
+    )

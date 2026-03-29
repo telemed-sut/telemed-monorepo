@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import {
+  startTransition,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import Image from "next/image";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { addMonths, addWeeks, isSameMonth } from "date-fns";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -130,6 +137,8 @@ const ACTIVE_MEETING_REFRESH_INTERVAL_MS = 5_000;
 const NEAR_MEETING_REFRESH_INTERVAL_MS = 10_000;
 const IDLE_MEETING_REFRESH_INTERVAL_MS = 30_000;
 const NEAR_MEETING_WINDOW_MS = 15 * 60 * 1_000;
+const VISIBLE_REFRESH_GRACE_PERIOD_MS = 1_200;
+const VISIBLE_REFRESH_MIN_AGE_MS = 15_000;
 
 const AnimatedCalendar = dynamic(
   () =>
@@ -144,6 +153,8 @@ const AnimatedCalendar = dynamic(
   }
 );
 
+import { QueueView } from "./queue-view";
+
 const AnimatedCalendarStandalone = dynamic(
   () =>
     import("@/components/ui/calender").then((module) => ({
@@ -152,24 +163,6 @@ const AnimatedCalendarStandalone = dynamic(
   {
     loading: () => (
       <div className="h-[340px] w-[328px] rounded-[26px] border border-slate-200/80 bg-white/90 animate-pulse" />
-    ),
-    ssr: false,
-  }
-);
-
-const QueueView = dynamic(
-  () =>
-    import("./queue-view").then((module) => ({
-      default: module.QueueView,
-    })),
-  {
-    loading: () => (
-      <div className="flex-1 px-4 py-4">
-        <div className="space-y-3">
-          <Skeleton className="h-9 w-full" />
-          <Skeleton className="h-[320px] w-full rounded-xl" />
-        </div>
-      </div>
     ),
     ssr: false,
   }
@@ -2100,6 +2093,7 @@ function CreateEventDialog({
 // Main Meetings Content
 // ══════════════════════════════════════════════════════════
 export function MeetingsContent() {
+  const prefersReducedMotion = useReducedMotion();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -2147,6 +2141,8 @@ export function MeetingsContent() {
   >("my-meetings");
   const meetingsRefreshPromiseRef = useRef<Promise<void> | null>(null);
   const meetingsRefreshTimeoutRef = useRef<number | null>(null);
+  const visibilityRefreshTimeoutRef = useRef<number | null>(null);
+  const lastMeetingsRefreshAtRef = useRef(0);
   const urlStateHydratedRef = useRef(false);
 
   const weekEnd = addWeeks(currentWeekStart, 1);
@@ -2251,7 +2247,14 @@ export function MeetingsContent() {
               ? allMeetings.filter((item) => item.doctor_id !== userId)
               : allMeetings;
 
-          setMeetings(scopedItems);
+          lastMeetingsRefreshAtRef.current = Date.now();
+          if (background) {
+            startTransition(() => {
+              setMeetings(scopedItems);
+            });
+          } else {
+            setMeetings(scopedItems);
+          }
         } catch (err) {
           const status = (err as { status?: number }).status;
           if (status === 401) {
@@ -2384,6 +2387,13 @@ export function MeetingsContent() {
       }
     };
 
+    const clearVisibilityRefresh = () => {
+      if (visibilityRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(visibilityRefreshTimeoutRef.current);
+        visibilityRefreshTimeoutRef.current = null;
+      }
+    };
+
     const scheduleNextRefresh = () => {
       clearScheduledRefresh();
       if (cancelled || document.visibilityState !== "visible") {
@@ -2400,13 +2410,29 @@ export function MeetingsContent() {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void loadMeetings(true).finally(() => {
-          if (!cancelled) {
-            scheduleNextRefresh();
-          }
-        });
+        clearVisibilityRefresh();
+
+        const timeSinceLastRefresh =
+          Date.now() - lastMeetingsRefreshAtRef.current;
+
+        if (
+          lastMeetingsRefreshAtRef.current > 0 &&
+          timeSinceLastRefresh < VISIBLE_REFRESH_MIN_AGE_MS
+        ) {
+          scheduleNextRefresh();
+          return;
+        }
+
+        visibilityRefreshTimeoutRef.current = window.setTimeout(() => {
+          void loadMeetings(true).finally(() => {
+            if (!cancelled) {
+              scheduleNextRefresh();
+            }
+          });
+        }, VISIBLE_REFRESH_GRACE_PERIOD_MS);
         return;
       }
+      clearVisibilityRefresh();
       clearScheduledRefresh();
     };
 
@@ -2415,6 +2441,7 @@ export function MeetingsContent() {
 
     return () => {
       cancelled = true;
+      clearVisibilityRefresh();
       clearScheduledRefresh();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -2458,9 +2485,13 @@ export function MeetingsContent() {
             <div className="flex items-center justify-between gap-3 md:gap-4">
               {/* Left: title area */}
               <motion.div
-                initial={{ opacity: 0, y: -8 }}
+                initial={prefersReducedMotion ? false : { opacity: 0.96 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.28, ease: "easeOut" }}
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0 }
+                    : { duration: 0.14, ease: [0.22, 1, 0.36, 1] }
+                }
                 className="flex min-w-0 flex-1 items-center gap-3"
               >
                 <div className="min-w-0 flex-1">
@@ -2485,9 +2516,13 @@ export function MeetingsContent() {
 
               {/* Right: actions */}
               <motion.div
-                initial={{ opacity: 0, y: -6 }}
+                initial={prefersReducedMotion ? false : { opacity: 0.96 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.28, delay: 0.04, ease: "easeOut" }}
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0 }
+                    : { duration: 0.14, delay: 0.02, ease: [0.22, 1, 0.36, 1] }
+                }
                 className="flex shrink-0 items-center gap-1 rounded-[20px] border border-slate-200/80 bg-white/82 p-1 shadow-[0_10px_26px_rgba(15,23,42,0.06)] supports-[backdrop-filter]:bg-white/72 supports-[backdrop-filter]:backdrop-blur"
               >
                 <Popover>
@@ -2593,9 +2628,13 @@ export function MeetingsContent() {
         </div>
         <div className="border-b border-slate-200/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.94),rgba(255,255,255,0.92))] px-3 py-3 md:px-4">
           <motion.div
-            initial={{ opacity: 0, y: -4 }}
+            initial={prefersReducedMotion ? false : { opacity: 0.97 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.24, delay: 0.1, ease: "easeOut" }}
+            transition={
+              prefersReducedMotion
+                ? { duration: 0 }
+                : { duration: 0.12, delay: 0.04, ease: [0.22, 1, 0.36, 1] }
+            }
             className="flex flex-wrap items-center gap-2 rounded-[22px] border border-slate-200/80 bg-white/84 p-1.5 shadow-[0_12px_26px_rgba(15,23,42,0.05)] supports-[backdrop-filter]:bg-white/72 supports-[backdrop-filter]:backdrop-blur"
           >
             <div className="flex items-center gap-1.5 rounded-[18px] border border-slate-200/80 bg-slate-50/80 p-1">

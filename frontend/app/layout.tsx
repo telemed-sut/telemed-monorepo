@@ -4,7 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthInitializer } from "@/components/auth-initializer";
 import { LanguageInitializer } from "@/components/language-initializer";
-import { ProgressBar } from "@/components/progress-bar";
+import { ProgressBarClient } from "@/components/progress-bar-client";
 import { TranslationSafeguard } from "@/components/translation-safeguard";
 import { I18nProvider } from "@/components/i18n-provider";
 import { UIToneInitializer } from "@/components/ui-tone-initializer";
@@ -31,7 +31,7 @@ export default function RootLayout({
         >
           <I18nProvider>
             <UIToneInitializer />
-            <ProgressBar />
+            <ProgressBarClient />
             <TranslationSafeguard />
             <AuthInitializer />
             <LanguageInitializer />

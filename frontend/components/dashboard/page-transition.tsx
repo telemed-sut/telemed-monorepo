@@ -3,8 +3,7 @@
 import { LazyMotion, domAnimation, m, useReducedMotion } from "framer-motion";
 import { usePathname } from "next/navigation";
 
-const TRANSITION_DURATION_SECONDS = 0.12;
-const TRANSITION_OFFSET_PX = 4;
+const TRANSITION_DURATION_SECONDS = 0.06;
 const TRANSITION_EASE: [number, number, number, number] = [
   0.22,
   1,
@@ -23,9 +22,9 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
         initial={
           prefersReducedMotion
             ? { opacity: 1 }
-            : { opacity: 0.98, y: TRANSITION_OFFSET_PX }
+            : { opacity: 0.992 }
         }
-        animate={{ opacity: 1, y: 0 }}
+        animate={{ opacity: 1 }}
         transition={
           prefersReducedMotion
             ? { duration: 0 }

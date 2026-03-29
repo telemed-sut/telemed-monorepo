@@ -71,7 +71,7 @@ import {
   isDoctorLeftWhilePatientWaiting,
   isPatientWaitingLive,
 } from "./meeting-presence";
-import { preloadZegoUIKitPrebuilt } from "@/lib/zego-uikit";
+import { preloadMeetingCallExperience } from "@/lib/meeting-call-prefetch";
 
 /* ── Helpers ── */
 
@@ -957,13 +957,14 @@ export function EventDetailSheet({
     if (pn) callParams.set("pn", pn);
     if (meeting.date_time) callParams.set("pt", meeting.date_time);
     const qs = callParams.toString();
+    void preloadMeetingCallExperience();
     window.location.assign(`/meetings/call/${meeting.id}${qs ? `?${qs}` : ""}`);
   };
   const handleStartCallIntent = () => {
     if (!canStartCall) {
       return;
     }
-    preloadZegoUIKitPrebuilt();
+    void preloadMeetingCallExperience();
   };
 
   const handleCopyPatientJoinLink = async () => {

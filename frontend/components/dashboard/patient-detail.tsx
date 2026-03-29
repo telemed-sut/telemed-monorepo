@@ -3,429 +3,939 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { LucideIcon } from "lucide-react";
 import {
-    UserIcon,
-    AiPhone01Icon,
-    Mail01Icon,
-    Location01Icon,
-    MedicalMaskIcon,
-    CalendarAddIcon,
-    Stethoscope02Icon,
-} from "@hugeicons/core-free-icons";
-import {
-    fetchPatient,
-    fetchMeetings,
-    type Patient,
-    type Meeting,
-} from "@/lib/api";
+  ArrowRight,
+  CalendarClock,
+  Clock3,
+  Mail,
+  MapPin,
+  Phone,
+  ShieldCheck,
+  Stethoscope,
+  UserRound,
+  Volume2,
+} from "lucide-react";
+
+import type { AppLanguage } from "@/store/language-config";
+import { fetchMeetings, fetchPatient, type Meeting, type Patient } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
-import type { AppLanguage } from "@/store/language-config";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
+import {
+  readPatientDetailCache,
+  writePatientDetailCache,
+} from "@/lib/patient-workspace-cache";
+import { preloadPatientHeartSoundBundle } from "@/lib/patient-workspace-prefetch";
 
 interface PatientDetailContentProps {
-    patientId: string;
+  patientId: string;
+}
+
+interface WorkspaceNavItem {
+  key: string;
+  label: string;
+  enabled: boolean;
+  onSelect?: () => void;
+}
+
+interface StatTileProps {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  hint: string;
+  tone?: "primary" | "emerald" | "amber";
+}
+
+interface InfoRowProps {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  detail?: string;
+  empty?: boolean;
 }
 
 const tr = (language: AppLanguage, en: string, th: string) =>
-    language === "th" ? th : en;
+  language === "th" ? th : en;
 
-const getGenderLabel = (value: string | null | undefined, language: AppLanguage): string => {
-    if (!value) return "—";
-    const normalized = value.toLowerCase();
-    if (normalized === "male") return tr(language, "Male", "ชาย");
-    if (normalized === "female") return tr(language, "Female", "หญิง");
-    if (normalized === "other") return tr(language, "Other", "อื่น ๆ");
-    return value;
+const getGenderLabel = (
+  value: string | null | undefined,
+  language: AppLanguage
+): string => {
+  if (!value) return "—";
+  const normalized = value.toLowerCase();
+  if (normalized === "male") return tr(language, "Male", "ชาย");
+  if (normalized === "female") return tr(language, "Female", "หญิง");
+  if (normalized === "other") return tr(language, "Other", "อื่น ๆ");
+  return value;
 };
 
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  tone = "primary",
+}: StatTileProps) {
+  const toneClass =
+    tone === "emerald"
+      ? "border-emerald-200/80 bg-white text-emerald-700"
+      : tone === "amber"
+        ? "border-amber-200/80 bg-white text-amber-700"
+        : "border-border/80 bg-white text-primary";
+
+  return (
+    <div className={cn("rounded-2xl border p-4", toneClass)}>
+      <div className="mb-3 flex items-center gap-2">
+        <div className="rounded-xl bg-muted p-2">
+          <Icon className="size-4" />
+        </div>
+        <p className="text-xs font-medium uppercase tracking-[0.18em] text-current/70">
+          {label}
+        </p>
+      </div>
+      <p className="text-lg font-semibold text-foreground sm:text-xl">{value}</p>
+      <p className="mt-1 text-sm leading-6 text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
+function InfoRow({ icon: Icon, label, value, detail, empty = false }: InfoRowProps) {
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-3 rounded-2xl border px-4 py-3.5",
+        empty ? "border-dashed border-border/70 bg-muted/15" : "border-border/80 bg-background"
+      )}
+    >
+      <div className="rounded-xl bg-muted p-2 text-primary">
+        <Icon className="size-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+          {label}
+        </p>
+        <p className={cn("mt-1 text-sm font-medium text-foreground", empty && "text-muted-foreground")}>
+          {value}
+        </p>
+        {detail ? <p className="mt-1 text-sm leading-6 text-muted-foreground">{detail}</p> : null}
+      </div>
+    </div>
+  );
+}
+
 export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
-    const token = useAuthStore((state) => state.token);
-    const clearToken = useAuthStore((state) => state.clearToken);
-    const language = useLanguageStore((state) => state.language);
-    const router = useRouter();
+  const token = useAuthStore((state) => state.token);
+  const clearToken = useAuthStore((state) => state.clearToken);
+  const userId = useAuthStore((state) => state.userId);
+  const language = useLanguageStore((state) => state.language);
+  const router = useRouter();
+  const cachedSnapshot = React.useMemo(
+    () => readPatientDetailCache(userId, patientId),
+    [patientId, userId]
+  );
 
-    const [patient, setPatient] = useState<Patient | null>(null);
-    const [meetings, setMeetings] = useState<Meeting[]>([]);
-    const [meetingsTotal, setMeetingsTotal] = useState(0);
-    const [loadingPatient, setLoadingPatient] = useState(true);
-    const [loadingMeetings, setLoadingMeetings] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+  const [patient, setPatient] = useState<Patient | null>(
+    () => cachedSnapshot?.patient ?? null
+  );
+  const [meetings, setMeetings] = useState<Meeting[]>(
+    () => cachedSnapshot?.meetings ?? []
+  );
+  const [meetingsTotal, setMeetingsTotal] = useState(
+    () => cachedSnapshot?.meetingsTotal ?? 0
+  );
+  const [loadingPatient, setLoadingPatient] = useState(
+    () => !cachedSnapshot?.patient
+  );
+  const [loadingMeetings, setLoadingMeetings] = useState(
+    () => !cachedSnapshot?.meetings.length
+  );
+  const [error, setError] = useState<string | null>(null);
+  const patientWorkspaceHrefs = React.useMemo(
+    () => getPatientWorkspaceHrefs(patientId),
+    [patientId]
+  );
 
-    useEffect(() => {
-        if (!token) return;
-        let cancelled = false;
+  useEffect(() => {
+    patientWorkspaceHrefs.forEach((href) => {
+      router.prefetch(href);
+    });
+    void preloadPatientHeartSoundBundle();
+  }, [patientWorkspaceHrefs, router]);
 
-        const loadPatient = async () => {
-            setLoadingPatient(true);
-            setError(null);
-            try {
-                const data = await fetchPatient(patientId, token);
-                if (!cancelled) setPatient(data);
-            } catch (err) {
-                if (cancelled) return;
-                const status = (err as { status?: number }).status;
-                if (status === 401) {
-                    clearToken();
-                    router.replace("/login");
-                    return;
-                }
-                setError(
-                    status === 404
-                        ? tr(language, "Patient not found", "ไม่พบผู้ป่วย")
-                        : err instanceof Error
-                            ? err.message
-                            : tr(language, "Failed to load patient", "โหลดข้อมูลผู้ป่วยไม่สำเร็จ")
-                );
-            } finally {
-                if (!cancelled) setLoadingPatient(false);
-            }
-        };
+  useEffect(() => {
+    setPatient(cachedSnapshot?.patient ?? null);
+    setMeetings(cachedSnapshot?.meetings ?? []);
+    setMeetingsTotal(cachedSnapshot?.meetingsTotal ?? 0);
+    setLoadingPatient(!cachedSnapshot?.patient);
+    setLoadingMeetings(!(cachedSnapshot?.meetings.length ?? 0));
+    setError(null);
+  }, [cachedSnapshot]);
 
-        loadPatient();
-        return () => { cancelled = true; };
-    }, [token, patientId, language, clearToken, router]);
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    const hasCachedPatient = Boolean(cachedSnapshot?.patient);
 
-    useEffect(() => {
-        if (!token) return;
-        let cancelled = false;
-
-        const loadMeetings = async () => {
-            setLoadingMeetings(true);
-            try {
-                const res = await fetchMeetings(
-                    { patient_id: patientId, limit: 100, sort: "date_time", order: "desc" },
-                    token
-                );
-                if (!cancelled) {
-                    setMeetings(res.items);
-                    setMeetingsTotal(res.total);
-                }
-            } catch (err) {
-                if (cancelled) return;
-                const status = (err as { status?: number }).status;
-                if (status === 401) {
-                    clearToken();
-                    router.replace("/login");
-                }
-            } finally {
-                if (!cancelled) setLoadingMeetings(false);
-            }
-        };
-
-        loadMeetings();
-        return () => { cancelled = true; };
-    }, [token, patientId, clearToken, router]);
-
-    const getAge = (dateOfBirth: string) => {
-        const dob = new Date(dateOfBirth);
-        const today = new Date();
-        let age = today.getFullYear() - dob.getFullYear();
-        const m = today.getMonth() - dob.getMonth();
-        if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
-        return age;
+    const loadPatient = async () => {
+      if (!hasCachedPatient) {
+        setLoadingPatient(true);
+      }
+      setError(null);
+      try {
+        const data = await fetchPatient(patientId, token);
+        if (!cancelled) {
+          setPatient(data);
+          writePatientDetailCache(userId, patientId, {
+            patient: data,
+            patientCachedAt: Date.now(),
+          });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const status = (err as { status?: number }).status;
+        if (status === 401) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
+        setError(
+          status === 404
+            ? tr(language, "Patient not found", "ไม่พบผู้ป่วย")
+            : err instanceof Error
+              ? err.message
+              : tr(language, "Failed to load patient", "โหลดข้อมูลผู้ป่วยไม่สำเร็จ")
+        );
+      } finally {
+        if (!cancelled) setLoadingPatient(false);
+      }
     };
 
-    const formatDate = (dateStr: string) =>
-        new Date(dateStr).toLocaleDateString(language === "th" ? "th-TH" : "en-GB", {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-        });
+    loadPatient();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, patientId, language, clearToken, router, cachedSnapshot?.patient, userId]);
 
-    const formatDateTime = (dateStr: string) =>
-        new Date(dateStr).toLocaleString(language === "th" ? "th-TH" : "en-GB", {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-        });
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    const hasCachedMeetings = Boolean(cachedSnapshot?.meetings.length);
 
-    // ── Loading ──
-    if (loadingPatient) {
-        return (
-            <div className="space-y-6 py-2">
-                <div className="flex items-center gap-3">
-                    <Skeleton className="size-12 rounded-full" />
-                    <div className="space-y-2">
-                        <Skeleton className="h-5 w-32" />
-                        <Skeleton className="h-4 w-20" />
-                    </div>
-                </div>
-                <div className="grid grid-cols-1 gap-3">
-                    {Array.from({ length: 3 }).map((_, i) => (
-                        <Skeleton key={i} className="h-20 w-full rounded-xl" />
-                    ))}
-                </div>
-                <Skeleton className="h-40 w-full rounded-xl" />
-            </div>
+    const loadMeetings = async () => {
+      if (!hasCachedMeetings) {
+        setLoadingMeetings(true);
+      }
+      try {
+        const res = await fetchMeetings(
+          { patient_id: patientId, limit: 100, sort: "date_time", order: "desc" },
+          token
         );
-    }
+        if (!cancelled) {
+          setMeetings(res.items);
+          setMeetingsTotal(res.total);
+          writePatientDetailCache(userId, patientId, {
+            meetings: res.items,
+            meetingsTotal: res.total,
+            meetingsCachedAt: Date.now(),
+          });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const status = (err as { status?: number }).status;
+        if (status === 401) {
+          clearToken();
+          router.replace("/login");
+        }
+      } finally {
+        if (!cancelled) setLoadingMeetings(false);
+      }
+    };
 
-    // ── Error ──
-    if (error || !patient) {
-        return (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="p-5 bg-background rounded-full border border-border shadow-sm mb-4">
-                    <HugeiconsIcon icon={MedicalMaskIcon} className="size-8 text-destructive/60" />
-                </div>
-                <h3 className="font-bold text-lg text-foreground mb-1">
-                    {error || tr(language, "Patient not found", "ไม่พบผู้ป่วย")}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                    {tr(language, "Unable to load patient data.", "ไม่สามารถโหลดข้อมูลผู้ป่วยได้")}
-                </p>
-            </div>
-        );
-    }
+    loadMeetings();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, patientId, clearToken, router, cachedSnapshot?.meetings.length, userId]);
 
-    const age = getAge(patient.date_of_birth);
-    const hasContact = !!(patient.phone || patient.email);
+  const getAge = (dateOfBirth: string) => {
+    const dob = new Date(dateOfBirth);
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const monthDiff = today.getMonth() - dob.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) age--;
+    return age;
+  };
 
+  const formatDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString(language === "th" ? "th-TH" : "en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+
+  const formatDateTime = (dateStr: string) =>
+    new Date(dateStr).toLocaleString(language === "th" ? "th-TH" : "en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+  if (loadingPatient) {
     return (
-        <LazyMotion features={domAnimation}>
-        <div className="space-y-6 py-2 overflow-y-auto">
-            {/* Patient Header */}
-            <m.div
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2 }}
-                className="flex items-center gap-3"
-            >
-                <Avatar className="size-12 ring-2 ring-primary/20">
-                    <AvatarFallback className="bg-primary/10 text-primary font-semibold text-lg">
-                        {(patient.first_name?.charAt(0) || "") + (patient.last_name?.charAt(0) || "")}
-                    </AvatarFallback>
-                </Avatar>
-                <div>
-                    <h2 className="text-lg font-bold tracking-tight text-foreground">
-                        {patient.first_name} {patient.last_name}
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
-                        {tr(
-                            language,
-                            `${age} years old`,
-                            `${age} ปี`
-                        )} • {patient.gender ? getGenderLabel(patient.gender, language) : tr(language, "N/A", "ไม่มีข้อมูล")}
-                    </p>
+      <div className="space-y-6 py-2">
+        <div className="overflow-hidden rounded-[28px] border border-border/70 bg-card shadow-sm">
+          <div className="grid gap-6 p-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.6fr)] lg:p-6">
+            <div className="space-y-5">
+              <div className="flex items-center gap-4">
+                <Skeleton className="size-16 rounded-3xl" />
+                <div className="space-y-3">
+                  <Skeleton className="h-5 w-28 rounded-full" />
+                  <Skeleton className="h-8 w-56" />
+                  <Skeleton className="h-4 w-40" />
                 </div>
-            </m.div>
-
-            {/* Clinical View Link */}
-            <m.div
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay: 0.03 }}
-            >
-                <button
-                    onClick={() => router.push(`/patients/${patientId}/dense`)}
-                    className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors text-left group"
-                >
-                    <div className="p-2 bg-primary/10 rounded-lg group-hover:bg-primary/20 transition-colors">
-                        <HugeiconsIcon icon={Stethoscope02Icon} className="size-4 text-primary" />
-                    </div>
-                    <div className="flex-1">
-                        <p className="text-sm font-semibold text-foreground">{tr(language, "Open Clinical View", "เปิดมุมมองคลินิก")}</p>
-                        <p className="text-sm text-muted-foreground">{tr(language, "View full clinical dashboard with timeline, orders & notes", "ดูแดชบอร์ดคลินิกเต็มรูปแบบพร้อมไทม์ไลน์ คำสั่ง และบันทึก")}</p>
-                    </div>
-                    <svg className="size-4 text-muted-foreground group-hover:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                </button>
-            </m.div>
-
-            {/* Info Sections */}
-            <m.div
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay: 0.05 }}
-                className="space-y-3"
-            >
-                {/* Personal Info */}
-                <div className="rounded-xl border bg-gradient-to-r from-primary/5 to-transparent p-4 space-y-2">
-                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
-                        <div className="p-1.5 bg-primary/10 rounded-md">
-                            <HugeiconsIcon icon={UserIcon} className="size-3.5 text-primary" />
-                        </div>
-                        {tr(language, "Personal Info", "ข้อมูลส่วนตัว")}
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div>
-                            <span className="text-sm text-muted-foreground">{tr(language, "Date of Birth", "วันเกิด")}</span>
-                            <p className="font-medium text-foreground">{formatDate(patient.date_of_birth)}</p>
-                        </div>
-                        <div>
-                            <span className="text-sm text-muted-foreground">{tr(language, "Age", "อายุ")}</span>
-                            <p className="font-medium text-foreground">{tr(language, `${age} years`, `${age} ปี`)}</p>
-                        </div>
-                        <div>
-                            <span className="text-sm text-muted-foreground">{tr(language, "Gender", "เพศ")}</span>
-                            <p className="font-medium text-foreground capitalize">{getGenderLabel(patient.gender, language)}</p>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Contact */}
-                <div className="rounded-xl border bg-gradient-to-r from-emerald-500/5 to-transparent p-4 space-y-2">
-                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
-                        <div className="p-1.5 bg-emerald-500/10 rounded-md">
-                            <HugeiconsIcon icon={AiPhone01Icon} className="size-3.5 text-emerald-500" />
-                        </div>
-                        {tr(language, "Contact", "ช่องทางติดต่อ")}
-                    </div>
-                    <div className="space-y-2 text-sm">
-                        {patient.phone && (
-                            <div className="flex items-center gap-2">
-                                <HugeiconsIcon icon={AiPhone01Icon} className="size-3.5 text-muted-foreground" />
-                                <span className="text-foreground">{patient.phone}</span>
-                            </div>
-                        )}
-                        {patient.email && (
-                            <div className="flex items-center gap-2">
-                                <HugeiconsIcon icon={Mail01Icon} className="size-3.5 text-muted-foreground" />
-                                <span className="text-foreground truncate">{patient.email}</span>
-                            </div>
-                        )}
-                        {!hasContact && (
-                            <p className="text-sm text-muted-foreground/60">{tr(language, "No contact info available", "ไม่มีข้อมูลติดต่อ")}</p>
-                        )}
-                    </div>
-                </div>
-
-                {/* Address */}
-                <div className="rounded-xl border bg-gradient-to-r from-amber-500/5 to-transparent p-4">
-                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground mb-2">
-                        <div className="p-1.5 bg-amber-500/10 rounded-md">
-                            <HugeiconsIcon icon={Location01Icon} className="size-3.5 text-amber-500" />
-                        </div>
-                        {tr(language, "Address", "ที่อยู่")}
-                    </div>
-                    <p className="text-sm text-foreground leading-relaxed">
-                        {patient.address || <span className="text-muted-foreground/60">{tr(language, "No address recorded", "ไม่มีที่อยู่ที่บันทึกไว้")}</span>}
-                    </p>
-                </div>
-            </m.div>
-
-            {/* Meetings History */}
-            <m.div
-                initial={{ opacity: 0, y: 5 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay: 0.1 }}
-            >
-                <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-                        <div className="p-1.5 bg-primary/10 rounded-md">
-                            <HugeiconsIcon icon={CalendarAddIcon} className="size-3.5 text-primary" />
-                        </div>
-                        {tr(language, "Appointment History", "ประวัติการนัดหมาย")}
-                    </div>
-                    {meetingsTotal > 0 && (
-                        <Badge variant="secondary" className="border-transparent bg-primary/10 text-sm text-primary">
-                            {meetingsTotal}
-                        </Badge>
-                    )}
-                </div>
-
-                {loadingMeetings ? (
-                    <div className="space-y-2">
-                        {Array.from({ length: 2 }).map((_, i) => (
-                            <Skeleton key={i} className="h-16 w-full rounded-xl" />
-                        ))}
-                    </div>
-                ) : meetings.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-8 text-center rounded-xl border border-dashed border-border/60">
-                        <HugeiconsIcon icon={CalendarAddIcon} className="size-6 text-muted-foreground/40 mb-2" />
-                        <p className="text-sm font-medium text-muted-foreground">{tr(language, "No appointments yet", "ยังไม่มีการนัดหมาย")}</p>
-                        <p className="mt-0.5 text-sm text-muted-foreground/60">
-                            {tr(language, "Appointments will appear here", "การนัดหมายจะแสดงที่นี่")}
-                        </p>
-                    </div>
-                ) : (
-                    <div className="space-y-2">
-                        <AnimatePresence>
-                            {meetings.map((meeting, index) => {
-                                const isPast = new Date(meeting.date_time) < new Date();
-                                const doctorName = meeting.doctor
-                                    ? [meeting.doctor.first_name, meeting.doctor.last_name].filter(Boolean).join(" ") || meeting.doctor.email
-                                    : null;
-
-                                return (
-                                    <m.div
-                                        key={meeting.id}
-                                        initial={{ opacity: 0, y: 3 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        transition={{ duration: 0.1, delay: index * 0.02 }}
-                                        className={`relative p-3 rounded-xl border transition-all ${isPast
-                                                ? "bg-muted/20 border-border/40"
-                                                : "bg-gradient-to-r from-primary/5 to-transparent border-primary/20"
-                                            }`}
-                                    >
-                                        <div className="flex items-start gap-2.5">
-                                            <div
-                                                className={`mt-1.5 flex-shrink-0 size-2.5 rounded-full ring-3 ${isPast
-                                                        ? "bg-muted-foreground/30 ring-muted/40"
-                                                        : "bg-primary ring-primary/20"
-                                                    }`}
-                                            />
-                                            <div className="min-w-0 flex-1 space-y-1">
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className="text-sm font-semibold text-foreground">
-                                                        {formatDateTime(meeting.date_time)}
-                                                    </span>
-                                                    <Badge
-                                                        variant={isPast ? "secondary" : "default"}
-                                                        className={`h-4 px-1.5 py-0 text-xs font-normal ${isPast
-                                                                ? "bg-muted text-muted-foreground"
-                                                                : "bg-primary/10 text-primary border-transparent"
-                                                            }`}
-                                                    >
-                                                        {isPast
-                                                            ? tr(language, "Completed", "เสร็จสิ้น")
-                                                            : tr(language, "Upcoming", "กำลังจะมาถึง")}
-                                                    </Badge>
-                                                </div>
-
-                                                {meeting.description && (
-                                                    <p className="text-sm text-foreground/80 line-clamp-2">
-                                                        {meeting.description}
-                                                    </p>
-                                                )}
-
-                                                <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                                                    {doctorName && (
-                                                        <span className="flex items-center gap-1">
-                                                            <HugeiconsIcon icon={UserIcon} className="size-2.5" />
-                                                            {tr(language, "Dr.", "นพ.")} {doctorName}
-                                                        </span>
-                                                    )}
-                                                    {meeting.room && (
-                                                        <span className="flex items-center gap-1">
-                                                            <HugeiconsIcon icon={Location01Icon} className="size-2.5" />
-                                                            {tr(language, "Room", "ห้อง")} {meeting.room}
-                                                        </span>
-                                                    )}
-                                                </div>
-
-                                                {meeting.note && (
-                                                    <p className="border-l-2 border-muted-foreground/20 pl-2 text-sm italic text-muted-foreground/70">
-                                                        {meeting.note}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </m.div>
-                                );
-                            })}
-                        </AnimatePresence>
-                    </div>
-                )}
-            </m.div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <Skeleton key={index} className="h-30 rounded-2xl" />
+                ))}
+              </div>
+              <Skeleton className="h-24 rounded-2xl" />
+            </div>
+            <Skeleton className="h-full min-h-52 rounded-3xl" />
+          </div>
         </div>
-        </LazyMotion>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+          <Skeleton className="h-72 rounded-3xl" />
+          <Skeleton className="h-72 rounded-3xl" />
+        </div>
+        <Skeleton className="h-80 rounded-3xl" />
+      </div>
     );
+  }
+
+  if (error || !patient) {
+    return (
+      <Card className="overflow-hidden rounded-[28px] border-destructive/20 bg-[linear-gradient(135deg,rgba(201,94,74,0.10),rgba(255,255,255,0.96))] shadow-sm">
+        <CardContent className="flex flex-col items-center justify-center gap-4 px-6 py-16 text-center">
+          <div className="rounded-3xl bg-destructive/10 p-4 text-destructive shadow-sm ring-1 ring-destructive/10">
+            <Stethoscope className="size-8" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-lg font-semibold text-foreground">
+              {error || tr(language, "Patient not found", "ไม่พบผู้ป่วย")}
+            </h3>
+            <p className="text-sm leading-6 text-muted-foreground">
+              {tr(language, "Unable to load patient data.", "ไม่สามารถโหลดข้อมูลผู้ป่วยได้")}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const age = getAge(patient.date_of_birth);
+  const now = new Date();
+  const futureMeetings = meetings
+    .filter((meeting) => new Date(meeting.date_time).getTime() >= now.getTime())
+    .sort(
+      (left, right) =>
+        new Date(left.date_time).getTime() - new Date(right.date_time).getTime()
+    );
+  const nextMeeting = futureMeetings[0] ?? null;
+  const hasContact = !!(patient.phone || patient.email);
+  const completenessFields = [patient.gender, patient.phone, patient.email, patient.address];
+  const completenessScore = Math.round(
+    (completenessFields.filter((field) => Boolean(field)).length / completenessFields.length) * 100
+  );
+  const patientInitials = [patient.first_name, patient.last_name]
+    .map((part) => part?.trim().charAt(0) ?? "")
+    .join("")
+    .toUpperCase();
+  const heartSoundHref = patientWorkspaceHrefs[1];
+  const denseModeHref = patientWorkspaceHrefs[2];
+  const prefetchHeartSoundWorkspace = () => {
+    router.prefetch(heartSoundHref);
+    void preloadPatientHeartSoundBundle();
+  };
+  const workspaceNavItems: WorkspaceNavItem[] = [
+    {
+      key: "overview",
+      label: tr(language, "Overview", "ภาพรวม"),
+      enabled: true,
+    },
+    {
+      key: "heart-sound",
+      label: tr(language, "Heart Sound", "เสียงหัวใจ"),
+      enabled: true,
+      onSelect: () => router.push(heartSoundHref),
+    },
+    {
+      key: "monitoring",
+      label: tr(language, "Monitoring", "การติดตาม"),
+      enabled: false,
+    },
+    {
+      key: "timeline",
+      label: tr(language, "Timeline", "ไทม์ไลน์"),
+      enabled: false,
+    },
+    {
+      key: "devices",
+      label: tr(language, "Devices", "อุปกรณ์"),
+      enabled: false,
+    },
+  ];
+
+  const summaryStats = [
+    {
+      icon: UserRound,
+      label: tr(language, "Age", "อายุ"),
+      value: tr(language, `${age} years`, `${age} ปี`),
+      hint: getGenderLabel(patient.gender, language),
+      tone: "primary" as const,
+    },
+    {
+      icon: CalendarClock,
+      label: tr(language, "Appointments", "การนัดหมาย"),
+      value: `${meetingsTotal}`,
+      hint:
+        meetingsTotal > 0
+          ? tr(language, "Total booked visits", "จำนวนนัดหมายทั้งหมด")
+          : tr(language, "No visits recorded yet", "ยังไม่มีนัดหมายที่บันทึกไว้"),
+      tone: "primary" as const,
+    },
+    {
+      icon: Clock3,
+      label: tr(language, "Next Visit", "นัดหมายถัดไป"),
+      value: nextMeeting ? formatDateTime(nextMeeting.date_time) : tr(language, "Not scheduled", "ยังไม่มีนัด"),
+      hint: nextMeeting
+        ? tr(language, "Upcoming consultation is ready", "มีนัดหมายครั้งถัดไปรออยู่")
+        : tr(language, "Schedule a new consultation when ready", "พร้อมเมื่อต้องการสร้างนัดใหม่"),
+      tone: "emerald" as const,
+    },
+    {
+      icon: ShieldCheck,
+      label: tr(language, "Record Status", "สถานะข้อมูล"),
+      value: `${completenessScore}%`,
+      hint:
+        completenessScore >= 75
+          ? tr(language, "Core details are available", "ข้อมูลหลักพร้อมใช้งาน")
+          : tr(language, "Some core fields are missing", "ยังมีข้อมูลหลักที่ขาด"),
+      tone: completenessScore >= 75 ? ("emerald" as const) : ("amber" as const),
+    },
+  ];
+
+  return (
+    <LazyMotion features={domAnimation}>
+      <div className="space-y-6 py-2 overflow-y-auto">
+        <m.section
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.24 }}
+          className="overflow-hidden rounded-[28px] border border-border/70 bg-card shadow-sm"
+        >
+          <div className="grid gap-6 p-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.55fr)] lg:p-6">
+            <div className="space-y-5">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div className="flex items-start gap-4">
+                  <Avatar className="size-16 rounded-[24px] border border-border/70">
+                    <AvatarFallback className="rounded-[24px] bg-muted text-xl font-semibold text-primary">
+                      {patientInitials || "PT"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant="secondary"
+                        className="border-transparent bg-primary/10 px-2.5 py-1 text-primary"
+                      >
+                        {tr(language, "Patient Workspace", "พื้นที่ทำงานผู้ป่วย")}
+                      </Badge>
+                      <Badge
+                        variant="outline"
+                        className="border-border/80 bg-background text-muted-foreground"
+                      >
+                        {tr(language, "Overview", "ภาพรวม")}
+                      </Badge>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "border-transparent px-2.5 py-1",
+                          hasContact
+                            ? "bg-emerald-500/10 text-emerald-700"
+                            : "bg-amber-500/12 text-amber-700"
+                        )}
+                      >
+                        {hasContact
+                          ? tr(language, "Reachable", "ติดต่อได้")
+                          : tr(language, "Needs contact info", "รอข้อมูลติดต่อ")}
+                      </Badge>
+                    </div>
+
+                    <div className="space-y-1">
+                      <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                        {patient.first_name} {patient.last_name}
+                      </h1>
+                      <p className="text-sm leading-6 text-muted-foreground sm:text-[0.95rem]">
+                        {tr(language, `${age} years old`, `${age} ปี`)} •{" "}
+                        {getGenderLabel(patient.gender, language)}
+                        {patient.created_at
+                          ? ` • ${tr(
+                              language,
+                              `Registered ${formatDate(patient.created_at)}`,
+                              `ลงทะเบียนเมื่อ ${formatDate(patient.created_at)}`
+                            )}`
+                          : ""}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex w-full flex-col gap-3 xl:w-auto xl:min-w-[280px]">
+                  <Button
+                    onClick={() => router.push(heartSoundHref)}
+                    onFocus={prefetchHeartSoundWorkspace}
+                    onMouseEnter={prefetchHeartSoundWorkspace}
+                    variant="outline"
+                    size="lg"
+                    className="w-full rounded-2xl"
+                  >
+                    <Volume2 className="size-4" />
+                    {tr(language, "Open Heart Sound", "เปิดเสียงหัวใจ")}
+                    <ArrowRight className="size-4" />
+                  </Button>
+                  <Button
+                    onClick={() => router.push(denseModeHref)}
+                    onFocus={() => router.prefetch(denseModeHref)}
+                    onMouseEnter={() => router.prefetch(denseModeHref)}
+                    variant="default"
+                    size="lg"
+                    className="w-full rounded-2xl"
+                  >
+                    <Stethoscope className="size-4" />
+                    {tr(language, "Open Advanced Focus Mode", "เปิดโหมดโฟกัสขั้นสูง")}
+                    <ArrowRight className="size-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {summaryStats.map((stat) => (
+                  <StatTile
+                    key={stat.label}
+                    icon={stat.icon}
+                    label={stat.label}
+                    value={stat.value}
+                    hint={stat.hint}
+                    tone={stat.tone}
+                  />
+                ))}
+              </div>
+
+              <div className="rounded-[24px] border border-border/80 bg-muted/20 p-4">
+                <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      {tr(language, "Workspace Navigation", "การนำทางในพื้นที่ทำงาน")}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {tr(
+                        language,
+                        "Overview is active, and Heart Sound is available now. More clinical sections will be added here later.",
+                        "ตอนนี้เปิดใช้งานหน้า Overview และ Heart Sound แล้ว และจะมีส่วนคลินิกอื่นเพิ่มในภายหลัง"
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {workspaceNavItems.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={item.onSelect}
+                      onFocus={item.key === "heart-sound" ? prefetchHeartSoundWorkspace : undefined}
+                      onMouseEnter={item.key === "heart-sound" ? prefetchHeartSoundWorkspace : undefined}
+                      disabled={!item.enabled}
+                      aria-current={item.key === "overview" ? "page" : undefined}
+                      className={cn(
+                        "min-h-11 rounded-full border px-4 py-2 text-sm font-medium transition-colors",
+                        item.key === "overview"
+                          ? "border-primary/20 bg-primary/10 text-primary"
+                          : item.enabled
+                            ? "border-border/80 bg-background text-foreground hover:bg-muted"
+                            : "cursor-not-allowed border-border/60 bg-muted/30 text-muted-foreground"
+                      )}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <Card className="rounded-[28px] border-border/70 bg-card shadow-sm">
+              <CardContent className="space-y-5 px-5 py-5">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
+                    {tr(language, "Quick Summary", "สรุปย่อ")}
+                  </p>
+                  <h2 className="text-lg font-semibold text-foreground">
+                    {tr(language, "Patient at a glance", "ภาพรวมผู้ป่วย")}
+                  </h2>
+                </div>
+
+                <div className="rounded-2xl border border-border/80 bg-muted/20 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">
+                        {tr(language, "Record completeness", "ความครบถ้วนของข้อมูล")}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {tr(
+                          language,
+                          "Demographic and contact fields available in this record.",
+                          "ข้อมูลประชากรศาสตร์และข้อมูลติดต่อที่มีในระเบียนนี้"
+                        )}
+                      </p>
+                    </div>
+                    <span className="text-xl font-semibold text-primary">{completenessScore}%</span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label={tr(language, "Patient data completeness", "ระดับความครบถ้วนของข้อมูลผู้ป่วย")}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={completenessScore}
+                    className="mt-4 h-2 rounded-full bg-border/80"
+                  >
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-[width] duration-300",
+                        completenessScore >= 75 ? "bg-emerald-500" : "bg-amber-500"
+                      )}
+                      style={{ width: `${completenessScore}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <InfoRow
+                    icon={Phone}
+                    label={tr(language, "Phone", "โทรศัพท์")}
+                    value={patient.phone || tr(language, "No phone recorded", "ยังไม่มีเบอร์โทร")}
+                    detail={patient.phone ? tr(language, "Primary contact channel", "ช่องทางติดต่อหลัก") : undefined}
+                    empty={!patient.phone}
+                  />
+                  <InfoRow
+                    icon={Mail}
+                    label={tr(language, "Email", "อีเมล")}
+                    value={patient.email || tr(language, "No email recorded", "ยังไม่มีอีเมล")}
+                    detail={
+                      patient.email
+                        ? tr(language, "Used for follow-up and documents", "ใช้ติดตามผลและเอกสาร")
+                        : undefined
+                    }
+                    empty={!patient.email}
+                  />
+                  <InfoRow
+                    icon={MapPin}
+                    label={tr(language, "Address", "ที่อยู่")}
+                    value={patient.address || tr(language, "No address recorded", "ไม่มีที่อยู่ที่บันทึกไว้")}
+                    detail={
+                      patient.address
+                        ? tr(language, "Latest address on file", "ที่อยู่ล่าสุดในระบบ")
+                        : undefined
+                    }
+                    empty={!patient.address}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </m.section>
+
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
+          <m.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.22, delay: 0.03 }}
+          >
+            <Card className="rounded-[28px] border-border/70 bg-card shadow-sm">
+              <CardContent className="space-y-5 px-5 py-5">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
+                    {tr(language, "Patient Profile", "โปรไฟล์ผู้ป่วย")}
+                  </p>
+                  <h2 className="text-lg font-semibold text-foreground">
+                    {tr(language, "Identity and demographics", "ข้อมูลระบุตัวตนและประชากรศาสตร์")}
+                  </h2>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <InfoRow
+                    icon={CalendarClock}
+                    label={tr(language, "Date of birth", "วันเกิด")}
+                    value={formatDate(patient.date_of_birth)}
+                    detail={tr(language, "Used to calculate age-sensitive care", "ใช้ประกอบการดูแลตามช่วงอายุ")}
+                  />
+                  <InfoRow
+                    icon={UserRound}
+                    label={tr(language, "Gender", "เพศ")}
+                    value={getGenderLabel(patient.gender, language)}
+                    detail={tr(language, "Stored identity descriptor", "ข้อมูลระบุตัวตนที่บันทึกไว้")}
+                    empty={!patient.gender}
+                  />
+                  <InfoRow
+                    icon={ShieldCheck}
+                    label={tr(language, "Patient ID", "รหัสผู้ป่วย")}
+                    value={patient.id}
+                    detail={tr(language, "Use this when coordinating with ops or support", "ใช้เมื่อต้องประสานงานกับทีมปฏิบัติการหรือซัพพอร์ต")}
+                  />
+                  <InfoRow
+                    icon={Clock3}
+                    label={tr(language, "Latest update", "อัปเดตล่าสุด")}
+                    value={
+                      patient.updated_at
+                        ? formatDate(patient.updated_at)
+                        : tr(language, "Not available", "ไม่มีข้อมูล")
+                    }
+                    detail={tr(language, "Shows when this record last changed", "แสดงเวลาที่ระเบียนนี้ถูกแก้ไขล่าสุด")}
+                    empty={!patient.updated_at}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </m.div>
+
+          <m.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.22, delay: 0.06 }}
+          >
+            <Card className="rounded-[28px] border-border/70 bg-card shadow-sm">
+              <CardContent className="space-y-5 px-5 py-5">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
+                    {tr(language, "Care Summary", "สรุปการดูแล")}
+                  </p>
+                  <h2 className="text-lg font-semibold text-foreground">
+                    {tr(language, "Before opening dense mode", "ก่อนเปิด dense mode")}
+                  </h2>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="rounded-2xl border border-border/80 bg-background p-4">
+                    <p className="text-sm font-medium text-foreground">
+                      {tr(language, "Contact status", "สถานะการติดต่อ")}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {hasContact
+                        ? tr(
+                            language,
+                            "At least one contact channel is available for scheduling and follow-up.",
+                            "มีช่องทางติดต่ออย่างน้อยหนึ่งช่องทางสำหรับการนัดหมายและติดตามผล"
+                          )
+                        : tr(
+                            language,
+                            "No contact information is currently recorded.",
+                            "ยังไม่มีข้อมูลติดต่อที่บันทึกไว้"
+                          )}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-border/80 bg-background p-4">
+                    <p className="text-sm font-medium text-foreground">
+                      {tr(language, "Next appointment", "นัดหมายถัดไป")}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {nextMeeting
+                        ? tr(
+                            language,
+                            `${formatDateTime(nextMeeting.date_time)}`,
+                            `${formatDateTime(nextMeeting.date_time)}`
+                          )
+                        : tr(
+                            language,
+                            "No appointment scheduled",
+                            "ยังไม่มีนัดหมาย"
+                          )}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </m.div>
+        </div>
+
+        <m.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22, delay: 0.1 }}
+        >
+          <Card className="rounded-[28px] border-border/70 bg-card shadow-sm">
+            <CardContent className="px-5 py-5">
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
+                    {tr(language, "Visit Timeline", "ไทม์ไลน์การนัดหมาย")}
+                  </p>
+                  <h2 className="text-lg font-semibold text-foreground">
+                    {tr(language, "Appointment History", "ประวัติการนัดหมาย")}
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {tr(
+                      language,
+                      "Chronological visits and notes.",
+                      "ลำดับการนัดหมายและหมายเหตุ"
+                    )}
+                  </p>
+                </div>
+                {meetingsTotal > 0 ? (
+                  <Badge
+                    variant="secondary"
+                    className="w-fit border-transparent bg-primary/10 px-3 py-1 text-sm text-primary"
+                  >
+                    {meetingsTotal}
+                  </Badge>
+                ) : null}
+              </div>
+
+              {loadingMeetings ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <Skeleton key={index} className="h-24 rounded-2xl" />
+                  ))}
+                </div>
+              ) : meetings.length === 0 ? (
+                <div className="flex flex-col items-center justify-center rounded-[24px] border border-dashed border-border/80 bg-muted/15 px-6 py-12 text-center">
+                  <div className="rounded-2xl bg-primary/10 p-3 text-primary">
+                    <CalendarClock className="size-6" />
+                  </div>
+                  <p className="mt-4 text-sm font-medium text-foreground">
+                    {tr(language, "No appointments yet", "ยังไม่มีการนัดหมาย")}
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                    {tr(language, "Appointments will appear here", "การนัดหมายจะแสดงที่นี่")}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <AnimatePresence>
+                    {meetings.map((meeting, index) => {
+                      const meetingDate = new Date(meeting.date_time);
+                      const isPast = meetingDate.getTime() < now.getTime();
+                      const doctorName = meeting.doctor
+                        ? [meeting.doctor.first_name, meeting.doctor.last_name]
+                            .filter(Boolean)
+                            .join(" ") || meeting.doctor.email
+                        : null;
+
+                      return (
+                        <m.div
+                          key={meeting.id}
+                          initial={{ opacity: 0, y: 5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.16, delay: index * 0.025 }}
+                          className={cn(
+                            "relative overflow-hidden rounded-[24px] border px-4 py-4",
+                            isPast
+                              ? "border-border/80 bg-background"
+                              : "border-primary/20 bg-primary/[0.04]"
+                          )}
+                        >
+                          <div className="flex gap-4">
+                            <div className="flex w-9 flex-col items-center">
+                              <div
+                                className={cn(
+                                  "mt-1 size-3 rounded-full ring-4",
+                                  isPast
+                                    ? "bg-muted-foreground/40 ring-muted/60"
+                                    : "bg-primary ring-primary/15"
+                                )}
+                              />
+                              {index < meetings.length - 1 ? (
+                                <div className="mt-2 h-full min-h-12 w-px bg-border/70" />
+                              ) : null}
+                            </div>
+
+                            <div className="min-w-0 flex-1 space-y-3">
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                <div className="space-y-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-sm font-semibold text-foreground sm:text-base">
+                                      {formatDateTime(meeting.date_time)}
+                                    </p>
+                                    <Badge
+                                      variant="outline"
+                                      className={cn(
+                                        "border-transparent",
+                                        isPast
+                                          ? "bg-muted text-muted-foreground"
+                                          : "bg-emerald-500/10 text-emerald-700"
+                                      )}
+                                    >
+                                      {isPast
+                                        ? tr(language, "Completed", "เสร็จสิ้น")
+                                        : tr(language, "Upcoming", "กำลังจะมาถึง")}
+                                    </Badge>
+                                  </div>
+
+                                  <p className="text-sm leading-6 text-muted-foreground">
+                                    {meeting.description ||
+                                      tr(
+                                        language,
+                                        "No appointment description was added.",
+                                        "ยังไม่มีคำอธิบายสำหรับการนัดหมายนี้"
+                                      )}
+                                  </p>
+                                </div>
+
+                                {meeting.room ? (
+                                  <div className="rounded-2xl bg-muted/40 px-3 py-2 text-sm text-muted-foreground ring-1 ring-border/70">
+                                    {tr(language, "Room", "ห้อง")} {meeting.room}
+                                  </div>
+                                ) : null}
+                              </div>
+
+                              <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
+                                {doctorName ? (
+                                  <span className="inline-flex items-center gap-2 rounded-full bg-muted/40 px-3 py-1.5">
+                                    <UserRound className="size-3.5" />
+                                    {tr(language, "Dr.", "นพ.")} {doctorName}
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              {meeting.note ? (
+                                <div className="rounded-2xl border border-border/80 bg-muted/20 px-4 py-3">
+                                  <p className="text-sm italic leading-6 text-muted-foreground">
+                                    {meeting.note}
+                                  </p>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </m.div>
+                      );
+                    })}
+                  </AnimatePresence>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </m.section>
+      </div>
+    </LazyMotion>
+  );
 }

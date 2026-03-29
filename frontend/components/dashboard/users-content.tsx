@@ -1,11 +1,12 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { UsersTable } from "./users-table";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -69,6 +70,21 @@ import {
 } from "recharts";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
+
+const UsersTable = dynamic(
+  () => import("./users-table").then((mod) => mod.UsersTable),
+  {
+    loading: () => (
+      <section className="rounded-[28px] border border-slate-200/80 bg-white/95 p-5 shadow-[0_12px_32px_rgba(15,23,42,0.05)]">
+        <div className="space-y-3">
+          <Skeleton className="h-6 w-44 rounded-full" />
+          <Skeleton className="h-4 w-72 rounded-full" />
+          <Skeleton className="h-[620px] rounded-[24px]" />
+        </div>
+      </section>
+    ),
+  }
+);
 
 function tr(language: AppLanguage, en: string, th: string): string {
   return language === "th" ? th : en;
@@ -873,12 +889,16 @@ export function UsersContent() {
   const language = useLanguageStore((state) => state.language);
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
+  const [usersLoaded, setUsersLoaded] = useState(false);
+  const [tableSeedVersion, setTableSeedVersion] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
   const [inviteRequestKey, setInviteRequestKey] = useState(0);
 
   const showUserStats = useDashboardStore((s) => s.showUserStats);
   const showUserCharts = useDashboardStore((s) => s.showUserCharts);
   const showUserTable = useDashboardStore((s) => s.showUserTable);
+  const initialTableUsers = useMemo(() => users.slice(0, 10), [users]);
+  const initialTableTotal = users.length;
 
   useEffect(() => {
     if (hydrated && !token) {
@@ -913,10 +933,15 @@ export function UsersContent() {
 
       if (!cancelled) {
         setUsers(allUsers);
+        setUsersLoaded(true);
+        setTableSeedVersion((prev) => prev + 1);
       }
     };
 
     void loadUsersForDashboard().catch((err) => {
+      if (!cancelled) {
+        setUsersLoaded(true);
+      }
       if ((err as { status?: number }).status === 401) {
         clearToken();
         router.replace("/login");
@@ -1040,7 +1065,16 @@ export function UsersContent() {
           <UsersByRoleChart users={users} language={language} />
         </div>
       )}
-      {showUserTable && <UsersTable refreshKey={refreshKey} inviteRequestKey={inviteRequestKey} />}
+      {showUserTable && (
+        <UsersTable
+          refreshKey={refreshKey}
+          inviteRequestKey={inviteRequestKey}
+          initialUsers={initialTableUsers}
+          initialTotal={initialTableTotal}
+          initialSeedKey={tableSeedVersion}
+          initialSeedReady={usersLoaded}
+        />
+      )}
     </main>
   );
 }

@@ -375,16 +375,40 @@ export function getErrorMessage(error: unknown, fallback: string = DEFAULT_ERROR
   return fallback;
 }
 
+/** Decode a JWT payload (base64url) in a runtime-safe way. Returns object or null. */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    // base64url -> base64
+    let raw = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    // Pad with '=' to make length a multiple of 4
+    while (raw.length % 4 !== 0) raw += "=";
+
+    let json = "";
+    if (typeof globalThis.atob === "function") {
+      json = globalThis.atob(raw);
+    } else if (typeof Buffer !== "undefined") {
+      json = Buffer.from(raw, "base64").toString("utf8");
+    } else {
+      return null;
+    }
+
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 /** Check if a JWT token is expiring within the given buffer (seconds). */
 function isTokenExpiring(token: string, bufferSeconds = 300): boolean {
   try {
-    // Decode payload without verification (just need exp)
-    const parts = token.split(".");
-    if (parts.length !== 3) return false;
-    const payload = JSON.parse(atob(parts[1]));
-    if (!payload.exp) return false;
+    const payload = decodeJwtPayload(token);
+    if (!payload) return false;
+    const exp = payload.exp;
+    if (!exp || typeof exp !== "number") return false;
     const now = Math.floor(Date.now() / 1000);
-    return payload.exp - now < bufferSeconds;
+    return exp - now < bufferSeconds;
   } catch {
     return false;
   }
@@ -513,13 +537,22 @@ export async function logout(token?: string): Promise<{ message: string }> {
 
 /** Force logout: clear token and redirect to login. */
 function forceLogout() {
+  // Only perform client-side logout/redirect — avoid importing client-only
+  // stores or touching window during SSR.
+  if (typeof window === "undefined") return;
+
   // Dynamic import to avoid circular dependency
   import("@/store/auth-store").then(({ useAuthStore }) => {
-    useAuthStore.getState().clearToken();
+    try {
+      useAuthStore.getState().clearToken();
+    } catch {
+      // ignore
+    }
+  }).catch(() => {
+    // ignore import failures on client
   });
-  if (typeof window !== "undefined") {
-    window.location.href = "/login";
-  }
+
+  window.location.href = "/login";
 }
 
 /** Try to refresh the token, updating the auth store. Deduplicates concurrent calls. */
@@ -528,11 +561,18 @@ async function tryRefreshToken(currentToken?: string): Promise<string | null> {
 
   refreshPromise = (async () => {
     try {
-      // Dynamic import to avoid circular dependency
-      const { useAuthStore } = await import("@/store/auth-store");
       const res = await rawFetch<LoginResponse>("/auth/refresh", { method: "POST" }, currentToken);
       if (res.ok && res.data?.user) {
-        useAuthStore.getState().setSession(res.data);
+        // Only update client-side store when running in the browser. Server
+        // callers can still use the refreshed session indirectly (cookies).
+        if (typeof window !== "undefined") {
+          try {
+            const { useAuthStore } = await import("@/store/auth-store");
+            useAuthStore.getState().setSession(res.data);
+          } catch {
+            // ignore store failures
+          }
+        }
         return COOKIE_SESSION_TOKEN;
       }
       return null;
@@ -878,6 +918,32 @@ export async function deletePatient(id: string, token: string) {
 
 export async function fetchPatient(id: string, token: string) {
   return apiFetch<Patient>(`/patients/${id}`, { method: "GET" }, token);
+}
+
+export interface HeartSoundRecord {
+  id: string;
+  patient_id: string;
+  device_id: string;
+  mac_address: string;
+  position: number;
+  blob_url: string;
+  storage_key?: string | null;
+  mime_type?: string | null;
+  duration_seconds?: number | null;
+  recorded_at: string;
+  created_at: string;
+}
+
+export interface HeartSoundListResponse {
+  items: HeartSoundRecord[];
+}
+
+export async function fetchPatientHeartSounds(patientId: string, token: string) {
+  return apiFetch<HeartSoundListResponse>(
+    `/patients/${patientId}/heart-sounds`,
+    { method: "GET" },
+    token
+  );
 }
 
 export async function fetchPatientAssignments(patientId: string, token: string) {

@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchOverviewStats } from "@/lib/api";
-import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
+
+import { useOverviewStats } from "@/components/dashboard/overview-stats-context";
 
 const I18N: Record<
   AppLanguage,
@@ -34,21 +33,11 @@ const I18N: Record<
 };
 
 export function AlertBanner() {
-  const token = useAuthStore((state) => state.token);
   const language = useLanguageStore((state) => state.language);
   const t = I18N[language];
-  const [todayCount, setTodayCount] = useState(0);
-  const [pendingCount, setPendingCount] = useState(0);
-
-  useEffect(() => {
-    if (!token) return;
-    fetchOverviewStats(token)
-      .then((res) => {
-        setTodayCount(res.kpis.today_consultations);
-        setPendingCount(res.totals.meetings);
-      })
-      .catch(() => {});
-  }, [token]);
+  const { stats } = useOverviewStats();
+  const todayCount = stats?.kpis.today_consultations ?? 0;
+  const pendingCount = stats?.totals.meetings ?? 0;
 
   return (
     <div className="flex items-start gap-3 sm:items-center">

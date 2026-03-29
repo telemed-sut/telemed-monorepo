@@ -54,7 +54,7 @@ import {
   isDoctorLeftWhilePatientWaiting,
   isPatientWaitingLive,
 } from "./meeting-presence";
-import { preloadZegoUIKitPrebuilt } from "@/lib/zego-uikit";
+import { preloadMeetingCallExperience } from "@/lib/meeting-call-prefetch";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
@@ -336,7 +336,7 @@ function QueueCard({
     if (!canStartCall) {
       return;
     }
-    preloadZegoUIKitPrebuilt();
+    void preloadMeetingCallExperience();
   }, [canStartCall]);
 
   return (
@@ -1094,6 +1094,7 @@ export function QueueView({
       if (pn) callParams.set("pn", pn);
       if (meeting.date_time) callParams.set("pt", meeting.date_time);
       const qs = callParams.toString();
+      void preloadMeetingCallExperience();
       window.location.assign(`/meetings/call/${meeting.id}${qs ? `?${qs}` : ""}`);
     },
     [role, language, canWriteMeeting]

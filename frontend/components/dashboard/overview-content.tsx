@@ -1,10 +1,14 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import { useEffect, useRef, useState } from "react";
 
 import { AlertBanner } from "./alert-banner";
 import { StatsCards } from "./stats-cards";
 import { useDashboardStore } from "@/store/dashboard-store";
+
+import { OverviewStatsProvider } from "@/components/dashboard/overview-stats-context";
+import { FinancialFlowChart } from "./financial-flow-chart";
+import { PatientsTable } from "./patients-table";
 
 function ChartSkeleton() {
     return (
@@ -37,25 +41,42 @@ function TableSkeleton() {
     );
 }
 
-const FinancialFlowChart = dynamic(
-    () =>
-        import("./financial-flow-chart").then((module) => ({
-            default: module.FinancialFlowChart,
-        })),
-    {
-        loading: () => <ChartSkeleton />,
-    }
-);
+function DeferredOverviewTable() {
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    const [shouldMount, setShouldMount] = useState(false);
 
-const PatientsTable = dynamic(
-    () =>
-        import("./patients-table").then((module) => ({
-            default: module.PatientsTable,
-        })),
-    {
-        loading: () => <TableSkeleton />,
-    }
-);
+    useEffect(() => {
+        const node = containerRef.current;
+        if (!node || shouldMount) {
+            return;
+        }
+
+        if (typeof IntersectionObserver === "undefined") {
+            setShouldMount(true);
+            return;
+        }
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((entry) => entry.isIntersecting)) {
+                    setShouldMount(true);
+                    observer.disconnect();
+                }
+            },
+            { rootMargin: "320px 0px" }
+        );
+
+        observer.observe(node);
+
+        return () => observer.disconnect();
+    }, [shouldMount]);
+
+    return (
+        <div ref={containerRef}>
+            {shouldMount ? <PatientsTable /> : <TableSkeleton />}
+        </div>
+    );
+}
 
 export function OverviewContent() {
     const showAlertBanner = useDashboardStore((s) => s.showAlertBanner);
@@ -64,11 +85,13 @@ export function OverviewContent() {
     const showTable = useDashboardStore((s) => s.showTable);
 
     return (
-        <main className="flex-1 overflow-auto px-3 py-3 sm:px-4 sm:py-4 space-y-5">
-            {showAlertBanner && <AlertBanner />}
-            {showStatsCards && <StatsCards />}
-            {showChart && <FinancialFlowChart />}
-            {showTable && <PatientsTable />}
-        </main>
+        <OverviewStatsProvider>
+            <main className="flex-1 overflow-auto px-3 py-3 sm:px-4 sm:py-4 space-y-5">
+                {showAlertBanner && <AlertBanner />}
+                {showStatsCards && <StatsCards />}
+                {showChart && <FinancialFlowChart />}
+                {showTable && <DeferredOverviewTable />}
+            </main>
+        </OverviewStatsProvider>
     );
 }

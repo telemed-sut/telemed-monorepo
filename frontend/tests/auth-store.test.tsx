@@ -21,6 +21,8 @@ describe("auth store hydration", () => {
     fetchCurrentUserMock.mockReset();
     refreshTokenMock.mockReset();
     replaceMock.mockReset();
+    window.localStorage.clear();
+    window.sessionStorage.clear();
   });
 
   afterEach(() => {
@@ -28,7 +30,19 @@ describe("auth store hydration", () => {
     vi.resetModules();
   });
 
-  it("keeps a cookie-backed session when /auth/me succeeds but refresh fails", async () => {
+  it("keeps a cookie-backed session and persists a local snapshot when /auth/me succeeds", async () => {
+    window.localStorage.setItem(
+      "telemed.auth.snapshot.v2",
+      JSON.stringify({
+        token: "__cookie_session__",
+        role: "doctor",
+        userId: "doctor-1",
+        mfaVerified: true,
+        isSuperAdmin: false,
+        sessionExpiresAt: null,
+        lastVerifiedAt: Date.now() - 10 * 60 * 1000,
+      })
+    );
     fetchCurrentUserMock.mockResolvedValue({
       id: "doctor-1",
       email: "doctor@example.com",
@@ -46,12 +60,27 @@ describe("auth store hydration", () => {
 
     const state = useAuthStore.getState();
     expect(fetchCurrentUserMock).toHaveBeenCalledTimes(1);
-    expect(refreshTokenMock).toHaveBeenCalledTimes(1);
+    expect(refreshTokenMock).not.toHaveBeenCalled();
     expect(state.hydrated).toBe(true);
     expect(state.token).toBe("__cookie_session__");
     expect(state.role).toBe("doctor");
     expect(state.userId).toBe("doctor-1");
     expect(state.sessionExpiresAt).toBeNull();
+    expect(window.localStorage.getItem("telemed.auth.snapshot.v2")).toContain(
+      "\"userId\":\"doctor-1\""
+    );
+  });
+
+  it("skips remote auth probes when there is no known session snapshot", async () => {
+    const { useAuthStore } = await import("@/store/auth-store");
+
+    await useAuthStore.getState().hydrate();
+
+    const state = useAuthStore.getState();
+    expect(fetchCurrentUserMock).not.toHaveBeenCalled();
+    expect(refreshTokenMock).not.toHaveBeenCalled();
+    expect(state.hydrated).toBe(true);
+    expect(state.token).toBeNull();
   });
 
   it("does not force logout when a cookie-backed session has no known expiry yet", async () => {

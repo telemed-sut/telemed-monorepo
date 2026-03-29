@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTheme } from "next-themes";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -41,10 +41,11 @@ import {
   DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchOverviewStats, type MonthlyStats } from "@/lib/api";
-import { useAuthStore } from "@/store/auth-store";
+import type { MonthlyStats } from "@/lib/api";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
+
+import { useOverviewStats } from "@/components/dashboard/overview-stats-context";
 
 type ChartType = "bar" | "line" | "area";
 type TimePeriod = "3months" | "6months" | "year" | "q1" | "q2" | "q3" | "q4";
@@ -213,7 +214,6 @@ function CustomTooltip({
 
 export function FinancialFlowChart() {
   const { theme } = useTheme();
-  const token = useAuthStore((state) => state.token);
   const language = useLanguageStore((state) => state.language);
   const t = I18N[language];
   const periodLabels = PERIOD_LABELS[language];
@@ -223,21 +223,17 @@ export function FinancialFlowChart() {
   const [showPatients, setShowPatients] = useState(true);
   const [showConsultations, setShowConsultations] = useState(true);
   const [smoothCurve, setSmoothCurve] = useState(true);
-  const [monthlyData, setMonthlyData] = useState<MonthlyStats[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { loading, stats } = useOverviewStats();
 
   const isDark = theme === "dark";
   const axisColor = isDark ? "#71717a" : "#a1a1aa";
   const gridColor = isDark ? "#27272a" : "#e5e7eb";
   const consultationsColor = "var(--med-primary)";
 
-  useEffect(() => {
-    if (!token) return;
-    fetchOverviewStats(token)
-      .then((res) => setMonthlyData(res.monthly))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [token]);
+  const monthlyData = useMemo<MonthlyStats[]>(
+    () => stats?.monthly ?? [],
+    [stats]
+  );
 
   const chartData = getDataForPeriod(monthlyData, period).map((item) => ({
     ...item,

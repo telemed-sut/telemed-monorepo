@@ -16,4 +16,5 @@ from app.models import (  # noqa: F401,E402
     meeting_patient_invite_code,
     patient_app_registration,
     meeting_room_presence,
+    heart_sound_record,
 )

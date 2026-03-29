@@ -1,10 +1,13 @@
 "use client";
 
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, AlertTriangle, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useDenseModeStore } from "@/store/dense-mode-store";
+import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
+import { preloadPatientWorkspaceBundles } from "@/lib/patient-workspace-prefetch";
 
 interface Props {
     patientId: string;
@@ -17,12 +20,35 @@ export function DenseModeTopBar({ patientId }: Props) {
     const rightPanelCollapsed = useDenseModeStore((s) => s.rightPanelCollapsed);
     const toggleLeftPanel = useDenseModeStore((s) => s.toggleLeftPanel);
     const toggleRightPanel = useDenseModeStore((s) => s.toggleRightPanel);
+    const patientWorkspaceHrefs = useMemo(
+        () => getPatientWorkspaceHrefs(patientId),
+        [patientId]
+    );
+    const patientWorkspaceHref = patientWorkspaceHrefs[0];
 
     const alertCount = summary?.active_alerts.length ?? 0;
 
+    useEffect(() => {
+        patientWorkspaceHrefs.forEach((href) => {
+            router.prefetch(href);
+        });
+        void preloadPatientWorkspaceBundles();
+    }, [patientWorkspaceHrefs, router]);
+
+    const prefetchPatientWorkspace = () => {
+        router.prefetch(patientWorkspaceHref);
+        void preloadPatientWorkspaceBundles();
+    };
+
     return (
         <div className="flex items-center gap-3 px-4 py-2 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <Button variant="ghost" size="sm" onClick={() => router.push(`/patients/${patientId}`)}>
+            <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => router.push(patientWorkspaceHref)}
+                onFocus={prefetchPatientWorkspace}
+                onMouseEnter={prefetchPatientWorkspace}
+            >
                 <ArrowLeft className="size-4 mr-1" />
                 Back
             </Button>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ComponentProps } from "react";
+import { useMemo, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -10,10 +10,10 @@ import {
   InformationCircleIcon,
   Stethoscope02Icon,
 } from "@hugeicons/core-free-icons";
-import { fetchOverviewStats } from "@/lib/api";
-import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
+
+import { useOverviewStats } from "@/components/dashboard/overview-stats-context";
 
 const I18N: Record<
   AppLanguage,
@@ -56,76 +56,38 @@ interface StatItem {
 }
 
 export function StatsCards() {
-  const token = useAuthStore((state) => state.token);
   const language = useLanguageStore((state) => state.language);
   const t = I18N[language];
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<StatItem[]>([
-    {
-      title: t.totalPatients,
-      value: "—",
-      subtitle: t.loading,
-      icon: UserGroupIcon,
-      subtitleIcon: InformationCircleIcon,
-    },
-    {
-      title: t.todayAppointments,
-      value: "—",
-      subtitle: t.loading,
-      icon: Calendar01Icon,
-      subtitleIcon: InformationCircleIcon,
-    },
-    {
-      title: t.thisWeek,
-      value: "—",
-      subtitle: t.loading,
-      icon: Stethoscope02Icon,
-      subtitleIcon: InformationCircleIcon,
-    },
-  ]);
+  const { loading, stats: overviewStats } = useOverviewStats();
+  const stats = useMemo<StatItem[]>(() => {
+    const todayMeetings = overviewStats?.kpis.today_consultations ?? 0;
+    const thisWeekMeetings = overviewStats?.kpis.this_week_consultations ?? 0;
+    const newThisMonth = overviewStats?.kpis.this_month_new_patients ?? 0;
 
-  useEffect(() => {
-    if (!token) return;
-
-    const loadStats = async () => {
-      try {
-        const statsData = await fetchOverviewStats(token);
-        const todayMeetings = statsData.kpis.today_consultations;
-        const thisWeekMeetings = statsData.kpis.this_week_consultations;
-        const newThisMonth = statsData.kpis.this_month_new_patients;
-
-        setStats([
-          {
-            title: t.totalPatients,
-            value: statsData.totals.patients.toString(),
-            subtitle: t.thisMonth(newThisMonth),
-            icon: UserGroupIcon,
-            subtitleIcon: InformationCircleIcon,
-          },
-          {
-            title: t.todayAppointments,
-            value: todayMeetings.toString(),
-            subtitle: t.totalScheduled(statsData.totals.meetings),
-            icon: Calendar01Icon,
-            subtitleIcon: InformationCircleIcon,
-          },
-          {
-            title: t.thisWeek,
-            value: thisWeekMeetings.toString(),
-            subtitle: t.todayCount(todayMeetings),
-            icon: Stethoscope02Icon,
-            subtitleIcon: InformationCircleIcon,
-          },
-        ]);
-      } catch {
-        // keep defaults
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadStats();
-  }, [token, t]);
+    return [
+      {
+        title: t.totalPatients,
+        value: overviewStats ? overviewStats.totals.patients.toString() : "—",
+        subtitle: overviewStats ? t.thisMonth(newThisMonth) : t.loading,
+        icon: UserGroupIcon,
+        subtitleIcon: InformationCircleIcon,
+      },
+      {
+        title: t.todayAppointments,
+        value: overviewStats ? todayMeetings.toString() : "—",
+        subtitle: overviewStats ? t.totalScheduled(overviewStats.totals.meetings) : t.loading,
+        icon: Calendar01Icon,
+        subtitleIcon: InformationCircleIcon,
+      },
+      {
+        title: t.thisWeek,
+        value: overviewStats ? thisWeekMeetings.toString() : "—",
+        subtitle: overviewStats ? t.todayCount(todayMeetings) : t.loading,
+        icon: Stethoscope02Icon,
+        subtitleIcon: InformationCircleIcon,
+      },
+    ];
+  }, [overviewStats, t]);
 
   if (loading) {
     return (

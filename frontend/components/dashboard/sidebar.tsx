@@ -30,7 +30,7 @@ import {
   Activity,
   Cpu,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Logo } from "@/components/ui/logo";
 import { useAuthStore } from "@/store/auth-store";
 import {
@@ -307,7 +307,7 @@ function SidebarUserMenu({
                     <button
                       type="button"
                       className={cn(
-                        "relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[0.95rem] transition-colors",
+                        "relative flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[0.95rem] transition-colors",
                         item.destructive
                           ? "text-red-600 hover:text-red-700"
                           : "text-foreground/90 hover:text-foreground"
@@ -378,11 +378,20 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   }, [isMobile, pathname, setOpenMobile]);
 
   const showMeetings = canViewClinicalData(userRole);
-  const navRoutes = [
-    ...baseRoutes,
-    ...(showMeetings ? [meetingsRoute] : []),
-    ...(canManageUsers(userRole) ? adminOnlyRoutes : []),
-  ];
+  const navRoutes = useMemo(
+    () => [
+      ...baseRoutes,
+      ...(showMeetings ? [meetingsRoute] : []),
+      ...(canManageUsers(userRole) ? adminOnlyRoutes : []),
+    ],
+    [showMeetings, userRole]
+  );
+
+  useEffect(() => {
+    navRoutes.forEach((route) => {
+      router.prefetch(route.link);
+    });
+  }, [navRoutes, router]);
 
   const isActive = (link: string) => {
     if (link === "/overview") return pathname === "/overview" || pathname === "/";
@@ -447,18 +456,40 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                       id={`sidebar-item-${route.id}`}
                       isActive={active}
                       tooltip={getRouteTitle(route.id, language)}
+                      onFocus={() => router.prefetch(route.link)}
+                      onMouseEnter={() => router.prefetch(route.link)}
                       onClick={() => handleRouteChange(route.link)}
                       className={cn(
-                        "h-9 border border-sidebar-border/60 transition-[padding,border-color,background-color] duration-200 hover:border-sidebar-border sm:h-[38px] data-[active=true]:border-sidebar-border data-[active=true]:shadow-[0_0_0_1px_hsl(var(--sidebar-border))]",
+                        "group/route h-9 border border-sidebar-border/60 bg-white/65 px-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[padding,border-color,background-color,box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:border-sidebar-border hover:bg-white hover:shadow-[0_8px_18px_rgba(15,23,42,0.08)] active:translate-y-px active:shadow-[0_2px_6px_rgba(15,23,42,0.08)] sm:h-[38px] data-[active=true]:border-sidebar-border data-[active=true]:bg-sidebar-accent/85 data-[active=true]:shadow-[0_0_0_1px_hsl(var(--sidebar-border)),0_10px_22px_rgba(15,23,42,0.08)]",
                         isCollapsed && "justify-center px-0"
                       )}
                     >
-                      <Icon className="size-4 sm:size-5" />
+                      <span
+                        className={cn(
+                          "absolute inset-y-1.5 left-1 rounded-full bg-sidebar-primary transition-[opacity,transform] duration-200",
+                          isCollapsed ? "w-0" : "w-1",
+                          active
+                            ? "opacity-100 scale-y-100"
+                            : "opacity-0 scale-y-60 group-hover/route:opacity-75 group-hover/route:scale-y-100"
+                        )}
+                      />
+                      <span
+                        className={cn(
+                          "relative z-10 inline-flex size-7 shrink-0 items-center justify-center rounded-full border transition-[transform,background-color,color,box-shadow] duration-200",
+                          active
+                            ? "border-sidebar-primary/20 bg-white/70 text-sidebar-primary shadow-[0_8px_18px_rgba(73,136,196,0.18)]"
+                            : "border-transparent bg-sidebar-accent/35 text-sidebar-foreground/80 group-hover/route:scale-[1.04] group-hover/route:bg-white group-hover/route:text-sidebar-primary group-hover/route:shadow-[0_6px_14px_rgba(73,136,196,0.12)]"
+                        )}
+                      >
+                        <Icon className="size-4 sm:size-5" />
+                      </span>
                       {!isCollapsed && (
-                        <span className="text-[0.95rem]">{getRouteTitle(route.id, language)}</span>
+                        <span className="relative z-10 text-[0.95rem] transition-transform duration-200 group-hover/route:translate-x-0.5">
+                          {getRouteTitle(route.id, language)}
+                        </span>
                       )}
                       {!isCollapsed && active && (
-                        <ChevronRight className="ml-auto size-4 text-muted-foreground opacity-60" />
+                        <ChevronRight className="relative z-10 ml-auto size-4 text-sidebar-primary opacity-80 transition-transform duration-200 group-hover/route:translate-x-0.5" />
                       )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -479,10 +510,19 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
             <SidebarMenuButton
               id="sidebar-help-button"
               tooltip={t.helpCenter}
-              className={cn("h-9 sm:h-[38px]", isCollapsed && "justify-center px-0")}
+              className={cn(
+                "group/help h-9 border border-sidebar-border/60 bg-white/65 px-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,background-color,box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:border-sidebar-border hover:bg-white hover:shadow-[0_8px_18px_rgba(15,23,42,0.08)] active:translate-y-px active:shadow-[0_2px_6px_rgba(15,23,42,0.08)] sm:h-[38px]",
+                isCollapsed && "justify-center px-0"
+              )}
             >
-              <HelpCircle className="size-4 sm:size-5" />
-              {!isCollapsed && <span className="text-[0.95rem]">{t.helpCenter}</span>}
+              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-sidebar-accent/35 text-sidebar-foreground/80 transition-[transform,background-color,color,box-shadow] duration-200 group-hover/help:scale-[1.04] group-hover/help:bg-white group-hover/help:text-sidebar-primary group-hover/help:shadow-[0_6px_14px_rgba(73,136,196,0.12)]">
+                <HelpCircle className="size-4 sm:size-5" />
+              </span>
+              {!isCollapsed && (
+                <span className="text-[0.95rem] transition-transform duration-200 group-hover/help:translate-x-0.5">
+                  {t.helpCenter}
+                </span>
+              )}
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

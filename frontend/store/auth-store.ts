@@ -5,6 +5,20 @@ import type { LoginResponse, UserMe } from "@/lib/api";
 /** Refresh token 5 minutes before expiry */
 const REFRESH_BUFFER_SECONDS = 300;
 const COOKIE_SESSION_TOKEN = "__cookie_session__";
+const AUTH_SNAPSHOT_STORAGE_KEY = "telemed.auth.snapshot.v2";
+const LEGACY_AUTH_SNAPSHOT_STORAGE_KEY = "telemed.auth.snapshot";
+const AUTH_SNAPSHOT_REVALIDATE_AFTER_MS = 5 * 60 * 1000;
+const AUTH_SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+interface PersistedAuthSnapshot {
+  token: string | null;
+  role: string | null;
+  userId: string | null;
+  mfaVerified: boolean;
+  isSuperAdmin: boolean;
+  sessionExpiresAt: number | null;
+  lastVerifiedAt: number | null;
+}
 
 interface AuthState {
   token: string | null;
@@ -14,6 +28,7 @@ interface AuthState {
   isSuperAdmin: boolean;
   hydrated: boolean;
   sessionExpiresAt: number | null;
+  lastVerifiedAt: number | null;
   setSession: (response: LoginResponse) => void;
   clearToken: () => void;
   hydrate: () => Promise<void>;
@@ -39,6 +54,7 @@ function getSessionState(response: LoginResponse) {
     mfaVerified: Boolean(response.user?.mfa_verified),
     isSuperAdmin: Boolean(response.user?.is_super_admin),
     sessionExpiresAt: getExpiryEpoch(response.expires_in),
+    lastVerifiedAt: Date.now(),
   };
 }
 
@@ -50,7 +66,58 @@ function getCookieSessionState(user: UserMe) {
     mfaVerified: Boolean(user.mfa_verified),
     isSuperAdmin: Boolean(user.is_super_admin),
     sessionExpiresAt: null,
+    lastVerifiedAt: Date.now(),
   };
+}
+
+function persistAuthSnapshot(snapshot: PersistedAuthSnapshot | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!snapshot?.token) {
+    window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
+    window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(
+    AUTH_SNAPSHOT_STORAGE_KEY,
+    JSON.stringify(snapshot)
+  );
+  window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
+}
+
+function readPersistedAuthSnapshot(): PersistedAuthSnapshot | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw =
+    window.localStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY) ??
+    window.sessionStorage.getItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as PersistedAuthSnapshot;
+    const verifiedAt = parsed.lastVerifiedAt ?? 0;
+
+    if (!parsed.token || Date.now() - verifiedAt > AUTH_SNAPSHOT_RETENTION_MS) {
+      window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
+      window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
+      return null;
+    }
+
+    window.localStorage.setItem(AUTH_SNAPSHOT_STORAGE_KEY, JSON.stringify(parsed));
+    window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
+    return parsed;
+  } catch {
+    window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
+    window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
+    return null;
+  }
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -61,8 +128,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isSuperAdmin: false,
   hydrated: false,
   sessionExpiresAt: null,
+  lastVerifiedAt: null,
   setSession: (response) => {
-    set({ ...getSessionState(response), hydrated: true });
+    const nextState = { ...getSessionState(response), hydrated: true };
+    persistAuthSnapshot(nextState);
+    set(nextState);
   },
   clearToken: () => {
     const activeToken = get().token ?? undefined;
@@ -71,6 +141,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .then(({ logout }) => logout(activeToken))
         .catch(() => undefined);
     }
+    persistAuthSnapshot(null);
     set({
       token: null,
       role: null,
@@ -79,10 +150,52 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       isSuperAdmin: false,
       hydrated: true,
       sessionExpiresAt: null,
+      lastVerifiedAt: null,
     });
   },
   hydrate: async () => {
-    if (get().hydrated) return;
+    const persistedSnapshot = readPersistedAuthSnapshot();
+    const currentState = get();
+    const hasKnownSession = Boolean(persistedSnapshot?.token || currentState.token);
+
+    if (!currentState.hydrated && persistedSnapshot?.token) {
+      set({
+        token: persistedSnapshot.token,
+        role: persistedSnapshot.role,
+        userId: persistedSnapshot.userId,
+        mfaVerified: persistedSnapshot.mfaVerified,
+        isSuperAdmin: persistedSnapshot.isSuperAdmin,
+        hydrated: true,
+        sessionExpiresAt: persistedSnapshot.sessionExpiresAt,
+        lastVerifiedAt: persistedSnapshot.lastVerifiedAt,
+      });
+    }
+
+    if (!hasKnownSession) {
+      if (!currentState.hydrated) {
+        set({
+          token: null,
+          role: null,
+          userId: null,
+          mfaVerified: false,
+          isSuperAdmin: false,
+          hydrated: true,
+          sessionExpiresAt: null,
+          lastVerifiedAt: null,
+        });
+      }
+      return;
+    }
+
+    const nextState = get();
+    if (
+      nextState.hydrated &&
+      nextState.token &&
+      nextState.lastVerifiedAt &&
+      Date.now() - nextState.lastVerifiedAt < AUTH_SNAPSHOT_REVALIDATE_AFTER_MS
+    ) {
+      return;
+    }
     if (hydratePromise) return hydratePromise;
 
     hydratePromise = (async () => {
@@ -92,19 +205,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         try {
           const currentUser = await fetchCurrentUser();
           if (currentUser) {
-            set({ ...getCookieSessionState(currentUser), hydrated: true });
-
-            try {
-              const refreshed = await refreshToken();
-              if (refreshed?.user) {
-                set({ ...getSessionState(refreshed), hydrated: true });
-              }
-            } catch {
-              // Cookie session is already valid for this route; keep it even if
-              // refresh is temporarily unavailable (for example on an alternate
-              // host/origin used during QA).
-            }
-
+            const nextState = { ...getCookieSessionState(currentUser), hydrated: true };
+            persistAuthSnapshot(nextState);
+            set(nextState);
             return;
           }
         } catch {
@@ -113,13 +216,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         const refreshed = await refreshToken();
         if (refreshed?.user) {
-          set({ ...getSessionState(refreshed), hydrated: true });
+          const nextState = { ...getSessionState(refreshed), hydrated: true };
+          persistAuthSnapshot(nextState);
+          set(nextState);
           return;
         }
       } catch {
         // No valid session cookie or refresh failed.
       }
 
+      persistAuthSnapshot(null);
       set({
         token: null,
         role: null,
@@ -128,6 +234,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isSuperAdmin: false,
         hydrated: true,
         sessionExpiresAt: null,
+        lastVerifiedAt: null,
       });
     })().finally(() => {
       hydratePromise = null;

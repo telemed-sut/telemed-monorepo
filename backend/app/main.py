@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from app.api import alerts, audit, auth, dense_mode, meetings, patients, stats, users, pressure, device_monitor, events
+from app.api import alerts, audit, auth, dense_mode, meetings, patients, stats, users, pressure, device_monitor, events, heart_sound
 from app.api import patient_app as patient_app_api
 from app.api import security as security_api
 from app.core.config import get_settings
@@ -22,7 +22,7 @@ from app.core.request_utils import get_client_ip
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
-DEVICE_INGEST_PATHS = {"/add_pressure", "/device/v1/pressure"}
+DEVICE_INGEST_PATHS = {"/add_pressure", "/device/v1/pressure", "/device/v1/heart-sounds"}
 
 app = FastAPI(title=settings.app_name)
 app.state.limiter = limiter
@@ -131,6 +131,7 @@ app.include_router(alerts.router)
 app.include_router(audit.router)
 app.include_router(stats.router)
 app.include_router(pressure.router)
+app.include_router(heart_sound.router)
 app.include_router(device_monitor.router)
 app.include_router(security_api.router)
 app.include_router(patient_app_api.router)

@@ -74,7 +74,7 @@ async function stopProcesses(pids) {
 async function main() {
   await stopProcesses(findPidsUsingPort(port));
 
-  const child = spawn(nextBin, ["dev", "--webpack", ...forwardedArgs], {
+  const child = spawn(nextBin, ["dev", "--turbopack", ...forwardedArgs], {
     stdio: "inherit",
     env: process.env,
   });
