@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { acceptInvite, getInviteInfo, getRoleLabel, CLINICAL_ROLES } from "@/lib/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,12 +30,10 @@ function timingSafeEqualStrings(left: string, right: string): boolean {
 
 export default function InviteRegisterClientPage() {
   const router = useRouter();
-  const params = useParams<{ token?: string }>();
-  const routeToken = Array.isArray(params?.token) ? (params.token[0] ?? "") : (params?.token ?? "");
   const language = useLanguageStore((state) => state.language);
   const setLanguage = useLanguageStore((state) => state.setLanguage);
 
-  const [inviteToken, setInviteToken] = useState(routeToken);
+  const [inviteToken, setInviteToken] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -46,6 +44,7 @@ export default function InviteRegisterClientPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [legacyPathTokenDetected, setLegacyPathTokenDetected] = useState(false);
   const isClinicalInvite = CLINICAL_ROLES.has(role);
 
   useEffect(() => {
@@ -68,21 +67,23 @@ export default function InviteRegisterClientPage() {
       return;
     }
 
-    if (routeToken.trim()) {
-      setInviteToken(routeToken.trim());
-      window.history.replaceState(
-        null,
-        "",
-        `/invite#token=${encodeURIComponent(routeToken.trim())}`
-      );
+    if (window.location.pathname.startsWith("/invite/")) {
+      setLegacyPathTokenDetected(true);
+      window.history.replaceState(null, "", "/invite");
     }
-  }, [routeToken]);
+  }, []);
 
   useEffect(() => {
     if (!inviteToken.trim()) {
       setLoading(false);
       setError(
-        tr(language, "Invite link is invalid or expired", "ลิงก์คำเชิญไม่ถูกต้องหรือหมดอายุแล้ว")
+        legacyPathTokenDetected
+          ? tr(
+            language,
+            "This invite link format is no longer supported. Ask an administrator to resend the invite.",
+            "รูปแบบลิงก์คำเชิญนี้เลิกใช้งานแล้ว กรุณาให้ผู้ดูแลระบบส่งคำเชิญใหม่"
+          )
+          : tr(language, "Invite link is invalid or expired", "ลิงก์คำเชิญไม่ถูกต้องหรือหมดอายุแล้ว")
       );
       return;
     }
@@ -103,7 +104,7 @@ export default function InviteRegisterClientPage() {
       }
     };
     void loadInvite();
-  }, [inviteToken, language]);
+  }, [inviteToken, language, legacyPathTokenDetected]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();

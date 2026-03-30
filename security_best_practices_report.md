@@ -6,15 +6,19 @@ March 10, 2026. The review focused on the Next.js frontend, the FastAPI
 backend, and shared scripts/configuration. Dart code under `mobile/` was not
 reviewed in depth because it is outside the active skill coverage.
 
+> **Note:** Some high-severity findings in this report were fixed during the
+> March 30, 2026 admin hardening pass. Treat this document as a historical
+> review plus status tracker, not as a description of the current runtime
+> behavior.
+
 ## Executive summary
 
-The highest-risk issues are around secret handling and trust boundaries:
-password-reset and invite secrets are carried in URLs, doctor-only patient-app
-registration code issuance skips assignment checks, and the frontend keeps
-Bearer tokens in script-readable state even though the backend already issues
-an `HttpOnly` session cookie. These three issues materially increase account
-takeover risk if an attacker gets log/referrer access, compromised admin
-access, or any frontend XSS foothold.
+The highest-risk issues identified during the original review were around
+secret handling and trust boundaries: password-reset and invite secrets were
+carried in URLs, doctor-only patient-app registration code issuance skipped
+assignment checks, and the frontend kept Bearer tokens in script-readable
+state even though the backend already issued an `HttpOnly` session cookie.
+The token-transport and browser-token findings have since been addressed.
 
 The next set of issues are production hardening gaps. IP-based controls are
 not proxy-aware in the same way as the rest of the application, so rate limits
@@ -26,6 +30,8 @@ SDK directly from `unpkg.com`, without any in-repo CSP or integrity controls.
 
 ### SEC-001: Sensitive reset and invite tokens are transported in URLs
 
+- Status: Fixed on March 30, 2026
+
 - Severity: High
 - Location:
   - `backend/app/api/users.py:392-411`
@@ -34,12 +40,10 @@ SDK directly from `unpkg.com`, without any in-repo CSP or integrity controls.
   - `frontend/app/reset-password/page.tsx:14-18`
   - `frontend/lib/api.ts:519-528`
 - Evidence:
-  - User invites are issued as
-    `f"{settings.frontend_base_url.rstrip('/')}/invite/{raw_token}"`.
-  - The forgot-password screen builds
-    `/reset-password?token=${encodeURIComponent(resetToken)}`.
-  - The reset-password page reads `searchParams?.token`.
-  - The frontend fetches invite metadata via `GET /auth/invite/{token}`.
+  - Earlier revisions issued invite secrets in URL paths and reset secrets in
+    query strings.
+  - Earlier revisions accepted invite metadata lookup through a tokenized
+    `GET` route.
 - Impact: These values are bearer-style secrets. Putting them in paths and
   query strings leaks them into browser history, reverse-proxy logs, analytics,
   referrer headers, screenshots, and support tooling. Anyone who obtains the
@@ -50,8 +54,9 @@ SDK directly from `unpkg.com`, without any in-repo CSP or integrity controls.
   fragment-based handoff that never reaches the server logs.
 - Mitigation: Keep TTLs short, invalidate tokens immediately after use, and
   scrub URLs from logs/analytics until the flow is redesigned.
-- False positive notes: None. The code constructs and consumes the tokens via
-  URL paths and query params directly.
+- Current state: Invite and reset flows now use fragment-based handoff plus
+  POST body transport, and the legacy `GET /auth/invite/{token}` route returns
+  `410 Gone`.
 
 ### SEC-002: Doctors can issue patient-app registration codes for patients they are not assigned to
 
@@ -80,6 +85,8 @@ SDK directly from `unpkg.com`, without any in-repo CSP or integrity controls.
 
 ### SEC-003: The frontend keeps access JWTs in script-readable state even though the backend already sets an `HttpOnly` auth cookie
 
+- Status: Fixed on March 30, 2026
+
 - Severity: High
 - Location:
   - `frontend/store/auth-store.ts:14-25`
@@ -89,10 +96,9 @@ SDK directly from `unpkg.com`, without any in-repo CSP or integrity controls.
   - `backend/app/api/auth.py:62-71`
   - `backend/app/api/auth.py:733-754`
 - Evidence:
-  - The Zustand store persists `token`, `role`, and `userId` in memory.
-  - `rawFetch()` adds `Authorization: Bearer ${token}` whenever a token exists.
-  - The backend also sets the same access token as an `HttpOnly` cookie during
-    login and refresh.
+  - Earlier revisions kept the browser access token in script-readable state.
+  - Earlier revisions sent Bearer tokens from browser code even though the
+    backend already set an `HttpOnly` session cookie.
 - Impact: Any XSS in the dashboard can read and exfiltrate the Bearer token for
   replay from another device. The `HttpOnly` cookie already covers browser
   session continuity, so keeping the JWT in JavaScript expands the blast
@@ -102,9 +108,8 @@ SDK directly from `unpkg.com`, without any in-repo CSP or integrity controls.
   remove the client-side Bearer header path for web requests.
 - Mitigation: Until the flow is simplified, prioritize CSP and any XSS
   reduction work because a single frontend injection becomes full session theft.
-- False positive notes: The token is not persisted to `localStorage`, which is
-  better than disk persistence, but it is still fully readable by any injected
-  script in the page.
+- Current state: Browser flows now use a cookie-first session model and the
+  client store keeps only identity and privilege flags, not raw access JWTs.
 
 ## Medium severity findings
 

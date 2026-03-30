@@ -1,5 +1,7 @@
 import hashlib
+import logging
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 from uuid import UUID
@@ -16,12 +18,15 @@ from app.db.session import SessionLocal
 from app.models.audit_log import AuditLog
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.invite import UserInvite
-from app.models.enums import UserRole
+from app.models.enums import PrivilegedRole, UserRole
+from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
 from app.models.user import User
 from app.services import patient as patient_service
+from app.services import admin_sso
 from app.core.request_utils import get_client_ip
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 SUPPORTED_PRIMARY_ROLES = frozenset({
@@ -47,6 +52,12 @@ INVITABLE_ROLES = frozenset({
     UserRole.doctor,
     UserRole.medical_student,
 })
+
+
+@dataclass(frozen=True)
+class PasswordResetTokenClaims:
+    user_id: str
+    issued_at: datetime | None
 
 
 def get_db():
@@ -75,14 +86,168 @@ def requires_token_mfa(user: User | None) -> bool:
     return (settings.admin_2fa_required and user.role == UserRole.admin) or bool(user.two_factor_enabled)
 
 
-def create_login_response(user: User, *, mfa_verified: bool = True) -> dict:
+def is_admin_sso_enforced_for_user(user: User | None) -> bool:
+    return bool(
+        user
+        and user.role == UserRole.admin
+        and admin_sso.is_enforced()
+        and not is_bootstrap_super_admin(user)
+    )
+
+
+def _normalize_super_admin_emails() -> set[str]:
+    raw_super_admins = get_settings().super_admin_emails
+    if isinstance(raw_super_admins, str):
+        return {email.strip().lower() for email in raw_super_admins.split(",") if email.strip()}
+    return {email.strip().lower() for email in raw_super_admins if email and email.strip()}
+
+
+def is_bootstrap_super_admin(user: Optional[User]) -> bool:
+    if not user or user.role != UserRole.admin:
+        return False
+    return user.email.lower() in _normalize_super_admin_emails()
+
+
+def list_active_privileged_roles(db: Session | None, user: User | None) -> set[PrivilegedRole]:
+    if db is None or user is None:
+        return set()
+    rows = db.scalars(
+        select(UserPrivilegedRoleAssignment.role).where(
+            UserPrivilegedRoleAssignment.user_id == user.id,
+            UserPrivilegedRoleAssignment.revoked_at.is_(None),
+        )
+    ).all()
+    return {row for row in rows if isinstance(row, PrivilegedRole)}
+
+
+def can_manage_privileged_admins(user: Optional[User], db: Session | None = None) -> bool:
+    if not user or user.role != UserRole.admin:
+        return False
+    roles = list_active_privileged_roles(db, user)
+    return PrivilegedRole.platform_super_admin in roles or is_bootstrap_super_admin(user)
+
+
+def can_manage_security_recovery(user: Optional[User], db: Session | None = None) -> bool:
+    if not user or user.role != UserRole.admin:
+        return False
+    roles = list_active_privileged_roles(db, user)
+    return bool(
+        PrivilegedRole.platform_super_admin in roles
+        or PrivilegedRole.security_admin in roles
+        or is_bootstrap_super_admin(user)
+    )
+
+
+def build_privilege_flags(db: Session | None, user: User | None) -> dict[str, Any]:
+    active_roles = list_active_privileged_roles(db, user)
+    is_bootstrap = is_bootstrap_super_admin(user)
+    can_manage_privileged = bool(
+        user
+        and user.role == UserRole.admin
+        and (PrivilegedRole.platform_super_admin in active_roles or is_bootstrap)
+    )
+    can_manage_recovery = bool(
+        user
+        and user.role == UserRole.admin
+        and (
+            PrivilegedRole.platform_super_admin in active_roles
+            or PrivilegedRole.security_admin in active_roles
+            or is_bootstrap
+        )
+    )
+    return {
+        "is_super_admin": can_manage_privileged,
+        "privileged_roles": sorted(role.value for role in active_roles),
+        "can_manage_privileged_admins": can_manage_privileged,
+        "can_manage_security_recovery": can_manage_recovery,
+        "can_bootstrap_privileged_roles": is_bootstrap,
+    }
+
+
+def backfill_bootstrap_privileged_roles(db: Session) -> int:
+    bootstrap_emails = sorted(_normalize_super_admin_emails())
+    if not bootstrap_emails:
+        return 0
+
+    admins = db.scalars(
+        select(User).where(
+            User.role == UserRole.admin,
+            User.deleted_at.is_(None),
+            User.email.in_(bootstrap_emails),
+        )
+    ).all()
+    admin_by_email = {admin.email.lower(): admin for admin in admins}
+
+    for email in bootstrap_emails:
+        if email not in admin_by_email:
+            logger.warning("Bootstrap privileged-role backfill skipped missing admin account: %s", email)
+
+    created = 0
+    for email in bootstrap_emails:
+        admin = admin_by_email.get(email)
+        if admin is None:
+            continue
+        existing = db.scalar(
+            select(UserPrivilegedRoleAssignment.id).where(
+                UserPrivilegedRoleAssignment.user_id == admin.id,
+                UserPrivilegedRoleAssignment.role == PrivilegedRole.platform_super_admin,
+                UserPrivilegedRoleAssignment.revoked_at.is_(None),
+            )
+        )
+        if existing:
+            continue
+        db.add(
+            UserPrivilegedRoleAssignment(
+                user_id=admin.id,
+                role=PrivilegedRole.platform_super_admin,
+                created_by=None,
+                reason="bootstrap_backfill_from_super_admin_emails",
+            )
+        )
+        created += 1
+
+    if created:
+        db.flush()
+    return created
+
+
+def is_recent_mfa_authenticated(
+    mfa_authenticated_at: datetime | None,
+    *,
+    max_age_seconds: int | None = None,
+) -> bool:
+    if mfa_authenticated_at is None:
+        return False
+    threshold_seconds = max_age_seconds or settings.privileged_action_mfa_max_age_seconds
+    return _now_utc() - mfa_authenticated_at <= timedelta(seconds=max(threshold_seconds, 1))
+
+
+def create_login_response(
+    user: User,
+    *,
+    db: Session | None = None,
+    mfa_verified: bool = True,
+    mfa_authenticated_at: datetime | None = None,
+    auth_source: str = "local",
+    sso_provider: str | None = None,
+    session_id: str | None = None,
+) -> dict:
     effective_mfa_verified = not requires_token_mfa(user) or bool(mfa_verified)
+    auth_time = mfa_authenticated_at
+    if effective_mfa_verified and auth_time is None:
+        auth_time = _now_utc()
+    privilege_flags = build_privilege_flags(db, user)
+    effective_session_id = session_id or secrets.token_urlsafe(16)
     token = create_access_token(
         {
             "sub": str(user.id),
             "role": user.role.value,
             "type": "access",
             "mfa_verified": effective_mfa_verified,
+            "mfa_authenticated_at": int(auth_time.timestamp()) if auth_time else None,
+            "auth_source": auth_source,
+            "sso_provider": sso_provider,
+            "session_id": effective_session_id,
         }
     )
     return {
@@ -98,7 +263,11 @@ def create_login_response(user: User, *, mfa_verified: bool = True) -> dict:
             "verification_status": user.verification_status.value if user.verification_status else None,
             "two_factor_enabled": bool(user.two_factor_enabled),
             "mfa_verified": effective_mfa_verified,
-            "is_super_admin": is_super_admin(user),
+            "mfa_authenticated_at": auth_time,
+            "mfa_recent_for_privileged_actions": is_recent_mfa_authenticated(auth_time),
+            "auth_source": auth_source,
+            "sso_provider": sso_provider,
+            **privilege_flags,
         },
     }
 
@@ -111,7 +280,7 @@ def create_password_reset_token(user: User) -> str:
     return create_access_token(payload, expires_in=settings.password_reset_expires_in)
 
 
-def verify_password_reset_token(token: str) -> str:
+def parse_password_reset_token(token: str) -> PasswordResetTokenClaims:
     credentials_exception = HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail="Invalid or expired reset token",
@@ -122,9 +291,28 @@ def verify_password_reset_token(token: str) -> str:
         user_id = payload.get("sub")
         if token_type != "password_reset" or not user_id:
             raise credentials_exception
-        return str(user_id)
+        issued_at = _coerce_timestamp(payload.get("iat"))
+        return PasswordResetTokenClaims(
+            user_id=str(user_id),
+            issued_at=issued_at,
+        )
     except JWTError:
         raise credentials_exception
+
+
+def verify_password_reset_token(token: str) -> str:
+    return parse_password_reset_token(token).user_id
+
+
+def is_password_reset_token_stale(
+    user: User,
+    *,
+    issued_at: datetime | None,
+) -> bool:
+    if issued_at is None:
+        return True
+    password_changed_at = _normalize_dt(user.password_changed_at) if user.password_changed_at else None
+    return bool(password_changed_at and issued_at <= password_changed_at)
 
 
 def reset_user_password(db: Session, user: User, new_password: str) -> None:
@@ -253,6 +441,7 @@ def get_current_user(
 
     try:
         payload = decode_token(raw_token)
+        request.state.auth_payload = payload
         token_type = payload.get("type")
         user_id: str = payload.get("sub")
         if user_id is None:
@@ -291,6 +480,7 @@ def get_optional_current_user(
 
     try:
         payload = decode_token(raw_token)
+        request.state.auth_payload = payload
         token_type = payload.get("type")
         user_id: str = payload.get("sub")
         if user_id is None:
@@ -345,6 +535,48 @@ def _validate_token_session(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Two-factor verification required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def get_request_auth_payload(request: Request) -> dict[str, Any]:
+    payload = getattr(request.state, "auth_payload", None)
+    return payload if isinstance(payload, dict) else {}
+
+
+def require_recent_privileged_session(
+    request: Request,
+    current_user: User,
+    *,
+    max_age_seconds: int | None = None,
+) -> None:
+    if current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin account required.",
+        )
+
+    payload = get_request_auth_payload(request)
+    if not bool(payload.get("mfa_verified")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Recent multi-factor verification required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    mfa_authenticated_at = _coerce_timestamp(payload.get("mfa_authenticated_at"))
+    threshold_seconds = max_age_seconds or settings.privileged_action_mfa_max_age_seconds
+    if mfa_authenticated_at is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Recent multi-factor verification required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if _now_utc() - mfa_authenticated_at > timedelta(seconds=max(threshold_seconds, 1)):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Recent multi-factor verification required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -418,19 +650,8 @@ def _validate_cookie_csrf(request: Request) -> None:
     return
 
 
-def is_super_admin(user: Optional[User]) -> bool:
-    if not user:
-        return False
-    if user.role != UserRole.admin:
-        return False
-
-    raw_super_admins = settings.super_admin_emails
-    if isinstance(raw_super_admins, str):
-        super_admins = {email.strip().lower() for email in raw_super_admins.split(",") if email.strip()}
-    else:
-        super_admins = {email.strip().lower() for email in raw_super_admins if email and email.strip()}
-
-    return user.email.lower() in super_admins
+def is_super_admin(user: Optional[User], db: Session | None = None) -> bool:
+    return can_manage_privileged_admins(user, db)
 
 
 def require_roles(allowed_roles: List[UserRole]):

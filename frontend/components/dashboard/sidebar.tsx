@@ -17,6 +17,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
   Home,
   Users,
@@ -29,6 +30,11 @@ import {
   ChevronRight,
   Activity,
   Cpu,
+  Crown,
+  ShieldCheck,
+  Stethoscope,
+  GraduationCap,
+  Building2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Logo } from "@/components/ui/logo";
@@ -37,6 +43,8 @@ import {
   canManageUsers,
   canViewClinicalData,
   fetchCurrentUser,
+  getAdminSsoLogoutPath,
+  getPrivilegedRoleLabel,
   logout,
   ROLE_LABEL_MAP,
   UserMe,
@@ -147,6 +155,32 @@ function getRoleLabel(role: string, language: AppLanguage): string {
   );
 }
 
+function getPrivilegeBadgeClass(role: string): string {
+  if (role === "platform_super_admin") {
+    return "border-amber-500/30 bg-amber-500/10 text-amber-700";
+  }
+  if (role === "security_admin") {
+    return "border-rose-500/30 bg-rose-500/10 text-rose-700";
+  }
+  if (role === "hospital_admin") {
+    return "border-sky-500/30 bg-sky-500/10 text-sky-700";
+  }
+  return "border-border bg-muted text-foreground";
+}
+
+function getRoleIcon(role: string): React.ElementType {
+  if (role === "doctor") return Stethoscope;
+  if (role === "medical_student") return GraduationCap;
+  return UserCog;
+}
+
+function getPrivilegedRoleIcon(role: string): React.ElementType {
+  if (role === "platform_super_admin") return Crown;
+  if (role === "security_admin") return ShieldCheck;
+  if (role === "hospital_admin") return Building2;
+  return Shield;
+}
+
 function getUserDisplayName(user: UserMe): string {
   if (user.first_name || user.last_name) {
     return [user.first_name, user.last_name].filter(Boolean).join(" ");
@@ -168,6 +202,7 @@ function SidebarUserMenu({
   isCollapsed,
   currentUser,
   roleLabel,
+  language,
   labels,
   activeItem,
   onProfile,
@@ -177,6 +212,7 @@ function SidebarUserMenu({
   isCollapsed: boolean;
   currentUser: UserMe | null;
   roleLabel: string;
+  language: AppLanguage;
   labels: {
     loading: string;
     profile: string;
@@ -235,22 +271,23 @@ function SidebarUserMenu({
     { id: "divider" },
     { id: "logout", label: labels.logOut, icon: Logout01Icon, onSelect: onLogout, destructive: true },
   ];
+  const roleIcon = currentUser ? getRoleIcon(currentUser.role) : UserCog;
 
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div ref={containerRef} className="relative mx-auto w-full max-w-[228px]">
       <button
         id="sidebar-user-menu-button"
         type="button"
         className={cn(
-          "w-full cursor-pointer rounded-lg p-2 text-left transition-colors hover:bg-accent sm:p-3",
-          isCollapsed ? "flex justify-center" : "flex items-center gap-2 sm:gap-3",
-          isOpen && "bg-accent"
+          "w-full cursor-pointer rounded-[22px] border border-sidebar-border/60 bg-white/80 text-left shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-[border-color,background-color,box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:border-sidebar-border hover:bg-white hover:shadow-[0_10px_20px_rgba(15,23,42,0.07)]",
+          isCollapsed ? "flex justify-center p-2" : "flex items-center gap-2 px-2.5 py-2",
+          isOpen && "border-sidebar-primary/20 bg-white shadow-[0_10px_22px_rgba(15,23,42,0.09)]"
         )}
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((prev) => !prev)}
       >
-        <Avatar className="size-8 sm:size-9">
+        <Avatar className="size-9 ring-1 ring-black/5 sm:size-10">
           <AvatarImage
             src={
               currentUser
@@ -265,14 +302,45 @@ function SidebarUserMenu({
         {!isCollapsed && (
           <>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold sm:text-[0.95rem]">
-                {currentUser ? getUserDisplayName(currentUser) : labels.loading}
-              </p>
-              <p className="truncate text-[0.82rem] text-muted-foreground sm:text-[0.88rem]">
-                {currentUser?.email || ""}
-              </p>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-[0.88rem] font-semibold leading-tight text-slate-900">
+                    {currentUser ? getUserDisplayName(currentUser) : labels.loading}
+                  </p>
+                </div>
+                <ChevronsUpDown className={cn(
+                  "mt-0.5 size-3.5 shrink-0 text-slate-400 transition-transform duration-200",
+                  isOpen && "rotate-180 text-slate-600"
+                )} />
+              </div>
+              {currentUser ? (
+                <div className="mt-1.5 flex items-center gap-1">
+                  <span
+                    title={getRoleLabel(currentUser.role, language)}
+                    aria-label={getRoleLabel(currentUser.role, language)}
+                    className="inline-flex h-4.5 w-4.5 items-center justify-center rounded-full border border-border/80 bg-slate-50 text-slate-600"
+                  >
+                    {React.createElement(roleIcon, { className: "h-2.5 w-2.5" })}
+                  </span>
+                  {currentUser.privileged_roles?.map((role) => {
+                    const PrivilegedIcon = getPrivilegedRoleIcon(role);
+                    return (
+                      <span
+                        key={role}
+                        title={getPrivilegedRoleLabel(role, language)}
+                        aria-label={getPrivilegedRoleLabel(role, language)}
+                        className={cn(
+                          "inline-flex h-4.5 w-4.5 items-center justify-center rounded-full border",
+                          getPrivilegeBadgeClass(role)
+                        )}
+                      >
+                        <PrivilegedIcon className="h-2.5 w-2.5" />
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
-            <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
           </>
         )}
       </button>
@@ -290,7 +358,34 @@ function SidebarUserMenu({
               isCollapsed ? "bottom-0 left-full ml-2" : "bottom-full left-0 mb-2"
             )}
           >
-            <div className="px-3 py-2 text-[0.82rem] text-muted-foreground">{roleLabel}</div>
+            <div className="border-b border-border/80 bg-slate-50/85 px-3 py-3">
+              <div className="truncate text-[0.92rem] font-semibold text-slate-900">
+                {currentUser ? getUserDisplayName(currentUser) : labels.loading}
+              </div>
+              <div className="truncate pt-0.5 text-[0.76rem] text-slate-500">
+                {currentUser?.email || ""}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1">
+                <Badge
+                  variant="outline"
+                  className="h-5 rounded-full border-border/80 bg-white text-[10px] font-semibold tracking-[0.01em] text-slate-600"
+                >
+                  {roleLabel}
+                </Badge>
+                {currentUser?.privileged_roles?.map((role) => (
+                  <Badge
+                    key={role}
+                    variant="outline"
+                    className={cn(
+                      "h-5 rounded-full text-[10px] font-semibold tracking-[0.01em]",
+                      getPrivilegeBadgeClass(role)
+                    )}
+                  >
+                    {getPrivilegedRoleLabel(role, language)}
+                  </Badge>
+                ))}
+              </div>
+            </div>
             <ul className="space-y-0.5 px-2 pb-2">
               {menuItems.map((item) => {
                 if (item.id === "divider") {
@@ -359,7 +454,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const t = SIDEBAR_LABELS[language];
   const token = useAuthStore((state) => state.token);
   const userRole = useAuthStore((state) => state.role);
-  const clearToken = useAuthStore((state) => state.clearToken);
+  const clearSessionState = useAuthStore((state) => state.clearSessionState);
   const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
 
   useEffect(() => {
@@ -411,10 +506,9 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
 
   const handleLogout = () => {
     closeMobileSidebar();
-    void logout(token || undefined).catch(() => undefined).finally(() => {
-      clearToken();
-      router.replace("/login");
-    });
+    clearSessionState();
+    router.replace("/login");
+    window.location.assign(getAdminSsoLogoutPath());
   };
   const isCollapsed = state === "collapsed";
   const activeProfileMenuItem: ProfileMenuItem | null = pathname.startsWith("/settings")
@@ -531,6 +625,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
           isCollapsed={isCollapsed}
           currentUser={currentUser}
           roleLabel={currentUser ? getRoleLabel(currentUser.role, language) : t.account}
+          language={language}
           labels={t}
           activeItem={activeProfileMenuItem}
           onProfile={() => {

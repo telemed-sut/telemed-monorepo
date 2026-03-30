@@ -32,6 +32,7 @@ import {
     UserUpdate,
     User,
     UserInviteItem,
+    getPrivilegedRoleLabel,
 } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import {
@@ -259,6 +260,19 @@ const getInviteStatusFilterLabel = (
     return getInviteStatusLabel(status, language);
 };
 
+const getPrivilegeBadgeClass = (role: string) => {
+    if (role === "platform_super_admin") {
+        return "border-amber-500/25 bg-amber-500/10 text-amber-600";
+    }
+    if (role === "security_admin") {
+        return "border-rose-500/25 bg-rose-500/10 text-rose-600";
+    }
+    if (role === "hospital_admin") {
+        return "border-sky-500/25 bg-sky-500/10 text-sky-600";
+    }
+    return "border-border bg-muted text-foreground";
+};
+
 const INVITE_ERROR_MESSAGE_RULES: Array<{
     pattern: RegExp;
     en: string;
@@ -397,6 +411,7 @@ export function UsersTable({
     const [inviteFormData, setInviteFormData] = useState({
         email: "",
         role: "doctor",
+        reason: "",
     });
 
     // Load Data
@@ -520,6 +535,7 @@ export function UsersTable({
         setInviteFormData({
             email: "",
             role: "doctor",
+            reason: "",
         });
         setInviteSheetOpen(true);
     }, []);
@@ -760,8 +776,18 @@ export function UsersTable({
 
         setIsInviteSubmitting(true);
         try {
+            const inviteReason =
+                inviteFormData.role === "admin"
+                    ? inviteFormData.reason.trim()
+                    : undefined;
+            if (inviteFormData.role === "admin" && (!inviteReason || inviteReason.length < 8)) {
+                toast.error(tr(language, "Invite failed", "คำเชิญไม่สำเร็จ"), {
+                    description: tr(language, "Admin invites require a reason with at least 8 characters.", "คำเชิญแอดมินต้องระบุเหตุผลอย่างน้อย 8 ตัวอักษร"),
+                });
+                return;
+            }
             const data = await createUserInvite(
-                { email: inviteFormData.email, role: inviteFormData.role },
+                { email: inviteFormData.email, role: inviteFormData.role, reason: inviteReason },
                 token
             );
             setGeneratedInviteUrl(data.invite_url);
@@ -1225,18 +1251,30 @@ export function UsersTable({
             header: tr(language, "Role", "บทบาท"),
             cell: ({ row }) => {
                 const role = row.original.role;
+                const privilegedRoles = row.original.privileged_roles ?? [];
                 return (
-                    <Badge
-                        variant={role === "admin" ? "default" : "secondary"}
-                        className={cn(
-                            "capitalize",
-                            role === "admin" && "bg-amber-500/10 text-amber-500 hover:bg-amber-500/20",
-                            role === "doctor" && "bg-blue-500/10 text-blue-500 hover:bg-blue-500/20",
-                            role === "medical_student" && "bg-violet-500/10 text-violet-500 hover:bg-violet-500/20"
-                        )}
-                    >
-                        {getRoleLabelByLanguage(role, language)}
-                    </Badge>
+                    <div className="flex max-w-[240px] flex-wrap gap-1">
+                        <Badge
+                            variant={role === "admin" ? "default" : "secondary"}
+                            className={cn(
+                                "capitalize",
+                                role === "admin" && "bg-amber-500/10 text-amber-500 hover:bg-amber-500/20",
+                                role === "doctor" && "bg-blue-500/10 text-blue-500 hover:bg-blue-500/20",
+                                role === "medical_student" && "bg-violet-500/10 text-violet-500 hover:bg-violet-500/20"
+                            )}
+                        >
+                            {getRoleLabelByLanguage(role, language)}
+                        </Badge>
+                        {privilegedRoles.map((privilegedRole) => (
+                            <Badge
+                                key={privilegedRole}
+                                variant="outline"
+                                className={cn("text-[11px]", getPrivilegeBadgeClass(privilegedRole))}
+                            >
+                                {getPrivilegedRoleLabel(privilegedRole, language)}
+                            </Badge>
+                        ))}
+                    </div>
                 );
             },
         },
@@ -2136,6 +2174,17 @@ export function UsersTable({
                                 <SelectContent>{ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{getRoleLabelByLanguage(r.value, language)}</SelectItem>)}</SelectContent>
                             </Select>
                         </div>
+                        {inviteFormData.role === "admin" && (
+                            <div className="space-y-2">
+                                <Label htmlFor="invite_reason">{tr(language, "Reason (required)", "เหตุผล (จำเป็น)")}</Label>
+                                <Input
+                                    id="invite_reason"
+                                    value={inviteFormData.reason || ""}
+                                    onChange={e => setInviteFormData({ ...inviteFormData, reason: e.target.value })}
+                                    placeholder={tr(language, "Approval or onboarding reference", "เลขอ้างอิงการอนุมัติหรือ onboarding")}
+                                />
+                            </div>
+                        )}
                         <div className="rounded-md border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">{tr(language, "Invite link expires in 24 hours (fixed by system policy).", "ลิงก์เชิญจะหมดอายุใน 24 ชั่วโมง (ตามนโยบายระบบ)")}</div>
                         {generatedInviteUrl && (
                             <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 space-y-2">

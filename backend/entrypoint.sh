@@ -80,7 +80,7 @@ else
   echo "⏭️ Skipping database migrations (RUN_MIGRATIONS_ON_STARTUP disabled)"
 fi
 
-if is_enabled "${RUN_SEED_ON_STARTUP:-true}"; then
+if is_enabled "${RUN_SEED_ON_STARTUP:-false}"; then
   run_seed
 else
   echo "⏭️ Skipping seed data (RUN_SEED_ON_STARTUP disabled)"

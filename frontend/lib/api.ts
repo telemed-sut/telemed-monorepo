@@ -54,7 +54,23 @@ export interface UserMe {
   verification_status?: string | null;
   two_factor_enabled?: boolean;
   mfa_verified?: boolean;
+  mfa_authenticated_at?: string | null;
+  mfa_recent_for_privileged_actions?: boolean;
+  auth_source?: string;
+  sso_provider?: string | null;
   is_super_admin?: boolean;
+  privileged_roles?: string[];
+  can_manage_privileged_admins?: boolean;
+  can_manage_security_recovery?: boolean;
+  can_bootstrap_privileged_roles?: boolean;
+}
+
+export interface AdminSsoStatus {
+  enabled: boolean;
+  provider?: string | null;
+  enforced_for_admin: boolean;
+  login_path?: string | null;
+  logout_path?: string | null;
 }
 
 export interface Admin2FAStatus {
@@ -106,6 +122,18 @@ export const ROLE_LABEL_MAP_TH: Record<string, string> = {
   medical_student: "นักศึกษาแพทย์",
 };
 
+export const PRIVILEGED_ROLE_LABEL_MAP: Record<string, string> = {
+  platform_super_admin: "Platform super admin",
+  security_admin: "Security admin",
+  hospital_admin: "Hospital admin",
+};
+
+export const PRIVILEGED_ROLE_LABEL_MAP_TH: Record<string, string> = {
+  platform_super_admin: "ผู้ดูแลระบบแพลตฟอร์ม",
+  security_admin: "ผู้ดูแลความปลอดภัย",
+  hospital_admin: "ผู้ดูแลโรงพยาบาล",
+};
+
 function humanizeRoleLabel(role: string): string {
   return role
     .split("_")
@@ -120,6 +148,14 @@ export function getRoleLabel(role: string, language: "en" | "th" = "en"): string
     return ROLE_LABEL_MAP_TH[role] ?? humanizeRoleLabel(role);
   }
   return ROLE_LABEL_MAP[role] ?? humanizeRoleLabel(role);
+}
+
+export function getPrivilegedRoleLabel(role: string, language: "en" | "th" = "en"): string {
+  if (!role) return "";
+  if (language === "th") {
+    return PRIVILEGED_ROLE_LABEL_MAP_TH[role] ?? humanizeRoleLabel(role);
+  }
+  return PRIVILEGED_ROLE_LABEL_MAP[role] ?? humanizeRoleLabel(role);
 }
 
 /** Roles that are considered clinical (require license verification) */
@@ -233,6 +269,8 @@ const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
     message: "แพทย์สามารถสร้างนัดหมายได้เฉพาะผู้ป่วยที่ได้รับมอบหมายเท่านั้น",
   },
   { pattern: /super admin only/i, message: "รายการนี้ทำได้เฉพาะผู้ดูแลระดับสูงเท่านั้น" },
+  { pattern: /security admin only/i, message: "รายการนี้ทำได้เฉพาะผู้ดูแลด้านความปลอดภัยเท่านั้น" },
+  { pattern: /recent multi-factor verification required/i, message: "ต้องยืนยันตัวตนแบบหลายปัจจัยใหม่อีกครั้งก่อนทำรายการนี้" },
   { pattern: /user not found|not found/i, message: "ไม่พบข้อมูลผู้ใช้ที่ต้องการ" },
   { pattern: /already exists|already in use|already assigned/i, message: "ข้อมูลนี้มีอยู่แล้วในระบบ" },
   { pattern: /confirm_text=\"?purge\"?/i, message: "ต้องพิมพ์คำยืนยัน PURGE ก่อนดำเนินการ" },
@@ -246,6 +284,7 @@ const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /network error|failed to fetch|network request failed/i, message: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่" },
   { pattern: /invalid credentials|incorrect password/i, message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" },
   { pattern: /invalid two-factor authentication code/i, message: "รหัส 2FA หรือ Backup Code ไม่ถูกต้อง" },
+  { pattern: /organization sso|admin account must continue with organization sso/i, message: "บัญชีผู้ดูแลต้องเข้าสู่ระบบผ่าน Organization SSO" },
 ];
 
 function clampPage(page?: number): number {
@@ -421,7 +460,7 @@ async function rawFetch<T>(path: string, options: RequestInit = {}, token?: stri
     ...(options.headers as Record<string, string> || {}),
   };
 
-  if (token && isProbablyJwt(token)) {
+  if (typeof window === "undefined" && token && isProbablyJwt(token)) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
@@ -533,6 +572,19 @@ export async function refreshToken(token?: string): Promise<LoginResponse> {
 
 export async function logout(token?: string): Promise<{ message: string }> {
   return apiFetch<{ message: string }>("/auth/logout", { method: "POST" }, token);
+}
+
+export async function fetchAdminSsoStatus(): Promise<AdminSsoStatus> {
+  return apiFetch<AdminSsoStatus>("/auth/admin/sso/status");
+}
+
+export function getAdminSsoLoginPath(nextPath: string = "/patients"): string {
+  const query = new URLSearchParams({ next: nextPath });
+  return `/api/auth/admin/sso/login?${query.toString()}`;
+}
+
+export function getAdminSsoLogoutPath(): string {
+  return "/api/auth/admin/sso/logout";
 }
 
 /** Force logout: clear token and redirect to login. */
@@ -1384,6 +1436,7 @@ export interface User {
   license_no?: string | null;
   license_expiry?: string | null;
   verification_status?: string | null;
+  privileged_roles?: string[];
 }
 
 export interface UserCreate {
@@ -1462,7 +1515,7 @@ export async function createUser(data: UserCreate, token: string) {
 }
 
 export async function createUserInvite(
-  data: { email: string; role: string },
+  data: { email: string; role: string; reason?: string },
   token: string
 ) {
   return apiFetch<UserInviteCreateResponse>(
@@ -1939,7 +1992,7 @@ export async function exportAuditLogs(
   // Use rawFetch to handle blob/file download
   const url = `${API_BASE_URL}/audit/export?${query.toString()}`;
   const headers: Record<string, string> = {};
-  if (token && isProbablyJwt(token)) {
+  if (typeof window === "undefined" && token && isProbablyJwt(token)) {
     headers.Authorization = `Bearer ${token}`;
   }
   const res = await fetch(url, {

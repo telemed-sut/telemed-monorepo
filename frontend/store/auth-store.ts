@@ -15,7 +15,14 @@ interface PersistedAuthSnapshot {
   role: string | null;
   userId: string | null;
   mfaVerified: boolean;
-  isSuperAdmin: boolean;
+  mfaRecentForPrivilegedActions: boolean;
+  mfaAuthenticatedAt: string | null;
+  authSource: string | null;
+  ssoProvider: string | null;
+  privilegedRoles: string[];
+  canManagePrivilegedAdmins: boolean;
+  canManageSecurityRecovery: boolean;
+  canBootstrapPrivilegedRoles: boolean;
   sessionExpiresAt: number | null;
   lastVerifiedAt: number | null;
 }
@@ -25,12 +32,20 @@ interface AuthState {
   role: string | null;
   userId: string | null;
   mfaVerified: boolean;
-  isSuperAdmin: boolean;
+  mfaRecentForPrivilegedActions: boolean;
+  mfaAuthenticatedAt: string | null;
+  authSource: string | null;
+  ssoProvider: string | null;
+  privilegedRoles: string[];
+  canManagePrivilegedAdmins: boolean;
+  canManageSecurityRecovery: boolean;
+  canBootstrapPrivilegedRoles: boolean;
   hydrated: boolean;
   sessionExpiresAt: number | null;
   lastVerifiedAt: number | null;
   setSession: (response: LoginResponse) => void;
   clearToken: () => void;
+  clearSessionState: () => void;
   hydrate: () => Promise<void>;
   /** Returns seconds until token expires, or 0 if expired/missing */
   getTokenTTL: () => number;
@@ -52,7 +67,14 @@ function getSessionState(response: LoginResponse) {
     role: response.user?.role ?? null,
     userId: response.user?.id ?? null,
     mfaVerified: Boolean(response.user?.mfa_verified),
-    isSuperAdmin: Boolean(response.user?.is_super_admin),
+    mfaRecentForPrivilegedActions: Boolean(response.user?.mfa_recent_for_privileged_actions),
+    mfaAuthenticatedAt: response.user?.mfa_authenticated_at ?? null,
+    authSource: response.user?.auth_source ?? "local",
+    ssoProvider: response.user?.sso_provider ?? null,
+    privilegedRoles: response.user?.privileged_roles ?? [],
+    canManagePrivilegedAdmins: Boolean(response.user?.can_manage_privileged_admins),
+    canManageSecurityRecovery: Boolean(response.user?.can_manage_security_recovery),
+    canBootstrapPrivilegedRoles: Boolean(response.user?.can_bootstrap_privileged_roles),
     sessionExpiresAt: getExpiryEpoch(response.expires_in),
     lastVerifiedAt: Date.now(),
   };
@@ -64,7 +86,14 @@ function getCookieSessionState(user: UserMe) {
     role: user.role ?? null,
     userId: user.id ?? null,
     mfaVerified: Boolean(user.mfa_verified),
-    isSuperAdmin: Boolean(user.is_super_admin),
+    mfaRecentForPrivilegedActions: Boolean(user.mfa_recent_for_privileged_actions),
+    mfaAuthenticatedAt: user.mfa_authenticated_at ?? null,
+    authSource: user.auth_source ?? "local",
+    ssoProvider: user.sso_provider ?? null,
+    privilegedRoles: user.privileged_roles ?? [],
+    canManagePrivilegedAdmins: Boolean(user.can_manage_privileged_admins),
+    canManageSecurityRecovery: Boolean(user.can_manage_security_recovery),
+    canBootstrapPrivilegedRoles: Boolean(user.can_bootstrap_privileged_roles),
     sessionExpiresAt: null,
     lastVerifiedAt: Date.now(),
   };
@@ -125,7 +154,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   role: null,
   userId: null,
   mfaVerified: false,
-  isSuperAdmin: false,
+  mfaRecentForPrivilegedActions: false,
+  mfaAuthenticatedAt: null,
+  authSource: null,
+  ssoProvider: null,
+  privilegedRoles: [],
+  canManagePrivilegedAdmins: false,
+  canManageSecurityRecovery: false,
+  canBootstrapPrivilegedRoles: false,
   hydrated: false,
   sessionExpiresAt: null,
   lastVerifiedAt: null,
@@ -147,7 +183,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       role: null,
       userId: null,
       mfaVerified: false,
-      isSuperAdmin: false,
+      mfaRecentForPrivilegedActions: false,
+      mfaAuthenticatedAt: null,
+      authSource: null,
+      ssoProvider: null,
+      privilegedRoles: [],
+      canManagePrivilegedAdmins: false,
+      canManageSecurityRecovery: false,
+      canBootstrapPrivilegedRoles: false,
+      hydrated: true,
+      sessionExpiresAt: null,
+      lastVerifiedAt: null,
+    });
+  },
+  clearSessionState: () => {
+    persistAuthSnapshot(null);
+    set({
+      token: null,
+      role: null,
+      userId: null,
+      mfaVerified: false,
+      mfaRecentForPrivilegedActions: false,
+      mfaAuthenticatedAt: null,
+      authSource: null,
+      ssoProvider: null,
+      privilegedRoles: [],
+      canManagePrivilegedAdmins: false,
+      canManageSecurityRecovery: false,
+      canBootstrapPrivilegedRoles: false,
       hydrated: true,
       sessionExpiresAt: null,
       lastVerifiedAt: null,
@@ -164,7 +227,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         role: persistedSnapshot.role,
         userId: persistedSnapshot.userId,
         mfaVerified: persistedSnapshot.mfaVerified,
-        isSuperAdmin: persistedSnapshot.isSuperAdmin,
+        mfaRecentForPrivilegedActions: persistedSnapshot.mfaRecentForPrivilegedActions ?? false,
+        mfaAuthenticatedAt: persistedSnapshot.mfaAuthenticatedAt ?? null,
+        authSource: persistedSnapshot.authSource ?? "local",
+        ssoProvider: persistedSnapshot.ssoProvider ?? null,
+        privilegedRoles: persistedSnapshot.privilegedRoles ?? [],
+        canManagePrivilegedAdmins: persistedSnapshot.canManagePrivilegedAdmins ?? false,
+        canManageSecurityRecovery: persistedSnapshot.canManageSecurityRecovery ?? false,
+        canBootstrapPrivilegedRoles: persistedSnapshot.canBootstrapPrivilegedRoles ?? false,
         hydrated: true,
         sessionExpiresAt: persistedSnapshot.sessionExpiresAt,
         lastVerifiedAt: persistedSnapshot.lastVerifiedAt,
@@ -178,7 +248,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           role: null,
           userId: null,
           mfaVerified: false,
-          isSuperAdmin: false,
+          mfaRecentForPrivilegedActions: false,
+          mfaAuthenticatedAt: null,
+          authSource: null,
+          ssoProvider: null,
+          privilegedRoles: [],
+          canManagePrivilegedAdmins: false,
+          canManageSecurityRecovery: false,
+          canBootstrapPrivilegedRoles: false,
           hydrated: true,
           sessionExpiresAt: null,
           lastVerifiedAt: null,
@@ -231,7 +308,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         role: null,
         userId: null,
         mfaVerified: false,
-        isSuperAdmin: false,
+        mfaRecentForPrivilegedActions: false,
+        mfaAuthenticatedAt: null,
+        authSource: null,
+        ssoProvider: null,
+        privilegedRoles: [],
+        canManagePrivilegedAdmins: false,
+        canManageSecurityRecovery: false,
+        canBootstrapPrivilegedRoles: false,
         hydrated: true,
         sessionExpiresAt: null,
         lastVerifiedAt: null,

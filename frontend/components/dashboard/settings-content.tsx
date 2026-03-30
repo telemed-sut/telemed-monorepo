@@ -20,6 +20,7 @@ import {
   createUserInvite,
   disable2FA,
   fetch2FAStatus,
+  getAdminSsoLogoutPath,
   fetchTrustedDevices,
   getErrorMessage,
   logout,
@@ -89,9 +90,14 @@ export function SettingsContent() {
   const language = useLanguageStore((state) => state.language);
   const token = useAuthStore((state) => state.token);
   const role = useAuthStore((state) => state.role);
-  const isSuperAdmin = useAuthStore((state) => state.isSuperAdmin);
+  const canManagePrivilegedAdmins = useAuthStore((state) => state.canManagePrivilegedAdmins);
+  const canManageSecurityRecovery = useAuthStore((state) => state.canManageSecurityRecovery);
+  const ssoProvider = useAuthStore((state) => state.ssoProvider);
+  const mfaVerified = useAuthStore((state) => state.mfaVerified);
+  const mfaRecentForPrivilegedActions = useAuthStore((state) => state.mfaRecentForPrivilegedActions);
+  const mfaAuthenticatedAt = useAuthStore((state) => state.mfaAuthenticatedAt);
   const hydrated = useAuthStore((state) => state.hydrated);
-  const clearToken = useAuthStore((state) => state.clearToken);
+  const clearSessionState = useAuthStore((state) => state.clearSessionState);
   const getTokenTTL = useAuthStore((state) => state.getTokenTTL);
 
   const [tokenTTL, setTokenTTL] = useState(() => getTokenTTL());
@@ -114,6 +120,7 @@ export function SettingsContent() {
   const [generatedResetTokenTTL, setGeneratedResetTokenTTL] = useState<number | null>(null);
   const [onboardingBusy, setOnboardingBusy] = useState(false);
   const [newAdminEmail, setNewAdminEmail] = useState("");
+  const [adminInviteReason, setAdminInviteReason] = useState("");
   const [createdAdminInviteEmail, setCreatedAdminInviteEmail] = useState("");
   const [createdAdminInviteUrl, setCreatedAdminInviteUrl] = useState("");
   const [createdAdminInviteExpiresAt, setCreatedAdminInviteExpiresAt] = useState<string | null>(null);
@@ -206,6 +213,12 @@ export function SettingsContent() {
     const seconds = tokenTTL % 60;
     return `${minutes}m ${seconds}s`;
   }, [tokenTTL, language]);
+
+  const handleLogout = () => {
+    clearSessionState();
+    router.replace("/login");
+    window.location.assign(getAdminSsoLogoutPath());
+  };
 
   const handleVerify2FA = async () => {
     if (!token) return;
@@ -470,23 +483,29 @@ export function SettingsContent() {
   };
 
   const handleCreateAdminOnboarding = async () => {
-    if (!token || !isSuperAdmin) return;
+    if (!token || !canManagePrivilegedAdmins) return;
 
     const email = newAdminEmail.trim().toLowerCase();
+    const reason = adminInviteReason.trim();
     if (!email) {
       toast.error(tr(language, "Please enter admin email", "กรุณากรอกอีเมลแอดมิน"));
+      return;
+    }
+    if (reason.length < 8) {
+      toast.error(tr(language, "Please enter reason with at least 8 characters", "กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร"));
       return;
     }
 
     setOnboardingBusy(true);
     try {
       const invite = await createUserInvite(
-        { email, role: "admin" },
+        { email, role: "admin", reason },
         token,
       );
       setCreatedAdminInviteEmail(email);
       setCreatedAdminInviteUrl(invite.invite_url);
       setCreatedAdminInviteExpiresAt(invite.expires_at);
+      setAdminInviteReason("");
       toast.success(tr(language, "Admin invite generated", "สร้างลิงก์คำเชิญแอดมินแล้ว"));
     } catch (error: unknown) {
       setCreatedAdminInviteEmail("");
@@ -541,21 +560,62 @@ export function SettingsContent() {
           <CardTitle>{tr(language, "Account", "บัญชี")}</CardTitle>
           <CardDescription>{tr(language, "Manage your profile and session.", "จัดการโปรไฟล์และเซสชันของคุณ")}</CardDescription>
         </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-border bg-muted/30 p-3">
+              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                {tr(language, "Login method", "วิธีเข้าสู่ระบบ")}
+              </p>
+              <p className="mt-1 text-sm font-medium">
+                {ssoProvider
+                  ? tr(language, "Organization SSO", "Organization SSO")
+                  : tr(language, "Local password session", "เซสชันรหัสผ่านภายใน")}
+              </p>
+              {ssoProvider ? (
+                <p className="mt-1 text-xs text-muted-foreground">{ssoProvider}</p>
+              ) : null}
+            </div>
+            <div className="rounded-xl border border-border bg-muted/30 p-3">
+              <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                {tr(language, "MFA status", "สถานะ MFA")}
+              </p>
+              <p className="mt-1 text-sm font-medium">
+                {mfaVerified
+                  ? mfaRecentForPrivilegedActions
+                    ? tr(language, "Verified and recent", "ยืนยันแล้วและยังใหม่พอ")
+                    : tr(language, "Verified but stale", "ยืนยันแล้วแต่หมดช่วงความใหม่")
+                  : tr(language, "Not verified", "ยังไม่ได้ยืนยัน")}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {tr(language, "Last verified", "ยืนยันล่าสุด")}: {formatDateTime(mfaAuthenticatedAt, language)}
+              </p>
+            </div>
+            {isAdmin ? (
+              <div className="rounded-xl border border-border bg-muted/30 p-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
+                  {tr(language, "Privileged access", "แหล่งสิทธิพิเศษ")}
+                </p>
+                <p className="mt-1 text-sm font-medium">
+                  {tr(language, "DB-backed assignments", "สิทธิที่ผูกกับฐานข้อมูล")}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {tr(language, "Bootstrap env remains fallback only.", "env bootstrap เหลือเป็น fallback เท่านั้น")}
+                </p>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => router.push("/profile")}>
             {tr(language, "Open profile", "เปิดโปรไฟล์")}
           </Button>
           <Button
             variant="destructive"
-            onClick={() => {
-              void logout(token || undefined).catch(() => undefined).finally(() => {
-                clearToken();
-                router.replace("/login");
-              });
-            }}
+            onClick={handleLogout}
           >
             {tr(language, "Log out", "ออกจากระบบ")}
           </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -751,7 +811,7 @@ export function SettingsContent() {
         </CardContent>
       </Card>
 
-      {isSuperAdmin && (
+      {canManagePrivilegedAdmins && (
         <Card>
           <CardHeader>
             <CardTitle>{tr(language, "Admin Onboarding", "เริ่มต้นใช้งานแอดมิน")}</CardTitle>
@@ -777,6 +837,15 @@ export function SettingsContent() {
                     setCreatedAdminInviteUrl("");
                     setCreatedAdminInviteExpiresAt(null);
                   }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="admin_invite_reason">{tr(language, "Reason (required)", "เหตุผล (จำเป็น)")}</Label>
+                <Input
+                  id="admin_invite_reason"
+                  placeholder={tr(language, "Incident, approval, or onboarding ticket reference", "เลขอ้างอิง incident, approval หรือ onboarding ticket")}
+                  value={adminInviteReason}
+                  onChange={(event) => setAdminInviteReason(event.target.value)}
                 />
               </div>
             </div>
@@ -818,7 +887,7 @@ export function SettingsContent() {
         </Card>
       )}
 
-      {isAdmin && (
+      {isAdmin && canManageSecurityRecovery && (
         <Card>
           <CardHeader>
             <CardTitle>{tr(language, "Admin Emergency Toolkit", "ชุดเครื่องมือฉุกเฉินผู้ดูแลระบบ")}</CardTitle>

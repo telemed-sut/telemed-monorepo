@@ -231,7 +231,11 @@ def test_reset_password_with_valid_token(client: TestClient, db: Session, monkey
     from app.core.config import get_settings
     get_settings.cache_clear()
 
-    forgot_response = client.post("/auth/forgot-password", json={"email": "reset@example.com"})
+    forgot_response = client.post(
+        "/auth/forgot-password",
+        json={"email": "reset@example.com"},
+        headers={"host": "localhost"},
+    )
     reset_token = forgot_response.json().get("reset_token")
     assert reset_token
 
@@ -272,7 +276,11 @@ def test_reset_password_invalidates_existing_access_token(client: TestClient, db
     from app.core.config import get_settings
     get_settings.cache_clear()
 
-    forgot_response = client.post("/auth/forgot-password", json={"email": "reset-invalidate@example.com"})
+    forgot_response = client.post(
+        "/auth/forgot-password",
+        json={"email": "reset-invalidate@example.com"},
+        headers={"host": "localhost"},
+    )
     reset_token = forgot_response.json().get("reset_token")
     assert reset_token
 
@@ -291,6 +299,52 @@ def test_reset_password_invalidates_existing_access_token(client: TestClient, db
     get_settings.cache_clear()
 
 
+def test_reset_password_token_cannot_be_reused(client: TestClient, db: Session, monkeypatch):
+    user = User(
+        email="reset-reuse@example.com",
+        password_hash=get_password_hash("OldPassword123"),
+        role=UserRole.medical_student,
+    )
+    db.add(user)
+    db.commit()
+
+    monkeypatch.setenv("PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE", "true")
+    from app.core.config import get_settings
+    get_settings.cache_clear()
+
+    forgot_response = client.post(
+        "/auth/forgot-password",
+        json={"email": "reset-reuse@example.com"},
+        headers={"host": "localhost"},
+    )
+    reset_token = forgot_response.json().get("reset_token")
+    assert reset_token
+
+    first_reset = client.post(
+        "/auth/reset-password",
+        json={"token": reset_token, "new_password": "NewPassword123"},
+    )
+    assert first_reset.status_code == 200
+
+    second_reset = client.post(
+        "/auth/reset-password",
+        json={"token": reset_token, "new_password": "AnotherPassword123"},
+    )
+    assert second_reset.status_code == 400
+    assert second_reset.json()["detail"] == "Invalid reset token"
+
+    stale_audit = db.scalar(
+        select(AuditLog)
+        .where(AuditLog.action == "password_reset_denied")
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert stale_audit is not None
+    details = stale_audit.details if isinstance(stale_audit.details, dict) else {}
+    assert details.get("reason") == "stale_reset_token"
+
+    get_settings.cache_clear()
+
+
 def test_password_reset_token_cannot_be_used_as_access_token(client: TestClient, db: Session, monkeypatch):
     user = User(
         email="reset-token-access@example.com",
@@ -304,7 +358,11 @@ def test_password_reset_token_cannot_be_used_as_access_token(client: TestClient,
     from app.core.config import get_settings
     get_settings.cache_clear()
 
-    forgot_response = client.post("/auth/forgot-password", json={"email": "reset-token-access@example.com"})
+    forgot_response = client.post(
+        "/auth/forgot-password",
+        json={"email": "reset-token-access@example.com"},
+        headers={"host": "localhost"},
+    )
     reset_token = forgot_response.json().get("reset_token")
     assert reset_token
 
@@ -537,7 +595,11 @@ def test_super_admin_can_create_admin_invite_and_accept_it(client: TestClient, d
 
     invite_url = client.post(
         "/users/invites",
-        json={"email": "new-admin@example.com", "role": "admin"},
+        json={
+            "email": "new-admin@example.com",
+            "role": "admin",
+            "reason": "Create privileged admin during invite acceptance test",
+        },
         headers=headers,
     ).json()["invite_url"]
     invite_token = invite_url.split("#token=", 1)[-1]

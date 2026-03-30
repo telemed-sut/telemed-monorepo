@@ -14,8 +14,14 @@ import Link from "next/link";
 import Image from "next/image";
 import QRCode from "qrcode";
 import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ApiError, login as loginRequest } from "@/lib/api";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  ApiError,
+  fetchAdminSsoStatus,
+  getAdminSsoLoginPath,
+  login as loginRequest,
+  type AdminSsoStatus,
+} from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { Logo } from "@/components/ui/logo";
 import { APP_LANGUAGE_OPTIONS, type AppLanguage } from "@/store/language-config";
@@ -67,11 +73,16 @@ function getLoginErrorMessage(language: AppLanguage, error: ApiError): string {
     return tr(language, "Email or password is incorrect.", "อีเมลหรือรหัสผ่านไม่ถูกต้อง");
   }
 
+  if (detailCode === "admin_sso_required") {
+    return tr(language, "Admin account must continue with Organization SSO.", "บัญชีผู้ดูแลต้องเข้าสู่ระบบผ่าน Organization SSO");
+  }
+
   return tr(language, "Unable to sign in. Please try again.", "ไม่สามารถเข้าสู่ระบบได้ โปรดลองอีกครั้ง");
 }
 
 export default function LoginClientPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const token = useAuthStore((state) => state.token);
   const hydrate = useAuthStore((state) => state.hydrate);
   const hydrated = useAuthStore((state) => state.hydrated);
@@ -90,6 +101,7 @@ export default function LoginClientPage() {
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
   const [rememberDevice, setRememberDevice] = useState(true);
   const [trustedDays, setTrustedDays] = useState<number | null>(null);
+  const [adminSsoStatus, setAdminSsoStatus] = useState<AdminSsoStatus | null>(null);
 
   useEffect(() => {
     hydrate();
@@ -129,6 +141,94 @@ export default function LoginClientPage() {
     };
   }, [provisioningUri]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAdminSsoStatus = async () => {
+      try {
+        const status = await fetchAdminSsoStatus();
+        if (!cancelled) {
+          setAdminSsoStatus(status);
+        }
+      } catch {
+        if (!cancelled) {
+          setAdminSsoStatus(null);
+        }
+      }
+    };
+
+    void loadAdminSsoStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const errorCode = searchParams.get("error");
+    const reason = searchParams.get("reason");
+    if (errorCode !== "admin_sso_failed") {
+      return;
+    }
+
+    const reasonMessages: Record<string, { en: string; th: string }> = {
+      provider_error: {
+        en: "Organization SSO was cancelled or denied by the identity provider.",
+        th: "การเข้าสู่ระบบผ่าน Organization SSO ถูกยกเลิกหรือถูกปฏิเสธจากผู้ให้บริการยืนยันตัวตน",
+      },
+      invalid_state: {
+        en: "Organization SSO session expired. Please try again.",
+        th: "เซสชัน Organization SSO หมดอายุแล้ว กรุณาลองใหม่อีกครั้ง",
+      },
+      missing_state_cookie: {
+        en: "Organization SSO session cookie is missing. Please start sign-in again from this browser.",
+        th: "ไม่พบคุกกี้เซสชันของ Organization SSO กรุณาเริ่มเข้าสู่ระบบใหม่จากเบราว์เซอร์นี้",
+      },
+      expired_sso_session: {
+        en: "Organization SSO session expired before the callback completed. Please try again.",
+        th: "เซสชัน Organization SSO หมดอายุก่อนดำเนินการ callback เสร็จ กรุณาลองใหม่อีกครั้ง",
+      },
+      provider_exchange: {
+        en: "Unable to complete Organization SSO. Please try again.",
+        th: "ไม่สามารถดำเนินการเข้าสู่ระบบผ่าน Organization SSO ได้ กรุณาลองใหม่อีกครั้ง",
+      },
+      email_not_verified: {
+        en: "Your organization account email must be verified before sign-in.",
+        th: "อีเมลของบัญชีองค์กรต้องผ่านการยืนยันก่อนเข้าสู่ระบบ",
+      },
+      email_domain_not_allowed: {
+        en: "This email domain is not approved for admin SSO.",
+        th: "โดเมนอีเมลนี้ไม่ได้รับอนุญาตสำหรับ admin SSO",
+      },
+      required_group_missing: {
+        en: "Your organization account is missing the required admin group.",
+        th: "บัญชีองค์กรของคุณยังไม่อยู่ในกลุ่มผู้ดูแลที่กำหนด",
+      },
+      admin_account_not_found: {
+        en: "No approved admin account was found for this organization identity.",
+        th: "ไม่พบบัญชีผู้ดูแลที่ได้รับอนุมัติสำหรับตัวตนองค์กรนี้",
+      },
+      admin_role_required: {
+        en: "This organization account is not allowed to access the admin workspace.",
+        th: "บัญชีองค์กรนี้ไม่ได้รับสิทธิ์เข้าสู่พื้นที่ผู้ดูแลระบบ",
+      },
+      account_deactivated: {
+        en: "This account has been deactivated.",
+        th: "บัญชีนี้ถูกปิดการใช้งานแล้ว",
+      },
+      mfa_required: {
+        en: "Admin SSO requires a passkey or MFA-verified organization session.",
+        th: "Admin SSO ต้องใช้ passkey หรือเซสชันองค์กรที่ยืนยัน MFA แล้ว",
+      },
+    };
+
+    const message = reason ? reasonMessages[reason] : null;
+    setError(
+      message
+        ? tr(language, message.en, message.th)
+        : tr(language, "Unable to complete Organization SSO. Please try again.", "ไม่สามารถดำเนินการเข้าสู่ระบบผ่าน Organization SSO ได้ กรุณาลองใหม่อีกครั้ง")
+    );
+  }, [language, searchParams]);
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -150,6 +250,8 @@ export default function LoginClientPage() {
         setProvisioningUri(detail.provisioning_uri ?? null);
         setTrustedDays(typeof detail.trusted_device_days === "number" ? detail.trusted_device_days : null);
         setError(detail.message ?? tr(language, "Login requires a 2FA code.", "การเข้าสู่ระบบต้องใช้รหัส 2FA"));
+      } else if (detail && detail.code === "admin_sso_required") {
+        setError(detail.message ?? tr(language, "Admin account must continue with Organization SSO.", "บัญชีผู้ดูแลต้องเข้าสู่ระบบผ่าน Organization SSO"));
       } else if (apiError instanceof Error) {
         setError(apiError.detail ? getLoginErrorMessage(language, apiError) : apiError.message);
       } else {
@@ -161,6 +263,10 @@ export default function LoginClientPage() {
   };
 
   const togglePasswordVisibility = () => setIsPasswordVisible((prev) => !prev);
+  const adminSsoEnabled = Boolean(adminSsoStatus?.enabled);
+  const adminSsoLoginHref = adminSsoStatus?.login_path
+    ? `${adminSsoStatus.login_path}?next=${encodeURIComponent("/patients")}`
+    : getAdminSsoLoginPath("/patients");
 
   if (!hydrated) {
     return null;
@@ -200,7 +306,46 @@ export default function LoginClientPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
+          {adminSsoEnabled ? (
+            <div className="space-y-3 rounded-xl border border-sky-200/70 bg-sky-50/80 p-4">
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-sky-950">
+                  {tr(language, "Admin access uses Organization SSO", "การเข้าถึงของผู้ดูแลใช้ Organization SSO")}
+                </p>
+                <p className="text-sm text-sky-900/80">
+                  {adminSsoStatus?.enforced_for_admin
+                    ? tr(
+                      language,
+                      "Admin accounts must sign in with your organization identity. Clinical accounts can continue with email and password below.",
+                      "บัญชีผู้ดูแลต้องเข้าสู่ระบบด้วยตัวตนขององค์กร ส่วนบัญชีสายคลินิกยังใช้อีเมลและรหัสผ่านด้านล่างได้"
+                    )
+                    : tr(
+                      language,
+                      "Use Organization SSO for admin accounts. Other accounts can continue with email and password below.",
+                      "ใช้ Organization SSO สำหรับบัญชีผู้ดูแล ส่วนบัญชีอื่นยังใช้อีเมลและรหัสผ่านด้านล่างได้"
+                    )}
+                </p>
+              </div>
+              <Button
+                type="button"
+                className="w-full bg-sky-900 text-white hover:bg-sky-800"
+                onClick={() => {
+                  window.location.assign(adminSsoLoginHref);
+                }}
+              >
+                {tr(language, "Continue with Organization SSO", "ดำเนินการต่อด้วย Organization SSO")}
+              </Button>
+            </div>
+          ) : null}
+
           <form onSubmit={onSubmit} className="space-y-6">
+            {adminSsoEnabled ? (
+              <div className="flex items-center gap-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                <span className="h-px flex-1 bg-border" />
+                <span>{tr(language, "Password sign in", "ลงชื่อเข้าใช้ด้วยรหัสผ่าน")}</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+            ) : null}
             <div className="space-y-2">
               <Label htmlFor="email">{tr(language, "Email address", "อีเมล")}</Label>
                 <Input

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from sqlalchemy import inspect
 
 from app.api import alerts, audit, auth, dense_mode, meetings, patients, stats, users, pressure, device_monitor, events, heart_sound
 from app.api import patient_app as patient_app_api
@@ -17,6 +18,7 @@ from app.core.limiter import limiter
 from app.db.session import SessionLocal
 from app.middleware import IPBanMiddleware, SecurityAuditMiddleware, SecurityHeadersMiddleware
 from app.models.device_error_log import DeviceErrorLog
+from app.services import auth as auth_service
 from app.services.security import record_login_attempt
 from app.core.request_utils import get_client_ip
 
@@ -121,6 +123,25 @@ app.add_middleware(
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(IPBanMiddleware)
 app.add_middleware(SecurityAuditMiddleware)
+
+
+@app.on_event("startup")
+def backfill_bootstrap_privileged_roles_on_startup():
+    try:
+        with SessionLocal() as db:
+            bind = db.get_bind()
+            if bind is None or not inspect(bind).has_table("users"):
+                logger.info("Skipping bootstrap privileged-role backfill because the users table is not available yet.")
+                return
+            created = auth_service.backfill_bootstrap_privileged_roles(db)
+            if created:
+                db.commit()
+                logger.info("Backfilled %s bootstrap privileged role assignment(s) from SUPER_ADMIN_EMAILS.", created)
+            else:
+                db.rollback()
+    except Exception:
+        logger.exception("Bootstrap privileged role backfill failed during startup.")
+        raise
 
 app.include_router(auth.router)
 app.include_router(patients.router)

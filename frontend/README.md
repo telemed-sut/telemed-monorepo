@@ -74,12 +74,13 @@ When you seed the backend locally, it creates these bootstrap accounts:
 
 | Role  | Email | Permissions |
 | :--- | :--- | :--- |
-| **Admin** | `admin@example.com` | Full access (View, Create, Edit, **Delete**) |
+| **Platform Admin** | `admin@example.com` | Admin access plus `platform_super_admin` and `security_admin` demo privileges |
+| **Admin** | `admin-ops@example.com` | Standard admin access without privileged escalation roles |
 | **Doctor** | `doctor@example.com` | Assigned clinical access with create and edit actions |
 | **Medical Student** | `medical-student@example.com` | Assigned clinical and meeting access in read-only mode |
 
 Set local passwords through the backend seed env vars before running the seed:
-`SEED_ADMIN_PASSWORD`, `SEED_DOCTOR_PASSWORD`, and
+`SEED_ADMIN_PASSWORD`, `SEED_REGULAR_ADMIN_PASSWORD`, `SEED_DOCTOR_PASSWORD`, and
 `SEED_MEDICAL_STUDENT_PASSWORD`.
 
 ## 📂 Project Structure

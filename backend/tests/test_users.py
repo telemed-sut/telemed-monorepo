@@ -11,9 +11,10 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
-from app.models.enums import UserRole, VerificationStatus
+from app.models.enums import PrivilegedRole, UserRole, VerificationStatus
 from app.models.invite import UserInvite
 from app.models.user import User
+from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
 
 
 # ──────────────────────────────────────────────────────────
@@ -80,6 +81,27 @@ class TestRBAC:
         assert "items" in data
         assert data["total"] >= 1
 
+    def test_user_list_includes_privileged_roles(self, client: TestClient, db: Session):
+        bootstrap = _make_user(db, email="admin@example.com", role=UserRole.admin)
+        delegated = _make_user(db, email="delegated@example.com", role=UserRole.admin)
+        db.add(
+            UserPrivilegedRoleAssignment(
+                user_id=delegated.id,
+                role=PrivilegedRole.platform_super_admin,
+                created_by=bootstrap.id,
+                reason="List response privilege badge coverage",
+            )
+        )
+        db.commit()
+
+        token = _login(client, "admin@example.com")
+        resp = client.get("/users", headers=_auth(token))
+
+        assert resp.status_code == 200
+        items = resp.json()["items"]
+        delegated_payload = next(item for item in items if item["email"] == "delegated@example.com")
+        assert delegated_payload["privileged_roles"] == ["platform_super_admin"]
+
     def test_medical_student_cannot_create_user(self, client: TestClient, db: Session):
         _make_user(db, email="medical-student2@example.com", role=UserRole.medical_student)
         token = _login(client, "medical-student2@example.com")
@@ -134,6 +156,7 @@ class TestCRUD:
         resp = client.post("/users/invites", json={
             "email": "newuser@example.com",
             "role": "admin",
+            "reason": "Approved privileged onboarding request",
         }, headers=_auth(token))
         assert resp.status_code == 200
         data = resp.json()
@@ -145,6 +168,7 @@ class TestCRUD:
         resp = client.post("/users/invites", json={
             "email": "blocked-admin@example.com",
             "role": "admin",
+            "reason": "This should be blocked for non-privileged admin",
         }, headers=_auth(token))
         assert resp.status_code == 403
         assert "super admin only" in resp.json()["detail"].lower()
@@ -308,6 +332,7 @@ class TestSoftDelete:
             json={
                 "email": "reuse@example.com",
                 "role": "admin",
+                "reason": "Reuse deleted email for fresh admin onboarding",
             },
             headers=_auth(token),
         )
@@ -429,6 +454,7 @@ class TestSoftDelete:
             json={
                 "email": "restore-conflict@example.com",
                 "role": "admin",
+                "reason": "Recreate admin after soft delete conflict",
             },
             headers=_auth(token),
         )
@@ -733,7 +759,11 @@ class TestInviteLifecycle:
 
         create_resp = client.post(
             "/users/invites",
-            json={"email": "admin-invite@example.com", "role": "admin"},
+            json={
+                "email": "admin-invite@example.com",
+                "role": "admin",
+                "reason": "Create privileged admin onboarding invite",
+            },
             headers=_auth(token),
         )
         assert create_resp.status_code == 200
@@ -745,7 +775,11 @@ class TestInviteLifecycle:
 
         create_resp = client.post(
             "/users/invites",
-            json={"email": "admin-blocked-invite@example.com", "role": "admin"},
+            json={
+                "email": "admin-blocked-invite@example.com",
+                "role": "admin",
+                "reason": "This should fail for non-privileged admin",
+            },
             headers=_auth(token),
         )
         assert create_resp.status_code == 403
@@ -756,7 +790,11 @@ class TestInviteLifecycle:
         super_token = _login(client, "admin@example.com")
         create_resp = client.post(
             "/users/invites",
-            json={"email": "resend-admin-invite@example.com", "role": "admin"},
+            json={
+                "email": "resend-admin-invite@example.com",
+                "role": "admin",
+                "reason": "Create admin invite before resend policy check",
+            },
             headers=_auth(super_token),
         )
         assert create_resp.status_code == 200
@@ -831,6 +869,7 @@ class TestAuditLog:
         resp = client.post("/users/invites", json={
             "email": "audited@example.com",
             "role": "admin",
+            "reason": "Audit trail validation for privileged invite",
         }, headers=_auth(token))
         assert resp.status_code == 200
 

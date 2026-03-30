@@ -7,6 +7,12 @@ class UserRole(str, enum.Enum):
     medical_student = "medical_student"
 
 
+class PrivilegedRole(str, enum.Enum):
+    platform_super_admin = "platform_super_admin"
+    security_admin = "security_admin"
+    hospital_admin = "hospital_admin"
+
+
 class VerificationStatus(str, enum.Enum):
     unverified = "unverified"
     pending = "pending"

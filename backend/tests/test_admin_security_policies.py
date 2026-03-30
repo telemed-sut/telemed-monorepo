@@ -11,8 +11,9 @@ from app.api import auth as auth_api
 from app.core.security import generate_totp_code, generate_totp_secret, get_password_hash
 from app.models.audit_log import AuditLog
 from app.models.device_registration import DeviceRegistration
-from app.models.enums import UserRole
+from app.models.enums import PrivilegedRole, UserRole
 from app.models.user import User
+from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
 
 
 def _make_user(db: Session, *, email: str, role: UserRole = UserRole.medical_student, password: str = "TestPass123") -> User:
@@ -37,6 +38,26 @@ def _login(client: TestClient, email: str, password: str = "TestPass123", otp_co
 
 def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
+
+
+def _grant_privileged_role(
+    db: Session,
+    *,
+    user: User,
+    role: PrivilegedRole,
+    created_by: User | None = None,
+    reason: str = "privileged access granted for test coverage",
+) -> UserPrivilegedRoleAssignment:
+    assignment = UserPrivilegedRoleAssignment(
+        user_id=user.id,
+        role=role,
+        created_by=created_by.id if created_by else None,
+        reason=reason,
+    )
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+    return assignment
 
 
 def test_admin_login_requires_2fa_code(client: TestClient, db: Session, monkeypatch):
@@ -221,7 +242,7 @@ def test_non_super_admin_cannot_reset_user_2fa(client: TestClient, db: Session):
 
     response = client.post(
         f"/security/users/{target.id}/2fa/reset",
-        json={"reason": "test"},
+        json={"reason": "This reset attempt should be denied"},
         headers=_auth(token),
     )
     assert response.status_code == 403
@@ -267,6 +288,37 @@ def test_super_admin_can_reset_user_password(client: TestClient, db: Session):
     assert relogin.status_code == 200, relogin.text
 
 
+def test_admin_force_password_reset_token_cannot_be_reused(client: TestClient, db: Session):
+    super_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+    target = _make_user(
+        db,
+        email="target-password-reset-reuse@example.com",
+        role=UserRole.medical_student,
+        password="OldPass123",
+    )
+    token = _login(client, super_admin.email).json()["access_token"]
+
+    response = client.post(
+        f"/security/users/{target.id}/password/reset",
+        json={"reason": "Emergency account recovery for lost credentials"},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200, response.text
+    reset_token = response.json()["reset_token"]
+
+    first_reset = client.post(
+        "/auth/reset-password",
+        json={"token": reset_token, "new_password": "NewStrongPass456"},
+    )
+    assert first_reset.status_code == 200, first_reset.text
+
+    second_reset = client.post(
+        "/auth/reset-password",
+        json={"token": reset_token, "new_password": "AnotherStrongPass456"},
+    )
+    assert second_reset.status_code == 400, second_reset.text
+
+
 def test_non_super_admin_cannot_reset_user_password(client: TestClient, db: Session):
     normal_admin = _make_user(db, email="normal-admin-password-reset@example.com", role=UserRole.admin)
     target = _make_user(db, email="target-password-reset-denied@example.com", role=UserRole.medical_student)
@@ -287,9 +339,16 @@ def test_non_super_admin_cannot_reset_user_password(client: TestClient, db: Sess
     assert audit is not None
 
 
-def test_admin_can_resolve_user_for_emergency_toolkit(client: TestClient, db: Session):
+def test_security_admin_can_resolve_user_for_emergency_toolkit(client: TestClient, db: Session):
+    bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
     admin = _make_user(db, email="resolve-admin@example.com", role=UserRole.admin)
     target = _make_user(db, email="resolve-target@example.com", role=UserRole.medical_student)
+    _grant_privileged_role(
+        db,
+        user=admin,
+        role=PrivilegedRole.security_admin,
+        created_by=bootstrap_admin,
+    )
     token = _login(client, admin.email).json()["access_token"]
 
     response = client.get(

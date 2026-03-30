@@ -120,6 +120,7 @@ class UserOut(BaseModel):
     deleted_by: Optional[UUID] = None
     restored_at: Optional[datetime] = None
     restored_by: Optional[UUID] = None
+    privileged_roles: List[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -134,6 +135,7 @@ class UserListResponse(BaseModel):
 class UserInviteCreateRequest(BaseModel):
     email: EmailStr
     role: UserRole = UserRole.medical_student
+    reason: str | None = Field(default=None, min_length=8, max_length=300)
 
     @field_validator("role")
     @classmethod

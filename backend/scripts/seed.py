@@ -51,6 +51,15 @@ def seed_users(db):
             "email": "admin@example.com",
             "password": _seed_password("SEED_ADMIN_PASSWORD", "AdminPass123"),
             "role": UserRole.admin,
+            "first_name": "Platform",
+            "last_name": "Admin",
+        },
+        {
+            "email": "admin-ops@example.com",
+            "password": _seed_password("SEED_REGULAR_ADMIN_PASSWORD", "AdminPass456"),
+            "role": UserRole.admin,
+            "first_name": "Operations",
+            "last_name": "Admin",
         },
         {
             "email": "doctor@example.com",
@@ -67,11 +76,22 @@ def seed_users(db):
     for user_data in users:
         existing = db.scalar(select(User).where(User.email == user_data["email"]))
         if existing:
+            updated = False
+            if not existing.first_name and user_data.get("first_name"):
+                existing.first_name = user_data["first_name"]
+                updated = True
+            if not existing.last_name and user_data.get("last_name"):
+                existing.last_name = user_data["last_name"]
+                updated = True
+            if updated:
+                db.add(existing)
             continue
         user = User(
             email=user_data["email"],
             password_hash=get_password_hash(user_data["password"]),
             role=user_data["role"],
+            first_name=user_data.get("first_name"),
+            last_name=user_data.get("last_name"),
         )
         db.add(user)
     db.commit()

@@ -62,6 +62,7 @@ Production admin operations now have repo-backed policy and runbook documents:
 
 - [Admin access policy](/Volumes/P1Back/telemed-monorepo/docs/security/admin-access-policy.md)
 - [Admin emergency access runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md)
+- [Admin SSO (authentik) runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-sso-authentik-runbook.md)
 - [Secret rotation runbook](/Volumes/P1Back/telemed-monorepo/docs/security/secret-rotation-runbook.md)
 
 ## Tech Stack
@@ -156,6 +157,43 @@ INFISICAL_RUN_ARGS="--env=dev" ./scripts/test-backend.sh
 INFISICAL_RUN_ARGS="--env=dev" ./scripts/build-frontend.sh
 ```
 
+## Just command runner
+
+You can use `just` as a lightweight command runner at the repository root.
+It wraps the existing project scripts, so it improves command discoverability
+without changing the current backend, frontend, or Infisical workflows.
+
+Install `just` with your platform package manager. For example, on macOS:
+
+```bash
+brew install just
+```
+
+Then run common tasks from the repository root:
+
+```bash
+just help
+just doctor
+just dev
+just dev-backend
+just dev-frontend
+just ci
+just ci-fast
+just test-backend
+just test-frontend
+just build-frontend
+just migrate-backend
+just seed-backend
+just check
+```
+
+`just doctor` checks whether your local machine has the required CLI tools and
+local dependency directories. `just ci` runs the main local backend and
+frontend quality gates that most closely match the core checks in GitHub
+Actions. `just ci-fast` runs a quicker static-check pass, and `just dev`
+starts the backend in the background, waits for `http://localhost:8000/health`
+to respond, and then runs the frontend in the foreground.
+
 Common local commands:
 
 ```bash
@@ -181,6 +219,15 @@ Notes:
 - Official scripts ignore root `.env`; the source of truth is Infisical runtime env.
 - Backend container runs migrations on startup and can run the local demo seed
   step via `backend/entrypoint.sh`.
+- To bring up local admin SSO with Authentik, start the identity profile:
+
+```bash
+COMPOSE_PROFILES=identity ./scripts/dev-backend.sh
+```
+
+- Local admin SSO expects the redirect URI
+  `http://localhost:3000/api/auth/admin/sso/callback` and uses the frontend
+  proxy so the browser keeps the session cookie on the frontend origin.
 - Compose includes a local PostgreSQL service.
 - The backend CI workflow in [.github/workflows/backend-tests.yml](/Volumes/P1Back/telemed-monorepo/.github/workflows/backend-tests.yml) already runs the main backend suite against PostgreSQL.
 
@@ -263,7 +310,8 @@ Important for production hardening:
 - `FRONTEND_BASE_URL`
 - `AUTH_COOKIE_SECURE`
 - `ADMIN_2FA_REQUIRED`
-- `SUPER_ADMIN_EMAILS`
+- `SUPER_ADMIN_EMAILS` for bootstrap and break-glass fallback only
+- `PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS`
 
 Reference file: `backend/.env.example`
 
@@ -317,10 +365,15 @@ explicitly. If you want deterministic local passwords, export
 `SEED_ADMIN_PASSWORD`, `SEED_DOCTOR_PASSWORD`, and
 `SEED_MEDICAL_STUDENT_PASSWORD` before seeding.
 
+Production authorization no longer uses seeded users or
+`SUPER_ADMIN_EMAILS` as the daily source of truth. Day-to-day privileged admin
+access is DB-backed and must be assigned explicitly.
+
 ## Additional Documentation
 
 - Backend details: `backend/README.md`
 - Three-role rollout: `docs/three-role-rollout-checklist.md`
+- Privileged admin bootstrap: `docs/security/privileged-admin-bootstrap-runbook.md`
 - Frontend details: `frontend/README.md`
 - Cloud Run deployment guide: `infra/gcp/README.md`
 - Monitoring runbook: `infra/gcp/monitoring-runbook.md`

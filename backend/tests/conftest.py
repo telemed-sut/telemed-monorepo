@@ -20,6 +20,7 @@ from app.db.base import Base
 from app.db.session import engine as app_engine
 from app.main import app
 from app.services.auth import get_db
+from app.services import admin_sso, admin_sso_store
 
 # Disable rate limiting during tests
 app.state.limiter.enabled = False
@@ -103,6 +104,15 @@ def setup_database():
     _truncate_all_tables()
     yield
     _truncate_all_tables()
+
+
+@pytest.fixture(scope="function", autouse=True)
+def reset_admin_sso_runtime_state():
+    admin_sso.reset_runtime_caches()
+    admin_sso_store.reset_runtime_state()
+    yield
+    admin_sso.reset_runtime_caches()
+    admin_sso_store.reset_runtime_state()
 
 
 @pytest.fixture

@@ -21,7 +21,7 @@ import { useAuthStore } from "@/store/auth-store";
 import { useRouter } from "next/navigation";
 import { Logout01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { logout } from "@/lib/api";
+import { getAdminSsoLogoutPath } from "@/lib/api";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
 
@@ -38,8 +38,7 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 export function TeamSwitcher({ teams }: { teams: Team[] }) {
     const { isMobile } = useSidebar();
     const [activeTeam, setActiveTeam] = React.useState(teams[0]);
-    const token = useAuthStore((state) => state.token);
-    const clearToken = useAuthStore((state) => state.clearToken);
+    const clearSessionState = useAuthStore((state) => state.clearSessionState);
     const router = useRouter();
     const language = useLanguageStore((state) => state.language);
 
@@ -101,10 +100,9 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
                             <DropdownMenuItem
                                 className="gap-2 p-2 cursor-pointer text-destructive focus:text-destructive"
                                 onClick={() => {
-                                    void logout(token || undefined).catch(() => undefined).finally(() => {
-                                        clearToken();
-                                        router.replace("/login");
-                                    });
+                                    clearSessionState();
+                                    router.replace("/login");
+                                    window.location.assign(getAdminSsoLogoutPath());
                                 }}
                             >
                                 <div className="flex size-6 items-center justify-center rounded-md border bg-background">

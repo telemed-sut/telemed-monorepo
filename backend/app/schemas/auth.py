@@ -21,7 +21,23 @@ class UserMeResponse(BaseModel):
     verification_status: str | None = None
     two_factor_enabled: bool = False
     mfa_verified: bool = False
+    mfa_authenticated_at: datetime | None = None
+    mfa_recent_for_privileged_actions: bool = False
+    auth_source: str = "local"
+    sso_provider: str | None = None
     is_super_admin: bool = False
+    privileged_roles: list[str] = Field(default_factory=list)
+    can_manage_privileged_admins: bool = False
+    can_manage_security_recovery: bool = False
+    can_bootstrap_privileged_roles: bool = False
+
+
+class AdminSSOStatusResponse(BaseModel):
+    enabled: bool
+    provider: str | None = None
+    enforced_for_admin: bool = False
+    login_path: str | None = None
+    logout_path: str | None = None
 
 
 class TokenResponse(BaseModel):

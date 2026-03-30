@@ -17,6 +17,7 @@ from app.models.audit_log import AuditLog
 from app.models.enums import UserRole, VerificationStatus
 from app.models.invite import UserInvite
 from app.models.user import User
+from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
 from app.schemas.user import (
     CLINICAL_ROLES,
     UserCreate,
@@ -74,6 +75,16 @@ def _mask_license_no(license_no: str | None) -> str | None:
     if len(cleaned) <= 4:
         return "*" * len(cleaned)
     return f"{'*' * (len(cleaned) - 4)}{cleaned[-4:]}"
+
+
+def _normalize_privileged_reason(raw_reason: str | None) -> str:
+    reason = (raw_reason or "").strip()
+    if len(reason) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Reason must be at least 8 characters.",
+        )
+    return reason
 
 
 def _active_admin_count_for_update(db: Session) -> int:
@@ -262,9 +273,27 @@ def get_users(
 
     query = query.offset((page - 1) * limit).limit(limit)
     users = db.scalars(query).all()
+    user_ids = [user.id for user in users]
+    privilege_map: dict[UUID, list[str]] = {}
+    if user_ids:
+        assignments = db.scalars(
+            select(UserPrivilegedRoleAssignment).where(
+                UserPrivilegedRoleAssignment.user_id.in_(user_ids),
+                UserPrivilegedRoleAssignment.revoked_at.is_(None),
+            )
+        ).all()
+        for assignment in assignments:
+            privilege_map.setdefault(assignment.user_id, []).append(assignment.role.value)
+
+    items = [
+        UserOut.model_validate(user).model_copy(
+            update={"privileged_roles": sorted(privilege_map.get(user.id, []))}
+        )
+        for user in users
+    ]
 
     return UserListResponse(
-        items=list(users),
+        items=items,
         page=page,
         limit=limit,
         total=total if total else 0,
@@ -284,6 +313,9 @@ def create_user(
     current_user: User = Depends(get_admin_user),
 ) -> Any:
     """Create a new user. Admin only."""
+    if user_in.role == UserRole.admin:
+        auth_service.require_recent_privileged_session(request, current_user)
+
     if settings.specialist_invite_only and auth_service.can_receive_user_invite(user_in.role):
         raise HTTPException(
             status_code=400,
@@ -312,15 +344,15 @@ def create_user(
         )
 
     normalized_password = user_in.password.strip() if isinstance(user_in.password, str) else None
-    if user_in.role == UserRole.admin and not auth_service.is_super_admin(current_user):
+    if user_in.role == UserRole.admin and not auth_service.can_manage_privileged_admins(current_user, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Super admin only.",
         )
-    if user_in.role == UserRole.admin and normalized_password:
+    if user_in.role == UserRole.admin:
         raise HTTPException(
-            status_code=422,
-            detail="Admin accounts cannot be created with a preset password. Use the password reset onboarding flow.",
+            status_code=400,
+            detail="Admin accounts must be created through invite flow.",
         )
     if user_in.role != UserRole.admin and not normalized_password:
         raise HTTPException(
@@ -377,7 +409,11 @@ def create_user_invite(
     current_user: User = Depends(get_admin_user),
 ) -> Any:
     """Create an invite link. Admin only."""
-    if payload.role == UserRole.admin and not auth_service.is_super_admin(current_user):
+    invite_reason: str | None = None
+    if payload.role == UserRole.admin:
+        auth_service.require_recent_privileged_session(request, current_user)
+        invite_reason = _normalize_privileged_reason(payload.reason)
+    if payload.role == UserRole.admin and not auth_service.can_manage_privileged_admins(current_user, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Super admin only.",
@@ -427,7 +463,11 @@ def create_user_invite(
         action="user_invite",
         resource_type="user_invite",
         resource_id=invite.id,
-        details={"email": payload.email, "role": payload.role.value},
+        details={
+            "email": payload.email,
+            "role": payload.role.value,
+            "reason": invite_reason,
+        },
         ip_address=_client_ip(request),
     )
 
@@ -840,7 +880,9 @@ def resend_user_invite(
     if not invite:
         raise HTTPException(status_code=404, detail="Invite not found.")
 
-    if invite.role == UserRole.admin and not auth_service.is_super_admin(current_user):
+    if invite.role == UserRole.admin:
+        auth_service.require_recent_privileged_session(request, current_user)
+    if invite.role == UserRole.admin and not auth_service.can_manage_privileged_admins(current_user, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Super admin only.",
@@ -902,6 +944,13 @@ def revoke_user_invite(
     invite = db.scalar(select(UserInvite).where(UserInvite.id == invite_id).with_for_update())
     if not invite:
         raise HTTPException(status_code=404, detail="Invite not found.")
+    if invite.role == UserRole.admin:
+        auth_service.require_recent_privileged_session(request, current_user)
+    if invite.role == UserRole.admin and not auth_service.can_manage_privileged_admins(current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin only.",
+        )
 
     if invite.used_at is not None:
         raise HTTPException(status_code=400, detail="Invite is already closed.")

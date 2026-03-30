@@ -15,9 +15,10 @@ from app.core.limiter import limiter
 from app.core.security import generate_totp_secret, get_password_hash
 from app.models.audit_log import AuditLog
 from app.models.device_registration import DeviceRegistration
-from app.models.enums import UserRole
+from app.models.enums import PrivilegedRole, UserRole
 from app.models.ip_ban import IPBan
 from app.models.login_attempt import LoginAttempt
+from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
 from app.models.user import User
 from app.services import auth as auth_service
 from app.services import security as security_service
@@ -68,6 +69,38 @@ def _write_unlock_audit(
         )
     )
     db.commit()
+
+
+def _normalize_privileged_reason(raw_reason: str) -> str:
+    reason = raw_reason.strip()
+    if len(reason) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Reason must be at least 8 characters.",
+        )
+    return reason
+
+
+def _require_privileged_admin_management(
+    *,
+    request: Request,
+    db: Session,
+    current_user: User,
+) -> None:
+    auth_service.require_recent_privileged_session(request, current_user)
+    if not auth_service.can_manage_privileged_admins(current_user, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin only.")
+
+
+def _require_security_recovery_access(
+    *,
+    request: Request,
+    db: Session,
+    current_user: User,
+) -> None:
+    auth_service.require_recent_privileged_session(request, current_user)
+    if not auth_service.can_manage_security_recovery(current_user, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security admin only.")
 
 
 # ── Schemas ──
@@ -169,6 +202,34 @@ class AdminUserPasswordResetResponse(BaseModel):
     email: str
     reset_token: str
     reset_token_expires_in: int
+
+
+class PrivilegedRoleAssignmentCreateRequest(BaseModel):
+    user_id: UUID
+    role: PrivilegedRole
+    reason: str
+
+
+class PrivilegedRoleAssignmentRevokeRequest(BaseModel):
+    reason: str
+
+
+class PrivilegedRoleAssignmentOut(BaseModel):
+    id: str
+    user_id: str
+    email: str
+    role: str
+    reason: str
+    created_by: str | None = None
+    created_at: datetime
+    revoked_at: datetime | None = None
+    revoked_by: str | None = None
+    revoked_reason: str | None = None
+
+
+class PrivilegedRoleAssignmentListResponse(BaseModel):
+    items: list[PrivilegedRoleAssignmentOut]
+    total: int
 
 
 class DeviceRegistrationView(BaseModel):
@@ -300,7 +361,172 @@ def _write_device_registry_audit(
     )
 
 
+def _to_privileged_role_assignment_view(assignment: UserPrivilegedRoleAssignment, user: User) -> PrivilegedRoleAssignmentOut:
+    return PrivilegedRoleAssignmentOut(
+        id=str(assignment.id),
+        user_id=str(assignment.user_id),
+        email=user.email,
+        role=assignment.role.value,
+        reason=assignment.reason,
+        created_by=str(assignment.created_by) if assignment.created_by else None,
+        created_at=assignment.created_at,
+        revoked_at=assignment.revoked_at,
+        revoked_by=str(assignment.revoked_by) if assignment.revoked_by else None,
+        revoked_reason=assignment.revoked_reason,
+    )
+
+
 # ── Endpoints ──
+
+
+@router.get("/privileged-role-assignments", response_model=PrivilegedRoleAssignmentListResponse)
+@limiter.limit("20/minute")
+def list_privileged_role_assignments(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    _require_privileged_admin_management(request=request, db=db, current_user=current_user)
+
+    assignments = db.scalars(
+        select(UserPrivilegedRoleAssignment)
+        .order_by(
+            UserPrivilegedRoleAssignment.revoked_at.is_not(None),
+            UserPrivilegedRoleAssignment.created_at.desc(),
+        )
+    ).all()
+
+    user_ids = [assignment.user_id for assignment in assignments]
+    users = {
+        user.id: user
+        for user in db.scalars(select(User).where(User.id.in_(user_ids))).all()
+    } if user_ids else {}
+
+    items = [
+        _to_privileged_role_assignment_view(assignment, users[assignment.user_id])
+        for assignment in assignments
+        if assignment.user_id in users
+    ]
+    return PrivilegedRoleAssignmentListResponse(items=items, total=len(items))
+
+
+@router.post("/privileged-role-assignments", response_model=PrivilegedRoleAssignmentOut, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
+def create_privileged_role_assignment(
+    request: Request,
+    payload: PrivilegedRoleAssignmentCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    _require_privileged_admin_management(request=request, db=db, current_user=current_user)
+    reason = _normalize_privileged_reason(payload.reason)
+
+    target = db.scalar(
+        select(User)
+        .where(User.id == payload.user_id, User.deleted_at.is_(None))
+        .with_for_update()
+    )
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if target.role != UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Privileged roles can only be assigned to admin accounts.",
+        )
+
+    existing = db.scalar(
+        select(UserPrivilegedRoleAssignment).where(
+            UserPrivilegedRoleAssignment.user_id == target.id,
+            UserPrivilegedRoleAssignment.role == payload.role,
+            UserPrivilegedRoleAssignment.revoked_at.is_(None),
+        )
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This privileged role is already active for the target user.",
+        )
+
+    assignment = UserPrivilegedRoleAssignment(
+        user_id=target.id,
+        role=payload.role,
+        reason=reason,
+        created_by=current_user.id,
+    )
+    db.add(assignment)
+    db.flush()
+    db.add(
+        AuditLog(
+            user_id=current_user.id,
+            action="privileged_role_assignment_created",
+            resource_type="user_privileged_role_assignment",
+            resource_id=assignment.id,
+            details={
+                "target_user_id": str(target.id),
+                "target_email": target.email,
+                "role": payload.role.value,
+                "reason": reason,
+            },
+            ip_address=_client_ip(request),
+            is_break_glass=False,
+            status="success",
+        )
+    )
+    db.commit()
+    db.refresh(assignment)
+    return _to_privileged_role_assignment_view(assignment, target)
+
+
+@router.post("/privileged-role-assignments/{assignment_id}/revoke", response_model=PrivilegedRoleAssignmentOut)
+@limiter.limit("10/minute")
+def revoke_privileged_role_assignment(
+    request: Request,
+    assignment_id: UUID,
+    payload: PrivilegedRoleAssignmentRevokeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    _require_privileged_admin_management(request=request, db=db, current_user=current_user)
+    reason = _normalize_privileged_reason(payload.reason)
+
+    assignment = db.scalar(
+        select(UserPrivilegedRoleAssignment)
+        .where(UserPrivilegedRoleAssignment.id == assignment_id)
+        .with_for_update()
+    )
+    if not assignment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Privileged role assignment not found")
+    if assignment.revoked_at is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Privileged role assignment is already revoked.")
+
+    target = db.scalar(select(User).where(User.id == assignment.user_id, User.deleted_at.is_(None)))
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    assignment.revoked_at = datetime.now(timezone.utc)
+    assignment.revoked_by = current_user.id
+    assignment.revoked_reason = reason
+    db.add(assignment)
+    db.add(
+        AuditLog(
+            user_id=current_user.id,
+            action="privileged_role_assignment_revoked",
+            resource_type="user_privileged_role_assignment",
+            resource_id=assignment.id,
+            details={
+                "target_user_id": str(target.id),
+                "target_email": target.email,
+                "role": assignment.role.value,
+                "reason": reason,
+            },
+            ip_address=_client_ip(request),
+            is_break_glass=False,
+            status="success",
+        )
+    )
+    db.commit()
+    db.refresh(assignment)
+    return _to_privileged_role_assignment_view(assignment, target)
 
 
 @router.post("/admin-unlock", response_model=AdminEmergencyUnlockResponse)
@@ -312,21 +538,21 @@ def emergency_unlock_admin(
     current_user: User = Depends(get_admin_user),
 ):
     ip = _client_ip(request)
-    if not auth_service.is_super_admin(current_user):
+    reason = _normalize_privileged_reason(payload.reason or "")
+    try:
+        _require_security_recovery_access(request=request, db=db, current_user=current_user)
+    except HTTPException:
         _write_unlock_audit(
             db,
             actor=current_user,
             ip_address=ip,
             success=False,
             target_user=None,
-            reason=payload.reason,
-            authorized_by="admin_not_super_admin",
-            message="Unauthorized emergency admin unlock attempt (super admin required)",
+            reason=reason,
+            authorized_by="admin_not_security_admin",
+            message="Unauthorized emergency admin unlock attempt (security admin required)",
         )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Super admin only.",
-        )
+        raise
 
     if payload.user_id:
         target = db.scalar(
@@ -348,8 +574,8 @@ def emergency_unlock_admin(
             ip_address=ip,
             success=False,
             target_user=None,
-            reason=payload.reason,
-            authorized_by="super_admin",
+            reason=reason,
+            authorized_by="security_admin",
             message="Target user not found for emergency unlock",
         )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -361,8 +587,8 @@ def emergency_unlock_admin(
             ip_address=ip,
             success=False,
             target_user=target,
-            reason=payload.reason,
-            authorized_by="super_admin",
+            reason=reason,
+            authorized_by="security_admin",
             message="Emergency unlock denied: target is not an admin account",
         )
         raise HTTPException(
@@ -388,8 +614,8 @@ def emergency_unlock_admin(
         ip_address=ip,
         success=True,
         target_user=target,
-        reason=payload.reason,
-        authorized_by="super_admin",
+        reason=reason,
+        authorized_by="security_admin",
         message="Admin account emergency unlock completed",
     )
 
@@ -397,7 +623,7 @@ def emergency_unlock_admin(
         "Emergency unlock: target_user_id=%s was_locked=%s authorized_by=%s actor_id=%s",
         target.id,
         was_locked,
-        "super_admin",
+        "security_admin",
         current_user.id,
     )
     return AdminEmergencyUnlockResponse(
@@ -416,6 +642,7 @@ def resolve_user_for_security_actions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
+    _require_security_recovery_access(request=request, db=db, current_user=current_user)
     user = db.scalar(
         select(User).where(
             User.email == str(email).lower(),
@@ -449,21 +676,24 @@ def reset_user_two_factor_by_super_admin(
     current_user: User = Depends(auth_service.get_current_user),
 ):
     ip = _client_ip(request)
-    if not auth_service.is_super_admin(current_user):
+    reason = _normalize_privileged_reason(payload.reason)
+    try:
+        _require_security_recovery_access(request=request, db=db, current_user=current_user)
+    except HTTPException:
         db.add(
             AuditLog(
                 user_id=current_user.id,
                 action="admin_force_2fa_reset_denied",
                 resource_type="user",
                 resource_id=user_id,
-                details={"reason": payload.reason, "error": "not_super_admin"},
+                details={"reason": reason, "error": "not_security_admin"},
                 ip_address=ip,
                 is_break_glass=False,
                 status="failure",
             )
         )
         db.commit()
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin only.")
+        raise
 
     target = db.scalar(
         select(User)
@@ -477,7 +707,7 @@ def reset_user_two_factor_by_super_admin(
                 action="admin_force_2fa_reset_denied",
                 resource_type="user",
                 resource_id=user_id,
-                details={"reason": payload.reason, "error": "target_not_found"},
+                details={"reason": reason, "error": "target_not_found"},
                 ip_address=ip,
                 is_break_glass=False,
                 status="failure",
@@ -499,7 +729,7 @@ def reset_user_two_factor_by_super_admin(
             resource_type="user",
             resource_id=target.id,
             details={
-                "reason": payload.reason,
+                "reason": reason,
                 "target_email": target.email,
                 "revoked_devices": revoked_devices,
                 "revoked_backup_codes": revoked_backup_codes,
@@ -528,28 +758,24 @@ def reset_user_password_by_super_admin(
     current_user: User = Depends(auth_service.get_current_user),
 ):
     ip = _client_ip(request)
-    reason = payload.reason.strip()
-    if len(reason) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Reason must be at least 8 characters.",
-        )
-
-    if not auth_service.is_super_admin(current_user):
+    reason = _normalize_privileged_reason(payload.reason)
+    try:
+        _require_security_recovery_access(request=request, db=db, current_user=current_user)
+    except HTTPException:
         db.add(
             AuditLog(
                 user_id=current_user.id,
                 action="admin_force_password_reset_denied",
                 resource_type="user",
                 resource_id=user_id,
-                details={"reason": reason, "error": "not_super_admin"},
+                details={"reason": reason, "error": "not_security_admin"},
                 ip_address=ip,
                 is_break_glass=False,
                 status="failure",
             )
         )
         db.commit()
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin only.")
+        raise
 
     target = db.scalar(
         select(User)

@@ -47,7 +47,8 @@ Primary source should be Infisical secrets at runtime.
 ### Backend environment bootstrap
 Use the bootstrap script to create or refresh the backend virtual environment
 before you run tests or start the API. It installs `requirements.txt`, checks
-package integrity, and verifies that the local pytest plugins are present.
+package integrity, and verifies that the local pytest plugins and lint tooling
+are present.
 
 From `backend/`:
 
@@ -102,15 +103,22 @@ INFISICAL_RUN_ARGS="--env=dev" ./scripts/dev-api.sh
 - Refresh endpoint: POST /auth/refresh (requires valid JWT token).
 - Logout endpoint: POST /auth/logout (stateless JWT - client should discard token).
 - Local seed creates bootstrap accounts for:
-  - `admin@example.com`
+  - `admin@example.com` (platform admin demo account)
+  - `admin-ops@example.com` (regular admin demo account)
   - `doctor@example.com`
   - `medical-student@example.com`
 - For deterministic local passwords, export these env vars before seeding:
   - `SEED_ADMIN_PASSWORD`
+  - `SEED_REGULAR_ADMIN_PASSWORD`
   - `SEED_DOCTOR_PASSWORD`
   - `SEED_MEDICAL_STUDENT_PASSWORD`
 - The seed script refuses to run against non-local database targets unless you
   set `ALLOW_DEMO_SEED=true` explicitly.
+- `SUPER_ADMIN_EMAILS` is bootstrap and break-glass fallback only. Production
+  privileged access is assigned in the database.
+- When admin SSO is enabled, the backend uses PKCE and stores OIDC login/logout
+  artifacts server-side. Configure `REDIS_URL` for multi-instance environments
+  and `ADMIN_OIDC_CACHE_TTL_SECONDS` to tune OIDC metadata/JWKS caching.
 
 JWT payload: sub (user id), role, exp. Token type bearer.
 

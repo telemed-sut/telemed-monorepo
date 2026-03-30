@@ -21,7 +21,7 @@ system secret store:
 - `ZEGO_SERVER_SECRET`
 
 The following values are not user passwords, but still require controlled
-change management because they affect privileged access:
+change management because they affect bootstrap or break-glass behavior:
 
 - `SUPER_ADMIN_EMAILS`
 - `ADMIN_UNLOCK_WHITELISTED_IPS`
@@ -99,7 +99,7 @@ For `NOVU_API_KEY` or `ZEGO_SERVER_SECRET`:
 
 Treat the following config changes as access-control rotations:
 
-- removing an email from `SUPER_ADMIN_EMAILS`,
+- updating the bootstrap or break-glass fallback list in `SUPER_ADMIN_EMAILS`,
 - updating `ADMIN_UNLOCK_WHITELISTED_IPS`, and
 - changing `TRUSTED_PROXY_IPS`.
 
@@ -118,7 +118,7 @@ After any rotation, verify the target environment:
 - `/auth/login` works for a normal account,
 - admin login still enforces MFA,
 - invite flow still works,
-- security toolkit actions still work for `super-admin`,
+- security toolkit actions still work for DB-backed privileged operators,
 - device ingest still succeeds if device secrets changed, and
 - audit logs continue to record security actions.
 
@@ -155,4 +155,5 @@ After you complete a rotation, review related admin recovery and access-control
 docs:
 
 - [Admin access policy](/Volumes/P1Back/telemed-monorepo/docs/security/admin-access-policy.md)
+- [Privileged admin bootstrap runbook](/Volumes/P1Back/telemed-monorepo/docs/security/privileged-admin-bootstrap-runbook.md)
 - [Admin emergency access runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md)

@@ -51,6 +51,13 @@ class User(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    privileged_role_assignments = relationship(
+        "UserPrivilegedRoleAssignment",
+        foreign_keys="UserPrivilegedRoleAssignment.user_id",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     # Security: brute force protection
     failed_login_attempts = Column(Integer, nullable=False, server_default="0", default=0)

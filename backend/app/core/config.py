@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     admin_unlock_whitelisted_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
     admin_2fa_required: bool = True
     admin_2fa_issuer: str = "Telemed Admin"
+    privileged_action_mfa_max_age_seconds: int = 900
     trusted_device_cookie_name: str = "trusted_device_token"
     admin_trusted_device_days: int = 7
     user_trusted_device_days: int = 30
@@ -82,6 +83,19 @@ class Settings(BaseSettings):
     auth_cookie_name: str = "access_token"
     auth_cookie_secure: bool = False
     auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    admin_oidc_enabled: bool = False
+    admin_oidc_enforced: bool = False
+    admin_oidc_provider_name: str = "authentik"
+    admin_oidc_issuer_url: str | None = None
+    admin_oidc_client_id: str | None = None
+    admin_oidc_client_secret: str | None = None
+    admin_oidc_redirect_uri: str | None = None
+    admin_oidc_post_logout_redirect_uri: str | None = None
+    admin_oidc_scopes: Union[List[str], str] = ["openid", "profile", "email"]
+    admin_oidc_allowed_email_domains: Union[List[str], str] = []
+    admin_oidc_required_group: str | None = None
+    admin_oidc_state_ttl_seconds: int = 600
+    admin_oidc_cache_ttl_seconds: int = 3600
 
     # Rate Limiting
     redis_url: str | None = None
@@ -114,6 +128,8 @@ class Settings(BaseSettings):
         "super_admin_emails",
         "admin_unlock_whitelisted_ips",
         "trusted_proxy_ips",
+        "admin_oidc_scopes",
+        "admin_oidc_allowed_email_domains",
         mode="before",
     )
     @classmethod
@@ -258,6 +274,56 @@ class Settings(BaseSettings):
             raise ValueError("MEETING_PATIENT_JOIN_BASE_URL must start with http:// or https://.")
         return value.rstrip("/")
 
+    @field_validator(
+        "admin_oidc_issuer_url",
+        "admin_oidc_redirect_uri",
+        "admin_oidc_post_logout_redirect_uri",
+    )
+    @classmethod
+    def validate_optional_http_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        if not value:
+            return None
+        if not (value.startswith("http://") or value.startswith("https://")):
+            raise ValueError("OIDC URLs must start with http:// or https://.")
+        return value.rstrip("/")
+
+    @field_validator("admin_oidc_client_id", "admin_oidc_client_secret", "admin_oidc_required_group")
+    @classmethod
+    def validate_optional_trimmed_string(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
+
+    @field_validator("admin_oidc_provider_name")
+    @classmethod
+    def validate_admin_oidc_provider_name(cls, v: str) -> str:
+        value = (v or "").strip()
+        if not value:
+            raise ValueError("ADMIN_OIDC_PROVIDER_NAME must not be empty.")
+        return value
+
+    @field_validator("admin_oidc_state_ttl_seconds")
+    @classmethod
+    def validate_admin_oidc_state_ttl_seconds(cls, v: int) -> int:
+        if v < 60:
+            raise ValueError("ADMIN_OIDC_STATE_TTL_SECONDS must be at least 60.")
+        if v > 3600:
+            raise ValueError("ADMIN_OIDC_STATE_TTL_SECONDS must be <= 3600.")
+        return v
+
+    @field_validator("admin_oidc_cache_ttl_seconds")
+    @classmethod
+    def validate_admin_oidc_cache_ttl_seconds(cls, v: int) -> int:
+        if v < 60:
+            raise ValueError("ADMIN_OIDC_CACHE_TTL_SECONDS must be at least 60.")
+        if v > 86400:
+            raise ValueError("ADMIN_OIDC_CACHE_TTL_SECONDS must be <= 86400.")
+        return v
+
     @field_validator("zego_app_id", mode="before")
     @classmethod
     def parse_optional_zego_app_id(cls, v: object) -> object:
@@ -288,6 +354,25 @@ class Settings(BaseSettings):
 
         if self.frontend_base_url.startswith("https://") and not self.auth_cookie_secure:
             raise ValueError("AUTH_COOKIE_SECURE must be true when FRONTEND_BASE_URL is HTTPS.")
+
+        if self.admin_oidc_enforced and not self.admin_oidc_enabled:
+            raise ValueError("ADMIN_OIDC_ENFORCED requires ADMIN_OIDC_ENABLED=true.")
+
+        if self.admin_oidc_enabled:
+            missing_fields = [
+                name
+                for name, value in (
+                    ("ADMIN_OIDC_ISSUER_URL", self.admin_oidc_issuer_url),
+                    ("ADMIN_OIDC_CLIENT_ID", self.admin_oidc_client_id),
+                    ("ADMIN_OIDC_CLIENT_SECRET", self.admin_oidc_client_secret),
+                    ("ADMIN_OIDC_REDIRECT_URI", self.admin_oidc_redirect_uri),
+                )
+                if not value
+            ]
+            if missing_fields:
+                raise ValueError(
+                    f"Admin OIDC is enabled but missing required settings: {', '.join(missing_fields)}."
+                )
 
         if self.meeting_video_provider == "zego":
             if self.zego_app_id is None:

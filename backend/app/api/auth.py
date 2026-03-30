@@ -1,18 +1,26 @@
 import logging
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 from uuid import UUID
 
 import anyio
-from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.limiter import limiter, get_client_ip_rate_limit_key, get_failed_login_key
+from app.core.limiter import (
+    limiter,
+    get_strict_client_ip_rate_limit_key,
+    get_strict_failed_login_key,
+)
 from app.core.security import (
     build_totp_uri,
+    create_access_token,
+    decode_token,
     generate_totp_secret,
+    generate_security_token,
     get_password_hash,
     hash_security_token,
     normalize_totp_code,
@@ -44,16 +52,27 @@ from app.schemas.auth import (
     MessageResponse,
     ResetPasswordRequest,
     TokenResponse,
+    AdminSSOStatusResponse,
     UserMeResponse,
 )
 from app.schemas.user import CLINICAL_ROLES
 from app.services import auth as auth_service
+from app.services import admin_sso
+from app.services import admin_sso_store
 from app.services import security as security_service
 from app.services.user_events import publish_user_registered
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
 settings = get_settings()
+ADMIN_SSO_STATE_COOKIE = "admin_sso_state"
+
+
+def _frontend_url_for(path: str = "/login") -> str:
+    base = get_settings().frontend_base_url.rstrip("/")
+    if not path.startswith("/"):
+        path = f"/{path}"
+    return f"{base}{path}"
 
 
 def _retired_email(user_id: UUID) -> str:
@@ -80,6 +99,34 @@ def _clear_auth_cookie(response: Response) -> None:
         httponly=True,
         secure=settings.auth_cookie_secure,
         samesite=settings.auth_cookie_samesite,
+    )
+
+
+def _set_admin_sso_state_cookie(response: Response, state_token: str) -> None:
+    oidc_settings = get_settings()
+    response.set_cookie(
+        key=ADMIN_SSO_STATE_COOKIE,
+        value=state_token,
+        httponly=True,
+        secure=oidc_settings.auth_cookie_secure,
+        samesite="lax",
+        max_age=oidc_settings.admin_oidc_state_ttl_seconds,
+        path="/",
+    )
+
+
+def _get_admin_sso_state_cookie(request: Request) -> str | None:
+    return request.cookies.get(ADMIN_SSO_STATE_COOKIE)
+
+
+def _clear_admin_sso_state_cookie(response: Response) -> None:
+    oidc_settings = get_settings()
+    response.delete_cookie(
+        key=ADMIN_SSO_STATE_COOKIE,
+        path="/",
+        httponly=True,
+        secure=oidc_settings.auth_cookie_secure,
+        samesite="lax",
     )
 
 
@@ -202,15 +249,95 @@ def _write_auth_audit(
     )
 
 
+def _build_admin_sso_state_token(*, nonce: str, next_path: str) -> str:
+    oidc_settings = get_settings()
+    return create_access_token(
+        {
+            "type": "admin_sso_state",
+            "nonce": nonce,
+            "next_path": next_path,
+        },
+        expires_in=oidc_settings.admin_oidc_state_ttl_seconds,
+    )
+
+
+def _decode_admin_sso_state_token(state_token: str) -> dict[str, str]:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Invalid admin SSO state.",
+    )
+    try:
+        payload = decode_token(state_token)
+    except Exception as exc:  # pragma: no cover - delegated to tests through caller behavior
+        raise credentials_exception from exc
+
+    if payload.get("type") != "admin_sso_state":
+        raise credentials_exception
+
+    nonce = payload.get("nonce")
+    next_path = payload.get("next_path")
+    if not isinstance(nonce, str) or not nonce.strip():
+        raise credentials_exception
+    if not isinstance(next_path, str) or not next_path.startswith("/"):
+        raise credentials_exception
+    return {
+        "nonce": nonce,
+        "next_path": next_path,
+    }
+
+
+def _sanitize_next_path(next_path: str | None) -> str:
+    if not next_path or not next_path.startswith("/"):
+        return "/patients"
+    if next_path.startswith("//"):
+        return "/patients"
+    return next_path
+
+
+def _admin_sso_login_redirect(path: str = "/login", **query: str) -> RedirectResponse:
+    target = _frontend_url_for(path)
+    if query:
+        target = f"{target}?{urlencode(query)}"
+    return RedirectResponse(url=target, status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _admin_sso_failure_redirect(*, reason: str) -> RedirectResponse:
+    response = _admin_sso_login_redirect("/login", error="admin_sso_failed", reason=reason)
+    _clear_admin_sso_state_cookie(response)
+    _clear_auth_cookie(response)
+    return response
+
+
+def _get_session_id_from_request(request: Request) -> str | None:
+    payload = auth_service.get_request_auth_payload(request)
+    session_id = payload.get("session_id")
+    return session_id if isinstance(session_id, str) and session_id.strip() else None
+
+
 def _revoke_user_two_factor_artifacts(db: Session, user: User) -> tuple[int, int]:
     revoked_devices = security_service.revoke_all_trusted_devices(db, user_id=user.id)
     revoked_codes = security_service.revoke_backup_codes(db, user_id=user.id)
     return revoked_devices, revoked_codes
 
 
+def _can_return_dev_reset_token(request: Request) -> bool:
+    if not get_settings().password_reset_return_token_in_response:
+        return False
+    hostname = (request.url.hostname or "").strip().lower()
+    return hostname in {"localhost", "127.0.0.1", "::1"}
+
+
 @router.get("/me", response_model=UserMeResponse)
-def get_me(current_user: User = Depends(auth_service.get_current_user)):
+def get_me(
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
     """Get current authenticated user's profile"""
+    privilege_flags = auth_service.build_privilege_flags(db, current_user)
+    payload = auth_service.get_request_auth_payload(request)
+    mfa_authenticated_at = auth_service._coerce_timestamp(payload.get("mfa_authenticated_at"))
+    mfa_verified = bool(payload.get("mfa_verified"))
     return UserMeResponse(
         id=str(current_user.id),
         email=current_user.email,
@@ -219,8 +346,12 @@ def get_me(current_user: User = Depends(auth_service.get_current_user)):
         role=current_user.role.value,
         verification_status=current_user.verification_status.value if current_user.verification_status else None,
         two_factor_enabled=current_user.two_factor_enabled,
-        mfa_verified=True,
-        is_super_admin=auth_service.is_super_admin(current_user),
+        mfa_verified=mfa_verified,
+        mfa_authenticated_at=mfa_authenticated_at,
+        mfa_recent_for_privileged_actions=auth_service.is_recent_mfa_authenticated(mfa_authenticated_at),
+        auth_source=str(payload.get("auth_source") or "local"),
+        sso_provider=payload.get("sso_provider"),
+        **privilege_flags,
     )
 
 
@@ -613,9 +744,317 @@ def reset_admin_2fa(
     )
 
 
+@router.get("/admin/sso/status", response_model=AdminSSOStatusResponse)
+def get_admin_sso_status():
+    return AdminSSOStatusResponse(**admin_sso.get_status_payload())
+
+
+@router.get("/admin/sso/login")
+def start_admin_sso_login(
+    next_path: str | None = Query(default="/patients", alias="next"),
+):
+    if not admin_sso.is_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin SSO is disabled.")
+
+    nonce = generate_security_token(16)
+    code_verifier = admin_sso.generate_pkce_code_verifier()
+    code_challenge = admin_sso.create_pkce_code_challenge(code_verifier)
+    sanitized_next_path = _sanitize_next_path(next_path)
+    state_token = _build_admin_sso_state_token(
+        nonce=nonce,
+        next_path=sanitized_next_path,
+    )
+    admin_sso_store.store_login_artifact(
+        state_token=state_token,
+        nonce=nonce,
+        code_verifier=code_verifier,
+        next_path=sanitized_next_path,
+    )
+    try:
+        authorize_url = admin_sso.build_authorize_url(
+            state_token=state_token,
+            nonce=nonce,
+            code_challenge=code_challenge,
+        )
+    except admin_sso.AdminSsoConfigurationError as exc:
+        admin_sso_store.clear_login_artifact(state_token)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    response = RedirectResponse(url=authorize_url, status_code=status.HTTP_303_SEE_OTHER)
+    _set_admin_sso_state_cookie(response, state_token)
+    return response
+
+
+@router.get("/admin/sso/callback")
+def complete_admin_sso_login(
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    error_description: str | None = Query(default=None),
+):
+    state_cookie = _get_admin_sso_state_cookie(request)
+    if error:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={
+                "reason": "provider_error",
+                "provider_error": error,
+                "provider_error_description": error_description or "",
+            },
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="provider_error")
+
+    if not code or not state:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "invalid_state"},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="invalid_state")
+
+    if not state_cookie:
+        admin_sso_store.clear_login_artifact(state)
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "missing_state_cookie"},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="missing_state_cookie")
+
+    if state != state_cookie:
+        admin_sso_store.clear_login_artifact(state)
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "invalid_state"},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="invalid_state")
+
+    try:
+        state_payload = _decode_admin_sso_state_token(state)
+    except HTTPException:
+        admin_sso_store.clear_login_artifact(state)
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "invalid_state_token"},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="invalid_state")
+
+    login_artifact = admin_sso_store.pop_login_artifact(state)
+    if login_artifact is None:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "expired_sso_session"},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="expired_sso_session")
+
+    if login_artifact.nonce != state_payload["nonce"] or login_artifact.next_path != state_payload["next_path"]:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "invalid_state"},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="invalid_state")
+
+    try:
+        identity = admin_sso.complete_callback(
+            code=code,
+            expected_nonce=state_payload["nonce"],
+            code_verifier=login_artifact.code_verifier,
+        )
+    except (admin_sso.AdminSsoConfigurationError, admin_sso.AdminSsoExchangeError) as exc:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "token_exchange_failed", "message": str(exc)},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="provider_exchange")
+
+    if not identity.email_verified:
+        _write_auth_audit(
+            db,
+            action="admin_sso_claim_mismatch",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "email_not_verified", "email": identity.email},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="email_not_verified")
+
+    if not admin_sso.email_domain_allowed(identity.email):
+        _write_auth_audit(
+            db,
+            action="admin_sso_claim_mismatch",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "email_domain_not_allowed", "email": identity.email},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="email_domain_not_allowed")
+
+    if not admin_sso.required_group_present(identity.groups):
+        _write_auth_audit(
+            db,
+            action="admin_sso_group_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "required_group_missing", "email": identity.email, "groups": list(identity.groups)},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="required_group_missing")
+
+    user = db.scalar(select(User).where(User.email == identity.email, User.deleted_at.is_(None)))
+    if user is None:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "admin_account_not_found", "email": identity.email},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="admin_account_not_found")
+
+    if user.role != UserRole.admin:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            user=user,
+            details={"reason": "admin_role_required", "email": identity.email},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="admin_role_required")
+
+    if not user.is_active:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            user=user,
+            details={"reason": "account_deactivated", "email": identity.email},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="account_deactivated")
+
+    if auth_service.requires_token_mfa(user) and not identity.mfa_verified:
+        _write_auth_audit(
+            db,
+            action="admin_sso_claim_mismatch",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            user=user,
+            details={"reason": "mfa_claim_required", "email": identity.email, "amr": list(identity.amr)},
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="mfa_required")
+
+    login_response = auth_service.create_login_response(
+        user,
+        db=db,
+        mfa_verified=identity.mfa_verified,
+        mfa_authenticated_at=identity.auth_time,
+        auth_source="sso",
+        sso_provider=identity.provider,
+    )
+    success_response = RedirectResponse(
+        url=_frontend_url_for(login_artifact.next_path),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+    _set_auth_cookie(success_response, login_response["access_token"])
+    _clear_admin_sso_state_cookie(success_response)
+    session_id = auth_service.get_request_auth_payload(request).get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        try:
+            session_id = decode_token(login_response["access_token"]).get("session_id")
+        except Exception:
+            session_id = None
+    if identity.id_token and isinstance(session_id, str) and session_id:
+        admin_sso_store.store_logout_hint(
+            session_id=session_id,
+            id_token_hint=identity.id_token,
+            ttl_seconds=settings.jwt_expires_in,
+        )
+
+    _write_auth_audit(
+        db,
+        action="admin_sso_login_success",
+        ip_address=_client_ip(request),
+        status_value="success",
+        user=user,
+        details={
+            "provider": identity.provider,
+            "auth_source": "sso",
+            "mfa_verified": identity.mfa_verified,
+            "amr": list(identity.amr),
+        },
+    )
+    db.commit()
+    return success_response
+
+
+@router.get("/admin/sso/logout")
+def logout_admin_sso(
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User | None = Depends(auth_service.get_optional_current_user),
+):
+    session_id = _get_session_id_from_request(request)
+    logout_hint = admin_sso_store.pop_logout_hint(session_id)
+    try:
+        redirect_url = admin_sso.build_logout_redirect_url(id_token_hint=logout_hint) or _frontend_url_for("/login")
+    except admin_sso.AdminSsoConfigurationError:
+        redirect_url = _frontend_url_for("/login")
+    response = RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)
+    _clear_auth_cookie(response)
+    _clear_admin_sso_state_cookie(response)
+
+    _write_auth_audit(
+        db,
+        action="admin_sso_logout",
+        ip_address=_client_ip(request),
+        status_value="success",
+        user=current_user,
+        details={"provider": get_settings().admin_oidc_provider_name},
+    )
+    db.commit()
+    return response
+
+
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("60/minute")  # General limit (e.g. successful logins from same IP)
-@limiter.limit("10/minute", key_func=get_failed_login_key)  # Strict IP limit for brute-force protection
+@limiter.limit("10/minute", key_func=get_strict_failed_login_key)  # Strict IP limit for brute-force protection
 def login(
     request: Request,
     response: Response,
@@ -672,8 +1111,28 @@ def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if auth_service.is_admin_sso_enforced_for_user(authenticated_user):
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=ip,
+            status_value="failure",
+            user=authenticated_user,
+            details={"reason": "admin_sso_required"},
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "admin_sso_required",
+                "message": "Admin account must continue with Organization SSO.",
+                "sso_login_path": "/api/auth/admin/sso/login",
+            },
+        )
+
     trusted_device_raw_token: str | None = None
     mfa_verified = not auth_service.requires_token_mfa(authenticated_user)
+    mfa_authenticated_at = datetime.now(timezone.utc) if mfa_verified else None
     if _two_factor_required_for_user(authenticated_user):
         _ensure_two_factor_secret(db, authenticated_user)
 
@@ -689,6 +1148,7 @@ def login(
             if trusted:
                 security_service.mark_trusted_device_used(db, trusted)
                 mfa_verified = True
+                mfa_authenticated_at = datetime.now(timezone.utc)
 
         if not trusted:
             otp_code = normalize_totp_code(payload.otp_code)
@@ -755,6 +1215,7 @@ def login(
                 )
 
             mfa_verified = True
+            mfa_authenticated_at = datetime.now(timezone.utc)
 
             if used_backup:
                 db.add(
@@ -801,7 +1262,9 @@ def login(
 
     login_response = auth_service.create_login_response(
         authenticated_user,
+        db=db,
         mfa_verified=mfa_verified,
+        mfa_authenticated_at=mfa_authenticated_at,
     )
     _set_auth_cookie(response, login_response["access_token"])
     if trusted_device_raw_token:
@@ -818,10 +1281,21 @@ def login(
 def refresh_token(
     request: Request,
     response: Response,
+    db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):
     """Refresh access token for authenticated user"""
-    refreshed = auth_service.create_login_response(current_user, mfa_verified=True)
+    payload = auth_service.get_request_auth_payload(request)
+    mfa_authenticated_at = auth_service._coerce_timestamp(payload.get("mfa_authenticated_at"))
+    refreshed = auth_service.create_login_response(
+        current_user,
+        db=db,
+        mfa_verified=bool(payload.get("mfa_verified")),
+        mfa_authenticated_at=mfa_authenticated_at,
+        auth_source=str(payload.get("auth_source") or "local"),
+        sso_provider=payload.get("sso_provider"),
+        session_id=str(payload.get("session_id") or ""),
+    )
     _set_auth_cookie(response, refreshed["access_token"])
     return refreshed
 
@@ -833,13 +1307,15 @@ def logout(
     response: Response,
 ):
     """Logout endpoint (clears auth cookie)."""
+    admin_sso_store.clear_logout_hint(_get_session_id_from_request(request))
     _clear_auth_cookie(response)
+    _clear_admin_sso_state_cookie(response)
     return {"message": "Successfully logged out"}
 
 
 @router.post("/forgot-password", response_model=ForgotPasswordResponse)
 @limiter.limit("10/minute")
-@limiter.limit("5/minute", key_func=get_client_ip_rate_limit_key)
+@limiter.limit("5/minute", key_func=get_strict_client_ip_rate_limit_key)
 def forgot_password(request: Request, payload: ForgotPasswordRequest, db: Session = Depends(auth_service.get_db)):
     """
     Request a password reset token.
@@ -873,7 +1349,7 @@ def forgot_password(request: Request, payload: ForgotPasswordRequest, db: Sessio
         message="If the account exists, a reset instruction has been generated.",
     )
     # Resolve this flag at request time so tests/env overrides are respected.
-    if get_settings().password_reset_return_token_in_response and reset_token:
+    if _can_return_dev_reset_token(request) and reset_token:
         response.reset_token = reset_token
 
     return response
@@ -881,11 +1357,12 @@ def forgot_password(request: Request, payload: ForgotPasswordRequest, db: Sessio
 
 @router.post("/reset-password", response_model=MessageResponse)
 @limiter.limit("10/minute")
-@limiter.limit("5/minute", key_func=get_client_ip_rate_limit_key)
+@limiter.limit("5/minute", key_func=get_strict_client_ip_rate_limit_key)
 def reset_password(request: Request, payload: ResetPasswordRequest, db: Session = Depends(auth_service.get_db)):
     ip = _client_ip(request)
     try:
-        user_id = auth_service.verify_password_reset_token(payload.token)
+        token_claims = auth_service.parse_password_reset_token(payload.token)
+        user_id = token_claims.user_id
     except HTTPException:
         _write_auth_audit(
             db,
@@ -909,7 +1386,11 @@ def reset_password(request: Request, payload: ResetPasswordRequest, db: Session 
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset token")
 
-    user = db.scalar(select(User).where(User.id == parsed_user_id))
+    user = db.scalar(
+        select(User)
+        .where(User.id == parsed_user_id, User.deleted_at.is_(None))
+        .with_for_update()
+    )
     if not user:
         _write_auth_audit(
             db,
@@ -917,6 +1398,21 @@ def reset_password(request: Request, payload: ResetPasswordRequest, db: Session 
             ip_address=ip,
             status_value="failure",
             details={"reason": "target_not_found", "user_id": str(parsed_user_id)},
+        )
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset token")
+
+    if auth_service.is_password_reset_token_stale(user, issued_at=token_claims.issued_at):
+        _write_auth_audit(
+            db,
+            action="password_reset_denied",
+            ip_address=ip,
+            status_value="failure",
+            user=user,
+            details={
+                "reason": "stale_reset_token",
+                "issued_at": token_claims.issued_at.isoformat() if token_claims.issued_at else None,
+            },
         )
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset token")
@@ -938,11 +1434,10 @@ def reset_password(request: Request, payload: ResetPasswordRequest, db: Session 
 @router.get("/invite/{token}", response_model=InviteInfoResponse)
 @limiter.limit("60/minute")
 def get_invite_info(request: Request, token: str, db: Session = Depends(auth_service.get_db)):
-    invite = auth_service.get_active_invite_by_token(db, token)
-    if not invite:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invite link is invalid or expired")
-
-    return InviteInfoResponse(email=invite.email, role=invite.role, expires_at=invite.expires_at)
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Invite token URLs are no longer supported. Use the current invite flow instead.",
+    )
 
 
 @router.post("/invite/inspect", response_model=InviteInfoResponse)
