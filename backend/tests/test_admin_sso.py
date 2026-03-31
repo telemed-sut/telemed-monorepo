@@ -41,6 +41,103 @@ def test_admin_sso_status_disabled_by_default(client: TestClient):
     }
 
 
+def test_admin_sso_health_reports_disabled_by_default(client: TestClient):
+    response = client.get("/auth/admin/sso/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "disabled",
+        "provider": None,
+        "issuer": None,
+        "details": None,
+        "metadata_endpoint": None,
+    }
+
+
+def test_admin_sso_health_reports_healthy_when_metadata_is_reachable(client: TestClient, monkeypatch):
+    monkeypatch.setenv("ADMIN_OIDC_ENABLED", "true")
+    monkeypatch.setenv("ADMIN_OIDC_ISSUER_URL", "https://auth.example.com/application/o/telemed")
+    monkeypatch.setenv("ADMIN_OIDC_PROVIDER_NAME", "authentik")
+    monkeypatch.setenv("ADMIN_OIDC_CLIENT_ID", "telemed-admin")
+    monkeypatch.setenv("ADMIN_OIDC_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setenv("ADMIN_OIDC_REDIRECT_URI", "http://localhost:3000/api/auth/admin/sso/callback")
+    get_settings.cache_clear()
+
+    monkeypatch.setattr(
+        "app.services.admin_sso._fetch_metadata",
+        lambda: {"authorization_endpoint": "https://auth.example.com/start"},
+    )
+
+    response = client.get("/auth/admin/sso/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "healthy",
+        "provider": "authentik",
+        "issuer": "https://auth.example.com/application/o/telemed",
+        "details": None,
+        "metadata_endpoint": "https://auth.example.com/application/o/telemed/.well-known/openid-configuration",
+    }
+
+    get_settings.cache_clear()
+
+
+def test_admin_sso_health_reports_misconfigured_when_config_is_invalid(client: TestClient, monkeypatch):
+    monkeypatch.setenv("ADMIN_OIDC_ENABLED", "true")
+    monkeypatch.setenv("ADMIN_OIDC_ISSUER_URL", "https://auth.example.com/application/o/telemed")
+    monkeypatch.setenv("ADMIN_OIDC_PROVIDER_NAME", "authentik")
+    monkeypatch.setenv("ADMIN_OIDC_CLIENT_ID", "telemed-admin")
+    monkeypatch.setenv("ADMIN_OIDC_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setenv("ADMIN_OIDC_REDIRECT_URI", "http://localhost:3000/api/auth/admin/sso/callback")
+    get_settings.cache_clear()
+
+    monkeypatch.setattr(
+        "app.services.admin_sso._fetch_metadata",
+        lambda: (_ for _ in ()).throw(admin_sso.AdminSsoConfigurationError("ADMIN_OIDC_ISSUER_URL is required.")),
+    )
+
+    response = client.get("/auth/admin/sso/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "misconfigured",
+        "provider": "authentik",
+        "issuer": "https://auth.example.com/application/o/telemed",
+        "details": "ADMIN_OIDC_ISSUER_URL is required.",
+        "metadata_endpoint": "https://auth.example.com/application/o/telemed/.well-known/openid-configuration",
+    }
+
+    get_settings.cache_clear()
+
+
+def test_admin_sso_health_reports_unreachable_when_metadata_fetch_fails(client: TestClient, monkeypatch):
+    monkeypatch.setenv("ADMIN_OIDC_ENABLED", "true")
+    monkeypatch.setenv("ADMIN_OIDC_ISSUER_URL", "https://auth.example.com/application/o/telemed")
+    monkeypatch.setenv("ADMIN_OIDC_PROVIDER_NAME", "authentik")
+    monkeypatch.setenv("ADMIN_OIDC_CLIENT_ID", "telemed-admin")
+    monkeypatch.setenv("ADMIN_OIDC_CLIENT_SECRET", "test-client-secret")
+    monkeypatch.setenv("ADMIN_OIDC_REDIRECT_URI", "http://localhost:3000/api/auth/admin/sso/callback")
+    get_settings.cache_clear()
+
+    monkeypatch.setattr(
+        "app.services.admin_sso._fetch_metadata",
+        lambda: (_ for _ in ()).throw(RuntimeError("network down")),
+    )
+
+    response = client.get("/auth/admin/sso/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "unreachable",
+        "provider": "authentik",
+        "issuer": "https://auth.example.com/application/o/telemed",
+        "details": "OIDC metadata endpoint is unreachable.",
+        "metadata_endpoint": "https://auth.example.com/application/o/telemed/.well-known/openid-configuration",
+    }
+
+    get_settings.cache_clear()
+
+
 def test_local_admin_password_login_is_denied_when_sso_is_enforced(
     client: TestClient,
     db: Session,
@@ -127,6 +224,18 @@ def test_admin_sso_login_redirect_sets_state_cookie(
     assert "admin_sso_state=" in response.headers.get("set-cookie", "")
 
     get_settings.cache_clear()
+
+
+def test_admin_sso_callback_uses_strict_ip_limiter_key(client: TestClient):
+    limits = auth_api.limiter._route_limits["app.api.auth.complete_admin_sso_login"]
+    strict_limit = next(
+        limit
+        for limit in limits
+        if str(limit.limit) == "10 per 1 minute"
+        and limit.key_func is auth_api.get_strict_client_ip_rate_limit_key
+    )
+
+    assert strict_limit.limit is not None
 
 
 def test_admin_sso_callback_creates_cookie_session_and_redirects(

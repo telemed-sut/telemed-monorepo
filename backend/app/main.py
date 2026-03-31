@@ -133,6 +133,11 @@ def backfill_bootstrap_privileged_roles_on_startup():
             if bind is None or not inspect(bind).has_table("users"):
                 logger.info("Skipping bootstrap privileged-role backfill because the users table is not available yet.")
                 return
+            if not inspect(bind).has_table("user_privileged_role_assignments"):
+                logger.info(
+                    "Skipping bootstrap privileged-role backfill because the user_privileged_role_assignments table is not available yet."
+                )
+                return
             created = auth_service.backfill_bootstrap_privileged_roles(db)
             if created:
                 db.commit()

@@ -38,6 +38,7 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 export function TeamSwitcher({ teams }: { teams: Team[] }) {
     const { isMobile } = useSidebar();
     const [activeTeam, setActiveTeam] = React.useState(teams[0]);
+    const authSource = useAuthStore((state) => state.authSource);
     const clearSessionState = useAuthStore((state) => state.clearSessionState);
     const router = useRouter();
     const language = useLanguageStore((state) => state.language);
@@ -100,9 +101,13 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
                             <DropdownMenuItem
                                 className="gap-2 p-2 cursor-pointer text-destructive focus:text-destructive"
                                 onClick={() => {
+                                    const isSsoSession = authSource === "sso";
                                     clearSessionState();
+                                    if (isSsoSession) {
+                                        window.location.assign(getAdminSsoLogoutPath());
+                                        return;
+                                    }
                                     router.replace("/login");
-                                    window.location.assign(getAdminSsoLogoutPath());
                                 }}
                             >
                                 <div className="flex size-6 items-center justify-center rounded-md border bg-background">

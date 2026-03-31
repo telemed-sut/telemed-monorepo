@@ -45,7 +45,6 @@ import {
   fetchCurrentUser,
   getAdminSsoLogoutPath,
   getPrivilegedRoleLabel,
-  logout,
   ROLE_LABEL_MAP,
   UserMe,
 } from "@/lib/api";
@@ -454,6 +453,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const t = SIDEBAR_LABELS[language];
   const token = useAuthStore((state) => state.token);
   const userRole = useAuthStore((state) => state.role);
+  const authSource = useAuthStore((state) => state.authSource);
   const clearSessionState = useAuthStore((state) => state.clearSessionState);
   const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
 
@@ -505,10 +505,14 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   };
 
   const handleLogout = () => {
+    const isSsoSession = authSource === "sso";
     closeMobileSidebar();
     clearSessionState();
+    if (isSsoSession) {
+      window.location.assign(getAdminSsoLogoutPath());
+      return;
+    }
     router.replace("/login");
-    window.location.assign(getAdminSsoLogoutPath());
   };
   const isCollapsed = state === "collapsed";
   const activeProfileMenuItem: ProfileMenuItem | null = pathname.startsWith("/settings")

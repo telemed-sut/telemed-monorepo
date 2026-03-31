@@ -35,6 +35,7 @@ from app.schemas.auth import (
     BackupCodesResponse,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
+    AdminSSOHealthResponse,
     Admin2FAResetRequest,
     Admin2FAStatusResponse,
     Admin2FAVerifyRequest,
@@ -73,6 +74,36 @@ def _frontend_url_for(path: str = "/login") -> str:
     if not path.startswith("/"):
         path = f"/{path}"
     return f"{base}{path}"
+
+
+def _admin_sso_metadata_endpoint(issuer: str | None) -> str | None:
+    if not issuer:
+        return None
+    normalized_issuer = issuer.rstrip("/")
+    return f"{normalized_issuer}/.well-known/openid-configuration"
+
+
+def _log_admin_sso_event(
+    message: str,
+    *,
+    level: int = logging.INFO,
+    event: str,
+    reason: str | None = None,
+    provider: str | None = None,
+    email: str | None = None,
+    mfa_verified: bool | None = None,
+    exc_info: bool = False,
+    **extra_fields: object,
+) -> None:
+    extra = {
+        "event": event,
+        "reason": reason,
+        "provider": provider,
+        "email": email,
+        "mfa_verified": mfa_verified,
+        **extra_fields,
+    }
+    logger.log(level, message, extra=extra, exc_info=exc_info)
 
 
 def _retired_email(user_id: UUID) -> str:
@@ -749,6 +780,72 @@ def get_admin_sso_status():
     return AdminSSOStatusResponse(**admin_sso.get_status_payload())
 
 
+@router.get("/admin/sso/health", response_model=AdminSSOHealthResponse)
+def get_admin_sso_health():
+    settings = get_settings()
+    issuer = (settings.admin_oidc_issuer_url or "").strip() or None
+    metadata_endpoint = _admin_sso_metadata_endpoint(issuer)
+    if not admin_sso.is_enabled():
+        return AdminSSOHealthResponse(
+            status="disabled",
+            provider=None,
+            issuer=issuer,
+            metadata_endpoint=metadata_endpoint,
+        )
+
+    try:
+        admin_sso._fetch_metadata()
+    except admin_sso.AdminSsoConfigurationError as exc:
+        _log_admin_sso_event(
+            "Admin SSO health check misconfigured",
+            level=logging.WARNING,
+            event="admin_sso_health_check",
+            reason="misconfigured",
+            provider=settings.admin_oidc_provider_name,
+            metadata_endpoint=metadata_endpoint,
+            details=str(exc),
+        )
+        return AdminSSOHealthResponse(
+            status="misconfigured",
+            provider=settings.admin_oidc_provider_name,
+            issuer=issuer,
+            details=str(exc),
+            metadata_endpoint=metadata_endpoint,
+        )
+    except Exception:
+        _log_admin_sso_event(
+            "Admin SSO health check could not reach metadata endpoint",
+            level=logging.WARNING,
+            event="admin_sso_health_check",
+            reason="unreachable",
+            provider=settings.admin_oidc_provider_name,
+            metadata_endpoint=metadata_endpoint,
+            details="OIDC metadata endpoint is unreachable.",
+            exc_info=True,
+        )
+        return AdminSSOHealthResponse(
+            status="unreachable",
+            provider=settings.admin_oidc_provider_name,
+            issuer=issuer,
+            details="OIDC metadata endpoint is unreachable.",
+            metadata_endpoint=metadata_endpoint,
+        )
+
+    _log_admin_sso_event(
+        "Admin SSO health check healthy",
+        event="admin_sso_health_check",
+        reason="healthy",
+        provider=settings.admin_oidc_provider_name,
+        metadata_endpoint=metadata_endpoint,
+    )
+    return AdminSSOHealthResponse(
+        status="healthy",
+        provider=settings.admin_oidc_provider_name,
+        issuer=issuer,
+        metadata_endpoint=metadata_endpoint,
+    )
+
+
 @router.get("/admin/sso/login")
 def start_admin_sso_login(
     next_path: str | None = Query(default="/patients", alias="next"),
@@ -786,6 +883,7 @@ def start_admin_sso_login(
 
 
 @router.get("/admin/sso/callback")
+@limiter.limit("10/minute", key_func=get_strict_client_ip_rate_limit_key)
 def complete_admin_sso_login(
     request: Request,
     db: Session = Depends(auth_service.get_db),
@@ -807,6 +905,14 @@ def complete_admin_sso_login(
                 "provider_error_description": error_description or "",
             },
         )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=provider_error",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="provider_error",
+            provider=get_settings().admin_oidc_provider_name,
+            provider_error=error,
+        )
         db.commit()
         return _admin_sso_failure_redirect(reason="provider_error")
 
@@ -817,6 +923,14 @@ def complete_admin_sso_login(
             ip_address=_client_ip(request),
             status_value="failure",
             details={"reason": "invalid_state"},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=invalid_state_missing_code_or_state",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="invalid_state",
+            provider=get_settings().admin_oidc_provider_name,
+            missing_field="code_or_state",
         )
         db.commit()
         return _admin_sso_failure_redirect(reason="invalid_state")
@@ -830,6 +944,13 @@ def complete_admin_sso_login(
             status_value="failure",
             details={"reason": "missing_state_cookie"},
         )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=missing_state_cookie",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="missing_state_cookie",
+            provider=get_settings().admin_oidc_provider_name,
+        )
         db.commit()
         return _admin_sso_failure_redirect(reason="missing_state_cookie")
 
@@ -841,6 +962,13 @@ def complete_admin_sso_login(
             ip_address=_client_ip(request),
             status_value="failure",
             details={"reason": "invalid_state"},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=invalid_state_mismatch",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="invalid_state",
+            provider=get_settings().admin_oidc_provider_name,
         )
         db.commit()
         return _admin_sso_failure_redirect(reason="invalid_state")
@@ -856,6 +984,13 @@ def complete_admin_sso_login(
             status_value="failure",
             details={"reason": "invalid_state_token"},
         )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=invalid_state_token",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="invalid_state_token",
+            provider=get_settings().admin_oidc_provider_name,
+        )
         db.commit()
         return _admin_sso_failure_redirect(reason="invalid_state")
 
@@ -868,6 +1003,13 @@ def complete_admin_sso_login(
             status_value="failure",
             details={"reason": "expired_sso_session"},
         )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=expired_sso_session",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="expired_sso_session",
+            provider=get_settings().admin_oidc_provider_name,
+        )
         db.commit()
         return _admin_sso_failure_redirect(reason="expired_sso_session")
 
@@ -878,6 +1020,13 @@ def complete_admin_sso_login(
             ip_address=_client_ip(request),
             status_value="failure",
             details={"reason": "invalid_state"},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=invalid_state_artifact_mismatch",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="invalid_state",
+            provider=get_settings().admin_oidc_provider_name,
         )
         db.commit()
         return _admin_sso_failure_redirect(reason="invalid_state")
@@ -896,6 +1045,13 @@ def complete_admin_sso_login(
             status_value="failure",
             details={"reason": "token_exchange_failed", "message": str(exc)},
         )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=token_exchange_failed",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="token_exchange_failed",
+            provider=get_settings().admin_oidc_provider_name,
+        )
         db.commit()
         return _admin_sso_failure_redirect(reason="provider_exchange")
 
@@ -906,6 +1062,14 @@ def complete_admin_sso_login(
             ip_address=_client_ip(request),
             status_value="failure",
             details={"reason": "email_not_verified", "email": identity.email},
+        )
+        _log_admin_sso_event(
+            "Admin SSO claim mismatch: reason=email_not_verified",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="email_not_verified",
+            provider=identity.provider,
+            email=identity.email,
         )
         db.commit()
         return _admin_sso_failure_redirect(reason="email_not_verified")
@@ -918,6 +1082,14 @@ def complete_admin_sso_login(
             status_value="failure",
             details={"reason": "email_domain_not_allowed", "email": identity.email},
         )
+        _log_admin_sso_event(
+            "Admin SSO claim mismatch: reason=email_domain_not_allowed",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="email_domain_not_allowed",
+            provider=identity.provider,
+            email=identity.email,
+        )
         db.commit()
         return _admin_sso_failure_redirect(reason="email_domain_not_allowed")
 
@@ -928,6 +1100,14 @@ def complete_admin_sso_login(
             ip_address=_client_ip(request),
             status_value="failure",
             details={"reason": "required_group_missing", "email": identity.email, "groups": list(identity.groups)},
+        )
+        _log_admin_sso_event(
+            "Admin SSO group denied: reason=required_group_missing",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="required_group_missing",
+            provider=identity.provider,
+            email=identity.email,
         )
         db.commit()
         return _admin_sso_failure_redirect(reason="required_group_missing")
@@ -941,6 +1121,14 @@ def complete_admin_sso_login(
             status_value="failure",
             details={"reason": "admin_account_not_found", "email": identity.email},
         )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=admin_account_not_found",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="admin_account_not_found",
+            provider=identity.provider,
+            email=identity.email,
+        )
         db.commit()
         return _admin_sso_failure_redirect(reason="admin_account_not_found")
 
@@ -952,6 +1140,14 @@ def complete_admin_sso_login(
             status_value="failure",
             user=user,
             details={"reason": "admin_role_required", "email": identity.email},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=admin_role_required",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="admin_role_required",
+            provider=identity.provider,
+            email=identity.email,
         )
         db.commit()
         return _admin_sso_failure_redirect(reason="admin_role_required")
@@ -965,6 +1161,14 @@ def complete_admin_sso_login(
             user=user,
             details={"reason": "account_deactivated", "email": identity.email},
         )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=account_deactivated",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="account_deactivated",
+            provider=identity.provider,
+            email=identity.email,
+        )
         db.commit()
         return _admin_sso_failure_redirect(reason="account_deactivated")
 
@@ -976,6 +1180,15 @@ def complete_admin_sso_login(
             status_value="failure",
             user=user,
             details={"reason": "mfa_claim_required", "email": identity.email, "amr": list(identity.amr)},
+        )
+        _log_admin_sso_event(
+            "Admin SSO claim mismatch: reason=mfa_claim_required",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="mfa_claim_required",
+            provider=identity.provider,
+            email=identity.email,
+            mfa_verified=identity.mfa_verified,
         )
         db.commit()
         return _admin_sso_failure_redirect(reason="mfa_required")
@@ -1020,6 +1233,14 @@ def complete_admin_sso_login(
             "amr": list(identity.amr),
         },
     )
+    _log_admin_sso_event(
+        "Admin SSO login success",
+        event="admin_sso_login_success",
+        reason="success",
+        provider=identity.provider,
+        email=identity.email,
+        mfa_verified=identity.mfa_verified,
+    )
     db.commit()
     return success_response
 
@@ -1047,6 +1268,13 @@ def logout_admin_sso(
         status_value="success",
         user=current_user,
         details={"provider": get_settings().admin_oidc_provider_name},
+    )
+    _log_admin_sso_event(
+        "Admin SSO logout",
+        event="admin_sso_logout",
+        reason="success",
+        provider=get_settings().admin_oidc_provider_name,
+        email=current_user.email if current_user else None,
     )
     db.commit()
     return response

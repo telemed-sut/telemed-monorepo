@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -38,6 +39,14 @@ class AdminSSOStatusResponse(BaseModel):
     enforced_for_admin: bool = False
     login_path: str | None = None
     logout_path: str | None = None
+
+
+class AdminSSOHealthResponse(BaseModel):
+    status: Literal["disabled", "healthy", "misconfigured", "unreachable"]
+    provider: str | None = None
+    issuer: str | None = None
+    details: str | None = None
+    metadata_endpoint: str | None = None
 
 
 class TokenResponse(BaseModel):

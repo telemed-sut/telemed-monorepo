@@ -583,6 +583,8 @@ export function getAdminSsoLoginPath(nextPath: string = "/patients"): string {
   return `/api/auth/admin/sso/login?${query.toString()}`;
 }
 
+// Use this only for SSO-backed sessions. Local password sessions should clear
+// client auth state and route directly to /login instead of federating logout.
 export function getAdminSsoLogoutPath(): string {
   return "/api/auth/admin/sso/logout";
 }

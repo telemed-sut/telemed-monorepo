@@ -23,7 +23,6 @@ import {
   getAdminSsoLogoutPath,
   fetchTrustedDevices,
   getErrorMessage,
-  logout,
   regenerateBackupCodes,
   resolveSecurityUserByEmail,
   reset2FA,
@@ -90,6 +89,7 @@ export function SettingsContent() {
   const language = useLanguageStore((state) => state.language);
   const token = useAuthStore((state) => state.token);
   const role = useAuthStore((state) => state.role);
+  const authSource = useAuthStore((state) => state.authSource);
   const canManagePrivilegedAdmins = useAuthStore((state) => state.canManagePrivilegedAdmins);
   const canManageSecurityRecovery = useAuthStore((state) => state.canManageSecurityRecovery);
   const ssoProvider = useAuthStore((state) => state.ssoProvider);
@@ -215,9 +215,13 @@ export function SettingsContent() {
   }, [tokenTTL, language]);
 
   const handleLogout = () => {
+    const isSsoSession = authSource === "sso";
     clearSessionState();
+    if (isSsoSession) {
+      window.location.assign(getAdminSsoLogoutPath());
+      return;
+    }
     router.replace("/login");
-    window.location.assign(getAdminSsoLogoutPath());
   };
 
   const handleVerify2FA = async () => {
