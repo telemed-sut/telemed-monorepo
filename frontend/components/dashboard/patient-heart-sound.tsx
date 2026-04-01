@@ -657,6 +657,10 @@ export function PatientHeartSoundContent({
     return displayRecords.filter((record) => record.position === activePosition);
   }, [activePosition, displayRecords]);
 
+  const visibleRecords = useMemo(() => {
+    return activePosition ? positionRecords : displayRecords;
+  }, [activePosition, displayRecords, positionRecords]);
+
   const positionSummary = useMemo(() => {
     return POSITION_META.map((position) => ({
       ...position,
@@ -673,7 +677,7 @@ export function PatientHeartSoundContent({
       return;
     }
 
-    const match = displayRecords.find((record) => record.position === activePosition);
+    const match = visibleRecords[0];
     if (!match) {
       shouldScrollRef.current = false;
       return;
@@ -690,9 +694,20 @@ export function PatientHeartSoundContent({
         setActiveRowId((current) => (current === match.id ? null : current));
       }, 1800);
     });
-  }, [activePosition, displayRecords]);
+  }, [activePosition, visibleRecords]);
+
+  const clearPositionSelection = () => {
+    setActivePosition(null);
+    setActiveRowId(null);
+    shouldScrollRef.current = false;
+  };
 
   const jumpToPosition = (position: number) => {
+    if (activePosition === position) {
+      clearPositionSelection();
+      return;
+    }
+
     setActivePosition(position);
     setManualPosition(position);
     setUploadPanel(getPanelByPosition(position));
@@ -910,15 +925,28 @@ export function PatientHeartSoundContent({
                 {activePosition
                   ? tr(
                       language,
-                      "Rows for this point will be highlighted in the table. Click the point again to revisit the same cluster.",
-                      "แถวของจุดนี้จะถูกไฮไลต์ในตาราง และสามารถกดจุดเดิมเพื่อกลับไปดูกลุ่มเสียงนี้ได้อีกครั้ง"
+                      "Only recordings from this position are shown in the table below so you can review one point without other positions mixed in.",
+                      "ตารางด้านล่างจะแสดงเฉพาะไฟล์เสียงของตำแหน่งนี้เท่านั้น เพื่อให้ตรวจทีละจุดได้โดยไม่มีตำแหน่งอื่นปะปน"
                     )
                   : tr(
                       language,
-                      "Use the surface map to jump directly to the relevant recordings.",
-                      "ใช้แผนที่ผิวกายเพื่อกระโดดไปยังรายการเสียงที่เกี่ยวข้องได้ทันที"
+                      "Use the surface map to filter the table down to one auscultation point at a time.",
+                      "ใช้แผนที่ผิวกายเพื่อกรองตารางให้เหลือทีละตำแหน่งที่ต้องการตรวจ"
                     )}
               </p>
+
+              {activePosition ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit rounded-full"
+                  onClick={clearPositionSelection}
+                >
+                  <X className="size-4" />
+                  {tr(language, "Show all positions", "แสดงทุกตำแหน่ง")}
+                </Button>
+              ) : null}
 
               {positionRecords.length > 0 ? (
                 <div className="space-y-2 border-t border-slate-100 pt-3">
@@ -1149,13 +1177,13 @@ export function PatientHeartSoundContent({
               {activePosition
                 ? tr(
                     language,
-                    `Position ${activePosition} is active. Matching rows are highlighted and grouped in-place.`,
-                    `ตำแหน่ง ${activePosition} ถูกเลือกอยู่ แถวที่เกี่ยวข้องจะถูกไฮไลต์และจัดกลุ่มในตาราง`
+                    `Position ${activePosition} is active. Only matching recordings are shown below.`,
+                    `ตำแหน่ง ${activePosition} ถูกเลือกอยู่ ตารางด้านล่างจะแสดงเฉพาะไฟล์ที่ตรงกัน`
                   )
                 : tr(
                     language,
-                    "Click a point above to jump to the matching rows without losing the full table context.",
-                    "กดจุดด้านบนเพื่อเลื่อนไปยังแถวที่ตรงกัน โดยยังเห็นตารางทั้งหมดได้เหมือนเดิม"
+                    "Click a point above to filter this table down to the related recordings.",
+                    "กดจุดด้านบนเพื่อกรองตารางให้เหลือเฉพาะไฟล์เสียงที่เกี่ยวข้อง"
                   )}
             </p>
           </div>
@@ -1180,6 +1208,18 @@ export function PatientHeartSoundContent({
                 {tr(language, "No recordings yet", "ยังไม่มีไฟล์เสียง")}
               </Badge>
             )}
+            {activePosition ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="rounded-full text-slate-600 hover:text-slate-900"
+                onClick={clearPositionSelection}
+              >
+                <X className="size-4" />
+                {tr(language, "Clear filter", "ล้างตัวกรอง")}
+              </Button>
+            ) : null}
           </div>
         </div>
 
@@ -1212,7 +1252,7 @@ export function PatientHeartSoundContent({
                 </tr>
               </thead>
               <tbody>
-                {displayRecords.map((record) => {
+                {visibleRecords.map((record) => {
                   const isActive = activePosition === record.position;
                   const isJumpedRow = activeRowId === record.id;
 
