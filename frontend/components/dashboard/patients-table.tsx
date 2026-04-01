@@ -95,6 +95,11 @@ interface PatientsCacheEntry {
   total: number;
 }
 
+interface PatientsTableProps {
+  showStats?: boolean;
+  showTable?: boolean;
+}
+
 const patientsListCache = new Map<string, PatientsCacheEntry>();
 
 function getPatientsListCacheEntry(key: string) {
@@ -174,7 +179,10 @@ const emptyForm: PatientFormState = {
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
 
-export function PatientsTable() {
+export function PatientsTable({
+  showStats = true,
+  showTable = true,
+}: PatientsTableProps = {}) {
   const token = useAuthStore((state) => state.token);
   const role = useAuthStore((state) => state.role);
   const clearToken = useAuthStore((state) => state.clearToken);
@@ -607,6 +615,7 @@ export function PatientsTable() {
     <LazyMotion features={domAnimation}>
     <div className="space-y-5">
       {/* Stats Cards */}
+      {showStats ? (
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <Card className="group relative overflow-hidden border-none bg-gradient-to-br from-background via-background to-primary/5 shadow-sm transition-all duration-300 hover:shadow-md">
           <div className="absolute top-0 right-0 p-3 opacity-10 transition-opacity group-hover:opacity-20">
@@ -662,8 +671,10 @@ export function PatientsTable() {
           </CardContent>
         </Card>
       </div>
+      ) : null}
 
       {/* Main Patient Table */}
+      {showTable ? (
       <Card className="flex flex-col overflow-hidden">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1165,6 +1176,7 @@ export function PatientsTable() {
           </div>
         </div>
       </Card>
+      ) : null}
 
       {/* Patient Form Dialog */}
       <Dialog

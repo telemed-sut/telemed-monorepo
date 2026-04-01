@@ -110,6 +110,7 @@ export function MonthCalendarView({
   });
   const wheelLockRef = useRef(false);
   const wheelDeltaAccumulatorRef = useRef(0);
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
 
   const monthStart = useMemo(
     () => startOfMonth(currentWeekStart),
@@ -172,32 +173,44 @@ export function MonthCalendarView({
 
   const handleMonthWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
-      if (Math.abs(event.deltaY) < Math.abs(event.deltaX)) {
-        return;
-      }
-
-      if (event.deltaY > 0) {
+      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) {
+        wheelDeltaAccumulatorRef.current = 0;
+        const scrollHost = scrollViewportRef.current;
+        if (!scrollHost) {
+          return;
+        }
         event.preventDefault();
+        if (typeof scrollHost.scrollBy === "function") {
+          scrollHost.scrollBy({ top: event.deltaY });
+        } else {
+          scrollHost.scrollTop += event.deltaY;
+        }
+        return;
       }
 
       if (wheelLockRef.current) {
         return;
       }
 
-      if (event.deltaY <= 0) {
+      event.preventDefault();
+
+      const horizontalDirection = event.deltaX > 0 ? 1 : -1;
+      if (
+        wheelDeltaAccumulatorRef.current !== 0 &&
+        Math.sign(wheelDeltaAccumulatorRef.current) !== horizontalDirection
+      ) {
         wheelDeltaAccumulatorRef.current = 0;
-        return;
       }
 
-      wheelDeltaAccumulatorRef.current += event.deltaY;
+      wheelDeltaAccumulatorRef.current += event.deltaX;
 
-      if (wheelDeltaAccumulatorRef.current < 30) {
+      if (Math.abs(wheelDeltaAccumulatorRef.current) < 30) {
         return;
       }
 
       wheelLockRef.current = true;
       wheelDeltaAccumulatorRef.current = 0;
-      navigateMonth(1, "wheel");
+      navigateMonth(horizontalDirection, "wheel");
 
       window.setTimeout(() => {
         wheelLockRef.current = false;
@@ -209,6 +222,13 @@ export function MonthCalendarView({
     [navigateMonth]
   );
 
+  const handleOverflowListWheel = useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      event.stopPropagation();
+    },
+    []
+  );
+
   return (
     <div
       className="flex h-full min-h-[760px] flex-col overflow-hidden rounded-[30px] border border-slate-200/80 bg-slate-50/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] lg:min-h-[820px]"
@@ -218,7 +238,7 @@ export function MonthCalendarView({
         {weekdayLabels.map((label) => (
           <div
             key={label}
-            className="border-r border-slate-200 px-3 py-3 last:border-r-0 md:px-4"
+            className="px-3 py-3 md:px-4"
           >
             <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
               {label}
@@ -227,9 +247,16 @@ export function MonthCalendarView({
         ))}
       </div>
 
-      <div className="relative flex-1 overflow-hidden overscroll-none bg-white">
-        <AnimatePresence custom={transitionMeta} initial={false}>
-          <motion.div
+      <div
+        ref={scrollViewportRef}
+        className="relative flex-1 overflow-auto overscroll-none bg-white"
+      >
+        <div
+          className="relative bg-white"
+          style={{ minHeight: `${monthWeekCount * 156}px` }}
+        >
+          <AnimatePresence custom={transitionMeta} initial={false}>
+            <motion.div
             key={monthStart.toISOString()}
             initial={{
               x:
@@ -270,10 +297,10 @@ export function MonthCalendarView({
                     ease: [0.22, 1, 0.36, 1],
                   }
             }
-            className="absolute inset-0 grid grid-cols-7 will-change-transform"
-            style={{ gridTemplateRows: `repeat(${monthWeekCount}, minmax(0, 1fr))` }}
-          >
-            {monthDays.map((day) => {
+              className="absolute inset-0 grid grid-cols-7 will-change-transform"
+              style={{ gridTemplateRows: `repeat(${monthWeekCount}, minmax(0, 1fr))` }}
+            >
+              {monthDays.map((day) => {
               const dayMeetings = meetingsByDay.get(day.toDateString()) ?? [];
               const visibleLimit = monthWeekCount >= 6 ? 1 : 2;
               const visibleMeetings = dayMeetings.slice(0, visibleLimit);
@@ -425,7 +452,11 @@ export function MonthCalendarView({
                             </div>
                           </div>
 
-                          <div className="max-h-[320px] overflow-y-auto px-2.5 py-2.5">
+                          <div
+                            data-testid="month-day-overflow-scroll"
+                            onWheelCapture={handleOverflowListWheel}
+                            className="max-h-[320px] overflow-y-auto overscroll-contain px-2.5 py-2.5"
+                          >
                             <div className="flex flex-col gap-1.5">
                               {dayMeetings.map((meeting) => {
                                 const tone = getMonthStatusTone(meeting.status);
@@ -469,9 +500,10 @@ export function MonthCalendarView({
                   </div>
                 </div>
               );
-            })}
-          </motion.div>
-        </AnimatePresence>
+              })}
+            </motion.div>
+          </AnimatePresence>
+        </div>
       </div>
 
       <EventDetailSheet

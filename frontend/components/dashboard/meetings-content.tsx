@@ -2974,7 +2974,7 @@ export function MeetingsContent() {
           />
         </div>
       ) : viewMode === "month" ? (
-        <div className="flex-1 flex flex-col overflow-auto">
+        <div className="flex-1 flex flex-col overflow-hidden">
           <MonthCalendarView
             onEditMeeting={(meeting) => {
               if (!canManageMeetings) {

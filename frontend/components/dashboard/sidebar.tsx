@@ -17,7 +17,6 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import {
   Home,
   Users,
@@ -37,13 +36,13 @@ import {
   Building2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useSessionLogout } from "@/hooks/use-session-logout";
 import { Logo } from "@/components/ui/logo";
 import { useAuthStore } from "@/store/auth-store";
 import {
   canManageUsers,
   canViewClinicalData,
   fetchCurrentUser,
-  getAdminSsoLogoutPath,
   getPrivilegedRoleLabel,
   ROLE_LABEL_MAP,
   UserMe,
@@ -200,7 +199,6 @@ type ProfileMenuItem = "profile" | "settings" | "logout";
 function SidebarUserMenu({
   isCollapsed,
   currentUser,
-  roleLabel,
   language,
   labels,
   activeItem,
@@ -210,7 +208,6 @@ function SidebarUserMenu({
 }: {
   isCollapsed: boolean;
   currentUser: UserMe | null;
-  roleLabel: string;
   language: AppLanguage;
   labels: {
     loading: string;
@@ -364,26 +361,6 @@ function SidebarUserMenu({
               <div className="truncate pt-0.5 text-[0.76rem] text-slate-500">
                 {currentUser?.email || ""}
               </div>
-              <div className="mt-2 flex flex-wrap gap-1">
-                <Badge
-                  variant="outline"
-                  className="h-5 rounded-full border-border/80 bg-white text-[10px] font-semibold tracking-[0.01em] text-slate-600"
-                >
-                  {roleLabel}
-                </Badge>
-                {currentUser?.privileged_roles?.map((role) => (
-                  <Badge
-                    key={role}
-                    variant="outline"
-                    className={cn(
-                      "h-5 rounded-full text-[10px] font-semibold tracking-[0.01em]",
-                      getPrivilegeBadgeClass(role)
-                    )}
-                  >
-                    {getPrivilegedRoleLabel(role, language)}
-                  </Badge>
-                ))}
-              </div>
             </div>
             <ul className="space-y-0.5 px-2 pb-2">
               {menuItems.map((item) => {
@@ -453,8 +430,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const t = SIDEBAR_LABELS[language];
   const token = useAuthStore((state) => state.token);
   const userRole = useAuthStore((state) => state.role);
-  const authSource = useAuthStore((state) => state.authSource);
-  const clearSessionState = useAuthStore((state) => state.clearSessionState);
+  const logout = useSessionLogout();
   const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
 
   useEffect(() => {
@@ -505,14 +481,8 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   };
 
   const handleLogout = () => {
-    const isSsoSession = authSource === "sso";
     closeMobileSidebar();
-    clearSessionState();
-    if (isSsoSession) {
-      window.location.assign(getAdminSsoLogoutPath());
-      return;
-    }
-    router.replace("/login");
+    logout();
   };
   const isCollapsed = state === "collapsed";
   const activeProfileMenuItem: ProfileMenuItem | null = pathname.startsWith("/settings")
@@ -628,7 +598,6 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
         <SidebarUserMenu
           isCollapsed={isCollapsed}
           currentUser={currentUser}
-          roleLabel={currentUser ? getRoleLabel(currentUser.role, language) : t.account}
           language={language}
           labels={t}
           activeItem={activeProfileMenuItem}

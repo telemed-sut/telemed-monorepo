@@ -17,11 +17,9 @@ import {
 } from "@/components/ui/sidebar";
 import { ChevronsUpDown } from "lucide-react";
 import * as React from "react";
-import { useAuthStore } from "@/store/auth-store";
-import { useRouter } from "next/navigation";
 import { Logout01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { getAdminSsoLogoutPath } from "@/lib/api";
+import { useSessionLogout } from "@/hooks/use-session-logout";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
 
@@ -38,9 +36,7 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 export function TeamSwitcher({ teams }: { teams: Team[] }) {
     const { isMobile } = useSidebar();
     const [activeTeam, setActiveTeam] = React.useState(teams[0]);
-    const authSource = useAuthStore((state) => state.authSource);
-    const clearSessionState = useAuthStore((state) => state.clearSessionState);
-    const router = useRouter();
+    const logout = useSessionLogout();
     const language = useLanguageStore((state) => state.language);
 
     React.useEffect(() => {
@@ -100,15 +96,7 @@ export function TeamSwitcher({ teams }: { teams: Team[] }) {
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                                 className="gap-2 p-2 cursor-pointer text-destructive focus:text-destructive"
-                                onClick={() => {
-                                    const isSsoSession = authSource === "sso";
-                                    clearSessionState();
-                                    if (isSsoSession) {
-                                        window.location.assign(getAdminSsoLogoutPath());
-                                        return;
-                                    }
-                                    router.replace("/login");
-                                }}
+                                onClick={logout}
                             >
                                 <div className="flex size-6 items-center justify-center rounded-md border bg-background">
                                     <HugeiconsIcon icon={Logout01Icon} className="size-4" />

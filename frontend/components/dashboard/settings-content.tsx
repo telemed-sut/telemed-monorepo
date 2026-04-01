@@ -20,7 +20,6 @@ import {
   createUserInvite,
   disable2FA,
   fetch2FAStatus,
-  getAdminSsoLogoutPath,
   fetchTrustedDevices,
   getErrorMessage,
   regenerateBackupCodes,
@@ -36,6 +35,7 @@ import {
   type Admin2FAStatus,
   type TrustedDevice,
 } from "@/lib/api";
+import { useSessionLogout } from "@/hooks/use-session-logout";
 import { toast } from "@/components/ui/toast";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
@@ -89,7 +89,6 @@ export function SettingsContent() {
   const language = useLanguageStore((state) => state.language);
   const token = useAuthStore((state) => state.token);
   const role = useAuthStore((state) => state.role);
-  const authSource = useAuthStore((state) => state.authSource);
   const canManagePrivilegedAdmins = useAuthStore((state) => state.canManagePrivilegedAdmins);
   const canManageSecurityRecovery = useAuthStore((state) => state.canManageSecurityRecovery);
   const ssoProvider = useAuthStore((state) => state.ssoProvider);
@@ -97,8 +96,8 @@ export function SettingsContent() {
   const mfaRecentForPrivilegedActions = useAuthStore((state) => state.mfaRecentForPrivilegedActions);
   const mfaAuthenticatedAt = useAuthStore((state) => state.mfaAuthenticatedAt);
   const hydrated = useAuthStore((state) => state.hydrated);
-  const clearSessionState = useAuthStore((state) => state.clearSessionState);
   const getTokenTTL = useAuthStore((state) => state.getTokenTTL);
+  const logout = useSessionLogout();
 
   const [tokenTTL, setTokenTTL] = useState(() => getTokenTTL());
   const [uiTone, setUiTone] = useState<UITone>("ffffff");
@@ -213,16 +212,6 @@ export function SettingsContent() {
     const seconds = tokenTTL % 60;
     return `${minutes}m ${seconds}s`;
   }, [tokenTTL, language]);
-
-  const handleLogout = () => {
-    const isSsoSession = authSource === "sso";
-    clearSessionState();
-    if (isSsoSession) {
-      window.location.assign(getAdminSsoLogoutPath());
-      return;
-    }
-    router.replace("/login");
-  };
 
   const handleVerify2FA = async () => {
     if (!token) return;
@@ -615,7 +604,7 @@ export function SettingsContent() {
           </Button>
           <Button
             variant="destructive"
-            onClick={handleLogout}
+            onClick={logout}
           >
             {tr(language, "Log out", "ออกจากระบบ")}
           </Button>
