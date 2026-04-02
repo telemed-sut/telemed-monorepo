@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/tooltip"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { getSecureRandomInt } from "@/lib/secure-random"
+import { useLanguageStore } from "@/store/language-store"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { SidebarLeftIcon } from "@hugeicons/core-free-icons"
 
@@ -33,6 +34,19 @@ const SIDEBAR_WIDTH = "16rem"
 const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3.75rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
+
+const SIDEBAR_LABELS = {
+  en: {
+    title: "Sidebar",
+    description: "Displays the mobile sidebar.",
+    toggle: "Toggle Sidebar",
+  },
+  th: {
+    title: "แถบด้านข้าง",
+    description: "แสดงแถบด้านข้างบนมือถือ",
+    toggle: "สลับแถบด้านข้าง",
+  },
+} as const
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
@@ -167,6 +181,8 @@ function Sidebar({
   collapsible?: "offExamples" | "icon" | "none"
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const language = useLanguageStore((state) => state.language)
+  const labels = SIDEBAR_LABELS[language]
 
   if (collapsible === "none") {
     return (
@@ -199,8 +215,8 @@ function Sidebar({
           side={side}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>Sidebar</SheetTitle>
-            <SheetDescription>Displays the mobile sidebar.</SheetDescription>
+            <SheetTitle>{labels.title}</SheetTitle>
+            <SheetDescription>{labels.description}</SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
@@ -262,6 +278,8 @@ function SidebarTrigger({
   ...props
 }: React.ComponentProps<typeof Button>) {
   const { toggleSidebar } = useSidebar()
+  const language = useLanguageStore((state) => state.language)
+  const toggleLabel = SIDEBAR_LABELS[language].toggle
 
   return (
     <Button
@@ -277,22 +295,24 @@ function SidebarTrigger({
       {...props}
     >
       <HugeiconsIcon icon={SidebarLeftIcon} strokeWidth={2} />
-      <span className="sr-only">Toggle Sidebar</span>
+      <span className="sr-only">{toggleLabel}</span>
     </Button>
   )
 }
 
 function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
   const { toggleSidebar } = useSidebar()
+  const language = useLanguageStore((state) => state.language)
+  const toggleLabel = SIDEBAR_LABELS[language].toggle
 
   return (
     <button
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="Toggle Sidebar"
+      aria-label={toggleLabel}
       tabIndex={-1}
       onClick={toggleSidebar}
-      title="Toggle Sidebar"
+      title={toggleLabel}
       className={cn(
         "hover:after:bg-sidebar-border absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] sm:flex",
         "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",

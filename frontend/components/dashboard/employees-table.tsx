@@ -32,10 +32,15 @@ import {
   ArrowRight01Icon,
 } from "@hugeicons/core-free-icons";
 import { useDashboardStore } from "@/store/dashboard-store";
+import { useLanguageStore } from "@/store/language-store";
+import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
 import { employees, type Employee } from "@/mock-data/employees";
 import { cn } from "@/lib/utils";
 
 const PAGE_SIZE_OPTIONS = [8, 15, 25, 50];
+const tr = (language: AppLanguage, en: string, th: string) =>
+  language === "th" ? th : en;
+const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
 
 const statusColors: Record<
   Employee["status"],
@@ -64,6 +69,7 @@ const statusColors: Record<
 };
 
 export function EmployeesTable() {
+  const language = useLanguageStore((state) => state.language);
   const searchQuery = useDashboardStore((state) => state.searchQuery);
   const departmentFilter = useDashboardStore((state) => state.departmentFilter);
   const statusFilter = useDashboardStore((state) => state.statusFilter);
@@ -81,6 +87,49 @@ export function EmployeesTable() {
   );
 
   const hasActiveFilters = departmentFilter !== "all" || statusFilter !== "all";
+
+  const getDepartmentLabel = React.useCallback(
+    (department: Employee["department"] | "all") => {
+      if (department === "all") {
+        return tr(language, "All Departments", "ทุกแผนก");
+      }
+      return department;
+    },
+    [language]
+  );
+
+  const getStatusLabel = React.useCallback(
+    (status: Employee["status"] | "all") => {
+      switch (status) {
+        case "all":
+          return tr(language, "All Statuses", "ทุกสถานะ");
+        case "Active":
+          return tr(language, "Active", "ใช้งานอยู่");
+        case "On Leave":
+          return tr(language, "On Leave", "ลางาน");
+        case "Probation":
+          return tr(language, "Probation", "ทดลองงาน");
+        case "Inactive":
+          return tr(language, "Inactive", "ไม่ใช้งาน");
+        default:
+          return status;
+      }
+    },
+    [language]
+  );
+
+  const formatJoinedDate = React.useCallback(
+    (value: string) => {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleDateString(localeOf(language), {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+    },
+    [language]
+  );
 
   const filteredEmployees = React.useMemo(() => {
     return employees.filter((emp) => {
@@ -137,7 +186,7 @@ export function EmployeesTable() {
             className="size-5 text-muted-foreground"
           />
           <span className="font-medium text-muted-foreground">
-            Employee list
+            {tr(language, "Employee list", "รายชื่อพนักงาน")}
           </span>
         </div>
 
@@ -148,7 +197,7 @@ export function EmployeesTable() {
               className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"
             />
             <Input
-              placeholder="Search Anything..."
+              placeholder={tr(language, "Search employees...", "ค้นหาพนักงาน...")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9 w-full sm:w-[220px] h-9"
@@ -163,7 +212,7 @@ export function EmployeesTable() {
               )}
             >
               <HugeiconsIcon icon={FilterIcon} className="size-4" />
-              Filter
+              {tr(language, "Filter", "ตัวกรอง")}
               {hasActiveFilters && (
                 <span className="size-1.5 rounded-full bg-primary" />
               )}
@@ -171,7 +220,7 @@ export function EmployeesTable() {
             <DropdownMenuContent align="end" className="w-[200px]">
               <DropdownMenuGroup>
                 <p className="text-muted-foreground px-2 py-1.5 text-sm font-medium">
-                  Department
+                  {tr(language, "Department", "แผนก")}
                 </p>
                 {["all", "IT", "HR", "Finance", "Marketing", "Sales"].map(
                   (dept) => (
@@ -180,7 +229,7 @@ export function EmployeesTable() {
                       checked={departmentFilter === dept}
                       onCheckedChange={() => setDepartmentFilter(dept)}
                     >
-                      {dept === "all" ? "All Departments" : dept}
+                      {getDepartmentLabel(dept as Employee["department"] | "all")}
                     </DropdownMenuCheckboxItem>
                   )
                 )}
@@ -188,7 +237,7 @@ export function EmployeesTable() {
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
                 <p className="text-muted-foreground px-2 py-1.5 text-sm font-medium">
-                  Status
+                  {tr(language, "Status", "สถานะ")}
                 </p>
                 {["all", "Active", "On Leave", "Probation", "Inactive"].map(
                   (status) => (
@@ -197,7 +246,7 @@ export function EmployeesTable() {
                       checked={statusFilter === status}
                       onCheckedChange={() => setStatusFilter(status)}
                     >
-                      {status === "all" ? "All Statuses" : status}
+                      {getStatusLabel(status as Employee["status"] | "all")}
                     </DropdownMenuCheckboxItem>
                   )
                 )}
@@ -209,7 +258,7 @@ export function EmployeesTable() {
                     onClick={clearFilters}
                     className="text-destructive"
                   >
-                    Clear all filters
+                    {tr(language, "Clear all filters", "ล้างตัวกรองทั้งหมด")}
                   </DropdownMenuItem>
                 </>
               )}
@@ -220,7 +269,7 @@ export function EmployeesTable() {
 
           <Button variant="outline" className="gap-2">
             <HugeiconsIcon icon={FileImportIcon} className="size-4" />
-            Import
+            {tr(language, "Import", "นำเข้า")}
           </Button>
         </div>
       </div>
@@ -239,25 +288,25 @@ export function EmployeesTable() {
                 />
               </TableHead>
               <TableHead className="min-w-[100px] text-muted-foreground font-medium">
-                User ID
+                {tr(language, "User ID", "รหัสผู้ใช้")}
               </TableHead>
               <TableHead className="min-w-[150px] text-muted-foreground font-medium">
-                Name
+                {tr(language, "Name", "ชื่อ")}
               </TableHead>
               <TableHead className="hidden md:table-cell min-w-[200px] text-muted-foreground font-medium">
-                Email Address
+                {tr(language, "Email Address", "อีเมล")}
               </TableHead>
               <TableHead className="hidden lg:table-cell min-w-[100px] text-muted-foreground font-medium">
-                Department
+                {tr(language, "Department", "แผนก")}
               </TableHead>
               <TableHead className="hidden lg:table-cell min-w-[140px] text-muted-foreground font-medium">
-                Job Title
+                {tr(language, "Job Title", "ตำแหน่งงาน")}
               </TableHead>
               <TableHead className="hidden sm:table-cell min-w-[120px] text-muted-foreground font-medium">
-                Joined Date
+                {tr(language, "Joined Date", "วันที่เข้าร่วม")}
               </TableHead>
               <TableHead className="min-w-[100px] text-muted-foreground font-medium">
-                Status
+                {tr(language, "Status", "สถานะ")}
               </TableHead>
             </TableRow>
           </TableHeader>
@@ -268,7 +317,11 @@ export function EmployeesTable() {
                   colSpan={8}
                   className="h-24 text-center text-muted-foreground"
                 >
-                  No employees found matching your filters.
+                  {tr(
+                    language,
+                    "No employees found matching your filters.",
+                    "ไม่พบพนักงานที่ตรงกับตัวกรองของคุณ"
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
@@ -313,7 +366,7 @@ export function EmployeesTable() {
                     </span>
                   </TableCell>
                   <TableCell className="hidden sm:table-cell text-muted-foreground">
-                    {employee.joinedDate}
+                    {formatJoinedDate(employee.joinedDate)}
                   </TableCell>
                   <TableCell>
                     <span
@@ -324,7 +377,7 @@ export function EmployeesTable() {
                         statusColors[employee.status].border
                       )}
                     >
-                      {employee.status}
+                      {getStatusLabel(employee.status)}
                     </span>
                   </TableCell>
                 </TableRow>
@@ -341,6 +394,7 @@ export function EmployeesTable() {
             size="icon-sm"
             onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
             disabled={currentPage === 1}
+            aria-label={tr(language, "Previous page", "หน้าก่อนหน้า")}
           >
             <HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
           </Button>
@@ -389,6 +443,7 @@ export function EmployeesTable() {
             size="icon-sm"
             onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
             disabled={currentPage === totalPages}
+            aria-label={tr(language, "Next page", "หน้าถัดไป")}
           >
             <HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />
           </Button>
@@ -396,14 +451,16 @@ export function EmployeesTable() {
 
         <div className="flex items-center gap-4">
           <span className="text-sm text-muted-foreground">
-            Showing {(currentPage - 1) * pageSize + 1} to{" "}
-            {Math.min(currentPage * pageSize, filteredEmployees.length)} of{" "}
-            {filteredEmployees.length} entries
+            {tr(language, "Showing", "แสดง")} {(currentPage - 1) * pageSize + 1}{" "}
+            {tr(language, "to", "ถึง")}{" "}
+            {Math.min(currentPage * pageSize, filteredEmployees.length)}{" "}
+            {tr(language, "of", "จาก")} {filteredEmployees.length}{" "}
+            {tr(language, "entries", "รายการ")}
           </span>
 
           <DropdownMenu>
             <DropdownMenuTrigger className="inline-flex items-center justify-center gap-2 h-8 px-2.5 rounded-md border border-border bg-background hover:bg-muted shadow-xs text-sm font-medium">
-              Show {pageSize}
+              {tr(language, "Show", "แสดง")} {pageSize}
               <HugeiconsIcon
                 icon={ArrowRight01Icon}
                 className="size-3 rotate-90"
@@ -416,7 +473,7 @@ export function EmployeesTable() {
                   onClick={() => setPageSize(size)}
                   className={cn(pageSize === size && "bg-muted")}
                 >
-                  Show {size}
+                  {tr(language, "Show", "แสดง")} {size}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>

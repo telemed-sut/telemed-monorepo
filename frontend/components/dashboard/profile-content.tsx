@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/ui/toast";
 
+import { getLocalizedDashboardErrorMessage } from "@/components/dashboard/dashboard-error-message";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,11 +22,6 @@ import type { AppLanguage } from "@/store/language-config";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
-
-function parseApiError(error: unknown, language: AppLanguage): string {
-  if (error instanceof Error && error.message) return error.message;
-  return tr(language, "Unable to update profile", "ไม่สามารถอัปเดตโปรไฟล์ได้");
-}
 
 export function ProfileContent() {
   const router = useRouter();
@@ -107,7 +103,14 @@ export function ProfileContent() {
       setLastName(nextUser.last_name || "");
       toast.success(tr(language, "Profile updated", "อัปเดตโปรไฟล์แล้ว"));
     } catch (error: unknown) {
-      toast.error(parseApiError(error, language));
+      toast.error(
+        getLocalizedDashboardErrorMessage(
+          error,
+          language,
+          "Unable to update profile",
+          "ไม่สามารถอัปเดตโปรไฟล์ได้"
+        )
+      );
     } finally {
       setSaving(false);
     }

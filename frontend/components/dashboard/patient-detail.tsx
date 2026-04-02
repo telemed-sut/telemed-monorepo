@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
+import { getPatientLoadErrorTitle } from "@/components/dashboard/patient-load-error";
 import {
   readPatientDetailCache,
   writePatientDetailCache,
@@ -207,11 +208,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
           return;
         }
         setError(
-          status === 404
-            ? tr(language, "Patient not found", "ไม่พบผู้ป่วย")
-            : err instanceof Error
-              ? err.message
-              : tr(language, "Failed to load patient", "โหลดข้อมูลผู้ป่วยไม่สำเร็จ")
+          getPatientLoadErrorTitle(err, language)
         );
       } finally {
         if (!cancelled) setLoadingPatient(false);
@@ -912,7 +909,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                                 {doctorName ? (
                                   <span className="inline-flex items-center gap-2 rounded-full bg-muted/40 px-3 py-1.5">
                                     <UserRound className="size-3.5" />
-                                    {tr(language, "Dr.", "นพ.")} {doctorName}
+                                    {tr(language, "Doctor", "แพทย์")} {doctorName}
                                   </span>
                                 ) : null}
                               </div>

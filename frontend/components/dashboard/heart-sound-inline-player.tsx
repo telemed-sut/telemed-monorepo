@@ -2,7 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
-import { LoaderCircle, MoreVertical, Pause, Play, Volume1, Volume2 } from "lucide-react";
+import { LoaderCircle, Pause, Play, RotateCcw, Volume1, Volume2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -130,7 +130,7 @@ export function HeartSoundInlinePlayer({
   return (
     <div
       className={cn(
-        "rounded-full border border-[#e3ebf3] bg-[#f4f7fb] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_5px_14px_rgba(148,163,184,0.06)]",
+        "rounded-[24px] border border-slate-200/80 bg-white px-3 py-3 shadow-[0_8px_18px_rgba(15,23,42,0.04)]",
         className
       )}
     >
@@ -166,14 +166,14 @@ export function HeartSoundInlinePlayer({
         }}
       />
 
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-3">
         <Button
           type="button"
           variant="outline"
-          size="icon"
+          size="icon-lg"
           className={cn(
-            "size-10 shrink-0 rounded-full border-[#dfe7ef] bg-[#eef3f8] text-[#111827] shadow-none hover:bg-[#e6edf5] hover:text-[#111827]",
-            isPlaying && "border-[#cfd9e3] bg-[#e8eef5] text-[#111827]"
+            "shrink-0 rounded-full border-sky-200 bg-sky-50 text-sky-950 shadow-none hover:border-sky-300 hover:bg-sky-100 hover:text-sky-950",
+            isPlaying && "border-sky-300 bg-sky-100 text-sky-950"
           )}
           onClick={handleTogglePlayback}
           aria-label={isPlaying ? "Pause audio" : "Play audio"}
@@ -189,7 +189,7 @@ export function HeartSoundInlinePlayer({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2.5">
-            <span className="min-w-[62px] text-xs font-medium tabular-nums text-[#6b7280]">
+            <span className="min-w-[74px] text-xs font-medium tabular-nums text-slate-500">
               {formatTime(currentTime)} / {formatTime(duration)}
             </span>
             <input
@@ -207,16 +207,16 @@ export function HeartSoundInlinePlayer({
                 audio.currentTime = nextTime;
                 setCurrentTime(nextTime);
               }}
-              className="heart-sound-progress-minimal h-2 w-full cursor-pointer appearance-none rounded-full"
+              className="heart-sound-progress-minimal h-2 w-full cursor-pointer appearance-none rounded-full focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200"
               style={{ "--progress": `${progressPercent}%` } as CSSProperties}
               aria-label="Seek audio playback"
             />
 
             <div ref={volumePanelRef} className="relative">
               {volumePanelOpen ? (
-                <div className="absolute bottom-full right-0 z-30 mb-2 w-[220px] rounded-2xl border border-white/12 bg-[#312626]/96 p-3 text-white shadow-[0_18px_40px_rgba(15,23,42,0.28)]">
+                <div className="absolute bottom-full right-0 z-30 mb-2 w-[220px] rounded-2xl border border-slate-200 bg-white p-3 text-slate-900 shadow-[0_18px_40px_rgba(15,23,42,0.16)]">
                   <div className="flex items-center gap-2">
-                    <Volume1 className="size-4 shrink-0 text-white/80" />
+                    <Volume1 className="size-4 shrink-0 text-slate-500" />
                     <input
                       type="range"
                       min={0}
@@ -228,11 +228,11 @@ export function HeartSoundInlinePlayer({
                       }}
                       onPointerUp={() => setVolumePanelOpen(false)}
                       onKeyUp={() => setVolumePanelOpen(false)}
-                      className="heart-sound-volume-slider h-2 w-full cursor-pointer appearance-none rounded-full"
+                      className="heart-sound-volume-slider h-2 w-full cursor-pointer appearance-none rounded-full focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200"
                       style={{ "--volume": `${volumePercent}%` } as CSSProperties}
                       aria-label="Adjust volume"
                     />
-                    <Volume2 className="size-4 shrink-0 text-white/80" />
+                    <Volume2 className="size-4 shrink-0 text-slate-500" />
                   </div>
                 </div>
               ) : null}
@@ -241,7 +241,7 @@ export function HeartSoundInlinePlayer({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-7 shrink-0 rounded-full text-[#111827] hover:bg-[#e6edf5] hover:text-[#111827]"
+                className="size-10 shrink-0 rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                 onClick={() => setVolumePanelOpen((current) => !current)}
                 aria-label={`Adjust volume, current ${volumePercent}%`}
                 title={`Volume ${volumePercent}%`}
@@ -258,7 +258,7 @@ export function HeartSoundInlinePlayer({
               type="button"
               variant="ghost"
               size="icon"
-              className="size-7 shrink-0 rounded-full text-[#111827] hover:bg-[#e6edf5] hover:text-[#111827]"
+              className="size-10 shrink-0 rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900"
               onClick={() => {
                 const audio = audioRef.current;
                 if (!audio) {
@@ -269,7 +269,7 @@ export function HeartSoundInlinePlayer({
               }}
               aria-label="Reset playback"
             >
-              <MoreVertical className="size-3.5" />
+              <RotateCcw className="size-3.5" />
             </Button>
           </div>
         </div>

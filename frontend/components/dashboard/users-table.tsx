@@ -118,6 +118,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DataTableViewOptions } from "./data-table-view-options";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
+import { getLocalizedDashboardErrorMessage } from "./dashboard-error-message";
 
 
 
@@ -545,6 +546,12 @@ export function UsersTable({
         handleOpenInvite();
     }, [inviteRequestKey, handleOpenInvite]);
 
+    const getLocalizedErrorMessage = useCallback(
+        (error: unknown, fallbackEn: string, fallbackTh: string) =>
+            getLocalizedDashboardErrorMessage(error, language, fallbackEn, fallbackTh),
+        [language]
+    );
+
     // --- Handlers from Original ---
 
     const handleOpenEdit = useCallback((user: User) => {
@@ -569,10 +576,14 @@ export function UsersTable({
             loadUsers();
         } catch (error) {
             toast.error(tr(language, "Delete failed", "ลบไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถลบผู้ใช้ได้"),
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to delete user",
+                    "ไม่สามารถลบผู้ใช้ได้"
+                ),
             });
         }
-    }, [token, language, loadUsers]);
+    }, [token, language, loadUsers, getLocalizedErrorMessage]);
 
     const handleDelete = useCallback((user: User) => {
         const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
@@ -612,10 +623,14 @@ export function UsersTable({
             loadUsers();
         } catch (error) {
             toast.error(tr(language, "Restore failed", "กู้คืนไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถกู้คืนผู้ใช้ได้"),
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to restore user",
+                    "ไม่สามารถกู้คืนผู้ใช้ได้"
+                ),
             });
         }
-    }, [token, language, loadUsers]);
+    }, [token, language, loadUsers, getLocalizedErrorMessage]);
 
     const requestRestore = useCallback((user: User) => {
         const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
@@ -663,10 +678,14 @@ export function UsersTable({
             loadUsers();
         } catch (err) {
             toast.error(tr(language, "Verification failed", "ยืนยันไม่สำเร็จ"), {
-                description: getErrorMessage(err, "ไม่สามารถยืนยันผู้ใช้ได้"),
+                description: getLocalizedErrorMessage(
+                    err,
+                    "Unable to verify user",
+                    "ไม่สามารถยืนยันผู้ใช้ได้"
+                ),
             });
         }
-    }, [token, language, loadUsers]);
+    }, [token, language, loadUsers, getLocalizedErrorMessage]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -740,7 +759,11 @@ export function UsersTable({
             setSheetOpen(false);
             loadUsers();
         } catch (error: unknown) {
-            const message = getErrorMessage(error, "ไม่สามารถบันทึกข้อมูลผู้ใช้ได้");
+            const message = getLocalizedErrorMessage(
+                error,
+                "Unable to save user details",
+                "ไม่สามารถบันทึกข้อมูลผู้ใช้ได้"
+            );
             toast.error(tr(language, "Save failed", "บันทึกไม่สำเร็จ"), { description: message, duration: 10000 });
         } finally {
             setIsSubmitting(false);
@@ -919,7 +942,11 @@ export function UsersTable({
             loadUsers();
         } catch (error) {
             toast.error(tr(language, "Delete failed", "ลบไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถลบผู้ใช้แบบกลุ่มได้"),
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to delete selected users",
+                    "ไม่สามารถลบผู้ใช้แบบกลุ่มได้"
+                ),
             });
         } finally {
             setIsBulkDeleting(false);
@@ -1004,7 +1031,11 @@ export function UsersTable({
             loadUsers();
         } catch (error) {
             toast.error(tr(language, "Restore failed", "กู้คืนไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถกู้คืนผู้ใช้แบบกลุ่มได้"),
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to restore selected users",
+                    "ไม่สามารถกู้คืนผู้ใช้แบบกลุ่มได้"
+                ),
             });
         } finally {
             setIsBulkRestoring(false);
@@ -1108,7 +1139,11 @@ export function UsersTable({
             });
         } catch (error) {
             toast.error(tr(language, "Export failed", "ส่งออกไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถส่งออก snapshot ผู้ใช้ที่ถูกลบได้"),
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to export deleted user snapshot",
+                    "ไม่สามารถส่งออก snapshot ผู้ใช้ที่ถูกลบได้"
+                ),
             });
         }
     };
@@ -1136,7 +1171,11 @@ export function UsersTable({
             loadUsers();
         } catch (error) {
             toast.error(tr(language, "Purge failed", "ลบถาวรไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถ purge ผู้ใช้ที่ถูกลบได้"),
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to permanently delete archived users",
+                    "ไม่สามารถ purge ผู้ใช้ที่ถูกลบได้"
+                ),
             });
         } finally {
             setIsPurging(false);
@@ -1928,7 +1967,7 @@ export function UsersTable({
                                 id="purge_reason"
                                 value={purgeReason}
                                 onChange={(event) => setPurgeReason(event.target.value)}
-                                placeholder="เช่น retention policy รอบไตรมาส"
+                                placeholder={tr(language, "e.g. quarterly retention policy", "เช่น retention policy รอบไตรมาส")}
                             />
                         </div>
                         <div className="space-y-2">

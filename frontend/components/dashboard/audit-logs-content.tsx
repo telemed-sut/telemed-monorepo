@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
-import { exportAuditLogs, fetchAuditLogs, getErrorMessage, getRoleLabel, type ApiError, type AuditLogItem } from "@/lib/api";
+import { exportAuditLogs, fetchAuditLogs, getRoleLabel, type ApiError, type AuditLogItem } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +53,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import { useLanguageStore } from "@/store/language-store";
+import { getLocalizedDashboardErrorMessage } from "./dashboard-error-message";
 
 // ── Constants ──
 
@@ -655,7 +656,12 @@ export function AuditLogsContent() {
             }
             if (!silent) {
                 toast.error(t("loadAuditLogsFailed"), {
-                    description: getErrorMessage(apiError, t("cannotLoadAuditLogs")),
+                    description: getLocalizedDashboardErrorMessage(
+                        apiError,
+                        language,
+                        I18N.en.cannotLoadAuditLogs,
+                        I18N.th.cannotLoadAuditLogs
+                    ),
                 });
             }
         } finally {
@@ -664,7 +670,7 @@ export function AuditLogsContent() {
                 setLoadingMore(false);
             }
         }
-    }, [token, limit, nextCursor, search, userFilter, actionFilter, resourceTypeFilter, breakGlassFilter, resultFilter, dateFrom, dateTo, clearToken, router, t]);
+    }, [token, limit, nextCursor, search, userFilter, actionFilter, resourceTypeFilter, breakGlassFilter, resultFilter, dateFrom, dateTo, clearToken, router, t, language]);
 
     // Debounce search & filter changes
     useEffect(() => {
@@ -739,7 +745,12 @@ export function AuditLogsContent() {
             });
         } catch (err: unknown) {
             toast.error(t("exportAuditLogsFailed"), {
-                description: getErrorMessage(err, t("cannotExportAuditLogs")),
+                description: getLocalizedDashboardErrorMessage(
+                    err,
+                    language,
+                    I18N.en.cannotExportAuditLogs,
+                    I18N.th.cannotExportAuditLogs
+                ),
             });
         } finally {
             setIsExporting(false);

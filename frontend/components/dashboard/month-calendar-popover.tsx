@@ -335,7 +335,11 @@ function buildIsoFromDateAndMinutes(date: Date, minutesInDay: number): string {
   return combineLocalDateAndTimeToIso(date, hour, minute);
 }
 
-function formatHourOption(hour: number): string {
+function formatHourOption(hour: number, language: AppLanguage): string {
+  if (language === "th") {
+    return `${hour.toString().padStart(2, "0")}:00`;
+  }
+
   const period = hour >= 12 ? "PM" : "AM";
   const twelveHour = hour % 12 || 12;
   return `${twelveHour} ${period}`;
@@ -345,8 +349,16 @@ function formatTimeLabel(dateTime: string, language: AppLanguage): string {
   return new Date(dateTime).toLocaleTimeString(localeOf(language), {
     hour: "numeric",
     minute: "2-digit",
-    hour12: true,
+    hour12: language !== "th",
   });
+}
+
+function formatDoctorDisplayName(
+  doctor: NonNullable<Meeting["doctor"]>,
+  language: AppLanguage
+): string {
+  const fullName = `${doctor.first_name || ""} ${doctor.last_name || ""}`.trim();
+  return fullName || doctor.email || tr(language, "Unassigned doctor", "ยังไม่ระบุแพทย์");
 }
 
 function buildMonthGridDays(activeMonth: Date): Date[] {
@@ -422,11 +434,11 @@ function getMeetingTimeRange(meeting: Meeting, language: AppLanguage): string {
   return `${start.toLocaleTimeString(localeOf(language), {
     hour: "numeric",
     minute: "2-digit",
-    hour12: true,
+    hour12: language !== "th",
   })} - ${end.toLocaleTimeString(localeOf(language), {
     hour: "numeric",
     minute: "2-digit",
-    hour12: true,
+    hour12: language !== "th",
   })}`;
 }
 
@@ -448,7 +460,7 @@ function MeetingPreviewCard({
 }) {
   const title = getMeetingTitle(meeting, language);
   const doctorName = meeting.doctor
-    ? `Dr. ${meeting.doctor.first_name || ""} ${meeting.doctor.last_name || ""}`.trim()
+    ? formatDoctorDisplayName(meeting.doctor, language)
     : tr(language, "Unassigned doctor", "ยังไม่ระบุแพทย์");
   const patientName = meeting.patient
     ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
@@ -1253,7 +1265,7 @@ export function MonthCalendarPopover({
     const start = new Date(meeting.date_time);
     const end = new Date(start.getTime() + 60 * 60 * 1000);
     const doctorName = meeting.doctor
-      ? `Dr. ${meeting.doctor.first_name || ""} ${meeting.doctor.last_name || ""}`.trim()
+      ? formatDoctorDisplayName(meeting.doctor, language)
       : tr(language, "Unassigned doctor", "ยังไม่ระบุแพทย์");
     const patientName = meeting.patient
       ? `${meeting.patient.first_name} ${meeting.patient.last_name}`.trim()
@@ -1270,11 +1282,11 @@ export function MonthCalendarPopover({
       `${tr(language, "Time", "เวลา")}: ${start.toLocaleTimeString(localeOf(language), {
         hour: "numeric",
         minute: "2-digit",
-        hour12: true,
+        hour12: language !== "th",
       })} - ${end.toLocaleTimeString(localeOf(language), {
         hour: "numeric",
         minute: "2-digit",
-        hour12: true,
+        hour12: language !== "th",
       })}`,
       `${tr(language, "Doctor", "แพทย์")}: ${doctorName}`,
       `${tr(language, "Patient", "ผู้ป่วย")}: ${patientName}`,
@@ -3193,7 +3205,7 @@ export function MonthCalendarPopover({
                       >
                         {TIME_PICKER_HOURS.map((hour) => (
                           <option key={`start-hour-${hour}`} value={hour}>
-                            {formatHourOption(hour)}
+                            {formatHourOption(hour, language)}
                           </option>
                         ))}
                       </select>
@@ -3237,7 +3249,7 @@ export function MonthCalendarPopover({
                       >
                         {TIME_PICKER_HOURS.map((hour) => (
                           <option key={`end-hour-${hour}`} value={hour}>
-                            {formatHourOption(hour)}
+                            {formatHourOption(hour, language)}
                           </option>
                         ))}
                       </select>
@@ -3285,7 +3297,7 @@ export function MonthCalendarPopover({
                     ) : null}
                     {doctors.map((doctor) => (
                       <option key={doctor.id} value={doctor.id}>
-                        Dr. {doctor.first_name || ""} {doctor.last_name || ""}
+                        {formatDoctorDisplayName(doctor, language)}
                       </option>
                     ))}
                   </select>

@@ -338,11 +338,11 @@ export function DeviceMonitorInsights({
                     : "outline"
               }
             >
-              {tr(language, "Error Count:", "จำนวน Error:")} {errorCountDiff >= 0 ? "+" : ""}
+              {tr(language, "Error Count:", "จำนวนข้อผิดพลาด:")} {errorCountDiff >= 0 ? "+" : ""}
               {errorCountDiff}
             </Badge>
             <Badge variant="outline">
-              {tr(language, "Error Rate:", "อัตรา Error:")} {errorRateDiffPctPoint >= 0 ? "+" : ""}
+              {tr(language, "Error Rate:", "อัตราข้อผิดพลาด:")} {errorRateDiffPctPoint >= 0 ? "+" : ""}
               {errorRateDiffPctPoint}pp
             </Badge>
           </div>
@@ -451,7 +451,7 @@ export function DeviceMonitorInsights({
               <span className="text-sm font-medium sm:text-base">
                 {isTrendChart
                   ? tr(language, "Error Trend Over Time", "แนวโน้มข้อผิดพลาดตามเวลา")
-                  : tr(language, "Errors by Device ID", "ข้อผิดพลาดแยกตาม Device ID")}
+                  : tr(language, "Errors by Device ID", "ข้อผิดพลาดแยกตามรหัสอุปกรณ์")}
               </span>
             </div>
             <DropdownMenu>

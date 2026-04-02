@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
+import { getLocalizedDashboardErrorMessage } from "@/components/dashboard/dashboard-error-message";
 import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -340,7 +341,12 @@ export function PatientsTable({
             router.replace("/login");
             return;
           }
-          const message = err instanceof Error ? err.message : tr(language, "Failed to load patients", "โหลดข้อมูลผู้ป่วยไม่สำเร็จ");
+          const message = getLocalizedDashboardErrorMessage(
+            err,
+            language,
+            "Failed to load patients",
+            "โหลดข้อมูลผู้ป่วยไม่สำเร็จ"
+          );
           setError(message);
           setPatients([]);
           setTotal(0);
@@ -472,9 +478,9 @@ export function PatientsTable({
       }
 
       // Try to parse backend validation errors and map them to form fields
-      const message = err instanceof Error ? err.message : tr(language, "Save failed", "บันทึกไม่สำเร็จ");
+      const rawMessage = err instanceof Error ? err.message : "";
       try {
-        const parsed = JSON.parse(message);
+        const parsed = JSON.parse(rawMessage);
         if (Array.isArray(parsed)) {
           const newFormErrors: Record<string, string> = {};
           parsed.forEach((item: { loc?: string[]; msg?: string }) => {
@@ -490,11 +496,15 @@ export function PatientsTable({
             toast.error(tr(language, "Validation failed. Please check your input.", "การตรวจสอบข้อมูลไม่ผ่าน กรุณาตรวจสอบข้อมูลที่กรอก"));
           }
         } else {
-          toast.error(message);
+          toast.error(
+            getLocalizedDashboardErrorMessage(err, language, "Save failed", "บันทึกไม่สำเร็จ")
+          );
         }
       } catch {
         // If parsing fails, show a generic toast error instead of setting error state
-        toast.error(message);
+        toast.error(
+          getLocalizedDashboardErrorMessage(err, language, "Save failed", "บันทึกไม่สำเร็จ")
+        );
       }
     } finally {
       setSaving(false);
@@ -521,7 +531,12 @@ export function PatientsTable({
         router.replace("/login");
         return;
       }
-      const message = err instanceof Error ? err.message : tr(language, "Delete failed", "ลบข้อมูลไม่สำเร็จ");
+      const message = getLocalizedDashboardErrorMessage(
+        err,
+        language,
+        "Delete failed",
+        "ลบข้อมูลไม่สำเร็จ"
+      );
       setError(message);
       toast.error(message);
     }
@@ -742,9 +757,12 @@ export function PatientsTable({
                         clearToken();
                         router.replace("/login");
                       } else {
-                        const message = err instanceof Error
-                          ? err.message
-                          : tr(language, "Unable to reset filters", "ไม่สามารถรีเซ็ตตัวกรองได้");
+                        const message = getLocalizedDashboardErrorMessage(
+                          err,
+                          language,
+                          "Unable to reset filters",
+                          "ไม่สามารถรีเซ็ตตัวกรองได้"
+                        );
                         toast.error(message);
                       }
                     } finally {
@@ -1029,6 +1047,8 @@ export function PatientsTable({
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1 || loading}
                 className="size-7 rounded-full shadow-sm"
+                aria-label={tr(language, "Previous page", "หน้าก่อนหน้า")}
+                title={tr(language, "Previous page", "หน้าก่อนหน้า")}
               >
                 <HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
               </Button>
@@ -1084,6 +1104,8 @@ export function PatientsTable({
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages || loading}
                 className="size-7 rounded-full shadow-sm"
+                aria-label={tr(language, "Next page", "หน้าถัดไป")}
+                title={tr(language, "Next page", "หน้าถัดไป")}
               >
                 <HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />
               </Button>
@@ -1092,7 +1114,7 @@ export function PatientsTable({
 
           <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
             <span className="rounded-full bg-muted/30 px-3 py-1 text-sm font-medium text-muted-foreground">
-              {startEntry}-{endEntry} {tr(language, "of", "จาก")} {total}
+              {tr(language, "Showing", "แสดง")} {startEntry}-{endEntry} {tr(language, "of", "จาก")} {total}
             </span>
 
             <div className="flex items-center gap-2">

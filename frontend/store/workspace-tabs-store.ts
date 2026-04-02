@@ -8,7 +8,12 @@ import {
 } from "@/components/dashboard/dashboard-route-utils";
 import type { AppLanguage } from "@/store/language-config";
 
-const WORKSPACE_TABS_STORAGE_KEY = "workspace_tabs_state_v1";
+const WORKSPACE_TABS_STORAGE_KEY = "workspace_tabs_state_v3";
+const PREVIOUS_WORKSPACE_TABS_STORAGE_KEY = "workspace_tabs_state_v2";
+const LEGACY_WORKSPACE_TABS_STORAGE_KEY = "workspace_tabs_state_v1";
+const ANONYMOUS_WORKSPACE_TABS_OWNER_KEY = "__anonymous__";
+const MAX_REMEMBERED_TABS_PER_OWNER = 10;
+const MAX_RECENT_WORKSPACES_PER_OWNER = 10;
 
 export interface WorkspaceTab {
   id: string;
@@ -18,19 +23,38 @@ export interface WorkspaceTab {
   pinned: boolean;
   customTitle: string | null;
   createdAt: number;
+  lastVisitedAt: number;
   order: number;
+}
+
+export interface RecentWorkspace {
+  href: string;
+  customTitle: string | null;
+  lastVisitedAt: number;
 }
 
 interface WorkspaceTabsSnapshot {
   tabs: WorkspaceTab[];
+  recentWorkspaces: RecentWorkspace[];
   activeTabId: string | null;
   homeHref: string;
+  ownerUserId: string | null;
 }
+
+type WorkspaceTabsStorage = Record<string, WorkspaceTabsSnapshot>;
 
 interface WorkspaceTabsState extends WorkspaceTabsSnapshot {
   hydrated: boolean;
-  hydrate: (language: AppLanguage, currentHref: string) => void;
-  syncCurrentRoute: (language: AppLanguage, currentHref: string) => void;
+  hydrate: (
+    language: AppLanguage,
+    currentHref: string,
+    userId: string | null
+  ) => void;
+  syncCurrentRoute: (
+    language: AppLanguage,
+    currentHref: string,
+    userId: string | null
+  ) => void;
   activateTab: (tabId: string) => void;
   setTabOrder: (orderedTabIds: string[]) => void;
   reorderTabs: (
@@ -45,7 +69,118 @@ interface WorkspaceTabsState extends WorkspaceTabsSnapshot {
   closeTab: (tabId: string) => WorkspaceTab | null;
   closeTabsToLeft: (tabId: string) => WorkspaceTab | null;
   closeTabsToRight: (tabId: string) => WorkspaceTab | null;
-  resetTabs: (language: AppLanguage, currentHref: string) => WorkspaceTab | null;
+  resetTabs: (
+    language: AppLanguage,
+    currentHref: string,
+    userId: string | null
+  ) => WorkspaceTab | null;
+  clearAllTabsForUser: (userId: string | null) => void;
+}
+
+function normalizeWorkspaceTabOwner(userId: string | null | undefined) {
+  const normalizedUserId = userId?.trim();
+  return normalizedUserId ? normalizedUserId : null;
+}
+
+function getWorkspaceTabsOwnerKey(ownerUserId: string | null) {
+  return ownerUserId ?? ANONYMOUS_WORKSPACE_TABS_OWNER_KEY;
+}
+
+function normalizeRecentWorkspace(
+  workspace: Partial<RecentWorkspace> | null | undefined
+): RecentWorkspace | null {
+  if (!workspace?.href) {
+    return null;
+  }
+
+  const normalizedHref = normalizeDashboardHref(workspace.href);
+  if (!isWorkspaceTabRoute(normalizedHref)) {
+    return null;
+  }
+
+  const now = Date.now();
+  return {
+    href: normalizedHref,
+    customTitle: workspace.customTitle?.trim() || null,
+    lastVisitedAt:
+      typeof workspace.lastVisitedAt === "number" &&
+      Number.isFinite(workspace.lastVisitedAt)
+        ? workspace.lastVisitedAt
+        : now,
+  };
+}
+
+function sortRecentWorkspaces(
+  recentWorkspaces: RecentWorkspace[]
+): RecentWorkspace[] {
+  return [...recentWorkspaces].sort(
+    (left, right) => right.lastVisitedAt - left.lastVisitedAt
+  );
+}
+
+function sanitizeRecentWorkspaces(
+  recentWorkspaces: RecentWorkspace[] | undefined
+): RecentWorkspace[] {
+  const dedupedByHref = new Map<string, RecentWorkspace>();
+
+  for (const workspace of recentWorkspaces ?? []) {
+    const normalizedWorkspace = normalizeRecentWorkspace(workspace);
+    if (!normalizedWorkspace) {
+      continue;
+    }
+
+    const existingWorkspace = dedupedByHref.get(normalizedWorkspace.href);
+    if (
+      !existingWorkspace ||
+      existingWorkspace.lastVisitedAt < normalizedWorkspace.lastVisitedAt
+    ) {
+      dedupedByHref.set(normalizedWorkspace.href, normalizedWorkspace);
+    }
+  }
+
+  return sortRecentWorkspaces([...dedupedByHref.values()]).slice(
+    0,
+    MAX_RECENT_WORKSPACES_PER_OWNER
+  );
+}
+
+function upsertRecentWorkspace(
+  recentWorkspaces: RecentWorkspace[],
+  workspace: Pick<RecentWorkspace, "href" | "customTitle"> & {
+    lastVisitedAt?: number;
+  }
+): RecentWorkspace[] {
+  const normalizedWorkspace = normalizeRecentWorkspace({
+    ...workspace,
+    lastVisitedAt: workspace.lastVisitedAt ?? Date.now(),
+  });
+
+  if (!normalizedWorkspace) {
+    return recentWorkspaces;
+  }
+
+  return sanitizeRecentWorkspaces([
+    normalizedWorkspace,
+    ...recentWorkspaces.filter(
+      (existingWorkspace) => existingWorkspace.href !== normalizedWorkspace.href
+    ),
+  ]);
+}
+
+function refreshRecentWorkspaceTitle(
+  recentWorkspaces: RecentWorkspace[],
+  href: string,
+  customTitle: string | null
+): RecentWorkspace[] {
+  const normalizedHref = normalizeDashboardHref(href);
+  return recentWorkspaces.map((workspace) =>
+    workspace.href === normalizedHref
+      ? {
+          ...workspace,
+          customTitle,
+        }
+      : workspace
+  );
 }
 
 function createTab(
@@ -74,6 +209,7 @@ function createTab(
     pinned: options.pinned ?? normalizedHref === DASHBOARD_HOME_HREF,
     customTitle,
     createdAt: now,
+    lastVisitedAt: now,
     order: options.order ?? now,
   };
 }
@@ -138,6 +274,13 @@ function sanitizeTabs(
             typeof tab.createdAt === "number" && Number.isFinite(tab.createdAt)
               ? tab.createdAt
               : Date.now(),
+          lastVisitedAt:
+            typeof tab.lastVisitedAt === "number" &&
+            Number.isFinite(tab.lastVisitedAt)
+              ? tab.lastVisitedAt
+              : typeof tab.createdAt === "number" && Number.isFinite(tab.createdAt)
+                ? tab.createdAt
+                : Date.now(),
           order:
             typeof tab.order === "number" && Number.isFinite(tab.order)
               ? tab.order
@@ -149,36 +292,201 @@ function sanitizeTabs(
   );
 }
 
-function readSnapshot(): WorkspaceTabsSnapshot | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-
-    return JSON.parse(raw) as WorkspaceTabsSnapshot;
-  } catch {
-    return null;
-  }
-}
-
-function writeSnapshot(snapshot: WorkspaceTabsSnapshot) {
+export function clearPersistedWorkspaceTabs() {
   if (typeof window === "undefined") {
     return;
   }
 
   try {
+    window.localStorage.removeItem(WORKSPACE_TABS_STORAGE_KEY);
+    window.localStorage.removeItem(PREVIOUS_WORKSPACE_TABS_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_WORKSPACE_TABS_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures and leave in-memory state as the fallback.
+  }
+}
+
+function sanitizeSnapshot(
+  snapshot: Partial<WorkspaceTabsSnapshot> | null | undefined
+): WorkspaceTabsSnapshot | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  return {
+    tabs: snapshot.tabs ?? [],
+    recentWorkspaces: sanitizeRecentWorkspaces(
+      snapshot.recentWorkspaces ??
+        snapshot.tabs?.map((tab) => ({
+          href: tab.href,
+          customTitle: tab.customTitle ?? null,
+          lastVisitedAt:
+            typeof tab.lastVisitedAt === "number" &&
+            Number.isFinite(tab.lastVisitedAt)
+              ? tab.lastVisitedAt
+              : typeof tab.createdAt === "number" && Number.isFinite(tab.createdAt)
+                ? tab.createdAt
+                : Date.now(),
+        }))
+    ),
+    activeTabId: snapshot.activeTabId ?? null,
+    homeHref: snapshot.homeHref ?? DASHBOARD_HOME_HREF,
+    ownerUserId: normalizeWorkspaceTabOwner(snapshot.ownerUserId ?? null),
+  };
+}
+
+function limitRememberedSnapshot(
+  snapshot: WorkspaceTabsSnapshot
+): WorkspaceTabsSnapshot {
+  if (snapshot.tabs.length <= MAX_REMEMBERED_TABS_PER_OWNER) {
+    return snapshot;
+  }
+
+  const protectedTabIds = new Set<string>();
+  if (snapshot.activeTabId) {
+    protectedTabIds.add(snapshot.activeTabId);
+  }
+
+  const removableTabs = snapshot.tabs
+    .filter(
+      (tab) =>
+        !tab.pinned &&
+        !protectedTabIds.has(tab.id) &&
+        tab.href !== snapshot.homeHref
+    )
+    .sort((left, right) => {
+      if (left.lastVisitedAt !== right.lastVisitedAt) {
+        return left.lastVisitedAt - right.lastVisitedAt;
+      }
+
+      return left.order - right.order;
+    });
+
+  const overflowCount = snapshot.tabs.length - MAX_REMEMBERED_TABS_PER_OWNER;
+  const removedTabIds = new Set(
+    removableTabs.slice(0, overflowCount).map((tab) => tab.id)
+  );
+
+  if (removedTabIds.size === 0) {
+    return snapshot;
+  }
+
+  return {
+    ...snapshot,
+    tabs: snapshot.tabs.filter((tab) => !removedTabIds.has(tab.id)),
+  };
+}
+
+function readWorkspaceTabsStorage(): WorkspaceTabsStorage {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, Partial<WorkspaceTabsSnapshot>>;
+      return Object.entries(parsed).reduce<WorkspaceTabsStorage>((storage, [key, snapshot]) => {
+        const sanitizedSnapshot = sanitizeSnapshot(snapshot);
+        if (sanitizedSnapshot) {
+          storage[key] = sanitizedSnapshot;
+        }
+        return storage;
+      }, {});
+    }
+  } catch {
+    try {
+      window.localStorage.removeItem(WORKSPACE_TABS_STORAGE_KEY);
+    } catch {
+      // Ignore storage cleanup failures and use an empty storage map.
+    }
+    return {};
+  }
+
+  try {
+    const previousRaw =
+      window.localStorage.getItem(PREVIOUS_WORKSPACE_TABS_STORAGE_KEY) ??
+      window.localStorage.getItem(LEGACY_WORKSPACE_TABS_STORAGE_KEY);
+    if (!previousRaw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(previousRaw) as
+      | Record<string, Partial<WorkspaceTabsSnapshot>>
+      | Partial<WorkspaceTabsSnapshot>;
+
+    const migratedStorage = Array.isArray(parsed)
+      ? {}
+      : parsed && "tabs" in parsed
+        ? (() => {
+            const snapshot = sanitizeSnapshot(
+              parsed as Partial<WorkspaceTabsSnapshot>
+            );
+            if (!snapshot) {
+              return {};
+            }
+
+            return {
+              [getWorkspaceTabsOwnerKey(snapshot.ownerUserId)]: snapshot,
+            };
+          })()
+        : Object.entries(parsed).reduce<WorkspaceTabsStorage>(
+            (storage, [key, snapshot]) => {
+              const sanitizedSnapshot = sanitizeSnapshot(snapshot);
+              if (sanitizedSnapshot) {
+                storage[key] = sanitizedSnapshot;
+              }
+              return storage;
+            },
+            {}
+          );
+
+    writeWorkspaceTabsStorage(migratedStorage);
+    window.localStorage.removeItem(PREVIOUS_WORKSPACE_TABS_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_WORKSPACE_TABS_STORAGE_KEY);
+    return migratedStorage;
+  } catch {
+    try {
+      window.localStorage.removeItem(PREVIOUS_WORKSPACE_TABS_STORAGE_KEY);
+      window.localStorage.removeItem(LEGACY_WORKSPACE_TABS_STORAGE_KEY);
+    } catch {
+      // Ignore cleanup failures and fall back to empty storage.
+    }
+  }
+
+  return {};
+}
+
+function writeWorkspaceTabsStorage(storage: WorkspaceTabsStorage) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (Object.keys(storage).length === 0) {
+      window.localStorage.removeItem(WORKSPACE_TABS_STORAGE_KEY);
+      return;
+    }
+
     window.localStorage.setItem(
       WORKSPACE_TABS_STORAGE_KEY,
-      JSON.stringify(snapshot)
+      JSON.stringify(storage)
     );
   } catch {
     // Ignore storage write failures and keep the in-memory tab state usable.
   }
+}
+
+function readSnapshot(ownerUserId: string | null): WorkspaceTabsSnapshot | null {
+  const storage = readWorkspaceTabsStorage();
+  return storage[getWorkspaceTabsOwnerKey(ownerUserId)] ?? null;
+}
+
+function writeSnapshot(snapshot: WorkspaceTabsSnapshot) {
+  const storage = readWorkspaceTabsStorage();
+  storage[getWorkspaceTabsOwnerKey(snapshot.ownerUserId)] =
+    limitRememberedSnapshot(snapshot);
+  writeWorkspaceTabsStorage(storage);
 }
 
 function ensureHomeTab(
@@ -256,6 +564,41 @@ function ensureCurrentTab(
       order: getNextTabOrder(tabs),
     }),
   ]));
+}
+
+function markTabVisited(
+  tabs: WorkspaceTab[],
+  tabId: string | null,
+  visitedAt = Date.now()
+): WorkspaceTab[] {
+  if (!tabId) {
+    return tabs;
+  }
+
+  return tabs.map((tab) =>
+    tab.id === tabId
+      ? {
+          ...tab,
+          lastVisitedAt: visitedAt,
+        }
+      : tab
+  );
+}
+
+function syncRecentWorkspacesFromTab(
+  recentWorkspaces: RecentWorkspace[],
+  tab: WorkspaceTab | null,
+  visitedAt = Date.now()
+): RecentWorkspace[] {
+  if (!tab) {
+    return recentWorkspaces;
+  }
+
+  return upsertRecentWorkspace(recentWorkspaces, {
+    href: tab.href,
+    customTitle: tab.customTitle,
+    lastVisitedAt: visitedAt,
+  });
 }
 
 function refreshTabTitles(
@@ -375,25 +718,37 @@ function applyTabOrder(
 function persistState(state: WorkspaceTabsSnapshot) {
   writeSnapshot({
     tabs: state.tabs,
+    recentWorkspaces: state.recentWorkspaces,
     activeTabId: state.activeTabId,
     homeHref: state.homeHref,
+    ownerUserId: state.ownerUserId,
   });
 }
 
 export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
   hydrated: false,
   tabs: [],
+  recentWorkspaces: [],
   activeTabId: null,
   homeHref: DASHBOARD_HOME_HREF,
-  hydrate: (language, currentHref) => {
-    if (get().hydrated) {
-      get().syncCurrentRoute(language, currentHref);
+  ownerUserId: null,
+  hydrate: (language, currentHref, userId) => {
+    const normalizedOwnerUserId = normalizeWorkspaceTabOwner(userId);
+
+    if (
+      get().hydrated &&
+      get().ownerUserId === normalizedOwnerUserId
+    ) {
+      get().syncCurrentRoute(language, currentHref, normalizedOwnerUserId);
       return;
     }
 
-    const storedSnapshot = readSnapshot();
+    const storedSnapshot = readSnapshot(normalizedOwnerUserId);
     const homeHref = normalizeDashboardHref(
       storedSnapshot?.homeHref ?? DASHBOARD_HOME_HREF
+    );
+    let recentWorkspaces = sanitizeRecentWorkspaces(
+      storedSnapshot?.recentWorkspaces
     );
     let tabs = sanitizeTabs(storedSnapshot?.tabs, language, homeHref);
     tabs = ensureHomeTab(tabs, homeHref, language);
@@ -407,25 +762,39 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
           tabs[0] ??
           null
         : null;
+    const visitedAt = Date.now();
+    tabs = markTabVisited(tabs, preferredActiveTab?.id ?? null, visitedAt);
+    recentWorkspaces = syncRecentWorkspacesFromTab(
+      recentWorkspaces,
+      tabs.find((tab) => tab.id === preferredActiveTab?.id) ?? preferredActiveTab,
+      visitedAt
+    );
 
     const nextState = {
       hydrated: true,
       tabs,
+      recentWorkspaces,
       activeTabId: preferredActiveTab?.id ?? null,
       homeHref,
+      ownerUserId: normalizedOwnerUserId,
     };
 
     persistState(nextState);
     set(nextState);
   },
-  syncCurrentRoute: (language, currentHref) => {
-    if (!get().hydrated) {
-      get().hydrate(language, currentHref);
+  syncCurrentRoute: (language, currentHref, userId) => {
+    const normalizedOwnerUserId = normalizeWorkspaceTabOwner(userId);
+    if (
+      !get().hydrated ||
+      get().ownerUserId !== normalizedOwnerUserId
+    ) {
+      get().hydrate(language, currentHref, normalizedOwnerUserId);
       return;
     }
 
     const normalizedCurrentHref = normalizeDashboardHref(currentHref);
     const homeHref = normalizeDashboardHref(get().homeHref);
+    let recentWorkspaces = sanitizeRecentWorkspaces(get().recentWorkspaces);
     let tabs = refreshTabTitles(get().tabs, language, homeHref);
     tabs = ensureHomeTab(tabs, homeHref, language);
     tabs = ensureCurrentTab(tabs, normalizedCurrentHref, language, homeHref);
@@ -441,11 +810,20 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
           tabs[0] ??
           null
         : null;
+    const visitedAt = Date.now();
+    tabs = markTabVisited(tabs, activeTab?.id ?? null, visitedAt);
+    recentWorkspaces = syncRecentWorkspacesFromTab(
+      recentWorkspaces,
+      tabs.find((tab) => tab.id === activeTab?.id) ?? activeTab,
+      visitedAt
+    );
 
     const nextState = {
       tabs,
+      recentWorkspaces,
       activeTabId: activeTab?.id ?? null,
       homeHref,
+      ownerUserId: normalizedOwnerUserId,
     };
 
     persistState(nextState);
@@ -453,18 +831,29 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
   },
   activateTab: (tabId) => {
     const state = get();
-    if (!state.tabs.some((tab) => tab.id === tabId)) {
+    const targetTab = state.tabs.find((tab) => tab.id === tabId);
+    if (!targetTab) {
       return;
     }
+    const visitedAt = Date.now();
+    const tabs = markTabVisited(state.tabs, tabId, visitedAt);
+    const nextActiveTab = tabs.find((tab) => tab.id === tabId) ?? targetTab;
+    const recentWorkspaces = syncRecentWorkspacesFromTab(
+      state.recentWorkspaces,
+      nextActiveTab,
+      visitedAt
+    );
 
     const nextState = {
-      tabs: state.tabs,
+      tabs,
+      recentWorkspaces,
       activeTabId: tabId,
       homeHref: state.homeHref,
+      ownerUserId: state.ownerUserId,
     };
 
     persistState(nextState);
-    set({ activeTabId: tabId });
+    set(nextState);
   },
   setTabOrder: (orderedTabIds) => {
     const state = get();
@@ -479,8 +868,10 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
 
     const nextState = {
       tabs,
+      recentWorkspaces: state.recentWorkspaces,
       activeTabId: state.activeTabId,
       homeHref: state.homeHref,
+      ownerUserId: state.ownerUserId,
     };
 
     persistState(nextState);
@@ -499,8 +890,10 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
 
     const nextState = {
       tabs,
+      recentWorkspaces: state.recentWorkspaces,
       activeTabId: state.activeTabId,
       homeHref: state.homeHref,
+      ownerUserId: state.ownerUserId,
     };
 
     persistState(nextState);
@@ -524,8 +917,10 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
 
       const nextState = {
         tabs,
+        recentWorkspaces: state.recentWorkspaces,
         activeTabId: state.activeTabId,
         homeHref: normalizedHomeHref,
+        ownerUserId: state.ownerUserId,
       };
 
       persistState(nextState);
@@ -557,8 +952,10 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
 
     const nextState = {
       tabs,
+      recentWorkspaces: state.recentWorkspaces,
       activeTabId: state.activeTabId,
       homeHref: state.homeHref,
+      ownerUserId: state.ownerUserId,
     };
 
     persistState(nextState);
@@ -591,10 +988,23 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
         order: getNextTabOrder(state.tabs),
       },
     ]));
+    const visitedAt = Date.now();
+    const nextDuplicate = {
+      ...duplicate,
+      lastVisitedAt: visitedAt,
+    };
+    const tabsWithVisitedDuplicate = markTabVisited(tabs, duplicate.id, visitedAt);
+    const recentWorkspaces = syncRecentWorkspacesFromTab(
+      state.recentWorkspaces,
+      nextDuplicate,
+      visitedAt
+    );
     const nextState = {
-      tabs,
+      tabs: tabsWithVisitedDuplicate,
+      recentWorkspaces,
       activeTabId: duplicate.id,
       homeHref: state.homeHref,
+      ownerUserId: state.ownerUserId,
     };
 
     persistState(nextState);
@@ -619,11 +1029,21 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
         title: trimmedTitle || derivedTitle,
       };
     });
+    const renamedTab = tabs.find((tab) => tab.id === tabId) ?? null;
+    const recentWorkspaces = renamedTab
+      ? refreshRecentWorkspaceTitle(
+          state.recentWorkspaces,
+          renamedTab.href,
+          renamedTab.customTitle
+        )
+      : state.recentWorkspaces;
 
     const nextState = {
       tabs,
+      recentWorkspaces,
       activeTabId: state.activeTabId,
       homeHref: state.homeHref,
+      ownerUserId: state.ownerUserId,
     };
 
     persistState(nextState);
@@ -646,10 +1066,22 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
       tabId,
       fallbackActiveTabId
     );
+    const visitedAt = Date.now();
+    const tabs = markTabVisited(
+      remainingTabs,
+      nextActiveTab?.id ?? null,
+      visitedAt
+    );
     const nextState = {
-      tabs: remainingTabs,
+      tabs,
+      recentWorkspaces: syncRecentWorkspacesFromTab(
+        state.recentWorkspaces,
+        nextActiveTab,
+        visitedAt
+      ),
       activeTabId: nextActiveTab?.id ?? null,
       homeHref: state.homeHref,
+      ownerUserId: state.ownerUserId,
     };
 
     persistState(nextState);
@@ -678,11 +1110,19 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
       tabs.find((tab) => tab.id === tabId) ??
       tabs[0] ??
       null;
+    const visitedAt = Date.now();
+    const visitedTabs = markTabVisited(tabs, nextActiveTab?.id ?? null, visitedAt);
 
     const nextState = {
-      tabs,
+      tabs: visitedTabs,
+      recentWorkspaces: syncRecentWorkspacesFromTab(
+        state.recentWorkspaces,
+        nextActiveTab,
+        visitedAt
+      ),
       activeTabId: nextActiveTab?.id ?? null,
       homeHref: state.homeHref,
+      ownerUserId: state.ownerUserId,
     };
 
     persistState(nextState);
@@ -711,11 +1151,19 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
       tabs.find((tab) => tab.id === tabId) ??
       tabs[tabs.length - 1] ??
       null;
+    const visitedAt = Date.now();
+    const visitedTabs = markTabVisited(tabs, nextActiveTab?.id ?? null, visitedAt);
 
     const nextState = {
-      tabs,
+      tabs: visitedTabs,
+      recentWorkspaces: syncRecentWorkspacesFromTab(
+        state.recentWorkspaces,
+        nextActiveTab,
+        visitedAt
+      ),
       activeTabId: nextActiveTab?.id ?? null,
       homeHref: state.homeHref,
+      ownerUserId: state.ownerUserId,
     };
 
     persistState(nextState);
@@ -723,8 +1171,9 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
 
     return nextActiveTab;
   },
-  resetTabs: (language, currentHref) => {
+  resetTabs: (language, currentHref, userId) => {
     const homeHref = normalizeDashboardHref(get().homeHref);
+    const ownerUserId = normalizeWorkspaceTabOwner(userId);
     const normalizedCurrentHref = normalizeDashboardHref(currentHref);
     const currentTab = isWorkspaceTabRoute(normalizedCurrentHref)
       ? createTab(currentHref, language, {
@@ -732,13 +1181,31 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
           pinned: false,
         })
       : null;
+    const visitedAt = Date.now();
+    const recentWorkspaces = currentTab
+      ? syncRecentWorkspacesFromTab(
+          get().recentWorkspaces,
+          {
+            ...currentTab,
+            lastVisitedAt: visitedAt,
+          },
+          visitedAt
+        )
+      : get().recentWorkspaces;
     const tabs = currentTab
-      ? assignTabOrders([currentTab])
+      ? assignTabOrders([
+          {
+            ...currentTab,
+            lastVisitedAt: visitedAt,
+          },
+        ])
       : [];
     const nextState = {
       tabs,
+      recentWorkspaces,
       activeTabId: currentTab?.id ?? null,
       homeHref,
+      ownerUserId,
     };
 
     persistState(nextState);
@@ -749,4 +1216,34 @@ export const useWorkspaceTabsStore = create<WorkspaceTabsState>((set, get) => ({
 
     return currentTab;
   },
+  clearAllTabsForUser: (userId) => {
+    const normalizedOwnerUserId = normalizeWorkspaceTabOwner(userId);
+    const storage = readWorkspaceTabsStorage();
+    delete storage[getWorkspaceTabsOwnerKey(normalizedOwnerUserId)];
+    writeWorkspaceTabsStorage(storage);
+
+    set((state) =>
+      state.ownerUserId === normalizedOwnerUserId
+        ? {
+            hydrated: true,
+            tabs: [],
+            recentWorkspaces: [],
+            activeTabId: null,
+            homeHref: DASHBOARD_HOME_HREF,
+            ownerUserId: normalizedOwnerUserId,
+          }
+        : state
+    );
+  },
 }));
+
+export function clearWorkspaceTabsState() {
+  useWorkspaceTabsStore.setState({
+    hydrated: false,
+    tabs: [],
+    recentWorkspaces: [],
+    activeTabId: null,
+    homeHref: DASHBOARD_HOME_HREF,
+    ownerUserId: null,
+  });
+}

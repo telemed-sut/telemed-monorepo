@@ -17,7 +17,6 @@ import {
   createDeviceRegistration,
   deleteDeviceRegistration,
   fetchDeviceRegistrations,
-  getErrorMessage,
   updateDeviceRegistration,
   type ApiError,
   type DeviceRegistration,
@@ -45,6 +44,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
+import { getLocalizedDashboardErrorMessage } from "./dashboard-error-message";
 
 const tr = (language: AppLanguage, en: string, th: string) => (language === "th" ? th : en);
 const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
@@ -145,7 +145,12 @@ export function DeviceRegistryContent() {
         handleAuthError(apiError);
         if (showErrorToast) {
           toast.error(tr(language, "Unable to load device list", "ไม่สามารถโหลดรายการอุปกรณ์ได้"), {
-            description: getErrorMessage(apiError),
+            description: getLocalizedDashboardErrorMessage(
+              apiError,
+              language,
+              "Unable to load device list",
+              "ไม่สามารถโหลดรายการอุปกรณ์ได้"
+            ),
           });
         }
       } finally {
@@ -216,7 +221,12 @@ export function DeviceRegistryContent() {
       const apiError = error as ApiError;
       handleAuthError(apiError);
       toast.error(tr(language, "Unable to register device", "ไม่สามารถลงทะเบียนอุปกรณ์ได้"), {
-        description: getErrorMessage(apiError),
+        description: getLocalizedDashboardErrorMessage(
+          apiError,
+          language,
+          "Unable to register device",
+          "ไม่สามารถลงทะเบียนอุปกรณ์ได้"
+        ),
       });
     } finally {
       setSubmitting(false);
@@ -238,7 +248,12 @@ export function DeviceRegistryContent() {
       const apiError = error as ApiError;
       handleAuthError(apiError);
       toast.error(tr(language, "Unable to update device status", "ไม่สามารถอัปเดตสถานะอุปกรณ์ได้"), {
-        description: getErrorMessage(apiError),
+        description: getLocalizedDashboardErrorMessage(
+          apiError,
+          language,
+          "Unable to update device status",
+          "ไม่สามารถอัปเดตสถานะอุปกรณ์ได้"
+        ),
       });
     } finally {
       setSavingId(null);
@@ -288,7 +303,12 @@ export function DeviceRegistryContent() {
       const apiError = error as ApiError;
       handleAuthError(apiError);
       toast.error(tr(language, "Unable to delete device", "ไม่สามารถลบอุปกรณ์ได้"), {
-        description: getErrorMessage(apiError),
+        description: getLocalizedDashboardErrorMessage(
+          apiError,
+          language,
+          "Unable to delete device",
+          "ไม่สามารถลบอุปกรณ์ได้"
+        ),
       });
     } finally {
       setSavingId(null);
@@ -348,7 +368,7 @@ export function DeviceRegistryContent() {
           <CardContent className="grid gap-4">
             <div className="grid gap-4 md:grid-cols-2">
               <label className="grid gap-2">
-                <span className="text-base font-medium">{tr(language, "Device ID", "Device ID")}</span>
+                <span className="text-base font-medium">{tr(language, "Device ID", "รหัสอุปกรณ์")}</span>
                 <Input
                   value={deviceId}
                   onChange={(event) => setDeviceId(event.target.value)}
@@ -426,7 +446,7 @@ export function DeviceRegistryContent() {
                 <Input
                   value={searchInput}
                   onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder={tr(language, "Search by Device ID or Name", "ค้นหาด้วย Device ID หรือชื่อ")}
+                  placeholder={tr(language, "Search by Device ID or Name", "ค้นหาด้วยรหัสอุปกรณ์หรือชื่อ")}
                   className="h-12 pl-10 text-base"
                 />
               </div>

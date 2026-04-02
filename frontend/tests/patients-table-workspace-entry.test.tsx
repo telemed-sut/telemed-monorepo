@@ -110,4 +110,44 @@ describe("patients table workspace entry", () => {
 
     expect(mockPush).toHaveBeenCalledWith("/patients/patient-1");
   });
+
+  it("shows localized English load errors instead of raw Thai API messages", async () => {
+    mockFetchPatients.mockRejectedValue(
+      Object.assign(new Error("ไม่พบข้อมูลผู้ใช้ที่ต้องการ"), { status: 400 })
+    );
+
+    const { PatientsTable } = await import("@/components/dashboard/patients-table");
+    render(<PatientsTable />);
+
+    expect(await screen.findByText("Failed to load patients")).toBeInTheDocument();
+    expect(screen.queryByText("ไม่พบข้อมูลผู้ใช้ที่ต้องการ")).not.toBeInTheDocument();
+  });
+
+  it("renders visible patients workspace copy in Thai", async () => {
+    mockAuthState.role = "admin";
+    mockLanguageState.language = "th";
+
+    const { PatientsTable } = await import("@/components/dashboard/patients-table");
+    render(<PatientsTable />);
+
+    expect(await screen.findByText("รายชื่อผู้ป่วย")).toBeInTheDocument();
+    expect(screen.getByText("จัดการข้อมูลผู้ป่วย การนัดหมาย และข้อมูลติดต่อ")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("ค้นหาผู้ป่วย...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "เพิ่มผู้ป่วย" })).toBeInTheDocument();
+    expect(screen.getAllByText("ผู้ป่วย").length).toBeGreaterThan(0);
+    expect(screen.getByText("อายุและวันเกิด")).toBeInTheDocument();
+    expect(screen.getByText("เพศ")).toBeInTheDocument();
+    expect(screen.getByText("ติดต่อ")).toBeInTheDocument();
+    expect(screen.getByText("ที่อยู่")).toBeInTheDocument();
+    expect(screen.getByText("การทำงาน")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "เพิ่มผู้ป่วย" }));
+
+    expect(await screen.findByRole("heading", { name: "เพิ่มผู้ป่วย" })).toBeInTheDocument();
+    expect(screen.getByText("ชื่อ")).toBeInTheDocument();
+    expect(screen.getByText("นามสกุล")).toBeInTheDocument();
+    expect(screen.getByText("วันเกิด")).toBeInTheDocument();
+    expect(screen.getByText("โทรศัพท์")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "สร้างผู้ป่วย" })).toBeInTheDocument();
+  });
 });

@@ -1055,10 +1055,10 @@ export function DeviceMonitorContent() {
             {tr(language, "Range:", "ช่วงเวลา:")} {rangeLabel}
           </p>
           <p className="text-sm text-muted-foreground">
-            {tr(language, "Latest error activity:", "ข้อมูลล่าสุด (error):")}{" "}
+            {tr(language, "Latest error activity:", "ข้อมูลข้อผิดพลาดล่าสุด:")}{" "}
             {latestErrorActivityAt
               ? toLocalTimeString(new Date(latestErrorActivityAt), language)
-              : tr(language, "No error history", "ยังไม่มีประวัติ error")}
+              : tr(language, "No error history", "ยังไม่มีประวัติข้อผิดพลาด")}
           </p>
           {lastUpdated && (
             <p className="text-sm text-muted-foreground">
@@ -1070,7 +1070,7 @@ export function DeviceMonitorContent() {
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <Select value={timePreset} onValueChange={(value) => setTimePreset(value as TimePreset)}>
             <SelectTrigger className="h-9 w-[160px] text-sm">
-              <SelectValue />
+              <span>{getPresetLabel(timePreset, language)}</span>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="today">{getPresetLabel("today", language)}</SelectItem>
@@ -1109,7 +1109,13 @@ export function DeviceMonitorContent() {
             }}
           >
             <SelectTrigger className="h-9 w-[180px] text-sm">
-              <SelectValue />
+              {activeSavedViewId ? (
+                <SelectValue />
+              ) : (
+                <span className="text-muted-foreground">
+                  {tr(language, "Saved Views", "มุมมองที่บันทึก")}
+                </span>
+              )}
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__none__">{tr(language, "Saved Views", "มุมมองที่บันทึก")}</SelectItem>

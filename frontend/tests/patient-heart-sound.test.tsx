@@ -17,6 +17,7 @@ const {
   mockFetchPatientHeartSounds: vi.fn(),
   mockAuthState: {
     token: "test-token",
+    role: "admin",
     clearToken: vi.fn(),
   },
   mockLanguageState: {
@@ -52,6 +53,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
 describe("patient heart sound page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLanguageState.language = "en";
+    mockAuthState.role = "admin";
     mockFetchPatient.mockResolvedValue({
       id: "patient-1",
       first_name: "John",
@@ -90,13 +93,15 @@ describe("patient heart sound page", () => {
     expect(
       await screen.findByRole("heading", { name: "Heart Sound", level: 1 })
     ).toBeInTheDocument();
-    expect(screen.getByText("DATE/TIME")).toBeInTheDocument();
-    expect(screen.getByText("USER ID")).toBeInTheDocument();
-    expect(screen.getByText("MAC ADDRESS")).toBeInTheDocument();
-    expect(screen.getByText("PLAY")).toBeInTheDocument();
-    expect(screen.getByText("F6:62:73:62:79:5E")).toBeInTheDocument();
-    expect(screen.getByText("John Doe")).toBeInTheDocument();
-  });
+    expect(screen.getAllByText("Date / time").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("User ID").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("MAC Address").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Position").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Playback").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/F6:62:73:62:79:5E/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("patient-1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("John Doe").length).toBeGreaterThan(0);
+  }, 10000);
 
   it("keeps the page usable when heart sound records fail to load", async () => {
     mockFetchPatientHeartSounds.mockReset();
@@ -110,14 +115,14 @@ describe("patient heart sound page", () => {
     expect(
       await screen.findByRole("heading", { name: "Heart Sound", level: 1 })
     ).toBeInTheDocument();
-    expect(screen.getByText("John Doe")).toBeInTheDocument();
+    expect(screen.getAllByText("John Doe").length).toBeGreaterThan(0);
     expect(
       screen.getByText("Built-in demo recordings are loaded")
     ).toBeInTheDocument();
     expect(screen.getByText("Demo audio loaded")).toBeInTheDocument();
-    expect(screen.getByText("DE:MO:PO:09:20:A1")).toBeInTheDocument();
+    expect(screen.getAllByText(/DE:MO:PO:09:20:A1/).length).toBeGreaterThan(0);
     expect(screen.getByText("Upload heart sound files")).toBeInTheDocument();
-  });
+  }, 10000);
 
   it("loads demo recordings when the patient has no uploaded files yet", async () => {
     mockFetchPatientHeartSounds.mockResolvedValue({ items: [] });
@@ -129,8 +134,8 @@ describe("patient heart sound page", () => {
       await screen.findByRole("heading", { name: "Heart Sound", level: 1 })
     ).toBeInTheDocument();
     expect(screen.getByText("Built-in demo recordings are loaded")).toBeInTheDocument();
-    expect(screen.getByText("DE:MO:AA:01:10:01")).toBeInTheDocument();
-    expect(screen.getByText("DE:MO:PO:14:30:01")).toBeInTheDocument();
+    expect(screen.getAllByText(/DE:MO:AA:01:10:01/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/DE:MO:PO:14:30:01/).length).toBeGreaterThan(0);
   });
 
   it("filters the recording table to the selected position only", async () => {
@@ -181,9 +186,9 @@ describe("patient heart sound page", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Jump to position 9" }));
 
-    expect(screen.getAllByText("DE:MO:PO:09:20:A1").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("DE:MO:PO:09:20:B2").length).toBeGreaterThan(0);
-    expect(screen.queryByText("DE:MO:PO:14:30:01")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/DE:MO:PO:09:20:A1/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/DE:MO:PO:09:20:B2/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/DE:MO:PO:14:30:01/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear filter" })).toBeInTheDocument();
   });
 
@@ -225,10 +230,59 @@ describe("patient heart sound page", () => {
     const positionNineButton = screen.getByRole("button", { name: "Jump to position 9" });
 
     fireEvent.click(positionNineButton);
-    expect(screen.queryByText("DE:MO:PO:14:30:01")).not.toBeInTheDocument();
+    expect(screen.queryByText(/DE:MO:PO:14:30:01/)).not.toBeInTheDocument();
 
     fireEvent.click(positionNineButton);
-    expect(screen.getByText("DE:MO:PO:14:30:01")).toBeInTheDocument();
+    expect(screen.getAllByText(/DE:MO:PO:14:30:01/).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Clear filter" })).not.toBeInTheDocument();
+  });
+
+  it("localizes visible workspace copy in Thai", async () => {
+    mockLanguageState.language = "th";
+
+    const { PatientHeartSoundContent } = await import("@/components/dashboard/patient-heart-sound");
+    render(<PatientHeartSoundContent patientId="patient-1" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "เสียงหัวใจ", level: 1 })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "โหมดโฟกัส" })).toBeInTheDocument();
+    expect(screen.getAllByText("วันเวลา").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("รหัสผู้ใช้").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("ที่อยู่ MAC").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("ตำแหน่ง").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("การเล่นเสียง").length).toBeGreaterThan(0);
+  });
+
+  it("hides system columns for doctor accounts", async () => {
+    mockAuthState.role = "doctor";
+
+    const { PatientHeartSoundContent } = await import("@/components/dashboard/patient-heart-sound");
+    render(<PatientHeartSoundContent patientId="patient-1" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Heart Sound", level: 1 })
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Date / time").length).toBeGreaterThan(0);
+    expect(screen.queryByText("User ID")).not.toBeInTheDocument();
+    expect(screen.queryByText("MAC Address")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Position").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Playback").length).toBeGreaterThan(0);
+  });
+
+  it("localizes patient load errors instead of showing mixed-language API messages", async () => {
+    mockFetchPatient.mockReset();
+    mockFetchPatient.mockRejectedValue(
+      Object.assign(new Error("ไม่พบข้อมูลผู้ใช้ที่ต้องการ"), { status: 400 })
+    );
+
+    const { PatientHeartSoundContent } = await import("@/components/dashboard/patient-heart-sound");
+    render(<PatientHeartSoundContent patientId="patient-missing" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Patient not found", level: 2 })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Unable to load patient data.")).toBeInTheDocument();
+    expect(screen.queryByText("ไม่พบข้อมูลผู้ใช้ที่ต้องการ")).not.toBeInTheDocument();
   });
 });

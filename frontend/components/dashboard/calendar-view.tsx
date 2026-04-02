@@ -106,7 +106,7 @@ function formatTime12(dateTime: string, language: AppLanguage): string {
   return d.toLocaleTimeString(localeOf(language), {
     hour: "numeric",
     minute: "2-digit",
-    hour12: true,
+    hour12: language !== "th",
   });
 }
 
@@ -695,7 +695,9 @@ export function EventDetailSheet({
   if (!meeting) return null;
 
   const doctorName = meeting.doctor
-    ? `Dr. ${meeting.doctor.first_name || ""} ${meeting.doctor.last_name || ""}`.trim()
+    ? `${meeting.doctor.first_name || ""} ${meeting.doctor.last_name || ""}`.trim() ||
+      meeting.doctor.email ||
+      tr(language, "Unassigned Doctor", "ยังไม่ระบุแพทย์")
     : tr(language, "Unassigned Doctor", "ยังไม่ระบุแพทย์");
   const patientName = meeting.patient
     ? `${meeting.patient.first_name} ${meeting.patient.last_name}`

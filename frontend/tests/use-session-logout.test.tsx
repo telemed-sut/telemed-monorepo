@@ -5,6 +5,7 @@ const replaceMock = vi.fn();
 const assignMock = vi.fn();
 const logoutMock = vi.fn().mockResolvedValue({ message: "Successfully logged out" });
 const originalLocation = window.location;
+const WORKSPACE_TABS_STORAGE_KEY = "workspace_tabs_state_v3";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -21,6 +22,18 @@ vi.mock("@/lib/api", async () => {
 });
 
 describe("useSessionLogout", () => {
+  function createWorkspaceTabsStorage(ownerUserId: string) {
+    return JSON.stringify({
+      [ownerUserId]: {
+        tabs: [],
+        recentWorkspaces: [],
+        activeTabId: null,
+        homeHref: "/patients",
+        ownerUserId,
+      },
+    });
+  }
+
   beforeEach(() => {
     replaceMock.mockReset();
     assignMock.mockReset();
@@ -61,6 +74,10 @@ describe("useSessionLogout", () => {
       token: "__cookie_session__",
       hydrated: true,
     });
+    window.localStorage.setItem(
+      WORKSPACE_TABS_STORAGE_KEY,
+      createWorkspaceTabsStorage("user-a")
+    );
 
     const { getByRole } = render(<Harness />);
     fireEvent.click(getByRole("button", { name: "logout" }));
@@ -70,6 +87,9 @@ describe("useSessionLogout", () => {
     expect(logoutMock).not.toHaveBeenCalled();
     expect(useAuthStore.getState().authSource).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
+    expect(window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY)).toBe(
+      createWorkspaceTabsStorage("user-a")
+    );
   });
 
   it("routes local sessions to /login and revokes the backend session", async () => {
@@ -86,6 +106,10 @@ describe("useSessionLogout", () => {
       token: "__cookie_session__",
       hydrated: true,
     });
+    window.localStorage.setItem(
+      WORKSPACE_TABS_STORAGE_KEY,
+      createWorkspaceTabsStorage("user-a")
+    );
 
     const { getByRole } = render(<Harness />);
     fireEvent.click(getByRole("button", { name: "logout" }));
@@ -97,6 +121,9 @@ describe("useSessionLogout", () => {
     });
     expect(useAuthStore.getState().authSource).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
+    expect(window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY)).toBe(
+      createWorkspaceTabsStorage("user-a")
+    );
   });
 
   it("routes unknown sessions to /login and revokes the backend session", async () => {
@@ -113,6 +140,10 @@ describe("useSessionLogout", () => {
       token: "__cookie_session__",
       hydrated: true,
     });
+    window.localStorage.setItem(
+      WORKSPACE_TABS_STORAGE_KEY,
+      createWorkspaceTabsStorage("user-a")
+    );
 
     const { getByRole } = render(<Harness />);
     fireEvent.click(getByRole("button", { name: "logout" }));
@@ -124,5 +155,8 @@ describe("useSessionLogout", () => {
     });
     expect(useAuthStore.getState().authSource).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
+    expect(window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY)).toBe(
+      createWorkspaceTabsStorage("user-a")
+    );
   });
 });

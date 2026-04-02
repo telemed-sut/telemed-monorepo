@@ -154,13 +154,22 @@ const UNDO_TRANSITIONS: Partial<Record<MeetingStatus, MeetingStatus>> = {
   overtime: "in_progress",
 };
 
-function formatTime12(dateTime: string): string {
+function formatMeetingTime(dateTime: string, language: AppLanguage): string {
   const d = new Date(dateTime);
-  const hour = d.getHours();
-  const minute = d.getMinutes();
-  const period = hour >= 12 ? "PM" : "AM";
-  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-  return `${displayHour}:${minute.toString().padStart(2, "0")} ${period}`;
+  return d.toLocaleTimeString(localeOf(language), {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: language !== "th",
+  });
+}
+
+function formatDoctorName(meeting: Meeting, language: AppLanguage): string {
+  if (!meeting.doctor) {
+    return tr(language, "Unassigned", "ยังไม่ระบุ");
+  }
+
+  const fullName = `${meeting.doctor.first_name || ""} ${meeting.doctor.last_name || ""}`.trim();
+  return fullName || meeting.doctor.email || tr(language, "Unassigned", "ยังไม่ระบุ");
 }
 
 function formatAppointmentDate(dateTime: string, language: AppLanguage): string {
@@ -321,14 +330,12 @@ function QueueCard({
   const livePresenceInfo = getLivePresenceInfo(meeting, language);
   const config = getStatusConfig(statusForBadge, language);
   const appointmentDateLabel = formatAppointmentDate(meeting.date_time, language);
-  const appointmentTimeLabel = formatTime12(meeting.date_time);
+  const appointmentTimeLabel = formatMeetingTime(meeting.date_time, language);
 
   const patientName = meeting.patient
     ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
     : tr(language, "Unknown Patient", "ไม่ทราบชื่อผู้ป่วย");
-  const doctorName = meeting.doctor
-    ? `Dr. ${meeting.doctor.first_name || ""} ${meeting.doctor.last_name || ""}`.trim()
-    : tr(language, "Unassigned", "ยังไม่ระบุ");
+  const doctorName = formatDoctorName(meeting, language);
   const isListMode = displayMode === "list";
   const isCompact = density === "compact";
   const isSpacious = density === "spacious";
@@ -916,7 +923,7 @@ export function QueueView({
         toast.info(tr(language, `Switched to All Dates for ${statusLabel}`, `สลับเป็นทุกช่วงวันสำหรับสถานะ ${statusLabel}`), {
           description: tr(
             language,
-            `No ${statusLabel.toLowerCase()} meetings today, but found ${allDatesCount} in all dates.`,
+            `No meetings with status ${statusLabel} today, but found ${allDatesCount} across all dates.`,
             `ไม่พบสถานะ ${statusLabel} ในวันนี้ แต่พบทั้งหมด ${allDatesCount} รายการในทุกช่วงวัน`
           ),
           duration: 5000,

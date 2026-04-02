@@ -99,6 +99,21 @@ describe("patient workspace overview", () => {
     expect(screen.getByText("Open Heart Sound")).toBeInTheDocument();
     expect(screen.getByText("Open Advanced Focus Mode")).toBeInTheDocument();
   });
+
+  it("localizes patient load errors instead of surfacing mixed-language API text", async () => {
+    mockFetchPatient.mockRejectedValue(
+      Object.assign(new Error("ไม่พบข้อมูลผู้ใช้ที่ต้องการ"), { status: 400 })
+    );
+
+    const { PatientDetailContent } = await import("@/components/dashboard/patient-detail");
+    render(<PatientDetailContent patientId="patient-missing" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Patient not found", level: 3 })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Unable to load patient data.")).toBeInTheDocument();
+    expect(screen.queryByText("ไม่พบข้อมูลผู้ใช้ที่ต้องการ")).not.toBeInTheDocument();
+  });
 });
 
 describe("dashboard header patient route titles", () => {

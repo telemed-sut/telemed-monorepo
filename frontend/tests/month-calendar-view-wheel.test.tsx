@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, createEvent, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Meeting } from "@/lib/api";
 
@@ -74,10 +74,16 @@ describe("month calendar wheel interactions", () => {
       value: scrollByMock,
     });
 
-    fireEvent.wheel(root as Element, { deltaY: 80, deltaX: 0 });
+    const wheelEvent = createEvent.wheel(root as Element, {
+      deltaY: 80,
+      deltaX: 0,
+      cancelable: true,
+    });
+    fireEvent(root as Element, wheelEvent);
 
     expect(mockGoToDate).not.toHaveBeenCalled();
     expect(scrollByMock).toHaveBeenCalledWith({ top: 80 });
+    expect(wheelEvent.defaultPrevented).toBe(true);
   });
 
   it("navigates months on horizontal wheel gestures", async () => {
@@ -89,7 +95,12 @@ describe("month calendar wheel interactions", () => {
     const root = container.firstElementChild;
     expect(root).not.toBeNull();
 
-    fireEvent.wheel(root as Element, { deltaY: 0, deltaX: 40 });
+    const wheelEvent = createEvent.wheel(root as Element, {
+      deltaY: 0,
+      deltaX: 40,
+      cancelable: true,
+    });
+    fireEvent(root as Element, wheelEvent);
 
     expect(mockGoToDate).toHaveBeenCalledTimes(1);
     const nextMonth = mockGoToDate.mock.calls[0]?.[0] as Date;
@@ -97,6 +108,7 @@ describe("month calendar wheel interactions", () => {
     expect(nextMonth.getFullYear()).toBe(2026);
     expect(nextMonth.getMonth()).toBe(3);
     expect(nextMonth.getDate()).toBe(1);
+    expect(wheelEvent.defaultPrevented).toBe(true);
   });
 
   it("keeps overflow list scrolling isolated from the outer month calendar", async () => {

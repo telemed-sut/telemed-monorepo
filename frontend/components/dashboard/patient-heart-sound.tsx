@@ -8,7 +8,6 @@ import {
   CircleAlert,
   CloudUpload,
   Files,
-  Play,
   Stethoscope,
   UserRound,
   Volume2,
@@ -17,6 +16,7 @@ import {
 
 import type { AppLanguage } from "@/store/language-config";
 import {
+  canManageUsers,
   fetchPatient,
   fetchPatientHeartSounds,
   type HeartSoundRecord,
@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HeartSoundInlinePlayer } from "@/components/dashboard/heart-sound-inline-player";
+import { getPatientLoadErrorTitle } from "@/components/dashboard/patient-load-error";
 import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
 import {
   readPatientHeartSoundCache,
@@ -195,6 +196,55 @@ function buildPositionCounts(records: DisplayHeartSoundRecord[]) {
   }, {});
 }
 
+function getPanelLabel(language: AppLanguage, panel: PanelKind) {
+  return tr(
+    language,
+    panel === "anterior" ? "Anterior" : "Posterior",
+    panel === "anterior" ? "ด้านหน้า" : "ด้านหลัง"
+  );
+}
+
+function getRecordSource(
+  record: DisplayHeartSoundRecord,
+  language: AppLanguage,
+  showSystemDetails: boolean
+) {
+  if (record.isDraft) {
+    return {
+      primary: tr(language, "Queued upload", "รออัปโหลด"),
+      secondary: record.draftFileName ?? record.storage_key,
+    };
+  }
+
+  if (!showSystemDetails) {
+    return {
+      primary:
+        record.draftFileName ||
+        record.storage_key ||
+        tr(language, "Recorded file", "ไฟล์ที่บันทึก"),
+      secondary: null,
+    };
+  }
+
+  return {
+    primary: record.device_id || tr(language, "Recorder device", "อุปกรณ์บันทึก"),
+    secondary:
+      record.mac_address && record.mac_address !== "PENDING"
+        ? `MAC ${record.mac_address}`
+        : record.storage_key,
+  };
+}
+
+function getScrollBehavior() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return "smooth" as const;
+  }
+
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? ("auto" as const)
+    : ("smooth" as const);
+}
+
 function getAutoAssignedPositions(
   existingRecords: DisplayHeartSoundRecord[],
   panel: PanelKind,
@@ -284,10 +334,11 @@ function HeartSoundReferenceMap({
       </>
     );
 
-  const renderPanel = (panel: PanelKind, label: string) => {
+  const renderPanel = (panel: PanelKind) => {
     const points = POSITION_META.filter((item) => item.panel === panel);
     const filesInPanel = points.reduce((sum, point) => sum + (positionCounts[point.id] ?? 0), 0);
     const positionsUsed = points.filter((point) => (positionCounts[point.id] ?? 0) > 0).length;
+    const label = getPanelLabel(language, panel);
 
     return (
       <section className="overflow-hidden rounded-[30px] border border-[#dcecf0] bg-[linear-gradient(180deg,#ffffff_0%,#f7fcfd_100%)] shadow-[0_16px_36px_rgba(15,23,42,0.05)]">
@@ -396,19 +447,14 @@ function HeartSoundReferenceMap({
             <p className="max-w-2xl text-sm text-slate-600">
               {tr(
                 language,
-                "Use the surface view to jump directly to matching recordings in the table. The plain torso layout keeps each heart-sound point easy to scan.",
-                "ใช้มุมมองผิวกายเพื่อกระโดดไปยังรายการเสียงในตารางได้ทันที ภาพ torso แบบเรียบช่วยให้มองหาตำแหน่งเสียงหัวใจแต่ละจุดได้ง่ายขึ้น"
+                "Select a point to focus the review list on one listening position at a time.",
+                "เลือกจุดบนแผนที่เพื่อโฟกัสรายการตรวจให้เหลือทีละตำแหน่ง"
               )}
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="rounded-full border border-sky-100 bg-[#f6fbfd] px-3 py-1.5 font-medium text-[#0f6f89]">
-            {tr(language, "Mode", "โหมด")}:
-            {" "}
-            {tr(language, "Surface", "ผิวกาย")}
-          </span>
           <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-medium text-slate-600">
             {usedPositions} {tr(language, "positions used", "ตำแหน่งที่มีข้อมูล")}
           </span>
@@ -416,17 +462,22 @@ function HeartSoundReferenceMap({
             {recordedCount} {tr(language, "recordings", "ไฟล์เสียง")}
           </span>
           {activePosition ? (
-            <Button type="button" variant="outline" className="rounded-full" onClick={() => onPositionSelect(activePosition)}>
-              <Play className="size-4" />
-              {tr(language, `Jump to position ${activePosition}`, `ไปยังตำแหน่ง ${activePosition}`)}
-            </Button>
+            <>
+              <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 font-medium text-[#0f6f89]">
+                {tr(language, `Position ${activePosition} selected`, `เลือกตำแหน่ง ${activePosition} อยู่`)}
+              </span>
+              <Button type="button" variant="outline" className="rounded-full" onClick={() => onPositionSelect(activePosition)}>
+                <X className="size-4" />
+                {tr(language, "Clear selection", "ล้างการเลือก")}
+              </Button>
+            </>
           ) : null}
         </div>
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
-        {renderPanel("anterior", "Anterior")}
-        {renderPanel("posterior", "Posterior")}
+        {renderPanel("anterior")}
+        {renderPanel("posterior")}
       </div>
     </div>
   );
@@ -438,8 +489,10 @@ export function PatientHeartSoundContent({
   const token = useAuthStore((state) => state.token);
   const clearToken = useAuthStore((state) => state.clearToken);
   const userId = useAuthStore((state) => state.userId);
+  const userRole = useAuthStore((state) => state.role);
   const language = useLanguageStore((state) => state.language);
   const router = useRouter();
+  const showSystemDetails = canManageUsers(userRole);
   const patientWorkspaceHrefs = useMemo(
     () => getPatientWorkspaceHrefs(patientId),
     [patientId]
@@ -616,9 +669,7 @@ export function PatientHeartSoundContent({
           return;
         }
         setPatientError(
-          err instanceof Error
-            ? err.message
-            : tr(language, "Failed to load patient", "โหลดข้อมูลผู้ป่วยไม่สำเร็จ")
+          getPatientLoadErrorTitle(err, language)
         );
       } finally {
         if (!cancelled) {
@@ -685,7 +736,7 @@ export function PatientHeartSoundContent({
 
     requestAnimationFrame(() => {
       rowRefs.current[match.id]?.scrollIntoView({
-        behavior: "smooth",
+        behavior: getScrollBehavior(),
         block: "center",
       });
       setActiveRowId(match.id);
@@ -784,80 +835,71 @@ export function PatientHeartSoundContent({
   }
 
   return (
-    <div className="flex-1 min-h-0 space-y-6 overflow-y-auto py-2">
+    <div className="flex-1 min-h-0 space-y-5 overflow-y-auto py-2">
       {recordsBanner ? (
-        <section className="rounded-[28px] border border-sky-200 bg-sky-50/80 px-5 py-4 shadow-sm">
+        <section className="rounded-[24px] border border-sky-200/80 bg-sky-50/85 px-4 py-3 shadow-sm">
           <div className="flex items-start gap-3">
             <div className="mt-0.5 rounded-2xl bg-sky-100 p-2 text-sky-700">
               <CircleAlert className="size-5" />
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-semibold text-sky-950">
-                {recordsBanner.title}
-              </p>
-              <p className="text-sm leading-6 text-sky-900/80">
-                {recordsBanner.message}
-              </p>
+              <p className="text-sm font-semibold text-sky-950">{recordsBanner.title}</p>
+              <p className="text-sm leading-6 text-sky-900/80">{recordsBanner.message}</p>
             </div>
           </div>
         </section>
       ) : null}
 
-      <section className="overflow-hidden rounded-[32px] border border-slate-200/80 bg-[linear-gradient(135deg,rgba(236,254,255,0.96),rgba(255,255,255,0.98)_58%,rgba(236,253,245,0.9))] shadow-[0_22px_60px_rgba(15,23,42,0.06)]">
-        <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-          <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary" className="border-transparent bg-[#0891B2]/10 text-[#0a6e87]">
-                {tr(language, "Patient Workspace", "พื้นที่ทำงานผู้ป่วย")}
-              </Badge>
-              <Badge variant="outline" className="border-slate-300/80 bg-white/90 text-slate-700">
-                {tr(language, "Heart Sound", "เสียงหัวใจ")}
-              </Badge>
-              {draftRecords.length > 0 ? (
-                <Badge className="border-transparent bg-emerald-500/12 text-emerald-700">
-                  {draftRecords.length} {tr(language, "queued", "รออัปโหลด")}
-                </Badge>
-              ) : null}
-              {usingDemoRecords ? (
-                <Badge className="border-transparent bg-sky-500/12 text-sky-700">
-                  {tr(language, "Demo audio loaded", "โหลดเสียงตัวอย่างแล้ว")}
-                </Badge>
-              ) : null}
+      <section className="rounded-[28px] border border-slate-200/80 bg-white/95 shadow-[0_16px_38px_rgba(15,23,42,0.05)]">
+        <div className="flex flex-col gap-5 px-5 py-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-[#0f6f89]">
+              {tr(language, "Heart sound workspace", "พื้นที่ตรวจเสียงหัวใจ")}
             </div>
-
-            <div className="space-y-2">
-              <h1 className="text-[clamp(2rem,3.4vw,3.1rem)] font-semibold tracking-tight text-slate-900">
+            <div className="space-y-1">
+              <h1 className="text-[clamp(1.85rem,3vw,2.5rem)] font-semibold tracking-tight text-slate-900">
                 {tr(language, "Heart Sound", "เสียงหัวใจ")}
               </h1>
               <p className="max-w-3xl text-sm leading-6 text-slate-600">
                 {tr(
                   language,
-                  "Clinical review surface for uploaded heart-sound recordings. Select a position, inspect related files, and keep uploads organized by patient.",
-                  "พื้นผิวการทำงานสำหรับตรวจสอบไฟล์เสียงหัวใจของผู้ป่วย เลือกตำแหน่ง ตรวจสอบไฟล์ที่เกี่ยวข้อง และจัดการอัปโหลดให้เป็นระเบียบตามผู้ป่วย"
+                  "Select a listening position to review related recordings, then stage new uploads for this patient when needed.",
+                  "เลือกตำแหน่งการฟังเพื่อดูไฟล์ที่เกี่ยวข้อง แล้วค่อยเตรียมอัปโหลดใหม่สำหรับผู้ป่วยรายนี้เมื่อจำเป็น"
                 )}
               </p>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/92 px-3 py-1.5">
+            <div className="flex flex-wrap items-center gap-2.5 text-sm text-slate-600">
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-slate-50/80 px-3 py-1.5">
                 <UserRound className="size-4 text-[#0891B2]" />
                 {patient.first_name} {patient.last_name}
               </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/92 px-3 py-1.5">
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-slate-50/80 px-3 py-1.5">
                 <Volume2 className="size-4 text-[#0891B2]" />
                 {displayRecords.length} {tr(language, "recordings", "ไฟล์เสียง")}
               </span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/92 px-3 py-1.5">
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-slate-50/80 px-3 py-1.5">
                 <Files className="size-4 text-emerald-600" />
                 {positionSummary.length} {tr(language, "positions used", "ตำแหน่งที่มีข้อมูล")}
               </span>
+              {draftRecords.length > 0 ? (
+                <span className="inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-emerald-700">
+                  <AudioLines className="size-4" />
+                  {draftRecords.length} {tr(language, "queued", "รออัปโหลด")}
+                </span>
+              ) : null}
+              {usingDemoRecords ? (
+                <span className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-3 py-1.5 text-[#0f6f89]">
+                  <CircleAlert className="size-4" />
+                  {tr(language, "Demo audio loaded", "โหลดเสียงตัวอย่างแล้ว")}
+                </span>
+              ) : null}
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 lg:items-end">
+          <div className="flex flex-col gap-2.5 lg:min-w-[240px] lg:items-end">
             <Button
-              variant={uploadOpen ? "default" : "outline"}
-              className="min-w-[220px] rounded-2xl"
+              className="min-h-11 min-w-[240px] rounded-2xl"
               onClick={() => setUploadOpen((current) => !current)}
             >
               <CloudUpload className="size-4" />
@@ -865,7 +907,7 @@ export function PatientHeartSoundContent({
                 ? tr(language, "Hide upload panel", "ซ่อนแผงอัปโหลด")
                 : tr(language, "Upload heart sound files", "อัปโหลดไฟล์เสียงหัวใจ")}
             </Button>
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
                 className="rounded-2xl"
@@ -877,21 +919,22 @@ export function PatientHeartSoundContent({
                 {tr(language, "Back", "กลับ")}
               </Button>
               <Button
+                variant="outline"
                 className="rounded-2xl"
                 onClick={() => router.push(denseModeHref)}
                 onFocus={() => router.prefetch(denseModeHref)}
                 onMouseEnter={() => router.prefetch(denseModeHref)}
               >
                 <Stethoscope className="size-4" />
-                {tr(language, "Focus Mode", "Focus Mode")}
+                {tr(language, "Clinical focus mode", "โหมดโฟกัส")}
               </Button>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_360px]">
-        <div className="rounded-[32px] border border-slate-200/80 bg-white px-6 py-6 shadow-[0_18px_42px_rgba(15,23,42,0.04)]">
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_340px]">
+        <div className="rounded-[30px] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_18px_42px_rgba(15,23,42,0.04)]">
           <HeartSoundReferenceMap
             language={language}
             activePosition={activePosition}
@@ -900,42 +943,32 @@ export function PatientHeartSoundContent({
           />
         </div>
 
-        <aside className="space-y-4">
-          <section className="rounded-[32px] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_18px_42px_rgba(15,23,42,0.04)]">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
-                  {tr(language, "Selected position", "ตำแหน่งที่เลือก")}
+        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+          <section className="rounded-[28px] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_18px_42px_rgba(15,23,42,0.04)]">
+            {activePosition ? (
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
+                      {tr(language, "Selected position", "ตำแหน่งที่เลือก")}
+                    </p>
+                    <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-900">
+                      {tr(language, `Position ${activePosition}`, `ตำแหน่ง ${activePosition}`)}
+                    </h2>
+                  </div>
+                  <Badge className="border-transparent bg-[#0891B2]/12 text-[#0a6e87]">
+                    {positionRecords.length} {tr(language, "files", "ไฟล์")}
+                  </Badge>
+                </div>
+
+                <p className="text-sm leading-6 text-slate-600">
+                  {tr(
+                    language,
+                    "The review list is now focused on this single listening point so you can compare takes without other positions mixed in.",
+                    "รายการตรวจด้านล่างถูกกรองให้เหลือเฉพาะตำแหน่งนี้แล้ว เพื่อให้เทียบไฟล์แต่ละรอบได้โดยไม่มีตำแหน่งอื่นปะปน"
+                  )}
                 </p>
-                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-900">
-                  {activePosition
-                    ? tr(language, `Position ${activePosition}`, `ตำแหน่ง ${activePosition}`)
-                    : tr(language, "No position selected", "ยังไม่ได้เลือกตำแหน่ง")}
-                </h2>
-              </div>
-              {activePosition ? (
-                <Badge className="border-transparent bg-[#0891B2]/12 text-[#0a6e87]">
-                  {positionRecords.length} {tr(language, "files", "ไฟล์")}
-                </Badge>
-              ) : null}
-            </div>
 
-            <div className="mt-4 space-y-3 text-sm">
-              <p className="text-slate-600">
-                {activePosition
-                  ? tr(
-                      language,
-                      "Only recordings from this position are shown in the table below so you can review one point without other positions mixed in.",
-                      "ตารางด้านล่างจะแสดงเฉพาะไฟล์เสียงของตำแหน่งนี้เท่านั้น เพื่อให้ตรวจทีละจุดได้โดยไม่มีตำแหน่งอื่นปะปน"
-                    )
-                  : tr(
-                      language,
-                      "Use the surface map to filter the table down to one auscultation point at a time.",
-                      "ใช้แผนที่ผิวกายเพื่อกรองตารางให้เหลือทีละตำแหน่งที่ต้องการตรวจ"
-                    )}
-              </p>
-
-              {activePosition ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -946,37 +979,67 @@ export function PatientHeartSoundContent({
                   <X className="size-4" />
                   {tr(language, "Show all positions", "แสดงทุกตำแหน่ง")}
                 </Button>
-              ) : null}
 
-              {positionRecords.length > 0 ? (
-                <div className="space-y-2 border-t border-slate-100 pt-3">
-                  {positionRecords.slice(0, 3).map((record) => (
-                    <div key={record.id} className="rounded-2xl border border-slate-100 bg-slate-50/70 px-3 py-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
-                          {record.isDraft
-                            ? tr(language, "Queued upload", "รออัปโหลด")
-                            : tr(language, "Recorded", "บันทึกแล้ว")}
-                        </span>
-                        <span className="text-xs text-slate-500">
-                          {formatDateTime(record.recorded_at, language)}
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate text-sm font-medium text-slate-800">
-                        {record.draftFileName || record.storage_key || record.mac_address}
-                      </p>
-                    </div>
-                  ))}
+                {positionRecords.length > 0 ? (
+                  <div className="space-y-2 border-t border-slate-100 pt-3">
+                    {positionRecords.slice(0, 3).map((record) => {
+                      const source = getRecordSource(record, language, showSystemDetails);
+                      return (
+                        <div key={record.id} className="rounded-2xl border border-slate-100 bg-slate-50/75 px-3 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">
+                              {record.isDraft
+                                ? tr(language, "Queued upload", "รออัปโหลด")
+                                : tr(language, "Recorded", "บันทึกแล้ว")}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              {formatDateTime(record.recorded_at, language)}
+                            </span>
+                          </div>
+                          <p className="mt-1 truncate text-sm font-medium text-slate-800">{source.primary}</p>
+                          {source.secondary ? (
+                            <p className="mt-1 truncate text-xs text-slate-500">{source.secondary}</p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
+                  {tr(language, "Selection context", "บริบทการเลือก")}
+                </p>
+                <h2 className="text-lg font-semibold tracking-tight text-slate-900">
+                  {tr(language, "Choose a point from the map", "เลือกจุดจากแผนที่")}
+                </h2>
+                <p className="text-sm leading-6 text-slate-600">
+                  {tr(
+                    language,
+                    "Selecting any point will focus the review list and surface recent files for that position here.",
+                    "เมื่อเลือกจุดใดบนแผนที่ รายการตรวจจะถูกโฟกัสเฉพาะตำแหน่งนั้น และพื้นที่นี้จะแสดงไฟล์ล่าสุดของตำแหน่งดังกล่าว"
+                  )}
+                </p>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 font-medium text-slate-600">
+                    {tr(language, "Next step", "ขั้นตอนถัดไป")}:
+                    {" "}
+                    {tr(language, "pick a position", "เลือกตำแหน่ง")}
+                  </span>
+                  <span className="rounded-full border border-sky-100 bg-sky-50 px-3 py-1.5 font-medium text-[#0f6f89]">
+                    {positionSummary.length} {tr(language, "positions available", "ตำแหน่งที่มีข้อมูล")}
+                  </span>
                 </div>
-              ) : null}
-            </div>
+              </div>
+            )}
           </section>
 
-          <section className="rounded-[32px] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_18px_42px_rgba(15,23,42,0.04)]">
+          <section className="rounded-[28px] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_18px_42px_rgba(15,23,42,0.04)]">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
-                  {tr(language, "Upload panel", "แผงอัปโหลด")}
+                  {tr(language, "Upload workflow", "ขั้นตอนอัปโหลด")}
                 </p>
                 <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-900">
                   {tr(language, "Prepare files", "เตรียมไฟล์")}
@@ -994,7 +1057,7 @@ export function PatientHeartSoundContent({
             </div>
 
             <div className="mt-4 space-y-4">
-              <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50/70 px-4 py-4">
+              <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50/75 px-4 py-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-sm font-medium text-slate-900">
@@ -1003,8 +1066,8 @@ export function PatientHeartSoundContent({
                     <p className="mt-1 text-sm leading-6 text-slate-600">
                       {tr(
                         language,
-                        "All prepared files stay inside this patient workspace. Positioning can be automatic or manually pinned.",
-                        "ไฟล์ที่เตรียมไว้ทั้งหมดจะอยู่ภายในพื้นที่ทำงานของผู้ป่วยรายนี้ และสามารถจัดตำแหน่งแบบอัตโนมัติหรือกำหนดเองได้"
+                        "Prepared files stay inside this workspace. Assign positions automatically or pin them manually before queuing.",
+                        "ไฟล์ที่เตรียมไว้จะอยู่ภายในพื้นที่ทำงานนี้เสมอ และสามารถจัดตำแหน่งอัตโนมัติหรือกำหนดเองก่อนเข้าคิวได้"
                       )}
                     </p>
                   </div>
@@ -1050,7 +1113,7 @@ export function PatientHeartSoundContent({
                             }
                           }}
                         >
-                          {panel === "anterior" ? "Anterior" : "Posterior"}
+                          {getPanelLabel(language, panel)}
                         </Button>
                       ))}
                     </div>
@@ -1143,7 +1206,7 @@ export function PatientHeartSoundContent({
 
                   <Button
                     type="button"
-                    className="w-full rounded-2xl"
+                    className="min-h-11 w-full rounded-2xl"
                     disabled={selectedFiles.length === 0}
                     onClick={queueSelectedFiles}
                   >
@@ -1154,7 +1217,7 @@ export function PatientHeartSoundContent({
                   </Button>
                 </div>
               ) : (
-                <Button type="button" className="w-full rounded-2xl" onClick={() => setUploadOpen(true)}>
+                <Button type="button" className="min-h-11 w-full rounded-2xl" onClick={() => setUploadOpen(true)}>
                   <CloudUpload className="size-4" />
                   {tr(language, "Open upload workflow", "เปิดขั้นตอนอัปโหลด")}
                 </Button>
@@ -1164,39 +1227,44 @@ export function PatientHeartSoundContent({
         </aside>
       </section>
 
-      <section className="overflow-hidden rounded-[32px] border border-slate-200/80 bg-white shadow-[0_18px_42px_rgba(15,23,42,0.04)]">
-        <div className="flex flex-col gap-4 border-b border-slate-200/80 px-6 py-5 lg:flex-row lg:items-end lg:justify-between">
+      <section className="overflow-hidden rounded-[30px] border border-slate-200/80 bg-white shadow-[0_18px_42px_rgba(15,23,42,0.04)]">
+        <div className="flex flex-col gap-4 border-b border-slate-200/80 px-5 py-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
-              {tr(language, "Recorded files", "ไฟล์ที่บันทึกไว้")}
+              {tr(language, "Recordings", "รายการไฟล์เสียง")}
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
-              {tr(language, "Position-aligned recording table", "ตารางไฟล์เสียงตามตำแหน่ง")}
+              {tr(language, "Review list", "รายการตรวจ")}
             </h2>
             <p className="mt-1 text-sm text-slate-600">
               {activePosition
                 ? tr(
                     language,
-                    `Position ${activePosition} is active. Only matching recordings are shown below.`,
-                    `ตำแหน่ง ${activePosition} ถูกเลือกอยู่ ตารางด้านล่างจะแสดงเฉพาะไฟล์ที่ตรงกัน`
+                    `Showing only recordings from position ${activePosition}.`,
+                    `กำลังแสดงเฉพาะไฟล์จากตำแหน่ง ${activePosition}`
                   )
                 : tr(
                     language,
-                    "Click a point above to filter this table down to the related recordings.",
-                    "กดจุดด้านบนเพื่อกรองตารางให้เหลือเฉพาะไฟล์เสียงที่เกี่ยวข้อง"
+                    "Choose a point above to narrow the review list to one listening position.",
+                    "เลือกจุดด้านบนเพื่อกรองรายการตรวจให้เหลือเฉพาะตำแหน่งที่ต้องการ"
                   )}
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {activePosition ? (
+              <Badge className="border-transparent bg-slate-900 text-white">
+                {tr(language, `Position ${activePosition} active`, `กำลังดูตำแหน่ง ${activePosition}`)}
+              </Badge>
+            ) : null}
             {positionSummary.length > 0 ? (
-              positionSummary.slice(0, 8).map((item) => (
+              positionSummary.map((item) => (
                 <Button
                   key={item.id}
                   type="button"
                   variant={activePosition === item.id ? "default" : "outline"}
                   size="sm"
-                  className="rounded-full"
+                  className={cn("rounded-full", activePosition === item.id && "shadow-[0_0_0_4px_rgba(8,145,178,0.12)]")}
                   onClick={() => jumpToPosition(item.id)}
                 >
                   {item.id}
@@ -1211,9 +1279,9 @@ export function PatientHeartSoundContent({
             {activePosition ? (
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="rounded-full text-slate-600 hover:text-slate-900"
+                className="rounded-full"
                 onClick={clearPositionSelection}
               >
                 <X className="size-4" />
@@ -1234,99 +1302,207 @@ export function PatientHeartSoundContent({
             <p className="mt-1 text-sm text-slate-600">
               {tr(
                 language,
-                "Use the upload panel to begin attaching recordings to anterior or posterior positions.",
-                "ใช้แผงอัปโหลดเพื่อเริ่มแนบไฟล์เสียงไปยังตำแหน่ง anterior หรือ posterior"
+                "Use the upload workflow to attach recordings to anterior or posterior positions.",
+                "ใช้ขั้นตอนอัปโหลดเพื่อแนบไฟล์เสียงไปยังตำแหน่งด้านหน้าหรือด้านหลัง"
               )}
             </p>
+            <Button type="button" className="mt-5 rounded-2xl" onClick={() => setUploadOpen(true)}>
+              <CloudUpload className="size-4" />
+              {tr(language, "Open upload workflow", "เปิดขั้นตอนอัปโหลด")}
+            </Button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="border-b bg-slate-100/80 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                  <th className="px-6 py-4 font-medium">DATE/TIME</th>
-                  <th className="px-6 py-4 font-medium">USER ID</th>
-                  <th className="px-6 py-4 font-medium">MAC ADDRESS</th>
-                  <th className="px-6 py-4 font-medium">POSITION</th>
-                  <th className="px-6 py-4 font-medium">PLAY</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRecords.map((record) => {
-                  const isActive = activePosition === record.position;
-                  const isJumpedRow = activeRowId === record.id;
+          <>
+            <div className="space-y-3 px-4 py-4 lg:hidden">
+              {visibleRecords.map((record) => {
+                const isActive = activePosition === record.position;
+                const isJumpedRow = activeRowId === record.id;
+                const fileSize = formatFileSize(record.fileSizeBytes);
 
-                  return (
-                    <tr
-                      key={record.id}
-                      ref={(node) => {
-                        rowRefs.current[record.id] = node;
-                      }}
-                      className={cn(
-                        "border-b border-slate-100 transition-colors last:border-b-0",
-                        isActive && "bg-[#ecfeff]",
-                        isJumpedRow && "bg-[#cffafe]"
-                      )}
-                    >
-                      <td className="px-6 py-4 align-top font-medium text-slate-800">
+                return (
+                  <article
+                    key={record.id}
+                    className={cn(
+                      "rounded-[24px] border border-slate-200/80 bg-white px-4 py-4 shadow-[0_8px_18px_rgba(15,23,42,0.04)]",
+                      isActive && "border-sky-200 bg-sky-50/45",
+                      isJumpedRow && "border-cyan-300 bg-cyan-50"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-slate-900">
+                          {formatDateTime(record.recorded_at, language)}
+                        </p>
+                        {record.isDraft ? (
+                          <Badge className="border-transparent bg-amber-500/14 text-amber-700">
+                            {tr(language, "Queued", "รออัปโหลด")}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => jumpToPosition(record.position)}
+                        className={cn(
+                          "inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200",
+                          isActive
+                            ? "border-[#0891B2] bg-[#0891B2] text-white"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-[#0891B2]/30 hover:text-[#0a6e87]"
+                        )}
+                      >
+                        {record.position}
+                      </button>
+                    </div>
+
+                    {showSystemDetails ? (
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
                         <div className="space-y-1">
-                          <div>{formatDateTime(record.recorded_at, language)}</div>
-                          {record.isDraft ? (
-                            <Badge className="border-transparent bg-amber-500/14 text-amber-700">
-                              {tr(language, "Queued", "รออัปโหลด")}
-                            </Badge>
-                          ) : null}
+                          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+                            {tr(language, "User ID", "รหัสผู้ใช้")}
+                          </p>
+                          <p className="break-all text-sm font-medium text-slate-900">
+                            {record.patient_id}
+                          </p>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 align-top text-slate-600">
-                        <span className="break-all">{record.patient_id}</span>
-                      </td>
-                      <td className="px-6 py-4 align-top text-slate-600">
                         <div className="space-y-1">
-                          <div>{record.mac_address}</div>
-                          {record.draftFileName ? (
-                            <div className="truncate text-xs text-slate-500">{record.draftFileName}</div>
-                          ) : null}
+                          <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+                            {tr(language, "MAC Address", "ที่อยู่ MAC")}
+                          </p>
+                          <p className="break-all text-sm text-slate-600">
+                            {record.mac_address}
+                          </p>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 align-top">
-                        <button
-                          type="button"
-                          onClick={() => jumpToPosition(record.position)}
-                          className={cn(
-                            "inline-flex min-w-12 items-center justify-center rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
-                            isActive
-                              ? "border-[#0891B2] bg-[#0891B2] text-white"
-                              : "border-slate-200 bg-white text-slate-700 hover:border-[#0891B2]/30 hover:text-[#0a6e87]"
-                          )}
-                        >
-                          {record.position}
-                        </button>
-                      </td>
-                      <td className="px-6 py-4 align-top">
-                        <div className="min-w-[280px]">
-                          <HeartSoundInlinePlayer
-                            src={record.blob_url}
-                            isActive={playingRecordId === record.id}
-                            onRequestPlay={() => setPlayingRecordId(record.id)}
-                            onPlaybackStop={() =>
-                              setPlayingRecordId((current) => (current === record.id ? null : current))
-                            }
-                          />
-                          {(record.draftFileName || record.fileSizeBytes) && (
-                            <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
-                              <span className="truncate">{record.draftFileName}</span>
-                              <span>{formatFileSize(record.fileSizeBytes)}</span>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-4">
+                      <HeartSoundInlinePlayer
+                        src={record.blob_url}
+                        isActive={playingRecordId === record.id}
+                        onRequestPlay={() => setPlayingRecordId(record.id)}
+                        onPlaybackStop={() =>
+                          setPlayingRecordId((current) => (current === record.id ? null : current))
+                        }
+                      />
+                    </div>
+
+                    {(record.draftFileName || fileSize) && (
+                      <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500">
+                        <span className="truncate">{record.draftFileName}</span>
+                        <span>{fileSize}</span>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-slate-100/80 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    <th className="px-6 py-4 font-medium">
+                      {tr(language, "Date / time", "วันเวลา")}
+                    </th>
+                    {showSystemDetails ? (
+                      <th className="px-6 py-4 font-medium">
+                        {tr(language, "User ID", "รหัสผู้ใช้")}
+                      </th>
+                    ) : null}
+                    {showSystemDetails ? (
+                      <th className="px-6 py-4 font-medium">
+                        {tr(language, "MAC Address", "ที่อยู่ MAC")}
+                      </th>
+                    ) : null}
+                    <th className="px-6 py-4 font-medium">
+                      {tr(language, "Position", "ตำแหน่ง")}
+                    </th>
+                    <th className="px-6 py-4 font-medium">
+                      {tr(language, "Playback", "การเล่นเสียง")}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRecords.map((record) => {
+                    const isActive = activePosition === record.position;
+                    const isJumpedRow = activeRowId === record.id;
+                    const fileSize = formatFileSize(record.fileSizeBytes);
+
+                    return (
+                      <tr
+                        key={record.id}
+                        ref={(node) => {
+                          rowRefs.current[record.id] = node;
+                        }}
+                        className={cn(
+                          "border-b border-slate-100 transition-colors last:border-b-0",
+                          isActive && "bg-[#ecfeff]",
+                          isJumpedRow && "bg-[#cffafe]"
+                        )}
+                      >
+                        <td className="px-6 py-4 align-top font-medium text-slate-800">
+                          <div className="space-y-1">
+                            <div>{formatDateTime(record.recorded_at, language)}</div>
+                            {record.isDraft ? (
+                              <Badge className="border-transparent bg-amber-500/14 text-amber-700">
+                                {tr(language, "Queued", "รออัปโหลด")}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </td>
+                        {showSystemDetails ? (
+                          <td className="px-6 py-4 align-top text-slate-600">
+                            <span className="break-all">{record.patient_id}</span>
+                          </td>
+                        ) : null}
+                        {showSystemDetails ? (
+                          <td className="px-6 py-4 align-top text-slate-600">
+                            <div className="space-y-1">
+                              <div>{record.mac_address}</div>
+                              {record.draftFileName ? (
+                                <div className="truncate text-xs text-slate-500">{record.draftFileName}</div>
+                              ) : null}
                             </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                          </td>
+                        ) : null}
+                        <td className="px-6 py-4 align-top">
+                          <button
+                            type="button"
+                            onClick={() => jumpToPosition(record.position)}
+                            className={cn(
+                              "inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200",
+                              isActive
+                                ? "border-[#0891B2] bg-[#0891B2] text-white"
+                                : "border-slate-200 bg-white text-slate-700 hover:border-[#0891B2]/30 hover:text-[#0a6e87]"
+                            )}
+                          >
+                            {record.position}
+                          </button>
+                        </td>
+                        <td className="px-6 py-4 align-top">
+                          <div className="min-w-[280px]">
+                            <HeartSoundInlinePlayer
+                              src={record.blob_url}
+                              isActive={playingRecordId === record.id}
+                              onRequestPlay={() => setPlayingRecordId(record.id)}
+                              onPlaybackStop={() =>
+                                setPlayingRecordId((current) => (current === record.id ? null : current))
+                              }
+                            />
+                            {(record.draftFileName || fileSize) && (
+                              <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
+                                <span className="truncate">{record.draftFileName}</span>
+                                <span>{fileSize}</span>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>

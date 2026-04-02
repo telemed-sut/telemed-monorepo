@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   addMonths,
   eachDayOfInterval,
@@ -110,6 +110,7 @@ export function MonthCalendarView({
   });
   const wheelLockRef = useRef(false);
   const wheelDeltaAccumulatorRef = useRef(0);
+  const rootRef = useRef<HTMLDivElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
 
   const monthStart = useMemo(
@@ -172,7 +173,7 @@ export function MonthCalendarView({
   );
 
   const handleMonthWheel = useCallback(
-    (event: React.WheelEvent<HTMLDivElement>) => {
+    (event: WheelEvent) => {
       if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) {
         wheelDeltaAccumulatorRef.current = 0;
         const scrollHost = scrollViewportRef.current;
@@ -222,6 +223,18 @@ export function MonthCalendarView({
     [navigateMonth]
   );
 
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) {
+      return;
+    }
+
+    root.addEventListener("wheel", handleMonthWheel, { passive: false });
+    return () => {
+      root.removeEventListener("wheel", handleMonthWheel);
+    };
+  }, [handleMonthWheel]);
+
   const handleOverflowListWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       event.stopPropagation();
@@ -231,8 +244,8 @@ export function MonthCalendarView({
 
   return (
     <div
+      ref={rootRef}
       className="flex h-full min-h-[760px] flex-col overflow-hidden rounded-[30px] border border-slate-200/80 bg-slate-50/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] lg:min-h-[820px]"
-      onWheel={handleMonthWheel}
     >
       <div className="grid shrink-0 grid-cols-7 border-b border-slate-200 bg-white/95">
         {weekdayLabels.map((label) => (
@@ -379,7 +392,7 @@ export function MonthCalendarView({
                                   {new Date(meeting.date_time).toLocaleTimeString(localeOf(language), {
                                     hour: "numeric",
                                     minute: "2-digit",
-                                    hour12: true,
+                                    hour12: language !== "th",
                                   })}
                                 </p>
                                 <p className={cn("truncate text-[12px] font-semibold tracking-[-0.01em]", tone.text)}>
@@ -482,7 +495,7 @@ export function MonthCalendarView({
                                         {new Date(meeting.date_time).toLocaleTimeString(localeOf(language), {
                                           hour: "numeric",
                                           minute: "2-digit",
-                                          hour12: true,
+                                          hour12: language !== "th",
                                         })}
                                       </p>
                                       <p className={cn("truncate text-[12px] font-semibold tracking-[-0.01em]", tone.text)}>

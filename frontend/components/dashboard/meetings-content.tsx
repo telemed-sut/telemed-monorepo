@@ -77,7 +77,6 @@ import {
   updateMeeting,
   fetchUsers,
   fetchCurrentUser,
-  getErrorMessage,
   type Meeting,
   type Patient,
   type User,
@@ -96,6 +95,7 @@ import { getPresenceAwareStatus } from "./meeting-presence";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
+import { getLocalizedDashboardErrorMessage } from "./dashboard-error-message";
 import {
   scheduleZegoUIKitPreload,
 } from "@/lib/zego-uikit";
@@ -117,7 +117,11 @@ function padTime(n: number) {
   return n.toString().padStart(2, "0");
 }
 
-function formatHour12(h: number) {
+function formatHourOption(h: number, language: AppLanguage) {
+  if (language === "th") {
+    return `${h.toString().padStart(2, "0")}:00`;
+  }
+
   const ampm = h >= 12 ? "PM" : "AM";
   const hr = h % 12 || 12;
   return `${hr} ${ampm}`;
@@ -1746,9 +1750,11 @@ function CreateEventDialog({
         await onCreated(createdMeeting);
       }
     } catch (err: unknown) {
-      const message = getErrorMessage(
+      const message = getLocalizedDashboardErrorMessage(
         err,
-        tr(language, "Failed to create appointment", "สร้างนัดหมายไม่สำเร็จ")
+        language,
+        "Failed to create appointment",
+        "สร้างนัดหมายไม่สำเร็จ"
       );
       toast.error(message);
     } finally {
@@ -1827,7 +1833,7 @@ function CreateEventDialog({
                 >
                   {HOURS.map((h) => (
                     <option key={h} value={h}>
-                      {formatHour12(h)}
+                      {formatHourOption(h, language)}
                     </option>
                   ))}
                 </select>
@@ -1861,7 +1867,7 @@ function CreateEventDialog({
                 >
                   {HOURS.map((h) => (
                     <option key={h} value={h}>
-                      {formatHour12(h)}
+                      {formatHourOption(h, language)}
                     </option>
                   ))}
                 </select>

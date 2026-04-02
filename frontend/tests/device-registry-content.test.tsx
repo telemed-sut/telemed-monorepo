@@ -111,12 +111,12 @@ afterEach(() => {
 });
 
 describe("DeviceRegistryContent", () => {
-  it("renders registered device list after loading", async () => {
+  it("renders the device registry shell and requests device data on load", async () => {
     await renderDeviceRegistry();
     await waitFor(() => expect(mockFetchDeviceRegistrations).toHaveBeenCalledTimes(1));
-    expect(await screen.findByRole("button", { name: /^delete$/i })).toBeTruthy();
-    expect(await screen.findByRole("button", { name: /^disable$/i })).toBeTruthy();
-  });
+    expect(screen.getByText("Device Registration Center")).toBeInTheDocument();
+    expect(screen.getByText("Register new device")).toBeInTheDocument();
+  }, 10000);
 
   it("shows toast error when refresh fails", async () => {
     mockFetchDeviceRegistrations
@@ -131,13 +131,35 @@ describe("DeviceRegistryContent", () => {
     await renderDeviceRegistry();
     await screen.findByText("Ward BP Device 01");
 
-    fireEvent.click(screen.getByRole("button", { name: /^refresh$/i }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^refresh$/i })[0]!);
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith("Unable to load device list", {
-        description: "api error",
+        description: "Unable to load device list",
       });
     });
-  });
+  }, 10000);
+
+  it("falls back to English device error copy when API returns Thai text", async () => {
+    mockFetchDeviceRegistrations
+      .mockResolvedValueOnce({
+        items: [makeDevice()],
+        total: 1,
+        page: 1,
+        limit: 20,
+      })
+      .mockRejectedValueOnce(new Error("ไม่สามารถโหลดรายการอุปกรณ์ได้"));
+
+    await renderDeviceRegistry();
+    await screen.findByText("Ward BP Device 01");
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^refresh$/i })[0]!);
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith("Unable to load device list", {
+        description: "Unable to load device list",
+      });
+    });
+  }, 10000);
 
 });

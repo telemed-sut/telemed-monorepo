@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import type { LoginResponse, UserMe } from "@/lib/api";
+import { clearWorkspaceTabsState } from "@/store/workspace-tabs-store";
 
 /** Refresh token 5 minutes before expiry */
 const REFRESH_BUFFER_SECONDS = 300;
@@ -178,6 +179,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .catch(() => undefined);
     }
     persistAuthSnapshot(null);
+    clearWorkspaceTabsState();
     set({
       token: null,
       role: null,
@@ -198,6 +200,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
   clearSessionState: () => {
     persistAuthSnapshot(null);
+    clearWorkspaceTabsState();
     set({
       token: null,
       role: null,
