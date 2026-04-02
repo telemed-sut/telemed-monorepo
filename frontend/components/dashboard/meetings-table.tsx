@@ -870,7 +870,13 @@ export function MeetingsTable() {
                             {patients.length > 0 ? (
                                 <Select value={formData.user_id || ""} onValueChange={(v: string | null) => setFormData({ ...formData, user_id: v ?? "" })}>
                                     <SelectTrigger className={cn(formErrors.user_id && "border-destructive")}>
-                                        <SelectValue placeholder={tr(language, "Select a patient", "เลือกผู้ป่วย")} />
+                                        {formData.user_id ? (
+                                            <SelectValue />
+                                        ) : (
+                                            <span className="text-muted-foreground">
+                                                {tr(language, "Select a patient", "เลือกผู้ป่วย")}
+                                            </span>
+                                        )}
                                     </SelectTrigger>
                                     <SelectContent>
                                         {patients.map((p) => (

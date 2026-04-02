@@ -135,6 +135,8 @@ const labels = {
 const MAX_VISIBLE_WORKSPACE_TABS = 5;
 const MEDIUM_DESKTOP_VISIBLE_TABS = 4;
 const NARROW_DESKTOP_BREAKPOINT = 1024;
+const HEADER_LANGUAGE_BUTTON_ID = "header-language-button";
+const CLEAR_WORKSPACE_BUTTON_ID = "clear-workspace-button";
 
 function formatCompactWorkspaceId(value: string) {
   if (value.length <= 14) {
@@ -450,8 +452,6 @@ export function WorkspaceTabs() {
   const [configOpen, setConfigOpen] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [visibleTabLimit, setVisibleTabLimit] = useState(MAX_VISIBLE_WORKSPACE_TABS);
-  const languageButtonRef = useRef<HTMLButtonElement | null>(null);
-  const clearButtonRef = useRef<HTMLButtonElement | null>(null);
   const renameReturnFocusRef = useRef<HTMLElement | null>(null);
   const configReturnFocusRef = useRef<HTMLElement | null>(null);
   const configReturnTabIdRef = useRef<string | null>(null);
@@ -556,7 +556,10 @@ export function WorkspaceTabs() {
         }
       }
 
-      languageButtonRef.current?.focus();
+      const languageButton = document.getElementById(HEADER_LANGUAGE_BUTTON_ID);
+      if (languageButton instanceof HTMLElement) {
+        languageButton.focus();
+      }
     }, 0);
   };
 
@@ -678,7 +681,10 @@ export function WorkspaceTabs() {
 
     if (!open && restoreClearFocusRef.current) {
       window.setTimeout(() => {
-        clearButtonRef.current?.focus();
+        const clearButton = document.getElementById(CLEAR_WORKSPACE_BUTTON_ID);
+        if (clearButton instanceof HTMLElement) {
+          clearButton.focus();
+        }
       }, 0);
     }
 
@@ -818,12 +824,11 @@ export function WorkspaceTabs() {
           )}
 
           <div className="shrink-0 pb-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                id="header-language-button"
-                ref={languageButtonRef}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-white/88 px-3 text-[0.92rem] font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] outline-none transition-[background-color,color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white hover:text-slate-900 focus-visible:ring-[3px] focus-visible:ring-sky-200 focus-visible:ring-offset-2"
-              >
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  id={HEADER_LANGUAGE_BUTTON_ID}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-white/88 px-3 text-[0.92rem] font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] outline-none transition-[background-color,color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white hover:text-slate-900 focus-visible:ring-[3px] focus-visible:ring-sky-200 focus-visible:ring-offset-2"
+                >
                 <Languages className="size-4" />
                 <span className="hidden md:inline">{selectedLanguageLabel}</span>
                 <span className="md:hidden">{language.toUpperCase()}</span>
@@ -1062,7 +1067,7 @@ export function WorkspaceTabs() {
                     {t.clearWorkspaceDescription}
                   </div>
                   <Button
-                    ref={clearButtonRef}
+                    id={CLEAR_WORKSPACE_BUTTON_ID}
                     className="mt-3 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
                     type="button"
                     variant="outline"
