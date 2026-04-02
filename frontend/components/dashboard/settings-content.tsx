@@ -13,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { SecretDisclosure } from "@/components/auth/secret-disclosure";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -670,9 +671,13 @@ export function SettingsContent() {
                       <p className="py-8 text-sm text-muted-foreground">{tr(language, "Generating QR code...", "กำลังสร้าง QR code...")}</p>
                     )}
                   </div>
-                  <p className="break-all text-sm text-muted-foreground">
-                    {tr(language, "Setup key", "รหัสตั้งค่า")}: {extractSetupKey(twoFA.provisioning_uri) ?? "-"}
-                  </p>
+                  <SecretDisclosure
+                    key={extractSetupKey(twoFA.provisioning_uri) ?? "settings-setup-key-hidden"}
+                    label={tr(language, "Setup key", "รหัสตั้งค่า")}
+                    value={extractSetupKey(twoFA.provisioning_uri)}
+                    showLabel={tr(language, "Show setup key", "แสดงรหัสตั้งค่า")}
+                    hideLabel={tr(language, "Hide setup key", "ซ่อนรหัสตั้งค่า")}
+                  />
                 </div>
               )}
 

@@ -82,3 +82,35 @@ def test_settings_accepts_comma_separated_device_api_secrets(monkeypatch):
         "device-a": "device_secret_a_1234567890abcdef1234567890",
         "device-b": "device_secret_b_1234567890abcdef1234567890",
     }
+
+
+def test_settings_enable_api_docs_by_default_in_development(monkeypatch):
+    _apply_env(monkeypatch, APP_ENV="development", API_DOCS_ENABLED=None)
+
+    settings = Settings()
+
+    assert settings.should_enable_api_docs is True
+
+
+def test_settings_disable_api_docs_by_default_in_production(monkeypatch):
+    _apply_env(monkeypatch, APP_ENV="production", API_DOCS_ENABLED=None)
+
+    settings = Settings()
+
+    assert settings.should_enable_api_docs is False
+
+
+def test_settings_resolve_allowed_hosts_for_local_environments(monkeypatch):
+    _apply_env(monkeypatch, APP_ENV="test", ALLOWED_HOSTS=None)
+
+    settings = Settings()
+
+    assert settings.resolved_allowed_hosts == ["localhost", "127.0.0.1", "::1", "testserver"]
+
+
+def test_settings_accept_explicit_allowed_hosts(monkeypatch):
+    _apply_env(monkeypatch, ALLOWED_HOSTS="api.example.com,internal.example.com")
+
+    settings = Settings()
+
+    assert settings.resolved_allowed_hosts == ["api.example.com", "internal.example.com"]

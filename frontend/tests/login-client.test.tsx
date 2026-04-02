@@ -131,4 +131,43 @@ describe("LoginClientPage", () => {
     });
     expect(replaceMock).toHaveBeenCalledWith("/patients");
   });
+
+  it("keeps the setup key hidden until the user explicitly reveals it", async () => {
+    loginRequestMock.mockRejectedValueOnce({
+      status: 401,
+      message: "Unable to sign in. Please try again.",
+      detail: {
+        code: "two_factor_required",
+        message: "Two-factor verification code is required.",
+        provisioning_uri: "otpauth://totp/Telemed%20Admin:admin@example.com?secret=SECRET123&issuer=Telemed%20Admin",
+      },
+    });
+
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    render(<LoginClientPage />);
+
+    fireEvent.change(screen.getByLabelText("Email address"), {
+      target: { value: "admin@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "Password123!" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Show setup key" })).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(/Setup key:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/SECRET123/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show setup key" }));
+
+    expect(screen.getByText("Setup key: SECRET123")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide setup key" }));
+
+    expect(screen.queryByText("Setup key: SECRET123")).not.toBeInTheDocument();
+  });
 });

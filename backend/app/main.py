@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import inspect
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api import alerts, audit, auth, dense_mode, meetings, patients, stats, users, pressure, device_monitor, events, heart_sound
 from app.api import patient_app as patient_app_api
@@ -22,16 +23,10 @@ from app.services import auth as auth_service
 from app.services.security import record_login_attempt
 from app.core.request_utils import get_client_ip
 
-settings = get_settings()
 logger = logging.getLogger(__name__)
 DEVICE_INGEST_PATHS = {"/add_pressure", "/device/v1/pressure", "/device/v1/heart-sounds"}
 
-app = FastAPI(title=settings.app_name)
-app.state.limiter = limiter
-app.add_middleware(SlowAPIMiddleware)
 
-
-@app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     retry_after = exc.detail if exc.detail else "a few seconds"
 
@@ -80,7 +75,6 @@ def _format_validation_summary(exc: RequestValidationError, max_items: int = 6) 
     return summary[:1000]
 
 
-@app.exception_handler(RequestValidationError)
 async def validation_error_handler(request: Request, exc: RequestValidationError):
     if request.method == "POST" and request.url.path in DEVICE_INGEST_PATHS:
         device_id = (request.headers.get("x-device-id") or "").strip() or "unknown"
@@ -113,64 +107,83 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
     return await request_validation_exception_handler(request, exc)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(IPBanMiddleware)
-app.add_middleware(SecurityAuditMiddleware)
+def create_app() -> FastAPI:
+    settings = get_settings()
+    docs_enabled = settings.should_enable_api_docs
+    app = FastAPI(
+        title=settings.app_name,
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if docs_enabled else None,
+    )
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
+    app.add_middleware(SlowAPIMiddleware)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(IPBanMiddleware)
+    app.add_middleware(SecurityAuditMiddleware)
+
+    allowed_hosts = settings.resolved_allowed_hosts
+    if allowed_hosts:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+
+    @app.on_event("startup")
+    def backfill_bootstrap_privileged_roles_on_startup():
+        try:
+            with SessionLocal() as db:
+                bind = db.get_bind()
+                if bind is None or not inspect(bind).has_table("users"):
+                    logger.info("Skipping bootstrap privileged-role backfill because the users table is not available yet.")
+                    return
+                if not inspect(bind).has_table("user_privileged_role_assignments"):
+                    logger.info(
+                        "Skipping bootstrap privileged-role backfill because the user_privileged_role_assignments table is not available yet."
+                    )
+                    return
+                created = auth_service.backfill_bootstrap_privileged_roles(db)
+                if created:
+                    db.commit()
+                    logger.info("Backfilled %s bootstrap privileged role assignment(s) from SUPER_ADMIN_EMAILS.", created)
+                else:
+                    db.rollback()
+        except Exception:
+            logger.exception("Bootstrap privileged role backfill failed during startup.")
+            raise
+
+    app.include_router(auth.router)
+    app.include_router(patients.router)
+    app.include_router(meetings.router)
+    app.include_router(users.router)
+    app.include_router(dense_mode.router)
+    app.include_router(alerts.router)
+    app.include_router(audit.router)
+    app.include_router(stats.router)
+    app.include_router(pressure.router)
+    app.include_router(heart_sound.router)
+    app.include_router(device_monitor.router)
+    app.include_router(security_api.router)
+    app.include_router(patient_app_api.router)
+    app.include_router(events.router)
+
+    @app.get("/health")
+    @limiter.limit("200/minute")
+    def health_check(request: Request):
+        return {"status": "ok"}
+
+    @app.get("/")
+    @limiter.limit("100/minute")
+    def root(request: Request):
+        return {"message": "Patient Management API", "status": "running"}
+
+    return app
 
 
-@app.on_event("startup")
-def backfill_bootstrap_privileged_roles_on_startup():
-    try:
-        with SessionLocal() as db:
-            bind = db.get_bind()
-            if bind is None or not inspect(bind).has_table("users"):
-                logger.info("Skipping bootstrap privileged-role backfill because the users table is not available yet.")
-                return
-            if not inspect(bind).has_table("user_privileged_role_assignments"):
-                logger.info(
-                    "Skipping bootstrap privileged-role backfill because the user_privileged_role_assignments table is not available yet."
-                )
-                return
-            created = auth_service.backfill_bootstrap_privileged_roles(db)
-            if created:
-                db.commit()
-                logger.info("Backfilled %s bootstrap privileged role assignment(s) from SUPER_ADMIN_EMAILS.", created)
-            else:
-                db.rollback()
-    except Exception:
-        logger.exception("Bootstrap privileged role backfill failed during startup.")
-        raise
-
-app.include_router(auth.router)
-app.include_router(patients.router)
-app.include_router(meetings.router)
-app.include_router(users.router)
-app.include_router(dense_mode.router)
-app.include_router(alerts.router)
-app.include_router(audit.router)
-app.include_router(stats.router)
-app.include_router(pressure.router)
-app.include_router(heart_sound.router)
-app.include_router(device_monitor.router)
-app.include_router(security_api.router)
-app.include_router(patient_app_api.router)
-app.include_router(events.router)
-
-
-@app.get("/health")
-@limiter.limit("200/minute")
-def health_check(request: Request):
-    return {"status": "ok"}
-
-
-@app.get("/")
-@limiter.limit("100/minute")
-def root(request: Request):
-    return {"message": "Patient Management API", "status": "running"}
+app = create_app()

@@ -1359,13 +1359,14 @@ def login(
         )
 
     trusted_device_raw_token: str | None = None
+    trusted = None
+    used_backup = False
     mfa_verified = not auth_service.requires_token_mfa(authenticated_user)
     mfa_authenticated_at = datetime.now(timezone.utc) if mfa_verified else None
     if _two_factor_required_for_user(authenticated_user):
         _ensure_two_factor_secret(db, authenticated_user)
 
         trusted_cookie = _get_trusted_device_cookie(request)
-        trusted = None
         if trusted_cookie:
             trusted = security_service.get_active_trusted_device(
                 db,
@@ -1383,7 +1384,6 @@ def login(
             backup_code = normalize_backup_code(payload.otp_code)
 
             verified = False
-            used_backup = False
             if otp_code and verify_totp_code(authenticated_user.two_factor_secret, otp_code):
                 verified = True
             elif backup_code and authenticated_user.two_factor_enabled:
@@ -1486,6 +1486,19 @@ def login(
 
     # Successful login
     security_service.handle_successful_login(db, ip, authenticated_user)
+    _write_auth_audit(
+        db,
+        action="login_success",
+        ip_address=ip,
+        status_value="success",
+        user=authenticated_user,
+        details={
+            "auth_source": "local",
+            "mfa_verified": mfa_verified,
+            "used_backup_code": used_backup,
+            "used_trusted_device": trusted is not None,
+        },
+    )
     db.commit()
 
     login_response = auth_service.create_login_response(

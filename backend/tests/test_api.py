@@ -43,6 +43,15 @@ def test_login_endpoint(client: TestClient, db: Session):
     assert data["user"]["is_super_admin"] is False
     assert "set-cookie" in response.headers
 
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "login_success",
+            AuditLog.user_id == user.id,
+        )
+    )
+    assert audit is not None
+    assert audit.status == "success"
+
 
 def test_login_invalid_credentials(client: TestClient, db: Session):
     """Test login with invalid credentials"""

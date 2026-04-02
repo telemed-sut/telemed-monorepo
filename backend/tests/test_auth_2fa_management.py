@@ -328,6 +328,15 @@ def test_list_and_revoke_trusted_device(
     assert device is not None
     assert device.revoked_at is not None
 
+    audit = db.scalar(
+        select(AuditLog)
+        .where(AuditLog.action == "trusted_device_revoked")
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert audit is not None
+    assert audit.user_id == user.id
+    assert audit.status == "success"
+
 
 def test_revoke_all_trusted_devices_returns_revoked_count(
     client: TestClient,
@@ -365,6 +374,15 @@ def test_revoke_all_trusted_devices_returns_revoked_count(
     ).all()
     assert devices
     assert all(device.revoked_at is not None for device in devices)
+
+    audit = db.scalar(
+        select(AuditLog)
+        .where(AuditLog.action == "trusted_devices_revoked_all")
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert audit is not None
+    assert audit.user_id == user.id
+    assert audit.status == "success"
 
 
 def test_use_backup_code_invalid_writes_failure_audit(

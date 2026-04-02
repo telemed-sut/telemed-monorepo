@@ -28,14 +28,17 @@ class RawDeviceSecretsDotEnvSettingsSource(DotEnvSettingsSource):
 
 class Settings(BaseSettings):
     app_name: str = "Patient Management API"
+    app_env: Literal["development", "test", "production"] = "development"
     database_url: str
     jwt_secret: str
     jwt_expires_in: int
     password_reset_expires_in: int = 900
     password_reset_return_token_in_response: bool = False
     frontend_base_url: str = "http://localhost:3000"
+    api_docs_enabled: bool | None = None
     invite_expires_in_hours: int = 24
     cors_origins: Union[List[str], str] = ["http://localhost:3000", "http://localhost:8080"]
+    allowed_hosts: Union[List[str], str] = []
     default_page: int = 1
     default_limit: int = 20
     max_limit: int = 200
@@ -124,6 +127,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "cors_origins",
+        "allowed_hosts",
         "rate_limit_whitelist",
         "super_admin_emails",
         "admin_unlock_whitelisted_ips",
@@ -138,6 +142,13 @@ class Settings(BaseSettings):
             # Split by comma and strip whitespace, return as plain strings
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
+
+    @field_validator("app_env", mode="before")
+    @classmethod
+    def normalize_app_env(cls, v: str) -> str:
+        if not isinstance(v, str):
+            return v
+        return v.strip().lower()
 
     @field_validator("device_api_secret")
     @classmethod
@@ -387,6 +398,28 @@ class Settings(BaseSettings):
             self.zego_server_secret = secret
 
         return self
+
+    @property
+    def resolved_allowed_hosts(self) -> List[str]:
+        normalized_hosts: List[str] = []
+        for host in self.allowed_hosts:
+            value = (host or "").strip().lower()
+            if value and value not in normalized_hosts:
+                normalized_hosts.append(value)
+
+        if normalized_hosts:
+            return normalized_hosts
+
+        if self.app_env in {"development", "test"}:
+            return ["localhost", "127.0.0.1", "::1", "testserver"]
+
+        return []
+
+    @property
+    def should_enable_api_docs(self) -> bool:
+        if self.api_docs_enabled is not None:
+            return self.api_docs_enabled
+        return self.app_env in {"development", "test"}
 
     model_config = {
         "env_prefix": "",

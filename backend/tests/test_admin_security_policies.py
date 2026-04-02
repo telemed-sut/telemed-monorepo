@@ -62,7 +62,7 @@ def _grant_privileged_role(
 
 def test_admin_login_requires_2fa_code(client: TestClient, db: Session, monkeypatch):
     monkeypatch.setattr(auth_api.settings, "admin_2fa_required", True)
-    _make_user(db, email="twofa-admin@example.com", role=UserRole.admin)
+    admin = _make_user(db, email="twofa-admin@example.com", role=UserRole.admin)
 
     response = _login(client, "twofa-admin@example.com")
     assert response.status_code == 401
@@ -70,6 +70,15 @@ def test_admin_login_requires_2fa_code(client: TestClient, db: Session, monkeypa
     assert detail["code"] == "two_factor_required"
     assert detail["setup_required"] is True
     assert "provisioning_uri" in detail
+
+    audit = db.scalar(
+        select(AuditLog)
+        .where(AuditLog.action == "two_factor_challenge")
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert audit is not None
+    assert audit.user_id == admin.id
+    assert audit.status == "success"
 
 
 def test_admin_login_with_valid_2fa_code_succeeds(client: TestClient, db: Session, monkeypatch):
@@ -201,6 +210,15 @@ def test_backup_code_is_one_time_use(client: TestClient, db: Session):
     )
     assert first.status_code == 200, first.text
 
+    audit = db.scalar(
+        select(AuditLog)
+        .where(AuditLog.action == "login_with_backup_code")
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert audit is not None
+    assert audit.user_id == user.id
+    assert audit.status == "success"
+
     second = client.post(
         "/auth/login",
         json={
@@ -210,6 +228,61 @@ def test_backup_code_is_one_time_use(client: TestClient, db: Session):
         },
     )
     assert second.status_code == 401
+
+
+def test_invalid_two_factor_code_writes_login_failure_audit(client: TestClient, db: Session, monkeypatch):
+    monkeypatch.setattr(auth_api.settings, "admin_2fa_required", True)
+    secret = generate_totp_secret()
+    admin = _make_user(db, email="twofa-fail@example.com", role=UserRole.admin)
+    admin.two_factor_secret = secret
+    admin.two_factor_enabled = True
+    admin.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(admin)
+    db.commit()
+
+    response = _login(client, "twofa-fail@example.com", otp_code="000000")
+
+    assert response.status_code == 401
+
+    audit = db.scalar(
+        select(AuditLog)
+        .where(AuditLog.action == "login_failed_2fa")
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert audit is not None
+    assert audit.user_id == admin.id
+    assert audit.status == "failure"
+
+
+def test_remember_device_login_writes_trusted_device_creation_audit(client: TestClient, db: Session):
+    secret = generate_totp_secret()
+    user = _make_user(db, email="trusted-device-audit@example.com", role=UserRole.medical_student)
+    user.two_factor_secret = secret
+    user.two_factor_enabled = True
+    user.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+
+    response = client.post(
+        "/auth/login",
+        json={
+            "email": "trusted-device-audit@example.com",
+            "password": "TestPass123",
+            "otp_code": generate_totp_code(secret),
+            "remember_device": True,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+    audit = db.scalar(
+        select(AuditLog)
+        .where(AuditLog.action == "trusted_device_created")
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert audit is not None
+    assert audit.user_id == user.id
+    assert audit.status == "success"
 
 
 def test_super_admin_can_reset_user_2fa(client: TestClient, db: Session):

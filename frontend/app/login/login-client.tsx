@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { AuthMessage } from "@/components/auth/auth-message";
+import { SecretDisclosure } from "@/components/auth/secret-disclosure";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { type AppLanguage } from "@/store/language-config";
 import { useLanguageStore } from "@/store/language-store";
@@ -435,9 +436,13 @@ export default function LoginClientPage() {
                     </p>
                   )}
                 </div>
-                <p className="break-all text-[0.82rem] text-muted-foreground">
-                  {tr(language, "Setup key", "รหัสตั้งค่า")}: {extractSetupKey(provisioningUri) ?? "-"}
-                </p>
+                <SecretDisclosure
+                  key={extractSetupKey(provisioningUri) ?? "setup-key-hidden"}
+                  label={tr(language, "Setup key", "รหัสตั้งค่า")}
+                  value={extractSetupKey(provisioningUri)}
+                  showLabel={tr(language, "Show setup key", "แสดงรหัสตั้งค่า")}
+                  hideLabel={tr(language, "Hide setup key", "ซ่อนรหัสตั้งค่า")}
+                />
               </div>
             ) : null}
 
