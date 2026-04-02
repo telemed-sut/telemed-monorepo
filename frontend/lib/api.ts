@@ -241,6 +241,8 @@ const API_BASE_URL =
       "http://localhost:8000"
     );
 export type ApiError = Error & { status?: number; detail?: unknown; code?: string };
+export type ApiLanguage = "en" | "th";
+export type AuthErrorContext = "login" | "forgot-password" | "reset-password";
 
 // Token refresh state to prevent multiple simultaneous refresh calls
 let refreshPromise: Promise<string | null> | null = null;
@@ -285,6 +287,93 @@ const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /invalid credentials|incorrect password/i, message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" },
   { pattern: /invalid two-factor authentication code/i, message: "รหัส 2FA หรือ Backup Code ไม่ถูกต้อง" },
   { pattern: /organization sso|admin account must continue with organization sso/i, message: "บัญชีผู้ดูแลต้องเข้าสู่ระบบผ่าน Organization SSO" },
+];
+
+const AUTH_ERROR_FALLBACKS: Record<AuthErrorContext, Record<ApiLanguage, string>> = {
+  login: {
+    en: "Unable to sign in. Please try again.",
+    th: "ไม่สามารถเข้าสู่ระบบได้ โปรดลองอีกครั้ง",
+  },
+  "forgot-password": {
+    en: "Unable to send reset link. Please try again.",
+    th: "ไม่สามารถส่งลิงก์รีเซ็ตรหัสผ่านได้ โปรดลองอีกครั้ง",
+  },
+  "reset-password": {
+    en: "Unable to update password. Please try again.",
+    th: "ไม่สามารถอัปเดตรหัสผ่านได้ โปรดลองอีกครั้ง",
+  },
+};
+
+const AUTH_ERROR_RULES: Array<{
+  contexts: AuthErrorContext[];
+  codes?: string[];
+  statuses?: number[];
+  patterns?: RegExp[];
+  messages: Record<ApiLanguage, string>;
+}> = [
+  {
+    contexts: ["login"],
+    codes: ["invalid_credentials", "incorrect_email_or_password"],
+    statuses: [400, 401],
+    patterns: [/invalid credentials|incorrect password|incorrect email or password/i],
+    messages: {
+      en: "Email or password is incorrect.",
+      th: "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
+    },
+  },
+  {
+    contexts: ["login"],
+    codes: ["admin_sso_required"],
+    patterns: [/organization sso|admin account must continue with organization sso/i],
+    messages: {
+      en: "Please continue with Organization SSO.",
+      th: "กรุณาเข้าสู่ระบบผ่าน Organization SSO",
+    },
+  },
+  {
+    contexts: ["login"],
+    patterns: [/invalid two-factor authentication code|invalid two-factor code/i],
+    messages: {
+      en: "Verification code is incorrect.",
+      th: "รหัสยืนยันไม่ถูกต้อง",
+    },
+  },
+  {
+    contexts: ["login"],
+    patterns: [
+      /temporarily blocked due to too many failed login attempts|your ip has been temporarily blocked|access denied\.\s*your ip has been temporarily blocked/i,
+    ],
+    messages: {
+      en: "Too many attempts. Please wait and try again.",
+      th: "พยายามหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่",
+    },
+  },
+  {
+    contexts: ["forgot-password", "reset-password"],
+    patterns: [/invalid or expired reset token|invalid or expired token/i],
+    messages: {
+      en: "This reset link is invalid or has expired.",
+      th: "ลิงก์รีเซ็ตนี้ไม่ถูกต้องหรือหมดอายุแล้ว",
+    },
+  },
+  {
+    contexts: ["forgot-password", "reset-password"],
+    statuses: [429],
+    patterns: [/too many requests|rate limit/i],
+    messages: {
+      en: "Too many attempts. Please wait and try again.",
+      th: "พยายามหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่",
+    },
+  },
+  {
+    contexts: ["login", "forgot-password", "reset-password"],
+    statuses: [0],
+    patterns: [/network error|failed to fetch|network request failed/i],
+    messages: {
+      en: "Unable to reach the server. Please check your connection and try again.",
+      th: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่",
+    },
+  },
 ];
 
 function clampPage(page?: number): number {
@@ -411,6 +500,46 @@ export function getErrorMessage(error: unknown, fallback: string = DEFAULT_ERROR
   if (typeof error === "string") {
     return toUserFacingMessage(undefined, error, fallback);
   }
+  return fallback;
+}
+
+export function getAuthErrorMessage(
+  language: ApiLanguage,
+  error: unknown,
+  context: AuthErrorContext,
+): string {
+  const fallback = AUTH_ERROR_FALLBACKS[context][language];
+
+  if (!(error instanceof Error)) {
+    if (typeof error === "string" && error.trim()) {
+      return error.trim();
+    }
+    return fallback;
+  }
+
+  const apiError = error as ApiError;
+  const detailCode = extractApiErrorCode(apiError.detail)?.toLowerCase();
+  const detailMessage = parseApiErrorDetail(apiError.detail);
+  const rawMessage = sanitizeMessage(detailMessage) || sanitizeMessage(apiError.message) || "";
+
+  for (const rule of AUTH_ERROR_RULES) {
+    if (!rule.contexts.includes(context)) {
+      continue;
+    }
+
+    const codeMatch = !rule.codes || (detailCode ? rule.codes.includes(detailCode) : false);
+    const statusMatch = !rule.statuses || (typeof apiError.status === "number" && rule.statuses.includes(apiError.status));
+    const patternMatch = !rule.patterns || rule.patterns.some((pattern) => pattern.test(rawMessage));
+
+    if (codeMatch || statusMatch || patternMatch) {
+      return rule.messages[language];
+    }
+  }
+
+  if (rawMessage && rawMessage !== AUTH_ERROR_FALLBACKS[context].en && rawMessage !== AUTH_ERROR_FALLBACKS[context].th) {
+    return rawMessage;
+  }
+
   return fallback;
 }
 

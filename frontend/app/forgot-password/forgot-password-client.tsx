@@ -2,20 +2,22 @@
 
 import { FormEvent, useState } from "react";
 import Link from "next/link";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { requestPasswordReset } from "@/lib/api";
-import { APP_LANGUAGE_OPTIONS, type AppLanguage } from "@/store/language-config";
+import { AuthShell } from "@/components/auth/auth-shell";
+import { AuthMessage } from "@/components/auth/auth-message";
+import { getAuthErrorMessage, requestPasswordReset } from "@/lib/api";
+import { type AppLanguage } from "@/store/language-config";
 import { useLanguageStore } from "@/store/language-store";
+
+const showDevelopmentToken = process.env.NEXT_PUBLIC_SHOW_DEV_RESET_TOKEN === "true";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
 
 export default function ForgotPasswordClientPage() {
   const language = useLanguageStore((state) => state.language);
-  const setLanguage = useLanguageStore((state) => state.setLanguage);
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,103 +33,82 @@ export default function ForgotPasswordClientPage() {
 
     try {
       const response = await requestPasswordReset(email);
-      setSuccessMessage(response.message);
+      setSuccessMessage(
+        tr(
+          language,
+          "If this email is in the system, we will send a reset link.",
+          "หากอีเมลนี้อยู่ในระบบ เราจะส่งลิงก์รีเซ็ตให้"
+        )
+      );
       if (response.reset_token) {
         setResetToken(response.reset_token);
       }
     } catch (err) {
-      const message = err instanceof Error
-        ? err.message
-        : tr(language, "Unable to request password reset", "ไม่สามารถส่งคำขอรีเซ็ตรหัสผ่านได้");
-      setError(message);
+      setError(getAuthErrorMessage(language, err, "forgot-password"));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
-      <Card className="mx-4 w-full max-w-lg border-border shadow-xl">
-        <CardHeader className="space-y-2 text-center">
-          <div className="flex justify-end">
-            <div className="inline-flex rounded-md border border-input bg-background p-0.5">
-              {APP_LANGUAGE_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`h-8 rounded px-2.5 text-[0.9rem] transition-colors ${option.value === language
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:bg-muted"
-                    }`}
-                  onClick={() => setLanguage(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <h2 className="text-3xl font-semibold tracking-tight">{tr(language, "Forgot password", "ลืมรหัสผ่าน")}</h2>
-          <p className="text-[0.98rem] text-muted-foreground">
-            {tr(language, "Enter your work email to request a reset link.", "กรอกอีเมลที่ใช้ทำงานเพื่อขอลิงก์รีเซ็ตรหัสผ่าน")}
-          </p>
-          <p className="text-[0.88rem] text-muted-foreground">
-            {tr(
-              language,
-              "This is a closed system. New accounts are provisioned by administrators only.",
-              "ระบบนี้เป็นระบบปิด การสร้างบัญชีใหม่ทำได้โดยผู้ดูแลระบบเท่านั้น"
-            )}
-          </p>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">{tr(language, "Email address", "อีเมล")}</Label>
-              <Input
-                id="email"
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder={tr(language, "name@hospital.org", "name@hospital.org")}
-              />
-            </div>
+    <AuthShell
+      title={tr(language, "Forgot password", "ลืมรหัสผ่าน")}
+      subtitle={tr(language, "Enter your email to receive a reset link.", "กรอกอีเมลเพื่อรับลิงก์รีเซ็ตรหัสผ่าน")}
+      metaText={tr(
+        language,
+        "New user accounts are created by administrators.",
+        "บัญชีผู้ใช้ใหม่จะถูกสร้างโดยผู้ดูแลระบบ"
+      )}
+      contentClassName="space-y-5"
+    >
+      <form onSubmit={onSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="email">{tr(language, "Email address", "อีเมล")}</Label>
+          <Input
+            id="email"
+            type="email"
+            required
+            autoFocus
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder={tr(language, "name@example.com", "name@example.com")}
+          />
+        </div>
 
-            {error && (
-              <p className="text-[0.95rem] text-destructive" role="alert">
-                {error}
-              </p>
-            )}
+        {error && (
+          <AuthMessage>
+            {error}
+          </AuthMessage>
+        )}
 
-            {successMessage && (
-              <p className="text-[0.95rem] text-green-600" role="status">
-                {successMessage}
-              </p>
-            )}
+        {successMessage && (
+          <AuthMessage tone="success">
+            {successMessage}
+          </AuthMessage>
+        )}
 
-            {resetToken && (
-              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3.5 text-[0.95rem]">
-                <p className="font-medium mb-1">{tr(language, "Development token", "โทเคนสำหรับพัฒนา")}</p>
-                <p className="break-all">{resetToken}</p>
-                <Link className="text-primary hover:underline mt-2 inline-block" href={`/reset-password#token=${encodeURIComponent(resetToken)}`}>
-                  {tr(language, "Continue to reset password", "ไปหน้าตั้งรหัสผ่านใหม่")}
-                </Link>
-              </div>
-            )}
-
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading
-                ? tr(language, "Submitting...", "กำลังส่งคำขอ...")
-                : tr(language, "Request reset", "ขอรีเซ็ตรหัสผ่าน")}
-            </Button>
-          </form>
-
-          <div className="mt-4 text-center text-[0.95rem]">
-            <Link href="/login" className="text-primary hover:underline">
-              {tr(language, "Back to sign in", "กลับไปหน้าเข้าสู่ระบบ")}
+        {showDevelopmentToken && resetToken && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3.5 text-[0.95rem]">
+            <p className="mb-1 font-medium">{tr(language, "Development token", "โทเคนสำหรับพัฒนา")}</p>
+            <p className="break-all">{resetToken}</p>
+            <Link className="mt-2 inline-block text-primary hover:underline" href={`/reset-password#token=${encodeURIComponent(resetToken)}`}>
+              {tr(language, "Continue to reset password", "ไปหน้าตั้งรหัสผ่านใหม่")}
             </Link>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+        )}
+
+        <Button type="submit" className="w-full" disabled={loading}>
+          {loading
+            ? tr(language, "Submitting...", "กำลังส่งคำขอ...")
+            : tr(language, "Send reset link", "ส่งลิงก์รีเซ็ตรหัสผ่าน")}
+        </Button>
+      </form>
+
+      <div className="text-center text-[0.92rem]">
+        <Link href="/login" className="text-primary hover:underline">
+          {tr(language, "Back to sign in", "กลับไปหน้าเข้าสู่ระบบ")}
+        </Link>
+      </div>
+    </AuthShell>
   );
 }
