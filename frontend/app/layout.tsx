@@ -7,7 +7,7 @@ import { LanguageInitializer } from "@/components/language-initializer";
 import { ProgressBarClient } from "@/components/progress-bar-client";
 import { TranslationSafeguard } from "@/components/translation-safeguard";
 import { I18nProvider } from "@/components/i18n-provider";
-import { UIToneInitializer } from "@/components/ui-tone-initializer";
+import { AppearanceInitializer } from "@/components/appearance-initializer";
 
 export const metadata: Metadata = {
   title: "E Med Help SUT — Telemedicine Dashboard",
@@ -30,7 +30,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <I18nProvider>
-            <UIToneInitializer />
+            <AppearanceInitializer />
             <ProgressBarClient />
             <TranslationSafeguard />
             <AuthInitializer />
