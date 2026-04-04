@@ -8,6 +8,7 @@ import { ProgressBarClient } from "@/components/progress-bar-client";
 import { TranslationSafeguard } from "@/components/translation-safeguard";
 import { I18nProvider } from "@/components/i18n-provider";
 import { AppearanceInitializer } from "@/components/appearance-initializer";
+import { AgentationClient } from "@/components/agentation-client";
 
 export const metadata: Metadata = {
   title: "E Med Help SUT — Telemedicine Dashboard",
@@ -35,6 +36,7 @@ export default function RootLayout({
             <TranslationSafeguard />
             <AuthInitializer />
             <LanguageInitializer />
+            <AgentationClient />
             {children}
             <Toaster />
           </I18nProvider>
