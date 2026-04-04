@@ -1,6 +1,6 @@
 import type { HeartSoundRecord, Meeting, Patient } from "@/lib/api";
 
-const CACHE_SCHEMA_VERSION = 1;
+const CACHE_SCHEMA_VERSION = 2;
 const DETAIL_CACHE_TTL_MS = 5 * 60 * 1000;
 const MEETINGS_CACHE_TTL_MS = 60 * 1000;
 const HEART_SOUND_CACHE_TTL_MS = 60 * 1000;

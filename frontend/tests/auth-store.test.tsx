@@ -32,7 +32,7 @@ describe("auth store hydration", () => {
 
   it("keeps a cookie-backed session and persists a local snapshot when /auth/me succeeds", async () => {
     window.localStorage.setItem(
-      "telemed.auth.snapshot.v2",
+      "telemed.auth.snapshot.v3",
       JSON.stringify({
         token: "__cookie_session__",
         role: "doctor",
@@ -42,10 +42,6 @@ describe("auth store hydration", () => {
         mfaAuthenticatedAt: "2026-03-30T01:00:00.000Z",
         authSource: "local",
         ssoProvider: null,
-        privilegedRoles: [],
-        canManagePrivilegedAdmins: false,
-        canManageSecurityRecovery: false,
-        canBootstrapPrivilegedRoles: false,
         sessionExpiresAt: null,
         lastVerifiedAt: Date.now() - 10 * 60 * 1000,
       })
@@ -61,11 +57,6 @@ describe("auth store hydration", () => {
       mfa_authenticated_at: "2026-03-30T01:00:00.000Z",
       auth_source: "local",
       sso_provider: null,
-      privileged_roles: [],
-      can_manage_privileged_admins: false,
-      can_manage_security_recovery: false,
-      can_bootstrap_privileged_roles: false,
-      is_super_admin: false,
     });
     refreshTokenMock.mockRejectedValue(new Error("csrf blocked"));
 
@@ -81,7 +72,7 @@ describe("auth store hydration", () => {
     expect(state.role).toBe("doctor");
     expect(state.userId).toBe("doctor-1");
     expect(state.sessionExpiresAt).toBeNull();
-    expect(window.localStorage.getItem("telemed.auth.snapshot.v2")).toContain(
+    expect(window.localStorage.getItem("telemed.auth.snapshot.v3")).toContain(
       "\"userId\":\"doctor-1\""
     );
   });
@@ -116,10 +107,6 @@ describe("auth store hydration", () => {
       mfaAuthenticatedAt: "2026-03-30T01:00:00.000Z",
       authSource: "local",
       ssoProvider: null,
-      privilegedRoles: [],
-      canManagePrivilegedAdmins: false,
-      canManageSecurityRecovery: false,
-      canBootstrapPrivilegedRoles: false,
       hydrated: true,
       sessionExpiresAt: null,
     });

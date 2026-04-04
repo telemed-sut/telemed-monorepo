@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import urlencode
 from uuid import UUID
@@ -23,8 +24,9 @@ from app.core.security import (
     generate_security_token,
     get_password_hash,
     hash_security_token,
-    normalize_totp_code,
     normalize_backup_code,
+    normalize_totp_code,
+    verify_password,
     verify_totp_code,
 )
 from app.models.audit_log import AuditLog
@@ -32,6 +34,7 @@ from app.models.enums import UserRole
 from app.models.user_trusted_device import UserTrustedDevice
 from app.models.user import User
 from app.schemas.auth import (
+    AccessProfileResponse,
     BackupCodesResponse,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
@@ -52,6 +55,7 @@ from app.schemas.auth import (
     LoginRequest,
     MessageResponse,
     ResetPasswordRequest,
+    StepUpAuthRequest,
     TokenResponse,
     AdminSSOStatusResponse,
     UserMeResponse,
@@ -255,6 +259,106 @@ def _build_two_factor_challenge_detail(user: User) -> dict[str, str | bool | int
     return detail
 
 
+@dataclass
+class _SecondFactorOutcome:
+    mfa_verified: bool
+    mfa_authenticated_at: datetime | None
+    used_backup_code: bool = False
+    used_trusted_device: bool = False
+    trusted_device_raw_token: str | None = None
+    trusted_device: UserTrustedDevice | None = None
+    challenge_required: bool = False
+
+
+def _resolve_second_factor_outcome(
+    request: Request,
+    db: Session,
+    user: User,
+    *,
+    otp_code_input: str | None,
+    remember_device: bool,
+) -> _SecondFactorOutcome:
+    if not _two_factor_required_for_user(user):
+        return _SecondFactorOutcome(
+            mfa_verified=True,
+            mfa_authenticated_at=datetime.now(timezone.utc),
+        )
+
+    _ensure_two_factor_secret(db, user)
+
+    trusted_cookie = _get_trusted_device_cookie(request)
+    if trusted_cookie:
+        trusted = security_service.get_active_trusted_device(
+            db,
+            user_id=user.id,
+            raw_token=trusted_cookie,
+            user_agent=request.headers.get("user-agent"),
+        )
+        if trusted:
+            security_service.mark_trusted_device_used(db, trusted)
+            return _SecondFactorOutcome(
+                mfa_verified=True,
+                mfa_authenticated_at=datetime.now(timezone.utc),
+                used_trusted_device=True,
+            )
+
+    otp_code = normalize_totp_code(otp_code_input)
+    backup_code = normalize_backup_code(otp_code_input)
+    if not otp_code_input:
+        return _SecondFactorOutcome(
+            mfa_verified=False,
+            mfa_authenticated_at=None,
+            challenge_required=True,
+        )
+
+    verified = False
+    used_backup = False
+    if otp_code and verify_totp_code(user.two_factor_secret, otp_code):
+        verified = True
+    elif backup_code and user.two_factor_enabled:
+        verified = security_service.use_backup_code(
+            db,
+            user_id=user.id,
+            code=backup_code,
+        )
+        used_backup = verified
+
+    if not verified:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "invalid_two_factor_code",
+                "message": "Invalid two-factor authentication code",
+            },
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    mfa_authenticated_at = datetime.now(timezone.utc)
+
+    if not user.two_factor_enabled:
+        user.two_factor_enabled = True
+        user.two_factor_enabled_at = mfa_authenticated_at
+        db.add(user)
+
+    trusted_device_raw_token: str | None = None
+    trusted_device: UserTrustedDevice | None = None
+    if remember_device:
+        trusted_device_raw_token, trusted_device = security_service.create_trusted_device(
+            db,
+            user=user,
+            ip_address=_client_ip(request),
+            user_agent=request.headers.get("user-agent"),
+        )
+
+    return _SecondFactorOutcome(
+        mfa_verified=True,
+        mfa_authenticated_at=mfa_authenticated_at,
+        used_backup_code=used_backup,
+        trusted_device_raw_token=trusted_device_raw_token,
+        trusted_device=trusted_device,
+    )
+
+
 def _write_auth_audit(
     db: Session,
     *,
@@ -365,7 +469,6 @@ def get_me(
     current_user: User = Depends(auth_service.get_current_user),
 ):
     """Get current authenticated user's profile"""
-    privilege_flags = auth_service.build_privilege_flags(db, current_user)
     payload = auth_service.get_request_auth_payload(request)
     mfa_authenticated_at = auth_service._coerce_timestamp(payload.get("mfa_authenticated_at"))
     mfa_verified = bool(payload.get("mfa_verified"))
@@ -382,7 +485,26 @@ def get_me(
         mfa_recent_for_privileged_actions=auth_service.is_recent_mfa_authenticated(mfa_authenticated_at),
         auth_source=str(payload.get("auth_source") or "local"),
         sso_provider=payload.get("sso_provider"),
-        **privilege_flags,
+    )
+
+
+@router.get("/access-profile", response_model=AccessProfileResponse)
+def get_access_profile(
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    payload = auth_service.get_request_auth_payload(request)
+    mfa_authenticated_at = auth_service._coerce_timestamp(payload.get("mfa_authenticated_at"))
+    reveal_sensitive_details = bool(payload.get("mfa_verified")) and auth_service.is_recent_mfa_authenticated(
+        mfa_authenticated_at
+    )
+    return AccessProfileResponse(
+        **auth_service.build_access_profile(
+            db,
+            current_user,
+            reveal_sensitive_details=reveal_sensitive_details,
+        )
     )
 
 
@@ -1359,130 +1481,93 @@ def login(
         )
 
     trusted_device_raw_token: str | None = None
-    trusted = None
     used_backup = False
-    mfa_verified = not auth_service.requires_token_mfa(authenticated_user)
-    mfa_authenticated_at = datetime.now(timezone.utc) if mfa_verified else None
-    if _two_factor_required_for_user(authenticated_user):
-        _ensure_two_factor_secret(db, authenticated_user)
-
-        trusted_cookie = _get_trusted_device_cookie(request)
-        if trusted_cookie:
-            trusted = security_service.get_active_trusted_device(
-                db,
+    used_trusted_device = False
+    try:
+        second_factor = _resolve_second_factor_outcome(
+            request,
+            db,
+            authenticated_user,
+            otp_code_input=payload.otp_code,
+            remember_device=payload.remember_device,
+        )
+    except HTTPException:
+        security_service.handle_failed_login(
+            db,
+            ip,
+            payload.email,
+            authenticated_user,
+            details="Invalid two-factor code",
+        )
+        db.add(
+            AuditLog(
                 user_id=authenticated_user.id,
-                raw_token=trusted_cookie,
-                user_agent=request.headers.get("user-agent"),
+                action="login_failed_2fa",
+                resource_type="user",
+                resource_id=authenticated_user.id,
+                details={"reason": "invalid_two_factor_code"},
+                ip_address=ip,
+                is_break_glass=False,
+                status="failure",
             )
-            if trusted:
-                security_service.mark_trusted_device_used(db, trusted)
-                mfa_verified = True
-                mfa_authenticated_at = datetime.now(timezone.utc)
+        )
+        db.commit()
+        raise
 
-        if not trusted:
-            otp_code = normalize_totp_code(payload.otp_code)
-            backup_code = normalize_backup_code(payload.otp_code)
+    if second_factor.challenge_required:
+        challenge_detail = _build_two_factor_challenge_detail(authenticated_user)
+        db.add(
+            AuditLog(
+                user_id=authenticated_user.id,
+                action="two_factor_challenge",
+                resource_type="user",
+                resource_id=authenticated_user.id,
+                details={"event": "two_factor_challenge"},
+                ip_address=ip,
+                is_break_glass=False,
+                status="success",
+            )
+        )
+        db.commit()
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": challenge_detail},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-            verified = False
-            if otp_code and verify_totp_code(authenticated_user.two_factor_secret, otp_code):
-                verified = True
-            elif backup_code and authenticated_user.two_factor_enabled:
-                verified = security_service.use_backup_code(
-                    db,
-                    user_id=authenticated_user.id,
-                    code=backup_code,
-                )
-                used_backup = verified
+    mfa_verified = second_factor.mfa_verified
+    mfa_authenticated_at = second_factor.mfa_authenticated_at
+    used_backup = second_factor.used_backup_code
+    used_trusted_device = second_factor.used_trusted_device
+    trusted_device_raw_token = second_factor.trusted_device_raw_token
 
-            if not verified:
-                if not payload.otp_code:
-                    challenge_detail = _build_two_factor_challenge_detail(authenticated_user)
-                    db.add(
-                        AuditLog(
-                            user_id=authenticated_user.id,
-                            action="two_factor_challenge",
-                            resource_type="user",
-                            resource_id=authenticated_user.id,
-                            details={"event": "two_factor_challenge"},
-                            ip_address=ip,
-                            is_break_glass=False,
-                            status="success",
-                        )
-                    )
-                    db.commit()
-                    return JSONResponse(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        content={"detail": challenge_detail},
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
+    if used_backup:
+        db.add(
+            AuditLog(
+                user_id=authenticated_user.id,
+                action="login_with_backup_code",
+                resource_type="user",
+                resource_id=authenticated_user.id,
+                details={"event": "backup_code_login"},
+                ip_address=ip,
+                is_break_glass=False,
+                status="success",
+            )
+        )
 
-                security_service.handle_failed_login(
-                    db,
-                    ip,
-                    payload.email,
-                    authenticated_user,
-                    details="Invalid two-factor code",
-                )
-                db.add(
-                    AuditLog(
-                        user_id=authenticated_user.id,
-                        action="login_failed_2fa",
-                        resource_type="user",
-                        resource_id=authenticated_user.id,
-                        details={"reason": "invalid_two_factor_code"},
-                        ip_address=ip,
-                        is_break_glass=False,
-                        status="failure",
-                    )
-                )
-                db.commit()
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Invalid two-factor authentication code",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-
-            mfa_verified = True
-            mfa_authenticated_at = datetime.now(timezone.utc)
-
-            if used_backup:
-                db.add(
-                    AuditLog(
-                        user_id=authenticated_user.id,
-                        action="login_with_backup_code",
-                        resource_type="user",
-                        resource_id=authenticated_user.id,
-                        details={"event": "backup_code_login"},
-                        ip_address=ip,
-                        is_break_glass=False,
-                        status="success",
-                    )
-                )
-
-            if not authenticated_user.two_factor_enabled:
-                authenticated_user.two_factor_enabled = True
-                authenticated_user.two_factor_enabled_at = datetime.now(timezone.utc)
-                db.add(authenticated_user)
-
-            if payload.remember_device:
-                trusted_device_raw_token, trusted_device = security_service.create_trusted_device(
-                    db,
-                    user=authenticated_user,
-                    ip_address=ip,
-                    user_agent=request.headers.get("user-agent"),
-                )
-                db.add(
-                    AuditLog(
-                        user_id=authenticated_user.id,
-                        action="trusted_device_created",
-                        resource_type="user_trusted_device",
-                        resource_id=trusted_device.id,
-                        details={"trusted_device_id": str(trusted_device.id)},
-                        ip_address=ip,
-                        is_break_glass=False,
-                        status="success",
-                    )
-                )
+    if second_factor.trusted_device is not None:
+        db.add(
+            AuditLog(
+                user_id=authenticated_user.id,
+                action="trusted_device_created",
+                resource_type="user_trusted_device",
+                resource_id=second_factor.trusted_device.id,
+                details={"trusted_device_id": str(second_factor.trusted_device.id)},
+                ip_address=ip,
+                is_break_glass=False,
+                status="success",
+            )
+        )
 
     # Successful login
     security_service.handle_successful_login(db, ip, authenticated_user)
@@ -1496,7 +1581,7 @@ def login(
             "auth_source": "local",
             "mfa_verified": mfa_verified,
             "used_backup_code": used_backup,
-            "used_trusted_device": trusted is not None,
+            "used_trusted_device": used_trusted_device,
         },
     )
     db.commit()
@@ -1513,6 +1598,134 @@ def login(
             response,
             trusted_device_raw_token,
             max_age_seconds=_trusted_device_days_for_user(authenticated_user) * 24 * 60 * 60,
+        )
+    return login_response
+
+
+@router.post("/step-up", response_model=TokenResponse)
+@limiter.limit("30/minute")
+def step_up_auth(
+    request: Request,
+    response: Response,
+    payload: StepUpAuthRequest,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    auth_payload = auth_service.get_request_auth_payload(request)
+    auth_source = str(auth_payload.get("auth_source") or "local")
+    sso_provider = auth_payload.get("sso_provider")
+    session_id = _get_session_id_from_request(request)
+    ip = _client_ip(request)
+
+    if auth_source == "sso":
+        _write_auth_audit(
+            db,
+            action="step_up_failed",
+            ip_address=ip,
+            status_value="failure",
+            user=current_user,
+            details={"reason": "step_up_not_supported_for_sso"},
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "step_up_not_supported_for_sso",
+                "message": "Step-up verification is not available for Organization SSO sessions.",
+            },
+        )
+
+    if not verify_password(payload.password, current_user.password_hash):
+        _write_auth_audit(
+            db,
+            action="step_up_failed",
+            ip_address=ip,
+            status_value="failure",
+            user=current_user,
+            details={"reason": "invalid_password"},
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "invalid_credentials",
+                "message": "Password is incorrect.",
+            },
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        second_factor = _resolve_second_factor_outcome(
+            request,
+            db,
+            current_user,
+            otp_code_input=payload.otp_code,
+            remember_device=payload.remember_device,
+        )
+    except HTTPException:
+        _write_auth_audit(
+            db,
+            action="step_up_failed",
+            ip_address=ip,
+            status_value="failure",
+            user=current_user,
+            details={"reason": "invalid_two_factor_code"},
+        )
+        db.commit()
+        raise
+
+    if second_factor.challenge_required:
+        challenge_detail = _build_two_factor_challenge_detail(current_user)
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": challenge_detail},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if second_factor.trusted_device is not None:
+        db.add(
+            AuditLog(
+                user_id=current_user.id,
+                action="trusted_device_created",
+                resource_type="user_trusted_device",
+                resource_id=second_factor.trusted_device.id,
+                details={"trusted_device_id": str(second_factor.trusted_device.id)},
+                ip_address=ip,
+                is_break_glass=False,
+                status="success",
+            )
+        )
+
+    _write_auth_audit(
+        db,
+        action="step_up_verified",
+        ip_address=ip,
+        status_value="success",
+        user=current_user,
+        details={
+            "auth_source": auth_source,
+            "mfa_verified": second_factor.mfa_verified,
+            "used_backup_code": second_factor.used_backup_code,
+            "used_trusted_device": second_factor.used_trusted_device,
+        },
+    )
+    db.commit()
+
+    login_response = auth_service.create_login_response(
+        current_user,
+        db=db,
+        mfa_verified=second_factor.mfa_verified,
+        mfa_authenticated_at=second_factor.mfa_authenticated_at,
+        auth_source=auth_source,
+        sso_provider=sso_provider if isinstance(sso_provider, str) else None,
+        session_id=session_id,
+    )
+    _set_auth_cookie(response, login_response["access_token"])
+    if second_factor.trusted_device_raw_token:
+        _set_trusted_device_cookie(
+            response,
+            second_factor.trusted_device_raw_token,
+            max_age_seconds=_trusted_device_days_for_user(current_user) * 24 * 60 * 60,
         )
     return login_response
 

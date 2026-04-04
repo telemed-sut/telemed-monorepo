@@ -77,6 +77,7 @@ import {
   updateMeeting,
   fetchUsers,
   fetchCurrentUser,
+  getErrorMessage,
   type Meeting,
   type Patient,
   type User,
@@ -95,7 +96,6 @@ import { getPresenceAwareStatus } from "./meeting-presence";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
-import { getLocalizedDashboardErrorMessage } from "./dashboard-error-message";
 import {
   scheduleZegoUIKitPreload,
 } from "@/lib/zego-uikit";
@@ -117,11 +117,7 @@ function padTime(n: number) {
   return n.toString().padStart(2, "0");
 }
 
-function formatHourOption(h: number, language: AppLanguage) {
-  if (language === "th") {
-    return `${h.toString().padStart(2, "0")}:00`;
-  }
-
+function formatHour12(h: number) {
   const ampm = h >= 12 ? "PM" : "AM";
   const hr = h % 12 || 12;
   return `${hr} ${ampm}`;
@@ -132,9 +128,11 @@ function formatDoctorDisplayName(doctor: Pick<User, "first_name" | "last_name" |
   return fullName || doctor.email;
 }
 
-function formatPatientDisplayName(patient: Pick<Patient, "first_name" | "last_name" | "email" | "id">): string {
+function formatPatientDisplayName(
+  patient: Pick<Patient, "first_name" | "last_name" | "id">
+): string {
   const fullName = `${patient.first_name || ""} ${patient.last_name || ""}`.trim();
-  return fullName || patient.email || patient.id;
+  return fullName || patient.id;
 }
 
 const ACTIVE_MEETING_REFRESH_INTERVAL_MS = 5_000;
@@ -254,7 +252,6 @@ interface DoctorPickerItem extends PickerCommandItem {
 }
 
 interface PatientPickerItem extends PickerCommandItem {
-  active: boolean;
   status: string;
   avatar?: string;
 }
@@ -380,10 +377,6 @@ function PatientDirectoryDialog({
     },
     [items, query]
   );
-  const activeItems = useMemo(
-    () => items.filter((item) => item.active),
-    [items]
-  );
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
       if (!nextOpen) {
@@ -424,9 +417,9 @@ function PatientDirectoryDialog({
             <div className="px-6 pb-3 pt-6">
               <div className="mb-5 flex items-center justify-between">
                 <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-                  {tr(language, "Active Patients", "ผู้ป่วยที่พร้อมติดต่อ")}
+                  {tr(language, "Patient Directory", "ไดเรกทอรีผู้ป่วย")}
                   <span className="mt-0.5 rounded-full bg-muted px-2 py-1 text-xs font-normal leading-none text-muted-foreground">
-                    {activeItems.length}
+                    {filteredAllPatients.length}
                   </span>
                 </h2>
                 <Button
@@ -466,14 +459,14 @@ function PatientDirectoryDialog({
                   <p className="py-6 text-center text-sm text-muted-foreground">
                     {tr(language, "Searching patients...", "กำลังค้นหาผู้ป่วย...")}
                   </p>
-                ) : activeItems.length === 0 ? (
+                ) : filteredAllPatients.length === 0 ? (
                   <p className="py-6 text-center text-sm text-muted-foreground">
-                    {tr(language, "No active patients found.", "ไม่พบผู้ป่วยที่พร้อมติดต่อ")}
+                    {tr(language, "No patients found.", "ไม่พบผู้ป่วย")}
                   </p>
                 ) : (
-                  activeItems.map((patient) => (
+                  filteredAllPatients.map((patient) => (
                     <PatientMemberItem
-                      key={`active-${patient.id}`}
+                      key={`patient-${patient.id}`}
                       member={patient}
                       selectedId={selectedId}
                       onSelect={handlePatientSelect}
@@ -726,7 +719,7 @@ const DoctorMemberItem = ({
       selectedId === member.id && "rounded-xl bg-accent/40 px-2"
     )}
   >
-    <div className="relative mr-4 shrink-0">
+    <div className="mr-4 shrink-0">
       {member.avatar ? (
         <Image
           src={member.avatar}
@@ -805,27 +798,14 @@ const PatientMemberItem = ({
           {getNameInitials(member.label)}
         </div>
       )}
-      {member.active && (
-        <div className="absolute bottom-0 right-0 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-background shadow-sm">
-          <div className="h-2 w-2 rounded-full bg-green-500" />
-        </div>
-      )}
     </div>
     <div className="min-w-0 flex-1">
       <h3 className="mb-1.5 truncate text-base font-semibold leading-none tracking-tight text-foreground">
         {member.label}
       </h3>
-      <div className="flex items-center gap-1.5 opacity-80">
-        {member.active && <div className="h-1.5 w-1.5 rounded-full bg-green-500" />}
-        <p
-          className={cn(
-            "text-sm font-medium leading-none",
-            member.active ? "text-green-600" : "text-muted-foreground"
-          )}
-        >
-          {member.status}
-        </p>
-      </div>
+      <p className="text-sm font-medium leading-none text-muted-foreground/85">
+        {member.status}
+      </p>
     </div>
     <div className="shrink-0">
       {selectedId === member.id && (
@@ -1380,10 +1360,7 @@ function CreateEventDialog({
     if (query.length < 2) {
       return patients.filter((patient) => {
         const display = formatPatientDisplayName(patient);
-        return (
-          includesSearchQuery(display, patientQuery) ||
-          includesSearchQuery(patient.email || "", patientQuery)
-        );
+        return includesSearchQuery(display, patientQuery);
       });
     }
     return patientSearchResults;
@@ -1412,15 +1389,14 @@ function CreateEventDialog({
   const patientPickerItems = useMemo<PatientPickerItem[]>(
     () =>
       visiblePatients.map((patient) => {
-        const hasContact = Boolean((patient.email || "").trim() || (patient.phone || "").trim());
         return {
           id: patient.id,
           label: formatPatientDisplayName(patient),
-          description: patient.email || patient.phone || undefined,
-          active: hasContact,
-          status: hasContact
-            ? tr(language, "Contact available", "มีข้อมูลติดต่อ")
-            : tr(language, "No contact info", "ยังไม่มีข้อมูลติดต่อ"),
+          status: tr(
+            language,
+            "Open workspace for protected details",
+            "เปิด workspace เพื่อดูข้อมูลที่ถูกปกป้อง"
+          ),
         };
       }),
     [visiblePatients, language]
@@ -1750,11 +1726,9 @@ function CreateEventDialog({
         await onCreated(createdMeeting);
       }
     } catch (err: unknown) {
-      const message = getLocalizedDashboardErrorMessage(
+      const message = getErrorMessage(
         err,
-        language,
-        "Failed to create appointment",
-        "สร้างนัดหมายไม่สำเร็จ"
+        tr(language, "Failed to create appointment", "สร้างนัดหมายไม่สำเร็จ")
       );
       toast.error(message);
     } finally {
@@ -1833,7 +1807,7 @@ function CreateEventDialog({
                 >
                   {HOURS.map((h) => (
                     <option key={h} value={h}>
-                      {formatHourOption(h, language)}
+                      {formatHour12(h)}
                     </option>
                   ))}
                 </select>
@@ -1867,7 +1841,7 @@ function CreateEventDialog({
                 >
                   {HOURS.map((h) => (
                     <option key={h} value={h}>
-                      {formatHourOption(h, language)}
+                      {formatHour12(h)}
                     </option>
                   ))}
                 </select>
@@ -1954,8 +1928,8 @@ function CreateEventDialog({
               <p className="text-sm text-muted-foreground">
                 {tr(
                   language,
-                  "Click to open patient search panel.",
-                  "กดปุ่มเพื่อเปิดหน้าค้นหาผู้ป่วย"
+                  "Search by patient name.",
+                  "ค้นหาด้วยชื่อผู้ป่วย"
                 )}
               </p>
             </div>
@@ -2980,7 +2954,7 @@ export function MeetingsContent() {
           />
         </div>
       ) : viewMode === "month" ? (
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-auto">
           <MonthCalendarView
             onEditMeeting={(meeting) => {
               if (!canManageMeetings) {

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api import auth as auth_api
 from app.core.security import (
+    decode_token,
     generate_totp_code,
     generate_totp_secret,
     get_password_hash,
@@ -78,18 +79,19 @@ def test_get_me_returns_current_user_profile(client: TestClient, db: Session):
     assert payload["email"] == "me@example.com"
     assert payload["role"] == "doctor"
     assert payload["two_factor_enabled"] is False
-    assert payload["is_super_admin"] is False
+    assert "is_super_admin" not in payload
 
 
-def test_get_me_marks_super_admin_accounts(client: TestClient, db: Session):
+def test_access_profile_marks_bootstrap_super_admin_accounts(client: TestClient, db: Session):
     user = _create_user(db, email="admin@example.com", role=UserRole.admin)
 
-    response = client.get("/auth/me", headers=_auth_headers(user))
+    response = client.get("/auth/access-profile", headers=_auth_headers(user))
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["email"] == "admin@example.com"
-    assert payload["is_super_admin"] is True
+    assert payload["has_privileged_access"] is True
+    assert payload["access_class"] == "Vault Apex"
+    assert payload["access_class_revealed"] is True
 
 
 def test_get_two_factor_status_provisions_secret(client: TestClient, db: Session):
@@ -255,6 +257,196 @@ def test_reset_two_factor_rotates_secret_and_revokes_backup_codes(
     ).all()
     assert backup_codes
     assert all(code.used_at is not None for code in backup_codes)
+
+
+def test_step_up_auth_refreshes_current_session_for_local_user(client: TestClient, db: Session):
+    secret = generate_totp_secret()
+    user = _create_user(db, email="step-up@example.com", role=UserRole.medical_student)
+    user.two_factor_secret = secret
+    user.two_factor_enabled = True
+    user.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+
+    stale_authenticated_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    stale_token = create_login_response(
+        user,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=stale_authenticated_at,
+        session_id="session-step-up",
+    )["access_token"]
+
+    response = client.post(
+        "/auth/step-up",
+        json={
+            "password": "TestPass123",
+            "otp_code": generate_totp_code(secret),
+        },
+        headers={"Authorization": f"Bearer {stale_token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["user"]["email"] == "step-up@example.com"
+    assert payload["user"]["mfa_recent_for_privileged_actions"] is True
+    assert payload["user"]["mfa_authenticated_at"] is not None
+
+    old_session = decode_token(stale_token)["session_id"]
+    new_token = payload["access_token"]
+    assert decode_token(new_token)["session_id"] == old_session
+    assert decode_token(new_token)["mfa_authenticated_at"] > decode_token(stale_token)["mfa_authenticated_at"]
+
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "step_up_verified",
+            AuditLog.user_id == user.id,
+        )
+    )
+    assert audit is not None
+    assert audit.status == "success"
+
+
+def test_step_up_auth_requires_two_factor_challenge_when_needed(client: TestClient, db: Session):
+    user = _create_user(db, email="step-up-challenge@example.com", role=UserRole.admin)
+    user.two_factor_secret = generate_totp_secret()
+    user.two_factor_enabled = True
+    user.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+    client.cookies.clear()
+    stale_token = create_login_response(
+        user,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )["access_token"]
+
+    response = client.post(
+        "/auth/step-up",
+        json={"password": "TestPass123"},
+        headers={"Authorization": f"Bearer {stale_token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "two_factor_required"
+
+
+def test_step_up_auth_rejects_invalid_password_and_writes_failure_audit(client: TestClient, db: Session):
+    user = _create_user(db, email="step-up-invalid-password@example.com", role=UserRole.doctor)
+    stale_token = create_login_response(
+        user,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )["access_token"]
+
+    response = client.post(
+        "/auth/step-up",
+        json={"password": "WrongPass123"},
+        headers={"Authorization": f"Bearer {stale_token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "invalid_credentials"
+
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "step_up_failed",
+            AuditLog.user_id == user.id,
+        )
+    )
+    assert audit is not None
+    assert audit.details["reason"] == "invalid_password"
+
+
+def test_step_up_auth_rejects_invalid_two_factor_code_and_writes_failure_audit(client: TestClient, db: Session):
+    secret = generate_totp_secret()
+    user = _create_user(db, email="step-up-invalid-otp@example.com", role=UserRole.admin)
+    user.two_factor_secret = secret
+    user.two_factor_enabled = True
+    user.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+
+    stale_token = create_login_response(
+        user,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )["access_token"]
+
+    response = client.post(
+        "/auth/step-up",
+        json={"password": "TestPass123", "otp_code": "000000"},
+        headers={"Authorization": f"Bearer {stale_token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "invalid_two_factor_code"
+
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "step_up_failed",
+            AuditLog.user_id == user.id,
+        )
+    )
+    assert audit is not None
+    assert audit.details["reason"] == "invalid_two_factor_code"
+
+
+def test_step_up_auth_rejects_sso_sessions(client: TestClient, db: Session):
+    user = _create_user(db, email="step-up-sso@example.com", role=UserRole.admin)
+    sso_token = create_login_response(
+        user,
+        db=db,
+        auth_source="sso",
+        sso_provider="okta",
+        session_id="sso-session",
+    )["access_token"]
+
+    response = client.post(
+        "/auth/step-up",
+        json={"password": "TestPass123"},
+        headers={"Authorization": f"Bearer {sso_token}"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "step_up_not_supported_for_sso"
+
+
+def test_step_up_auth_can_create_trusted_device(client: TestClient, db: Session):
+    secret = generate_totp_secret()
+    user = _create_user(db, email="step-up-trusted@example.com", role=UserRole.admin)
+    user.two_factor_secret = secret
+    user.two_factor_enabled = True
+    user.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+
+    stale_token = create_login_response(
+        user,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )["access_token"]
+
+    response = client.post(
+        "/auth/step-up",
+        json={
+            "password": "TestPass123",
+            "otp_code": generate_totp_code(secret),
+            "remember_device": True,
+        },
+        headers={"Authorization": f"Bearer {stale_token}", "user-agent": "pytest-step-up-device"},
+    )
+
+    assert response.status_code == 200, response.text
+    trusted_devices = db.scalars(
+        select(UserTrustedDevice).where(UserTrustedDevice.user_id == user.id)
+    ).all()
+    assert trusted_devices
+    assert auth_api.settings.trusted_device_cookie_name in response.headers.get("set-cookie", "")
 
 
 def test_reset_two_factor_invalid_code_writes_failure_audit(

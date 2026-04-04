@@ -13,6 +13,12 @@ class LoginRequest(BaseModel):
     remember_device: bool = False
 
 
+class StepUpAuthRequest(BaseModel):
+    password: str = Field(min_length=8)
+    otp_code: str | None = Field(default=None, min_length=6, max_length=32)
+    remember_device: bool = False
+
+
 class UserMeResponse(BaseModel):
     id: str
     email: str
@@ -26,8 +32,12 @@ class UserMeResponse(BaseModel):
     mfa_recent_for_privileged_actions: bool = False
     auth_source: str = "local"
     sso_provider: str | None = None
-    is_super_admin: bool = False
-    privileged_roles: list[str] = Field(default_factory=list)
+
+
+class AccessProfileResponse(BaseModel):
+    has_privileged_access: bool = False
+    access_class: str | None = None
+    access_class_revealed: bool = False
     can_manage_privileged_admins: bool = False
     can_manage_security_recovery: bool = False
     can_bootstrap_privileged_roles: bool = False

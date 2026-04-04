@@ -40,7 +40,6 @@ def test_login_endpoint(client: TestClient, db: Session):
     assert data["user"]["email"] == "test@example.com"
     assert data["user"]["role"] == "medical_student"
     assert data["user"]["mfa_verified"] is True
-    assert data["user"]["is_super_admin"] is False
     assert "set-cookie" in response.headers
 
     audit = db.scalar(

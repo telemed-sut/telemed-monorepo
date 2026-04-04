@@ -8,27 +8,20 @@ import { useOverviewStats } from "@/components/dashboard/overview-stats-context"
 const I18N: Record<
   AppLanguage,
   {
-    youHave: string;
-    appointmentsToday: (count: number) => string;
-    and: string;
-    totalScheduled: string;
-    consultations: string;
+    ready: string;
+    summary: string;
+    action: string;
   }
 > = {
   en: {
-    youHave: "You have",
-    appointmentsToday: (count) =>
-      `${count} Appointment${count !== 1 ? "s" : ""} Today,`,
-    and: "and",
-    totalScheduled: "Total Scheduled",
-    consultations: "consultations.",
+    ready: "Today's clinical activity is ready.",
+    summary: "This home screen shows privacy-filtered summaries only.",
+    action: "Open Meetings or Patients for exact details.",
   },
   th: {
-    youHave: "วันนี้คุณมี",
-    appointmentsToday: (count) => `${count} นัดหมาย`,
-    and: "และมี",
-    totalScheduled: "นัดหมายทั้งหมด",
-    consultations: "",
+    ready: "กิจกรรมทางคลินิกของวันนี้พร้อมใช้งานแล้ว",
+    summary: "หน้าหลักนี้จะแสดงเฉพาะข้อมูลสรุปที่กรองเพื่อความเป็นส่วนตัว",
+    action: "เปิดหน้าการนัดหมายหรือหน้าผู้ป่วยเพื่อดูรายละเอียดจริง",
   },
 };
 
@@ -36,18 +29,14 @@ export function AlertBanner() {
   const language = useLanguageStore((state) => state.language);
   const t = I18N[language];
   const { stats } = useOverviewStats();
-  const todayCount = stats?.kpis.today_consultations ?? 0;
-  const pendingCount = stats?.totals.meetings ?? 0;
 
   return (
     <div className="flex items-start gap-3 sm:items-center">
       <span className="text-3xl">🩺</span>
       <p className="text-sm leading-relaxed sm:text-[0.95rem]">
-        <span className="text-muted-foreground">{t.youHave} </span>
-        <span className="font-semibold">{t.appointmentsToday(todayCount)}</span>
-        <span> {t.and} </span>
-        <span className="font-semibold">{pendingCount} {t.totalScheduled}</span>
-        <span className="text-muted-foreground"> {t.consultations}</span>
+        <span className="font-semibold">{t.ready}</span>{" "}
+        <span className="text-muted-foreground">{t.summary}</span>{" "}
+        {stats ? <span>{t.action}</span> : null}
       </p>
     </div>
   );

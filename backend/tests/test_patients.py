@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
@@ -144,6 +144,41 @@ def test_list_patients_ignores_invisible_characters_in_pasted_query(db: Session)
     assert patients[0].id == patient.id
 
 
+def test_list_patients_does_not_match_email_or_phone_queries(db: Session):
+    create_patient(
+        db,
+        PatientCreate(
+            first_name="Safe",
+            last_name="Search",
+            date_of_birth=date(1991, 1, 1),
+            email="safe.search@example.com",
+            phone="+66123456789",
+        ),
+    )
+
+    email_matches, email_total = list_patients(
+        db,
+        page=1,
+        limit=10,
+        q="safe.search@example.com",
+        sort="created_at",
+        order="desc",
+    )
+    phone_matches, phone_total = list_patients(
+        db,
+        page=1,
+        limit=10,
+        q="123456789",
+        sort="created_at",
+        order="desc",
+    )
+
+    assert email_total == 0
+    assert email_matches == []
+    assert phone_total == 0
+    assert phone_matches == []
+
+
 def test_patient_api_endpoints(client: TestClient, db: Session):
     doctor = create_test_user(db, UserRole.doctor)
     admin = create_test_user(db, UserRole.admin)
@@ -165,6 +200,9 @@ def test_patient_api_endpoints(client: TestClient, db: Session):
     response = client.get(f"/patients/{patient_id}", headers=headers)
     assert response.status_code == 200
     assert response.json()["first_name"] == "API"
+    assert "phone" not in response.json()
+    assert "email" not in response.json()
+    assert "address" not in response.json()
 
     response = client.get("/patients", headers=headers)
     assert response.status_code == 200
@@ -178,6 +216,194 @@ def test_patient_api_endpoints(client: TestClient, db: Session):
 
     response = client.delete(f"/patients/{patient_id}", headers=admin_headers)
     assert response.status_code == 204
+
+
+def test_patient_list_response_omits_contact_fields(client: TestClient, db: Session):
+    admin = create_test_user(db, UserRole.admin)
+    headers = get_auth_headers(admin)
+
+    create_response = client.post(
+        "/patients",
+        json={
+            "first_name": "Hidden",
+            "last_name": "Contact",
+            "date_of_birth": "1992-06-15",
+            "phone": "+66123456789",
+            "email": "hidden.contact@example.com",
+            "address": "123 Privacy Lane",
+        },
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+    patient_id = create_response.json()["id"]
+
+    list_response = client.get("/patients", headers=headers)
+    assert list_response.status_code == 200
+    item = next(entry for entry in list_response.json()["items"] if entry["id"] == patient_id)
+
+    assert "phone" not in item
+    assert "email" not in item
+    assert "address" not in item
+
+
+def test_patient_contact_endpoint_reveals_details_and_writes_audit(client: TestClient, db: Session):
+    admin = create_test_user(db, UserRole.admin)
+    headers = get_auth_headers(admin)
+
+    create_response = client.post(
+        "/patients",
+        json={
+            "first_name": "Reveal",
+            "last_name": "Contact",
+            "date_of_birth": "1992-06-15",
+            "phone": "+66123456789",
+            "email": "reveal.contact@example.com",
+            "address": "123 Privacy Lane",
+        },
+        headers=headers,
+    )
+    assert create_response.status_code == 201
+    patient_id = create_response.json()["id"]
+
+    contact_response = client.get(f"/patients/{patient_id}/contact", headers=headers)
+    assert contact_response.status_code == 200
+    payload = contact_response.json()
+    assert payload["phone"] == "+66123456789"
+    assert payload["email"] == "reveal.contact@example.com"
+    assert payload["address"] == "123 Privacy Lane"
+
+    audit_entry = db.scalar(
+        select(AuditLog).where(
+            AuditLog.user_id == admin.id,
+            AuditLog.action == "patient_contact_revealed",
+            AuditLog.resource_id == UUID(patient_id),
+        )
+    )
+    assert audit_entry is not None
+
+
+def test_patient_contact_endpoint_requires_recent_secure_session(client: TestClient, db: Session):
+    admin = create_test_user(db, UserRole.admin)
+    patient = create_patient(
+        db,
+        PatientCreate(
+            first_name="Stale",
+            last_name="Session",
+            date_of_birth=date(1990, 1, 1),
+            phone="+66123456789",
+        ),
+    )
+
+    stale_response = create_login_response(
+        admin,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+    response = client.get(
+        f"/patients/{patient.id}/contact",
+        headers={"Authorization": f"Bearer {stale_response['access_token']}"},
+    )
+
+    assert response.status_code == 403
+    assert "Recent multi-factor verification required" in response.json()["detail"]
+
+
+def test_patient_contact_endpoint_succeeds_after_step_up_refresh(client: TestClient, db: Session):
+    doctor = create_test_user(db, UserRole.doctor)
+    patient = create_patient(
+        db,
+        PatientCreate(
+            first_name="Fresh",
+            last_name="StepUp",
+            date_of_birth=date(1990, 1, 1),
+            phone="+66123456789",
+        ),
+    )
+    assign_doctor_to_patient(db, doctor.id, patient.id)
+
+    stale_response = create_login_response(
+        doctor,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        session_id="doctor-step-up-session",
+    )
+    stale_headers = {"Authorization": f"Bearer {stale_response['access_token']}"}
+
+    blocked_response = client.get(
+        f"/patients/{patient.id}/contact",
+        headers=stale_headers,
+    )
+    assert blocked_response.status_code == 403
+
+    step_up_response = client.post(
+        "/auth/step-up",
+        json={"password": "password"},
+        headers=stale_headers,
+    )
+    assert step_up_response.status_code == 200, step_up_response.text
+    refreshed_headers = {
+        "Authorization": f"Bearer {step_up_response.json()['access_token']}",
+    }
+
+    revealed_response = client.get(
+        f"/patients/{patient.id}/contact",
+        headers=refreshed_headers,
+    )
+    assert revealed_response.status_code == 200
+    assert revealed_response.json()["phone"] == "+66123456789"
+
+
+def test_create_patient_with_contact_requires_recent_secure_session(client: TestClient, db: Session):
+    admin = create_test_user(db, UserRole.admin)
+    stale_response = create_login_response(
+        admin,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+
+    response = client.post(
+        "/patients",
+        json={
+            "first_name": "Create",
+            "last_name": "Blocked",
+            "date_of_birth": "1992-06-15",
+            "phone": "+66123456789",
+        },
+        headers={"Authorization": f"Bearer {stale_response['access_token']}"},
+    )
+
+    assert response.status_code == 403
+    assert "Recent multi-factor verification required" in response.json()["detail"]
+
+
+def test_update_patient_contact_requires_recent_secure_session(client: TestClient, db: Session):
+    admin = create_test_user(db, UserRole.admin)
+    headers = get_auth_headers(admin)
+    patient_response = client.post(
+        "/patients",
+        json={"first_name": "Update", "last_name": "Guard", "date_of_birth": "1992-06-15"},
+        headers=headers,
+    )
+    assert patient_response.status_code == 201
+    patient_id = patient_response.json()["id"]
+
+    stale_response = create_login_response(
+        admin,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+    response = client.put(
+        f"/patients/{patient_id}",
+        json={"phone": "+66123456789"},
+        headers={"Authorization": f"Bearer {stale_response['access_token']}"},
+    )
+
+    assert response.status_code == 403
+    assert "Recent multi-factor verification required" in response.json()["detail"]
 
 
 def test_patient_delete_is_soft_delete(client: TestClient, db: Session):
@@ -320,6 +546,30 @@ def test_doctor_get_unassigned_patient_is_blocked(client: TestClient, db: Sessio
         )
     )
     assert denied_audit is not None
+
+
+def test_doctor_contact_reveal_for_unassigned_patient_is_blocked(client: TestClient, db: Session):
+    doctor = create_test_user(db, UserRole.doctor)
+    admin = create_test_user(db, UserRole.admin)
+    headers_admin = get_auth_headers(admin)
+    headers_doctor = get_auth_headers(doctor)
+
+    created = client.post(
+        "/patients",
+        json={
+            "first_name": "Hidden",
+            "last_name": "Contact",
+            "date_of_birth": "1989-10-01",
+            "phone": "+66123456789",
+        },
+        headers=headers_admin,
+    )
+    assert created.status_code == 201
+    patient_id = created.json()["id"]
+
+    response = client.get(f"/patients/{patient_id}/contact", headers=headers_doctor)
+    assert response.status_code == 403
+    assert "not assigned" in response.json()["detail"].lower()
 
 
 def test_admin_manage_assignments_and_primary_rules(client: TestClient, db: Session):

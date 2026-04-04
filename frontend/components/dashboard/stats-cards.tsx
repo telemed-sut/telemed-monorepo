@@ -22,9 +22,13 @@ const I18N: Record<
     todayAppointments: string;
     thisWeek: string;
     loading: string;
-    thisMonth: (count: number) => string;
-    totalScheduled: (count: number) => string;
-    todayCount: (count: number) => string;
+    low: string;
+    moderate: string;
+    active: string;
+    high: string;
+    patientSummary: string;
+    appointmentsSummary: string;
+    weeklySummary: string;
   }
 > = {
   en: {
@@ -32,18 +36,26 @@ const I18N: Record<
     todayAppointments: "Today's Appointments",
     thisWeek: "This Week",
     loading: "Loading...",
-    thisMonth: (count) => `+${count} this month`,
-    totalScheduled: (count) => `${count} total scheduled`,
-    todayCount: (count) => `${count} today`,
+    low: "Low",
+    moderate: "Moderate",
+    active: "Active",
+    high: "High",
+    patientSummary: "Exact totals stay in the Patients workspace",
+    appointmentsSummary: "Open Meetings to review the live schedule",
+    weeklySummary: "Trend is visible without exposing exact counts",
   },
   th: {
     totalPatients: "ผู้ป่วยทั้งหมด",
     todayAppointments: "นัดหมายวันนี้",
     thisWeek: "สัปดาห์นี้",
     loading: "กำลังโหลด...",
-    thisMonth: (count) => `+${count} เดือนนี้`,
-    totalScheduled: (count) => `นัดหมายทั้งหมด ${count}`,
-    todayCount: (count) => `${count} วันนี้`,
+    low: "น้อย",
+    moderate: "ปานกลาง",
+    active: "ค่อนข้างใช้งาน",
+    high: "สูง",
+    patientSummary: "จำนวนจริงจะดูได้ในหน้าผู้ป่วย",
+    appointmentsSummary: "เปิดหน้าการนัดหมายเพื่อดูตารางจริง",
+    weeklySummary: "เห็นแนวโน้มได้โดยไม่เผยจำนวนละเอียด",
   },
 };
 
@@ -53,6 +65,16 @@ interface StatItem {
   subtitle: string;
   icon: ComponentProps<typeof HugeiconsIcon>["icon"];
   subtitleIcon: ComponentProps<typeof HugeiconsIcon>["icon"];
+}
+
+function getActivityBand(
+  count: number,
+  t: (typeof I18N)[AppLanguage],
+) {
+  if (count <= 0) return t.low;
+  if (count <= 4) return t.moderate;
+  if (count <= 12) return t.active;
+  return t.high;
 }
 
 export function StatsCards() {
@@ -67,22 +89,22 @@ export function StatsCards() {
     return [
       {
         title: t.totalPatients,
-        value: overviewStats ? overviewStats.totals.patients.toString() : "—",
-        subtitle: overviewStats ? t.thisMonth(newThisMonth) : t.loading,
+        value: overviewStats ? getActivityBand(overviewStats.totals.patients, t) : "—",
+        subtitle: overviewStats ? t.patientSummary : t.loading,
         icon: UserGroupIcon,
         subtitleIcon: InformationCircleIcon,
       },
       {
         title: t.todayAppointments,
-        value: overviewStats ? todayMeetings.toString() : "—",
-        subtitle: overviewStats ? t.totalScheduled(overviewStats.totals.meetings) : t.loading,
+        value: overviewStats ? getActivityBand(todayMeetings, t) : "—",
+        subtitle: overviewStats ? t.appointmentsSummary : t.loading,
         icon: Calendar01Icon,
         subtitleIcon: InformationCircleIcon,
       },
       {
         title: t.thisWeek,
-        value: overviewStats ? thisWeekMeetings.toString() : "—",
-        subtitle: overviewStats ? t.todayCount(todayMeetings) : t.loading,
+        value: overviewStats ? getActivityBand(thisWeekMeetings + newThisMonth, t) : "—",
+        subtitle: overviewStats ? t.weeklySummary : t.loading,
         icon: Stethoscope02Icon,
         subtitleIcon: InformationCircleIcon,
       },

@@ -58,11 +58,15 @@ export interface UserMe {
   mfa_recent_for_privileged_actions?: boolean;
   auth_source?: string;
   sso_provider?: string | null;
-  is_super_admin?: boolean;
-  privileged_roles?: string[];
-  can_manage_privileged_admins?: boolean;
-  can_manage_security_recovery?: boolean;
-  can_bootstrap_privileged_roles?: boolean;
+}
+
+export interface AccessProfile {
+  has_privileged_access: boolean;
+  access_class?: string | null;
+  access_class_revealed: boolean;
+  can_manage_privileged_admins: boolean;
+  can_manage_security_recovery: boolean;
+  can_bootstrap_privileged_roles: boolean;
 }
 
 export interface AdminSsoStatus {
@@ -204,6 +208,12 @@ export interface PatientListResponse {
   total: number;
 }
 
+export interface PatientContactDetails {
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+}
+
 export type PatientAssignmentRole = "primary" | "consulting";
 
 export interface AssignmentDoctorBrief {
@@ -242,7 +252,7 @@ const API_BASE_URL =
     );
 export type ApiError = Error & { status?: number; detail?: unknown; code?: string };
 export type ApiLanguage = "en" | "th";
-export type AuthErrorContext = "login" | "forgot-password" | "reset-password";
+export type AuthErrorContext = "login" | "step-up" | "forgot-password" | "reset-password";
 
 // Token refresh state to prevent multiple simultaneous refresh calls
 let refreshPromise: Promise<string | null> | null = null;
@@ -294,6 +304,10 @@ const AUTH_ERROR_FALLBACKS: Record<AuthErrorContext, Record<ApiLanguage, string>
     en: "Unable to sign in. Please try again.",
     th: "ไม่สามารถเข้าสู่ระบบได้ โปรดลองอีกครั้ง",
   },
+  "step-up": {
+    en: "Unable to confirm your identity. Please try again.",
+    th: "ไม่สามารถยืนยันตัวตนได้ โปรดลองอีกครั้ง",
+  },
   "forgot-password": {
     en: "Unable to send reset link. Please try again.",
     th: "ไม่สามารถส่งลิงก์รีเซ็ตรหัสผ่านได้ โปรดลองอีกครั้ง",
@@ -312,10 +326,10 @@ const AUTH_ERROR_RULES: Array<{
   messages: Record<ApiLanguage, string>;
 }> = [
   {
-    contexts: ["login"],
+    contexts: ["login", "step-up"],
     codes: ["invalid_credentials", "incorrect_email_or_password"],
     statuses: [400, 401],
-    patterns: [/invalid credentials|incorrect password|incorrect email or password/i],
+    patterns: [/invalid credentials|incorrect password|incorrect email or password|password is incorrect/i],
     messages: {
       en: "Email or password is incorrect.",
       th: "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
@@ -331,11 +345,20 @@ const AUTH_ERROR_RULES: Array<{
     },
   },
   {
-    contexts: ["login"],
+    contexts: ["login", "step-up"],
     patterns: [/invalid two-factor authentication code|invalid two-factor code/i],
     messages: {
       en: "Verification code is incorrect.",
       th: "รหัสยืนยันไม่ถูกต้อง",
+    },
+  },
+  {
+    contexts: ["step-up"],
+    codes: ["step_up_not_supported_for_sso"],
+    patterns: [/step-up verification is not available for organization sso sessions/i],
+    messages: {
+      en: "Please refresh your organization sign-in first.",
+      th: "กรุณายืนยันการเข้าสู่ระบบขององค์กรอีกครั้งก่อน",
     },
   },
   {
@@ -659,6 +682,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
     canAttemptRefresh &&
     path !== "/auth/refresh" &&
     path !== "/auth/login" &&
+    path !== "/auth/step-up" &&
     path !== "/auth/logout" &&
     isTokenExpiring(activeToken!)
   ) {
@@ -678,6 +702,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, token?: stri
     result.status === 401 &&
     path !== "/auth/refresh" &&
     path !== "/auth/login" &&
+    path !== "/auth/step-up" &&
     path !== "/auth/logout"
   ) {
     const newToken = await tryRefreshToken(activeToken);
@@ -786,6 +811,27 @@ export async function login(
   });
 }
 
+export async function stepUpAuth(
+  password: string,
+  otpCode?: string,
+  rememberDevice = false,
+  token?: string,
+) {
+  const payload: { password: string; otp_code?: string; remember_device?: boolean } = { password };
+  if (otpCode && otpCode.trim().length > 0) {
+    payload.otp_code = otpCode;
+  }
+  payload.remember_device = rememberDevice;
+  return apiFetch<LoginResponse>(
+    "/auth/step-up",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
 export async function requestPasswordReset(email: string) {
   return apiFetch<ForgotPasswordResponse>("/auth/forgot-password", {
     method: "POST",
@@ -816,6 +862,10 @@ export async function acceptInvite(token: string, payload: { first_name?: string
 
 export async function fetchCurrentUser(token?: string) {
   return apiFetch<UserMe>("/auth/me", {}, token);
+}
+
+export async function fetchAccessProfile(token?: string) {
+  return apiFetch<AccessProfile>("/auth/access-profile", {}, token);
 }
 
 export async function fetchAdmin2FAStatus(token: string) {
@@ -1101,6 +1151,10 @@ export async function deletePatient(id: string, token: string) {
 
 export async function fetchPatient(id: string, token: string) {
   return apiFetch<Patient>(`/patients/${id}`, { method: "GET" }, token);
+}
+
+export async function fetchPatientContactDetails(id: string, token: string) {
+  return apiFetch<PatientContactDetails>(`/patients/${id}/contact`, { method: "GET" }, token);
 }
 
 export interface HeartSoundRecord {

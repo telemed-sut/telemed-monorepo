@@ -164,6 +164,51 @@ def build_privilege_flags(db: Session | None, user: User | None) -> dict[str, An
     }
 
 
+def resolve_privileged_access_class(db: Session | None, user: User | None) -> str | None:
+    if not user or user.role != UserRole.admin:
+        return None
+
+    active_roles = list_active_privileged_roles(db, user)
+    if PrivilegedRole.platform_super_admin in active_roles or is_bootstrap_super_admin(user):
+        return "Vault Apex"
+    if PrivilegedRole.security_admin in active_roles:
+        return "Vault Prime"
+    if PrivilegedRole.hospital_admin in active_roles:
+        return "Vault"
+    return None
+
+
+def build_access_profile(
+    db: Session | None,
+    user: User | None,
+    *,
+    reveal_sensitive_details: bool,
+) -> dict[str, Any]:
+    privilege_flags = build_privilege_flags(db, user)
+    has_privileged_access = bool(
+        privilege_flags["privileged_roles"] or privilege_flags["can_bootstrap_privileged_roles"]
+    )
+
+    return {
+        "has_privileged_access": has_privileged_access,
+        "access_class": (
+            resolve_privileged_access_class(db, user)
+            if reveal_sensitive_details and has_privileged_access
+            else None
+        ),
+        "access_class_revealed": bool(reveal_sensitive_details and has_privileged_access),
+        "can_manage_privileged_admins": (
+            privilege_flags["can_manage_privileged_admins"] if reveal_sensitive_details else False
+        ),
+        "can_manage_security_recovery": (
+            privilege_flags["can_manage_security_recovery"] if reveal_sensitive_details else False
+        ),
+        "can_bootstrap_privileged_roles": (
+            privilege_flags["can_bootstrap_privileged_roles"] if reveal_sensitive_details else False
+        ),
+    }
+
+
 def backfill_bootstrap_privileged_roles(db: Session) -> int:
     bootstrap_emails = sorted(_normalize_super_admin_emails())
     if not bootstrap_emails:
@@ -236,7 +281,6 @@ def create_login_response(
     auth_time = mfa_authenticated_at
     if effective_mfa_verified and auth_time is None:
         auth_time = _now_utc()
-    privilege_flags = build_privilege_flags(db, user)
     effective_session_id = session_id or secrets.token_urlsafe(16)
     token = create_access_token(
         {
@@ -267,7 +311,6 @@ def create_login_response(
             "mfa_recent_for_privileged_actions": is_recent_mfa_authenticated(auth_time),
             "auth_source": auth_source,
             "sso_provider": sso_provider,
-            **privilege_flags,
         },
     }
 
@@ -556,10 +599,22 @@ def require_recent_privileged_session(
             detail="Admin account required.",
         )
 
+    require_recent_sensitive_session(
+        request,
+        max_age_seconds=max_age_seconds,
+    )
+
+
+def require_recent_sensitive_session(
+    request: Request,
+    *,
+    max_age_seconds: int | None = None,
+    error_status: int = status.HTTP_401_UNAUTHORIZED,
+) -> None:
     payload = get_request_auth_payload(request)
     if not bool(payload.get("mfa_verified")):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=error_status,
             detail="Recent multi-factor verification required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
@@ -568,14 +623,14 @@ def require_recent_privileged_session(
     threshold_seconds = max_age_seconds or settings.privileged_action_mfa_max_age_seconds
     if mfa_authenticated_at is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=error_status,
             detail="Recent multi-factor verification required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
     if _now_utc() - mfa_authenticated_at > timedelta(seconds=max(threshold_seconds, 1)):
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=error_status,
             detail="Recent multi-factor verification required.",
             headers={"WWW-Authenticate": "Bearer"},
         )

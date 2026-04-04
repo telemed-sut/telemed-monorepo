@@ -95,6 +95,7 @@ const I18N: Record<
     trendTitle: string;
     newPatients: string;
     consultations: string;
+    trendOnly: string;
     chartType: string;
     barChart: string;
     lineChart: string;
@@ -107,14 +108,18 @@ const I18N: Record<
     showNewPatients: string;
     showConsultations: string;
     resetToDefault: string;
-    newPatientsTooltip: string;
-    consultationsTooltip: string;
+    quiet: string;
+    steady: string;
+    elevated: string;
+    busy: string;
+    relativeActivity: string;
   }
 > = {
   en: {
     trendTitle: "Patient & Consultation Trends",
     newPatients: "New Patients",
     consultations: "Consultations",
+    trendOnly: "Relative trend only",
     chartType: "Chart Type",
     barChart: "Bar Chart",
     lineChart: "Line Chart",
@@ -127,13 +132,17 @@ const I18N: Record<
     showNewPatients: "Show New Patients",
     showConsultations: "Show Consultations",
     resetToDefault: "Reset to Default",
-    newPatientsTooltip: "new patients",
-    consultationsTooltip: "consultations",
+    quiet: "Quiet",
+    steady: "Steady",
+    elevated: "Elevated",
+    busy: "Busy",
+    relativeActivity: "Relative activity",
   },
   th: {
     trendTitle: "แนวโน้มผู้ป่วยและการปรึกษา",
     newPatients: "ผู้ป่วยใหม่",
     consultations: "การปรึกษา",
+    trendOnly: "แสดงเฉพาะแนวโน้มสัมพัทธ์",
     chartType: "ประเภทรายงาน",
     barChart: "กราฟแท่ง",
     lineChart: "กราฟเส้น",
@@ -146,10 +155,23 @@ const I18N: Record<
     showNewPatients: "แสดงผู้ป่วยใหม่",
     showConsultations: "แสดงการปรึกษา",
     resetToDefault: "รีเซ็ตค่าเริ่มต้น",
-    newPatientsTooltip: "ผู้ป่วยใหม่",
-    consultationsTooltip: "การปรึกษา",
+    quiet: "เบา",
+    steady: "คงที่",
+    elevated: "สูงขึ้น",
+    busy: "หนาแน่น",
+    relativeActivity: "กิจกรรมโดยรวม",
   },
 };
+
+function getRelativeActivityLabel(
+  value: number,
+  t: (typeof I18N)[AppLanguage],
+): string {
+  if (value <= 0) return t.quiet;
+  if (value <= 4) return t.steady;
+  if (value <= 12) return t.elevated;
+  return t.busy;
+}
 
 function getDataForPeriod(data: MonthlyStats[], period: TimePeriod) {
   switch (period) {
@@ -195,7 +217,7 @@ function CustomTooltip({
           <div className="flex items-center gap-2">
             <div className="size-2 rounded-full bg-[var(--med-primary-light)]" />
             <span className="text-sm font-semibold text-foreground">
-              {Number(patients)} {t.newPatientsTooltip}
+              {t.newPatients}: {getRelativeActivityLabel(Number(patients), t)}
             </span>
           </div>
         </div>
@@ -203,7 +225,7 @@ function CustomTooltip({
           <div className="flex items-center gap-2">
             <div className="size-2 rounded-full bg-[var(--med-primary)]" />
             <span className="text-sm font-semibold text-foreground">
-              {Number(consultations)} {t.consultationsTooltip}
+              {t.consultations}: {getRelativeActivityLabel(Number(consultations), t)}
             </span>
           </div>
         </div>
@@ -279,16 +301,19 @@ export function FinancialFlowChart() {
           <div className="hidden items-center gap-4 sm:flex">
             <div className="flex items-center gap-1.5">
               <div className="size-3 rounded-full bg-[var(--med-primary-light)]" />
-                <span className="text-sm font-medium text-muted-foreground">
+              <span className="text-sm font-medium text-muted-foreground">
                 {t.newPatients}
               </span>
             </div>
             <div className="flex items-center gap-1.5">
               <div className="size-3 rounded-full bg-[var(--med-primary)]" />
-                <span className="text-sm font-medium text-muted-foreground">
+              <span className="text-sm font-medium text-muted-foreground">
                 {t.consultations}
               </span>
             </div>
+            <span className="text-xs text-muted-foreground/80">
+              {t.trendOnly}
+            </span>
           </div>
 
           <DropdownMenu>
@@ -419,7 +444,7 @@ export function FinancialFlowChart() {
                 <CartesianGrid strokeDasharray="0" stroke={gridColor} vertical={false} />
               )}
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 10 }} width={40} />
+              <YAxis hide />
               <Tooltip content={<CustomTooltip t={t} />} cursor={{ fill: "#f4f4f5", radius: 4 }} />
               {showPatients && (
                 <Bar dataKey="new_patients" fill="url(#patientsGradient)" radius={[4, 4, 0, 0]} maxBarSize={22} />
@@ -434,7 +459,7 @@ export function FinancialFlowChart() {
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={true} />
               )}
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 10 }} width={40} />
+              <YAxis hide />
               <Tooltip content={<CustomTooltip t={t} />} cursor={{ stroke: "#d4d4d8" }} />
               {showPatients && (
                 <Line
@@ -473,7 +498,7 @@ export function FinancialFlowChart() {
                 <CartesianGrid strokeDasharray="0" stroke={gridColor} vertical={false} />
               )}
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 10 }} width={40} />
+              <YAxis hide />
               <Tooltip content={<CustomTooltip t={t} />} cursor={{ stroke: "#d4d4d8" }} />
               {showPatients && (
                 <Area

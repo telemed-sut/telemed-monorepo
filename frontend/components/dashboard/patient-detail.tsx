@@ -9,6 +9,8 @@ import {
   ArrowRight,
   CalendarClock,
   Clock3,
+  Eye,
+  EyeOff,
   Mail,
   MapPin,
   Phone,
@@ -19,7 +21,15 @@ import {
 } from "lucide-react";
 
 import type { AppLanguage } from "@/store/language-config";
-import { fetchMeetings, fetchPatient, type Meeting, type Patient } from "@/lib/api";
+import {
+  fetchMeetings,
+  fetchPatient,
+  fetchPatientContactDetails,
+  getErrorMessage,
+  type Meeting,
+  type Patient,
+  type PatientContactDetails,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
@@ -30,11 +40,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
 import { getPatientLoadErrorTitle } from "@/components/dashboard/patient-load-error";
+import { SensitiveActionReauthDialog } from "@/components/dashboard/sensitive-action-reauth-dialog";
 import {
   readPatientDetailCache,
   writePatientDetailCache,
 } from "@/lib/patient-workspace-cache";
 import { preloadPatientHeartSoundBundle } from "@/lib/patient-workspace-prefetch";
+import { toast } from "@/components/ui/toast";
+import { isRecentSensitiveSessionError } from "@/lib/sensitive-session";
 
 interface PatientDetailContentProps {
   patientId: string;
@@ -62,6 +75,8 @@ interface InfoRowProps {
   detail?: string;
   empty?: boolean;
 }
+
+const CONTACT_REVEAL_TIMEOUT_MS = 60_000;
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
@@ -159,6 +174,11 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     () => !cachedSnapshot?.meetings.length
   );
   const [error, setError] = useState<string | null>(null);
+  const [contactDetails, setContactDetails] = useState<PatientContactDetails | null>(null);
+  const [loadingContactDetails, setLoadingContactDetails] = useState(false);
+  const [contactDetailsError, setContactDetailsError] = useState<string | null>(null);
+  const [contactDetailsRevealed, setContactDetailsRevealed] = useState(false);
+  const [reauthOpen, setReauthOpen] = useState(false);
   const patientWorkspaceHrefs = React.useMemo(
     () => getPatientWorkspaceHrefs(patientId),
     [patientId]
@@ -178,7 +198,71 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     setLoadingPatient(!cachedSnapshot?.patient);
     setLoadingMeetings(!(cachedSnapshot?.meetings.length ?? 0));
     setError(null);
+    setContactDetails(null);
+    setContactDetailsError(null);
+    setLoadingContactDetails(false);
+    setContactDetailsRevealed(false);
+    setReauthOpen(false);
   }, [cachedSnapshot]);
+
+  useEffect(() => {
+    if (!contactDetailsRevealed) {
+      setContactDetails(null);
+      setContactDetailsError(null);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setContactDetailsRevealed(false);
+    }, CONTACT_REVEAL_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [contactDetailsRevealed]);
+
+  const revealContactDetails = React.useCallback(async () => {
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    setLoadingContactDetails(true);
+    setContactDetailsError(null);
+
+    try {
+      const revealed = await fetchPatientContactDetails(patientId, token);
+      setContactDetails(revealed);
+      setContactDetailsRevealed(true);
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 401) {
+        clearToken();
+        router.replace("/login");
+        return;
+      }
+      const detail = getErrorMessage(
+        err,
+        tr(language, "Protected details could not be revealed.", "ยังไม่สามารถแสดงข้อมูลที่ถูกปกป้องได้")
+      );
+      if (status === 403 && isRecentSensitiveSessionError(err)) {
+        setContactDetailsError(detail);
+        setReauthOpen(true);
+        return;
+      }
+      setContactDetailsError(detail);
+      toast.error(detail);
+    } finally {
+      setLoadingContactDetails(false);
+    }
+  }, [clearToken, language, patientId, router, token]);
+
+  const handleToggleContactDetails = React.useCallback(async () => {
+    if (contactDetailsRevealed) {
+      setContactDetailsRevealed(false);
+      return;
+    }
+
+    await revealContactDetails();
+  }, [contactDetailsRevealed, revealContactDetails]);
 
   useEffect(() => {
     if (!token) return;
@@ -349,10 +433,13 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
         new Date(left.date_time).getTime() - new Date(right.date_time).getTime()
     );
   const nextMeeting = futureMeetings[0] ?? null;
-  const hasContact = !!(patient.phone || patient.email);
-  const completenessFields = [patient.gender, patient.phone, patient.email, patient.address];
-  const completenessScore = Math.round(
-    (completenessFields.filter((field) => Boolean(field)).length / completenessFields.length) * 100
+  const workspaceSignals = [
+    patient.gender,
+    meetingsTotal > 0 ? "visit-history" : null,
+    nextMeeting ? "next-visit" : null,
+  ];
+  const workspaceReadinessScore = Math.round(
+    (workspaceSignals.filter((field) => Boolean(field)).length / workspaceSignals.length) * 100
   );
   const patientInitials = [patient.first_name, patient.last_name]
     .map((part) => part?.trim().charAt(0) ?? "")
@@ -422,13 +509,13 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     },
     {
       icon: ShieldCheck,
-      label: tr(language, "Record Status", "สถานะข้อมูล"),
-      value: `${completenessScore}%`,
+      label: tr(language, "Workspace Readiness", "ความพร้อมของ workspace"),
+      value: `${workspaceReadinessScore}%`,
       hint:
-        completenessScore >= 75
-          ? tr(language, "Core details are available", "ข้อมูลหลักพร้อมใช้งาน")
-          : tr(language, "Some core fields are missing", "ยังมีข้อมูลหลักที่ขาด"),
-      tone: completenessScore >= 75 ? ("emerald" as const) : ("amber" as const),
+        workspaceReadinessScore >= 75
+          ? tr(language, "Core workspace signals are available", "สัญญาณหลักของ workspace พร้อมใช้งาน")
+          : tr(language, "Some non-sensitive workspace signals are still limited", "ยังมีสัญญาณภาพรวมที่ไม่ละเอียดบางส่วนจำกัดอยู่"),
+      tone: workspaceReadinessScore >= 75 ? ("emerald" as const) : ("amber" as const),
     },
   ];
 
@@ -463,19 +550,6 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                         className="border-border/80 bg-background text-muted-foreground"
                       >
                         {tr(language, "Overview", "ภาพรวม")}
-                      </Badge>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "border-transparent px-2.5 py-1",
-                          hasContact
-                            ? "bg-emerald-500/10 text-emerald-700"
-                            : "bg-amber-500/12 text-amber-700"
-                        )}
-                      >
-                        {hasContact
-                          ? tr(language, "Reachable", "ติดต่อได้")
-                          : tr(language, "Needs contact info", "รอข้อมูลติดต่อ")}
                       </Badge>
                     </div>
 
@@ -594,67 +668,142 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
 
                 <div className="rounded-2xl border border-border/80 bg-muted/20 p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        {tr(language, "Record completeness", "ความครบถ้วนของข้อมูล")}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {tr(
-                          language,
-                          "Demographic and contact fields available in this record.",
-                          "ข้อมูลประชากรศาสตร์และข้อมูลติดต่อที่มีในระเบียนนี้"
-                        )}
-                      </p>
-                    </div>
-                    <span className="text-xl font-semibold text-primary">{completenessScore}%</span>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          {tr(language, "Workspace readiness", "ความพร้อมของ workspace")}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {tr(
+                            language,
+                            "Overview, demographics, and visit signals available in this workspace.",
+                            "ข้อมูลภาพรวม ประชากรศาสตร์ และสัญญาณการนัดหมายที่มีใน workspace นี้"
+                          )}
+                        </p>
+                      </div>
+                    <span className="text-xl font-semibold text-primary">{workspaceReadinessScore}%</span>
                   </div>
                   <div
                     role="progressbar"
-                    aria-label={tr(language, "Patient data completeness", "ระดับความครบถ้วนของข้อมูลผู้ป่วย")}
+                    aria-label={tr(language, "Workspace readiness", "ระดับความพร้อมของ workspace")}
                     aria-valuemin={0}
                     aria-valuemax={100}
-                    aria-valuenow={completenessScore}
+                    aria-valuenow={workspaceReadinessScore}
                     className="mt-4 h-2 rounded-full bg-border/80"
                   >
                     <div
                       className={cn(
                         "h-full rounded-full transition-[width] duration-300",
-                        completenessScore >= 75 ? "bg-emerald-500" : "bg-amber-500"
+                        workspaceReadinessScore >= 75 ? "bg-emerald-500" : "bg-amber-500"
                       )}
-                      style={{ width: `${completenessScore}%` }}
+                      style={{ width: `${workspaceReadinessScore}%` }}
                     />
                   </div>
                 </div>
 
                 <div className="space-y-3">
+                  <div className="rounded-2xl border border-border/80 bg-muted/20 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-foreground">
+                          {tr(language, "Sensitive contact details", "ข้อมูลติดต่อที่ละเอียดอ่อน")}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {tr(
+                            language,
+                            "Phone, email, and address stay masked until you reveal them in this workspace.",
+                            "เบอร์โทร อีเมล และที่อยู่ จะถูกปกปิดไว้จนกว่าคุณจะกดแสดงใน workspace นี้",
+                          )}
+                        </p>
+                        <p className="text-xs text-muted-foreground/80">
+                          {tr(
+                            language,
+                            "Revealed contact details auto-hide again after 1 minute.",
+                            "ข้อมูลติดต่อที่ถูกแสดงจะซ่อนกลับอัตโนมัติภายใน 1 นาที",
+                          )}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          void handleToggleContactDetails();
+                        }}
+                        disabled={loadingContactDetails}
+                      >
+                        {contactDetailsRevealed ? (
+                          <EyeOff className="size-4" />
+                        ) : (
+                          <Eye className="size-4" />
+                        )}
+                        {loadingContactDetails
+                          ? tr(language, "Loading protected details...", "กำลังโหลดข้อมูลที่ถูกปกป้อง...")
+                          : contactDetailsRevealed
+                          ? tr(language, "Hide details", "ซ่อนรายละเอียด")
+                          : tr(language, "Reveal details", "แสดงรายละเอียด")}
+                      </Button>
+                    </div>
+                  </div>
+                  {contactDetailsError ? (
+                    <div className="rounded-2xl border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+                      {contactDetailsError}
+                    </div>
+                  ) : null}
                   <InfoRow
                     icon={Phone}
                     label={tr(language, "Phone", "โทรศัพท์")}
-                    value={patient.phone || tr(language, "No phone recorded", "ยังไม่มีเบอร์โทร")}
-                    detail={patient.phone ? tr(language, "Primary contact channel", "ช่องทางติดต่อหลัก") : undefined}
-                    empty={!patient.phone}
+                    value={
+                      contactDetailsRevealed
+                        ? contactDetails?.phone
+                          ? contactDetails.phone
+                          : tr(language, "No phone recorded", "ยังไม่มีเบอร์โทร")
+                        : tr(language, "Protected until reveal", "ข้อมูลถูกปกปิดจนกว่าจะกดแสดง")
+                    }
+                    detail={
+                      contactDetailsRevealed
+                        ? contactDetails?.phone
+                          ? tr(language, "Primary contact channel", "ช่องทางติดต่อหลัก")
+                          : undefined
+                        : undefined
+                    }
+                    empty={contactDetailsRevealed ? !contactDetails?.phone : false}
                   />
                   <InfoRow
                     icon={Mail}
                     label={tr(language, "Email", "อีเมล")}
-                    value={patient.email || tr(language, "No email recorded", "ยังไม่มีอีเมล")}
+                    value={
+                      contactDetailsRevealed
+                        ? contactDetails?.email
+                          ? contactDetails.email
+                          : tr(language, "No email recorded", "ยังไม่มีอีเมล")
+                        : tr(language, "Protected until reveal", "ข้อมูลถูกปกปิดจนกว่าจะกดแสดง")
+                    }
                     detail={
-                      patient.email
-                        ? tr(language, "Used for follow-up and documents", "ใช้ติดตามผลและเอกสาร")
+                      contactDetailsRevealed
+                        ? contactDetails?.email
+                          ? tr(language, "Used for follow-up and documents", "ใช้ติดตามผลและเอกสาร")
+                          : undefined
                         : undefined
                     }
-                    empty={!patient.email}
+                    empty={contactDetailsRevealed ? !contactDetails?.email : false}
                   />
                   <InfoRow
                     icon={MapPin}
                     label={tr(language, "Address", "ที่อยู่")}
-                    value={patient.address || tr(language, "No address recorded", "ไม่มีที่อยู่ที่บันทึกไว้")}
+                    value={
+                      contactDetailsRevealed
+                        ? contactDetails?.address
+                          ? contactDetails.address
+                          : tr(language, "No address recorded", "ไม่มีที่อยู่ที่บันทึกไว้")
+                        : tr(language, "Protected until reveal", "ข้อมูลถูกปกปิดจนกว่าจะกดแสดง")
+                    }
                     detail={
-                      patient.address
-                        ? tr(language, "Latest address on file", "ที่อยู่ล่าสุดในระบบ")
+                      contactDetailsRevealed
+                        ? contactDetails?.address
+                          ? tr(language, "Latest address on file", "ที่อยู่ล่าสุดในระบบ")
+                          : undefined
                         : undefined
                     }
-                    empty={!patient.address}
+                    empty={contactDetailsRevealed ? !contactDetails?.address : false}
                   />
                 </div>
               </CardContent>
@@ -732,25 +881,6 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                 </div>
 
                 <div className="space-y-3">
-                  <div className="rounded-2xl border border-border/80 bg-background p-4">
-                    <p className="text-sm font-medium text-foreground">
-                      {tr(language, "Contact status", "สถานะการติดต่อ")}
-                    </p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {hasContact
-                        ? tr(
-                            language,
-                            "At least one contact channel is available for scheduling and follow-up.",
-                            "มีช่องทางติดต่ออย่างน้อยหนึ่งช่องทางสำหรับการนัดหมายและติดตามผล"
-                          )
-                        : tr(
-                            language,
-                            "No contact information is currently recorded.",
-                            "ยังไม่มีข้อมูลติดต่อที่บันทึกไว้"
-                          )}
-                    </p>
-                  </div>
-
                   <div className="rounded-2xl border border-border/80 bg-background p-4">
                     <p className="text-sm font-medium text-foreground">
                       {tr(language, "Next appointment", "นัดหมายถัดไป")}
@@ -933,6 +1063,20 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
           </Card>
         </m.section>
       </div>
+      <SensitiveActionReauthDialog
+        open={reauthOpen}
+        onOpenChange={setReauthOpen}
+        onSuccess={async () => {
+          await revealContactDetails();
+        }}
+        title={tr(language, "Refresh secure access", "รีเฟรช secure access")}
+        description={tr(
+          language,
+          "Confirm your identity again before revealing protected patient contact details.",
+          "ยืนยันตัวตนอีกครั้งก่อนแสดงข้อมูลติดต่อผู้ป่วยที่ถูกปกป้อง",
+        )}
+        actionLabel={tr(language, "Refresh and reveal", "รีเฟรชแล้วแสดงข้อมูล")}
+      />
     </LazyMotion>
   );
 }

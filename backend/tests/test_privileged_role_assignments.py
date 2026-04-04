@@ -223,7 +223,7 @@ def test_privileged_actions_require_recent_mfa(client: TestClient, db: Session):
     assert "Recent multi-factor verification required" in response.json()["detail"]
 
 
-def test_auth_me_includes_db_backed_privileged_flags(client: TestClient, db: Session):
+def test_access_profile_reveals_db_backed_privileged_access(client: TestClient, db: Session):
     bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
     delegated_admin = _make_user(db, email="db-flags@example.com", role=UserRole.admin)
     _grant_privileged_role(
@@ -240,17 +240,43 @@ def test_auth_me_includes_db_backed_privileged_flags(client: TestClient, db: Ses
     )
 
     token = _login(client, delegated_admin.email)
-    response = client.get("/auth/me", headers=_auth(token))
+    response = client.get("/auth/access-profile", headers=_auth(token))
 
     assert response.status_code == 200, response.text
     payload = response.json()
-    assert payload["is_super_admin"] is True
-    assert set(payload["privileged_roles"]) == {"platform_super_admin", "security_admin"}
+    assert payload["has_privileged_access"] is True
+    assert payload["access_class"] == "Vault Apex"
+    assert payload["access_class_revealed"] is True
     assert payload["can_manage_privileged_admins"] is True
     assert payload["can_manage_security_recovery"] is True
-    assert payload["auth_source"] == "local"
-    assert payload["sso_provider"] is None
-    assert payload["mfa_recent_for_privileged_actions"] is True
+
+
+def test_access_profile_hides_sensitive_details_without_recent_mfa(client: TestClient, db: Session):
+    bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+    delegated_admin = _make_user(db, email="stale-mfa@example.com", role=UserRole.admin)
+    _grant_privileged_role(
+        db,
+        user=delegated_admin,
+        role=PrivilegedRole.security_admin,
+        created_by=bootstrap_admin,
+    )
+
+    stale_auth_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    token = create_login_response(
+        delegated_admin,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=stale_auth_time,
+    )["access_token"]
+    response = client.get("/auth/access-profile", headers=_auth(token))
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["has_privileged_access"] is True
+    assert payload["access_class"] is None
+    assert payload["access_class_revealed"] is False
+    assert payload["can_manage_privileged_admins"] is False
+    assert payload["can_manage_security_recovery"] is False
 
 
 def test_backfill_bootstrap_privileged_roles_assigns_platform_super_admin(monkeypatch, db: Session):

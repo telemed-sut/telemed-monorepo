@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { getLocalizedDashboardErrorMessage } from "@/components/dashboard/dashboard-error-message";
 import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
+import { SensitiveActionReauthDialog } from "@/components/dashboard/sensitive-action-reauth-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -68,15 +69,14 @@ import {
   ArrowUp01Icon,
   ArrowDown01Icon,
   FilterHorizontalIcon,
-  Stethoscope02Icon,
 } from "@hugeicons/core-free-icons";
 import {
   canManageUsers,
   canWriteClinicalData,
   createPatient,
   deletePatient,
+  fetchPatientContactDetails,
   fetchPatients,
-  generatePatientRegistrationCode,
   type Patient,
   updatePatient,
 } from "@/lib/api";
@@ -86,6 +86,7 @@ import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
+import { isRecentSensitiveSessionError } from "@/lib/sensitive-session";
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100, 200];
 const PAGE_PREFETCH_DELAY_MS = 300;
@@ -146,17 +147,6 @@ const AnimatedCalendar = dynamic(
   }
 );
 
-const PatientAssignmentsDialog = dynamic(
-  () =>
-    import("./patient-assignments-dialog").then((module) => ({
-      default: module.PatientAssignmentsDialog,
-    })),
-  {
-    loading: () => null,
-    ssr: false,
-  }
-);
-
 interface PatientFormState {
   first_name: string;
   last_name: string;
@@ -166,6 +156,11 @@ interface PatientFormState {
   email: string;
   address: string;
 }
+
+type SensitiveReauthContext =
+  | { type: "edit"; patient: Patient }
+  | { type: "save" }
+  | null;
 
 const emptyForm: PatientFormState = {
   first_name: "",
@@ -204,13 +199,10 @@ export function PatientsTable({
   const [editing, setEditing] = useState<Patient | null>(null);
   const [formData, setFormData] = useState<PatientFormState>(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [assignmentPatient, setAssignmentPatient] = useState<Patient | null>(null);
-  const [regCodeDialogOpen, setRegCodeDialogOpen] = useState(false);
-  const [regCode, setRegCode] = useState<string | null>(null);
-  const [regCodePatientName, setRegCodePatientName] = useState("");
-  const [regCodeLoading, setRegCodeLoading] = useState(false);
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [reauthContext, setReauthContext] = useState<SensitiveReauthContext>(null);
   const canManagePatients = canWriteClinicalData(role);
-  const canManageAssignments = canManageUsers(role);
+  const canDeletePatients = canManageUsers(role);
 
   const isInitialLoading = loading && patients.length === 0;
   const isRefetching = loading && patients.length > 0;
@@ -221,7 +213,7 @@ export function PatientsTable({
   // Statistics for overview cards
   const stats = useMemo(() => {
     const totalPatients = total;
-    const activePatients = patients.filter(p => !!p.phone || !!p.email).length;
+    const documentedProfiles = patients.filter((patient) => !!patient.gender).length;
     const recentPatients = patients.filter(p => {
       if (!p.created_at) return false;
       const created = new Date(p.created_at);
@@ -231,11 +223,12 @@ export function PatientsTable({
 
     return {
       total: totalPatients,
-      active: activePatients,
+      documented: documentedProfiles,
       recent: recentPatients,
     };
   }, [total, patients]);
-  const activeContactRate = stats.total > 0 ? Math.round((stats.active / stats.total) * 100) : 0;
+  const documentedProfileRate =
+    stats.total > 0 ? Math.round((stats.documented / stats.total) * 100) : 0;
 
   const totalPages = useMemo(() => {
     return Math.max(1, Math.ceil(total / limit));
@@ -373,24 +366,60 @@ export function PatientsTable({
     });
   }, [patients, prefetchPatientWorkspace]);
 
-  const resetForm = (patient?: Patient) => {
-    if (patient) {
+  const resetForm = () => {
+    setFormData(emptyForm);
+    setEditing(null);
+    setFormErrors({});
+    setFormOpen(true);
+  };
+
+  const openEditForm = async (patient: Patient) => {
+    if (!token) return;
+
+    setError(null);
+    setFormErrors({});
+
+    try {
+      const contactDetails = await fetchPatientContactDetails(patient.id, token);
       setFormData({
         first_name: patient.first_name,
         last_name: patient.last_name,
         date_of_birth: patient.date_of_birth,
         gender: patient.gender ?? "",
-        phone: patient.phone ?? "",
-        email: patient.email ?? "",
-        address: patient.address ?? "",
+        phone: contactDetails.phone ?? "",
+        email: contactDetails.email ?? "",
+        address: contactDetails.address ?? "",
       });
       setEditing(patient);
-    } else {
-      setFormData(emptyForm);
-      setEditing(null);
+      setFormOpen(true);
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 401) {
+        clearToken();
+        router.replace("/login");
+        return;
+      }
+      if (status === 403 && isRecentSensitiveSessionError(err)) {
+        const message = getLocalizedDashboardErrorMessage(
+          err,
+          language,
+          "Refresh your secure session before editing protected patient details.",
+          "รีเฟรช secure session ก่อนแก้ไขข้อมูลผู้ป่วยที่ถูกปกป้อง",
+        );
+        setError(message);
+        setReauthContext({ type: "edit", patient });
+        setReauthOpen(true);
+        return;
+      }
+      const message = getLocalizedDashboardErrorMessage(
+        err,
+        language,
+        "Protected details need a recent secure session before editing.",
+        "ต้องมี secure session ล่าสุดก่อนจึงจะแก้ไขข้อมูลที่ถูกปกป้องได้"
+      );
+      setError(message);
+      toast.error(message);
     }
-    setFormErrors({});
-    setFormOpen(true);
   };
 
   const validateForm = () => {
@@ -428,19 +457,12 @@ export function PatientsTable({
     setSaving(false);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const savePatientRecord = useCallback(async () => {
     if (!token) return;
-
-    if (!validateForm()) {
-      toast.error(tr(language, "Please fix the errors in the form", "กรุณาแก้ไขข้อมูลในฟอร์มให้ถูกต้อง"));
-      return;
-    }
 
     setSaving(true);
     setError(null);
 
-    // Clean up optional fields - send undefined instead of empty strings
     const cleanedData = {
       first_name: formData.first_name,
       last_name: formData.last_name,
@@ -476,6 +498,18 @@ export function PatientsTable({
         router.replace("/login");
         return;
       }
+      if (status === 403 && isRecentSensitiveSessionError(err)) {
+        const message = getLocalizedDashboardErrorMessage(
+          err,
+          language,
+          "Refresh your secure session before saving protected patient details.",
+          "รีเฟรช secure session ก่อนบันทึกข้อมูลผู้ป่วยที่ถูกปกป้อง",
+        );
+        setError(message);
+        setReauthContext({ type: "save" });
+        setReauthOpen(true);
+        return;
+      }
 
       // Try to parse backend validation errors and map them to form fields
       const rawMessage = err instanceof Error ? err.message : "";
@@ -509,6 +543,35 @@ export function PatientsTable({
     } finally {
       setSaving(false);
     }
+  }, [
+    clearToken,
+    debouncedSearch,
+    editing,
+    formData.address,
+    formData.date_of_birth,
+    formData.email,
+    formData.first_name,
+    formData.gender,
+    formData.last_name,
+    formData.phone,
+    language,
+    limit,
+    order,
+    router,
+    sort,
+    token,
+  ]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+
+    if (!validateForm()) {
+      toast.error(tr(language, "Please fix the errors in the form", "กรุณาแก้ไขข้อมูลในฟอร์มให้ถูกต้อง"));
+      return;
+    }
+
+    await savePatientRecord();
   };
 
   const confirmDelete = async (id: string) => {
@@ -553,23 +616,6 @@ export function PatientsTable({
       },
       duration: 9000,
     });
-  };
-
-  const handleGenerateRegCode = async (patient: Patient) => {
-    if (!token) return;
-    setRegCodeLoading(true);
-    setRegCodePatientName(`${patient.first_name} ${patient.last_name}`);
-    setRegCodeDialogOpen(true);
-    setRegCode(null);
-    try {
-      const res = await generatePatientRegistrationCode(patient.id, token);
-      setRegCode(res.code);
-    } catch {
-      toast.error(tr(language, "Failed to generate registration code", "ไม่สามารถสร้างรหัสลงทะเบียนได้"));
-      setRegCodeDialogOpen(false);
-    } finally {
-      setRegCodeLoading(false);
-    }
   };
 
   const getAgeFromDOB = (dateOfBirth: string) => {
@@ -652,18 +698,18 @@ export function PatientsTable({
 
         <Card className="group relative overflow-hidden border-none bg-gradient-to-br from-background via-background to-emerald-500/5 shadow-sm transition-all duration-300 hover:shadow-md">
           <div className="absolute top-0 right-0 p-3 opacity-10 transition-opacity group-hover:opacity-20">
-            <HugeiconsIcon icon={AiPhone01Icon} className="h-20 w-20 translate-x-3 -translate-y-3 rotate-12 text-emerald-500" />
+            <HugeiconsIcon icon={UserIcon} className="h-20 w-20 translate-x-3 -translate-y-3 rotate-12 text-emerald-500" />
           </div>
           <CardHeader className="relative z-10 flex flex-row items-center justify-between space-y-0 px-5 pb-2 pt-5">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{tr(language, "Active Contacts", "ผู้ติดต่อที่ใช้งานอยู่")}</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{tr(language, "Profile Coverage", "ความครบถ้วนโปรไฟล์")}</CardTitle>
             <div className="rounded-lg bg-emerald-500/10 p-1.5 transition-colors group-hover:bg-emerald-500/20">
-              <HugeiconsIcon icon={AiPhone01Icon} className="h-4 w-4 text-emerald-500" />
+              <HugeiconsIcon icon={UserIcon} className="h-4 w-4 text-emerald-500" />
             </div>
           </CardHeader>
           <CardContent className="relative z-10 px-5 pb-5 pt-0">
-            <div className="text-[1.75rem] font-bold tracking-tight text-foreground">{stats.active}</div>
+            <div className="text-[1.75rem] font-bold tracking-tight text-foreground">{stats.documented}</div>
             <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-              <span className="text-emerald-500 font-medium">{activeContactRate}%</span> {tr(language, "response rate", "อัตราการตอบกลับ")}
+              <span className="text-emerald-500 font-medium">{documentedProfileRate}%</span> {tr(language, "records include profile markers", "ของระเบียนมีตัวบ่งชี้โปรไฟล์")}
             </p>
           </CardContent>
         </Card>
@@ -701,7 +747,11 @@ export function PatientsTable({
                 {tr(language, "Patient Directory", "รายชื่อผู้ป่วย")}
               </CardTitle>
               <CardDescription className="ml-9 text-sm">
-                {tr(language, "Manage your patient records, appointments, and contact details.", "จัดการข้อมูลผู้ป่วย การนัดหมาย และข้อมูลติดต่อ")}
+                {tr(
+                  language,
+                  "Patient directory shows masked contact details by default. Open a workspace for full record access.",
+                  "รายชื่อผู้ป่วยจะแสดงข้อมูลติดต่อแบบปกปิดเป็นค่าเริ่มต้น เปิด workspace เพื่อดูข้อมูลเต็ม",
+                )}
               </CardDescription>
             </div>
 
@@ -871,13 +921,12 @@ export function PatientsTable({
                   <AnimatePresence initial={false}>
                     {patients.map((patient, index) => {
                       const age = getAgeFromDOB(patient.date_of_birth);
-                      const hasContact = !!(patient.phone || patient.email);
                       const rowNumber = (page - 1) * limit + index + 1;
                       const profileSeed = buildProfileSeed(
                         patient.id,
                         patient.first_name,
                         patient.last_name,
-                        patient.email
+                        null
                       );
 
                       return (
@@ -946,29 +995,27 @@ export function PatientsTable({
 
                           <TableCell className="hidden p-3 align-middle lg:table-cell">
                             <div className="space-y-1">
-                              {patient.phone ? (
-                                <div className="flex items-center gap-2 text-sm text-foreground/90">
-                                  <div className="p-1 rounded-sm bg-primary/5 text-primary">
-                                    <HugeiconsIcon icon={AiPhone01Icon} className="size-3" />
-                                  </div>
-                                  {patient.phone}
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <div className="rounded-sm bg-primary/5 p-1 text-primary">
+                                  <HugeiconsIcon icon={AiPhone01Icon} className="size-3" />
                                 </div>
-                              ) : null}
-                              {patient.email ? (
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                  <div className="p-1 rounded-sm bg-muted text-muted-foreground">
-                                    <HugeiconsIcon icon={Mail01Icon} className="size-3" />
-                                  </div>
-                                  {patient.email}
+                                {tr(language, "Protected in workspace", "ข้อมูลถูกปกป้องใน workspace")}
+                              </div>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <div className="rounded-sm bg-muted p-1 text-muted-foreground">
+                                  <HugeiconsIcon icon={Mail01Icon} className="size-3" />
                                 </div>
-                              ) : null}
-                              {!hasContact && <span className="text-muted-foreground text-sm">—</span>}
+                                {tr(language, "Protected until secure reveal", "ข้อมูลถูกปกป้องจนกว่าจะยืนยันเพิ่ม")}
+                              </div>
+                              <span className="text-xs text-muted-foreground/80">
+                                {tr(language, "Open workspace for protected details", "เปิด workspace เพื่อดูข้อมูลที่ถูกปกป้อง")}
+                              </span>
                             </div>
                           </TableCell>
 
                           <TableCell className="hidden p-3 align-middle xl:table-cell">
-                            <div className="text-sm text-muted-foreground max-w-[200px] truncate" title={patient.address || undefined}>
-                              {patient.address || <span className="text-muted-foreground/50">—</span>}
+                            <div className="max-w-[200px] truncate text-sm text-muted-foreground">
+                              {tr(language, "Protected in workspace", "ข้อมูลถูกปกป้องใน workspace")}
                             </div>
                           </TableCell>
 
@@ -999,24 +1046,12 @@ export function PatientsTable({
                                   {tr(language, "Copy ID", "คัดลอก ID")}
                                 </DropdownMenuItem>
                                 {canManagePatients ? (
-                                  <DropdownMenuItem onClick={() => resetForm(patient)}>
+                                  <DropdownMenuItem onClick={() => { void openEditForm(patient); }}>
                                     <HugeiconsIcon icon={Edit01Icon} className="size-4 mr-2" />
                                     {tr(language, "Edit Patient", "แก้ไขผู้ป่วย")}
                                   </DropdownMenuItem>
                                 ) : null}
-                                {canManageAssignments ? (
-                                  <DropdownMenuItem onClick={() => setAssignmentPatient(patient)}>
-                                    <HugeiconsIcon icon={Stethoscope02Icon} className="size-4 mr-2" />
-                                    {tr(language, "Manage Care Team", "จัดการทีมดูแล")}
-                                  </DropdownMenuItem>
-                                ) : null}
-                                {canManagePatients ? (
-                                  <DropdownMenuItem onClick={() => { void handleGenerateRegCode(patient); }}>
-                                    <HugeiconsIcon icon={AiPhone01Icon} className="size-4 mr-2" />
-                                    {tr(language, "App Reg Code", "รหัสลงทะเบียนแอป")}
-                                  </DropdownMenuItem>
-                                ) : null}
-                                {canManageAssignments ? (
+                                {canDeletePatients ? (
                                   <DropdownMenuItem
                                     onClick={() => handleDelete(patient.id)}
                                     className="text-destructive focus:text-destructive"
@@ -1460,58 +1495,34 @@ export function PatientsTable({
         </DialogContent>
       </Dialog>
 
-      {assignmentPatient ? (
-        <PatientAssignmentsDialog
-          open
-          patientId={assignmentPatient.id}
-          patientName={`${assignmentPatient.first_name} ${assignmentPatient.last_name}`}
-          onOpenChange={(open) => {
-            if (!open) {
-              setAssignmentPatient(null);
-            }
-          }}
-        />
-      ) : null}
-
-      {/* Registration Code Dialog */}
-      <Dialog open={regCodeDialogOpen} onOpenChange={setRegCodeDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{tr(language, "App Registration Code", "รหัสลงทะเบียนแอป")}</DialogTitle>
-            <DialogDescription>
-              {tr(
-                language,
-                `Registration code for ${regCodePatientName}. The patient enters this code in the mobile app together with their phone number to set a PIN.`,
-                `รหัสลงทะเบียนสำหรับ ${regCodePatientName} ให้คนไข้กรอกรหัสนี้ในแอปมือถือพร้อมเบอร์โทรเพื่อตั้ง PIN`,
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col items-center gap-4 py-4">
-            {regCodeLoading ? (
-              <Skeleton className="h-14 w-48" />
-            ) : regCode ? (
-              <>
-                <div className="text-4xl font-mono font-bold tracking-[0.3em] text-primary select-all">
-                  {regCode}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {tr(language, "Valid for 72 hours", "ใช้ได้ภายใน 72 ชั่วโมง")}
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    navigator.clipboard.writeText(regCode);
-                    toast.success(tr(language, "Code copied!", "คัดลอกรหัสแล้ว!"));
-                  }}
-                >
-                  <HugeiconsIcon icon={Copy01Icon} className="size-4 mr-2" />
-                  {tr(language, "Copy Code", "คัดลอกรหัส")}
-                </Button>
-              </>
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <SensitiveActionReauthDialog
+        open={reauthOpen}
+        onOpenChange={(open) => {
+          setReauthOpen(open);
+          if (!open) {
+            setReauthContext(null);
+          }
+        }}
+        onSuccess={async () => {
+          const nextAction = reauthContext;
+          setReauthContext(null);
+          if (!nextAction) {
+            return;
+          }
+          if (nextAction.type === "edit") {
+            await openEditForm(nextAction.patient);
+            return;
+          }
+          await savePatientRecord();
+        }}
+        title={tr(language, "Refresh secure session", "รีเฟรช secure session")}
+        description={tr(
+          language,
+          "Confirm your identity again before editing or saving protected patient contact details.",
+          "ยืนยันตัวตนอีกครั้งก่อนแก้ไขหรือบันทึกข้อมูลติดต่อผู้ป่วยที่ถูกปกป้อง",
+        )}
+        actionLabel={tr(language, "Refresh and continue", "รีเฟรชแล้วทำต่อ")}
+      />
 
     </div>
     </LazyMotion>

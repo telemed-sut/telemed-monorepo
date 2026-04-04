@@ -29,22 +29,15 @@ import {
   ChevronRight,
   Activity,
   Cpu,
-  Crown,
-  ShieldCheck,
-  Stethoscope,
-  GraduationCap,
-  Building2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { useSessionLogout } from "@/hooks/use-session-logout";
+import { useEffect, useMemo, useState, startTransition } from "react";
 import { Logo } from "@/components/ui/logo";
 import { useAuthStore } from "@/store/auth-store";
 import {
   canManageUsers,
   canViewClinicalData,
   fetchCurrentUser,
-  getPrivilegedRoleLabel,
-  ROLE_LABEL_MAP,
+  logout,
   UserMe,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -53,7 +46,6 @@ import { type AppLanguage } from "@/store/language-config";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Logout01Icon,
-  Settings01Icon,
   UserIcon,
 } from "@hugeicons/core-free-icons";
 
@@ -89,6 +81,7 @@ const SIDEBAR_LABELS: Record<
     helpCenter: string;
     loading: string;
     account: string;
+    accountSettings: string;
     profile: string;
     settings: string;
     logOut: string;
@@ -108,6 +101,7 @@ const SIDEBAR_LABELS: Record<
     helpCenter: "Help Center",
     loading: "Loading...",
     account: "Account",
+    accountSettings: "Account & settings",
     profile: "Profile",
     settings: "Settings",
     logOut: "Log out",
@@ -126,6 +120,7 @@ const SIDEBAR_LABELS: Record<
     helpCenter: "ศูนย์ช่วยเหลือ",
     loading: "กำลังโหลด...",
     account: "บัญชีผู้ใช้",
+    accountSettings: "บัญชีและตั้งค่า",
     profile: "โปรไฟล์",
     settings: "ตั้งค่า",
     logOut: "ออกจากระบบ",
@@ -134,49 +129,6 @@ const SIDEBAR_LABELS: Record<
 
 function getRouteTitle(routeId: string, language: AppLanguage): string {
   return SIDEBAR_LABELS[language].routes[routeId] || routeId;
-}
-
-const ROLE_LABELS_BY_LANGUAGE: Record<AppLanguage, Record<string, string>> = {
-  en: ROLE_LABEL_MAP,
-  th: {
-    admin: "ผู้ดูแลระบบ",
-    doctor: "แพทย์",
-    medical_student: "นักศึกษาแพทย์",
-  },
-};
-
-function getRoleLabel(role: string, language: AppLanguage): string {
-  return (
-    ROLE_LABELS_BY_LANGUAGE[language][role] ||
-    ROLE_LABEL_MAP[role] ||
-    role.charAt(0).toUpperCase() + role.slice(1)
-  );
-}
-
-function getPrivilegeBadgeClass(role: string): string {
-  if (role === "platform_super_admin") {
-    return "border-amber-500/30 bg-amber-500/10 text-amber-700";
-  }
-  if (role === "security_admin") {
-    return "border-rose-500/30 bg-rose-500/10 text-rose-700";
-  }
-  if (role === "hospital_admin") {
-    return "border-sky-500/30 bg-sky-500/10 text-sky-700";
-  }
-  return "border-border bg-muted text-foreground";
-}
-
-function getRoleIcon(role: string): React.ElementType {
-  if (role === "doctor") return Stethoscope;
-  if (role === "medical_student") return GraduationCap;
-  return UserCog;
-}
-
-function getPrivilegedRoleIcon(role: string): React.ElementType {
-  if (role === "platform_super_admin") return Crown;
-  if (role === "security_admin") return ShieldCheck;
-  if (role === "hospital_admin") return Building2;
-  return Shield;
 }
 
 function getUserDisplayName(user: UserMe): string {
@@ -194,29 +146,25 @@ function getUserInitials(user: UserMe): string {
   return user.email.slice(0, 2).toUpperCase();
 }
 
-type ProfileMenuItem = "profile" | "settings" | "logout";
+type ProfileMenuItem = "settings" | "logout";
 
 function SidebarUserMenu({
   isCollapsed,
   currentUser,
-  language,
   labels,
   activeItem,
-  onProfile,
   onSettings,
   onLogout,
 }: {
   isCollapsed: boolean;
   currentUser: UserMe | null;
-  language: AppLanguage;
   labels: {
     loading: string;
-    profile: string;
+    accountSettings: string;
     settings: string;
     logOut: string;
   };
   activeItem: ProfileMenuItem | null;
-  onProfile: () => void;
   onSettings: () => void;
   onLogout: () => void;
 }) {
@@ -262,28 +210,26 @@ function SidebarUserMenu({
         id: "divider";
       }
   )[] = [
-    { id: "profile", label: labels.profile, icon: UserIcon, onSelect: onProfile },
-    { id: "settings", label: labels.settings, icon: Settings01Icon, onSelect: onSettings },
+    { id: "settings", label: labels.accountSettings, icon: UserIcon, onSelect: onSettings },
     { id: "divider" },
     { id: "logout", label: labels.logOut, icon: Logout01Icon, onSelect: onLogout, destructive: true },
   ];
-  const roleIcon = currentUser ? getRoleIcon(currentUser.role) : UserCog;
 
   return (
-    <div ref={containerRef} className="relative mx-auto w-full max-w-[228px]">
+    <div ref={containerRef} className="relative w-full">
       <button
         id="sidebar-user-menu-button"
         type="button"
         className={cn(
-          "w-full cursor-pointer rounded-[22px] border border-sidebar-border/60 bg-white/80 text-left shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-[border-color,background-color,box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:border-sidebar-border hover:bg-white hover:shadow-[0_10px_20px_rgba(15,23,42,0.07)]",
-          isCollapsed ? "flex justify-center p-2" : "flex items-center gap-2 px-2.5 py-2",
-          isOpen && "border-sidebar-primary/20 bg-white shadow-[0_10px_22px_rgba(15,23,42,0.09)]"
+          "w-full cursor-pointer rounded-lg p-2 text-left transition-colors hover:bg-accent sm:p-3",
+          isCollapsed ? "flex justify-center" : "flex items-center gap-2 sm:gap-3",
+          isOpen && "bg-accent"
         )}
         aria-haspopup="menu"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((prev) => !prev)}
       >
-        <Avatar className="size-9 ring-1 ring-black/5 sm:size-10">
+        <Avatar className="size-8 sm:size-9">
           <AvatarImage
             src={
               currentUser
@@ -297,46 +243,12 @@ function SidebarUserMenu({
         </Avatar>
         {!isCollapsed && (
           <>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="truncate text-[0.88rem] font-semibold leading-tight text-slate-900">
-                    {currentUser ? getUserDisplayName(currentUser) : labels.loading}
-                  </p>
-                </div>
-                <ChevronsUpDown className={cn(
-                  "mt-0.5 size-3.5 shrink-0 text-slate-400 transition-transform duration-200",
-                  isOpen && "rotate-180 text-slate-600"
-                )} />
-              </div>
-              {currentUser ? (
-                <div className="mt-1.5 flex items-center gap-1">
-                  <span
-                    title={getRoleLabel(currentUser.role, language)}
-                    aria-label={getRoleLabel(currentUser.role, language)}
-                    className="inline-flex h-4.5 w-4.5 items-center justify-center rounded-full border border-border/80 bg-slate-50 text-slate-600"
-                  >
-                    {React.createElement(roleIcon, { className: "h-2.5 w-2.5" })}
-                  </span>
-                  {currentUser.privileged_roles?.map((role) => {
-                    const PrivilegedIcon = getPrivilegedRoleIcon(role);
-                    return (
-                      <span
-                        key={role}
-                        title={getPrivilegedRoleLabel(role, language)}
-                        aria-label={getPrivilegedRoleLabel(role, language)}
-                        className={cn(
-                          "inline-flex h-4.5 w-4.5 items-center justify-center rounded-full border",
-                          getPrivilegeBadgeClass(role)
-                        )}
-                      >
-                        <PrivilegedIcon className="h-2.5 w-2.5" />
-                      </span>
-                    );
-                  })}
-                </div>
-              ) : null}
+            <div className="min-w-0 flex flex-1 items-center gap-2">
+              <p className="truncate text-sm font-semibold sm:text-[0.95rem]">
+                {currentUser ? getUserDisplayName(currentUser) : labels.loading}
+              </p>
             </div>
+            <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
           </>
         )}
       </button>
@@ -354,12 +266,16 @@ function SidebarUserMenu({
               isCollapsed ? "bottom-0 left-full ml-2" : "bottom-full left-0 mb-2"
             )}
           >
-            <div className="border-b border-border/80 bg-slate-50/85 px-3 py-3">
-              <div className="truncate text-[0.92rem] font-semibold text-slate-900">
-                {currentUser ? getUserDisplayName(currentUser) : labels.loading}
-              </div>
-              <div className="truncate pt-0.5 text-[0.76rem] text-slate-500">
-                {currentUser?.email || ""}
+            <div className="px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">
+                  {currentUser ? getUserDisplayName(currentUser) : labels.loading}
+                </p>
+                {currentUser?.email ? (
+                  <p className="truncate text-[0.82rem] text-muted-foreground">
+                    {currentUser.email}
+                  </p>
+                ) : null}
               </div>
             </div>
             <ul className="space-y-0.5 px-2 pb-2">
@@ -378,7 +294,7 @@ function SidebarUserMenu({
                     <button
                       type="button"
                       className={cn(
-                        "relative flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 text-[0.95rem] transition-colors",
+                        "relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[0.95rem] transition-colors",
                         item.destructive
                           ? "text-red-600 hover:text-red-700"
                           : "text-foreground/90 hover:text-foreground"
@@ -430,16 +346,30 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const t = SIDEBAR_LABELS[language];
   const token = useAuthStore((state) => state.token);
   const userRole = useAuthStore((state) => state.role);
-  const logout = useSessionLogout();
+  const clearToken = useAuthStore((state) => state.clearToken);
   const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
 
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
-    fetchCurrentUser(token)
-      .then((user) => { if (!cancelled) setCurrentUser(user); })
-      .catch(() => { /* silent */ });
-    return () => { cancelled = true; };
+
+    const loadCurrentUser = () => {
+      fetchCurrentUser(token)
+        .then((user) => {
+          if (!cancelled) setCurrentUser(user);
+        })
+        .catch(() => {
+          // silent
+        });
+    };
+
+    loadCurrentUser();
+    window.addEventListener("telemed-profile-updated", loadCurrentUser);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("telemed-profile-updated", loadCurrentUser);
+    };
   }, [token]);
 
   useEffect(() => {
@@ -477,18 +407,22 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
 
   const handleRouteChange = (link: string) => {
     closeMobileSidebar();
-    router.push(link);
+    startTransition(() => {
+      router.push(link);
+    });
   };
 
   const handleLogout = () => {
     closeMobileSidebar();
-    logout();
+    void logout(token || undefined).catch(() => undefined).finally(() => {
+      clearToken();
+      router.replace("/login");
+    });
   };
   const isCollapsed = state === "collapsed";
-  const activeProfileMenuItem: ProfileMenuItem | null = pathname.startsWith("/settings")
-    ? "settings"
-    : pathname.startsWith("/profile")
-      ? "profile"
+  const activeProfileMenuItem: ProfileMenuItem | null =
+    pathname.startsWith("/settings") || pathname.startsWith("/profile")
+      ? "settings"
       : null;
 
   return (
@@ -528,36 +462,16 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                       onMouseEnter={() => router.prefetch(route.link)}
                       onClick={() => handleRouteChange(route.link)}
                       className={cn(
-                        "group/route h-9 border border-sidebar-border/60 bg-white/65 px-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[padding,border-color,background-color,box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:border-sidebar-border hover:bg-white hover:shadow-[0_8px_18px_rgba(15,23,42,0.08)] active:translate-y-px active:shadow-[0_2px_6px_rgba(15,23,42,0.08)] sm:h-[38px] data-[active=true]:border-sidebar-border data-[active=true]:bg-sidebar-accent/85 data-[active=true]:shadow-[0_0_0_1px_hsl(var(--sidebar-border)),0_10px_22px_rgba(15,23,42,0.08)]",
+                        "h-9 border border-sidebar-border/60 transition-[padding,border-color,background-color] duration-200 hover:border-sidebar-border sm:h-[38px] data-[active=true]:border-sidebar-border data-[active=true]:shadow-[0_0_0_1px_hsl(var(--sidebar-border))]",
                         isCollapsed && "justify-center px-0"
                       )}
                     >
-                      <span
-                        className={cn(
-                          "absolute inset-y-1.5 left-1 rounded-full bg-sidebar-primary transition-[opacity,transform] duration-200",
-                          isCollapsed ? "w-0" : "w-1",
-                          active
-                            ? "opacity-100 scale-y-100"
-                            : "opacity-0 scale-y-60 group-hover/route:opacity-75 group-hover/route:scale-y-100"
-                        )}
-                      />
-                      <span
-                        className={cn(
-                          "relative z-10 inline-flex size-7 shrink-0 items-center justify-center rounded-full border transition-[transform,background-color,color,box-shadow] duration-200",
-                          active
-                            ? "border-sidebar-primary/20 bg-white/70 text-sidebar-primary shadow-[0_8px_18px_rgba(73,136,196,0.18)]"
-                            : "border-transparent bg-sidebar-accent/35 text-sidebar-foreground/80 group-hover/route:scale-[1.04] group-hover/route:bg-white group-hover/route:text-sidebar-primary group-hover/route:shadow-[0_6px_14px_rgba(73,136,196,0.12)]"
-                        )}
-                      >
-                        <Icon className="size-4 sm:size-5" />
-                      </span>
+                      <Icon className="size-4 sm:size-5" />
                       {!isCollapsed && (
-                        <span className="relative z-10 text-[0.95rem] transition-transform duration-200 group-hover/route:translate-x-0.5">
-                          {getRouteTitle(route.id, language)}
-                        </span>
+                        <span className="text-[0.95rem]">{getRouteTitle(route.id, language)}</span>
                       )}
                       {!isCollapsed && active && (
-                        <ChevronRight className="relative z-10 ml-auto size-4 text-sidebar-primary opacity-80 transition-transform duration-200 group-hover/route:translate-x-0.5" />
+                        <ChevronRight className="ml-auto size-4 text-muted-foreground opacity-60" />
                       )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -578,19 +492,10 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
             <SidebarMenuButton
               id="sidebar-help-button"
               tooltip={t.helpCenter}
-              className={cn(
-                "group/help h-9 border border-sidebar-border/60 bg-white/65 px-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,background-color,box-shadow,transform] duration-200 hover:-translate-y-[1px] hover:border-sidebar-border hover:bg-white hover:shadow-[0_8px_18px_rgba(15,23,42,0.08)] active:translate-y-px active:shadow-[0_2px_6px_rgba(15,23,42,0.08)] sm:h-[38px]",
-                isCollapsed && "justify-center px-0"
-              )}
+              className={cn("h-9 sm:h-[38px]", isCollapsed && "justify-center px-0")}
             >
-              <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-sidebar-accent/35 text-sidebar-foreground/80 transition-[transform,background-color,color,box-shadow] duration-200 group-hover/help:scale-[1.04] group-hover/help:bg-white group-hover/help:text-sidebar-primary group-hover/help:shadow-[0_6px_14px_rgba(73,136,196,0.12)]">
-                <HelpCircle className="size-4 sm:size-5" />
-              </span>
-              {!isCollapsed && (
-                <span className="text-[0.95rem] transition-transform duration-200 group-hover/help:translate-x-0.5">
-                  {t.helpCenter}
-                </span>
-              )}
+              <HelpCircle className="size-4 sm:size-5" />
+              {!isCollapsed && <span className="text-[0.95rem]">{t.helpCenter}</span>}
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -598,16 +503,13 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
         <SidebarUserMenu
           isCollapsed={isCollapsed}
           currentUser={currentUser}
-          language={language}
           labels={t}
           activeItem={activeProfileMenuItem}
-          onProfile={() => {
-            closeMobileSidebar();
-            router.push("/profile");
-          }}
           onSettings={() => {
             closeMobileSidebar();
-            router.push("/settings");
+            startTransition(() => {
+              router.push("/settings?panel=account");
+            });
           }}
           onLogout={handleLogout}
         />

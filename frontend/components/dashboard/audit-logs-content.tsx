@@ -121,6 +121,9 @@ const I18N = {
         cannotLoadAuditLogs: "Unable to load audit logs",
         exportAuditLogsFailed: "Failed to export audit logs",
         cannotExportAuditLogs: "Unable to export audit logs",
+        sensitiveViews: "Sensitive access presets",
+        patientContactOnly: "Patient contact reveals",
+        clearFilters: "Clear filters",
     },
     th: {
         language: "ภาษา",
@@ -183,6 +186,9 @@ const I18N = {
         cannotLoadAuditLogs: "ไม่สามารถโหลด Audit Logs ได้",
         exportAuditLogsFailed: "ส่งออก Audit Logs ไม่สำเร็จ",
         cannotExportAuditLogs: "ไม่สามารถส่งออก Audit Logs ได้",
+        sensitiveViews: "ชุดตัวกรองการเข้าถึงข้อมูลอ่อนไหว",
+        patientContactOnly: "เฉพาะการเปิดข้อมูลติดต่อผู้ป่วย",
+        clearFilters: "ล้างตัวกรอง",
     },
 } as const;
 
@@ -213,6 +219,7 @@ const ACTION_OPTIONS = [
     "patient_assignment_update",
     "patient_assignment_delete",
     "patient_access_denied",
+    "patient_contact_revealed",
     "http_403_denied",
     "admin_emergency_unlock",
     "admin_force_2fa_reset",
@@ -231,6 +238,8 @@ const ACTION_OPTIONS = [
     "login_failed",
     "login_failed_2fa",
     "login_with_backup_code",
+    "step_up_verified",
+    "step_up_failed",
     "view_patient_summary",
     "view_patient_timeline",
     "view_active_orders",
@@ -268,10 +277,13 @@ const ACTION_LABELS: Record<AuditLanguage, Record<string, string>> = {
         patient_assignment_update: "Update Patient Assignment",
         patient_assignment_delete: "Delete Patient Assignment",
         patient_access_denied: "Patient Access Denied",
+        patient_contact_revealed: "Reveal Patient Contact Details",
         http_403_denied: "HTTP 403 Denied",
         invite_accept: "Invite Accepted",
         user_invite_resend: "Resend User Invite",
         user_invite_revoke: "Revoke User Invite",
+        step_up_verified: "Step-Up Verified",
+        step_up_failed: "Step-Up Failed",
     },
     th: {
         user_create: "สร้างผู้ใช้",
@@ -295,6 +307,7 @@ const ACTION_LABELS: Record<AuditLanguage, Record<string, string>> = {
         patient_assignment_update: "แก้ไขการมอบหมายผู้ป่วย",
         patient_assignment_delete: "ลบการมอบหมายผู้ป่วย",
         patient_access_denied: "ปฏิเสธการเข้าถึงผู้ป่วย",
+        patient_contact_revealed: "เปิดดูข้อมูลติดต่อผู้ป่วย",
         http_403_denied: "ปฏิเสธ HTTP 403",
         admin_emergency_unlock: "ปลดล็อกฉุกเฉินโดยผู้ดูแล",
         admin_force_2fa_reset: "รีเซ็ต 2FA โดยผู้ดูแล",
@@ -313,6 +326,8 @@ const ACTION_LABELS: Record<AuditLanguage, Record<string, string>> = {
         login_failed: "เข้าสู่ระบบล้มเหลว",
         login_failed_2fa: "เข้าสู่ระบบล้มเหลว (2FA)",
         login_with_backup_code: "เข้าสู่ระบบด้วยรหัสสำรอง",
+        step_up_verified: "ยืนยันตัวตนเพิ่มเติมสำเร็จ",
+        step_up_failed: "ยืนยันตัวตนเพิ่มเติมล้มเหลว",
         view_patient_summary: "ดูสรุปผู้ป่วย",
         view_patient_timeline: "ดูไทม์ไลน์ผู้ป่วย",
         view_active_orders: "ดูคำสั่งที่ยังใช้งาน",
@@ -596,6 +611,35 @@ export function AuditLogsContent() {
         (result: "success" | "failure") => (result === "failure" ? t("failure") : t("success")),
         [t]
     );
+    const hasActiveFilters =
+        search.length > 0 ||
+        userFilter.length > 0 ||
+        actionFilter !== "all" ||
+        resourceTypeFilter !== "all" ||
+        breakGlassFilter !== "all" ||
+        resultFilter !== "all" ||
+        dateFrom.length > 0 ||
+        dateTo.length > 0;
+
+    const applyPatientContactRevealPreset = useCallback(() => {
+        setActionFilter("patient_contact_revealed");
+        setResourceTypeFilter("patient");
+        setBreakGlassFilter("all");
+        setResultFilter("success");
+        setDateFrom("");
+        setDateTo("");
+    }, []);
+
+    const clearFilters = useCallback(() => {
+        setSearch("");
+        setUserFilter("");
+        setActionFilter("all");
+        setResourceTypeFilter("all");
+        setBreakGlassFilter("all");
+        setResultFilter("all");
+        setDateFrom("");
+        setDateTo("");
+    }, []);
 
     // Auth guard
     useEffect(() => {
@@ -789,6 +833,31 @@ export function AuditLogsContent() {
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-2 rounded-full border border-white/10 bg-background/40 px-2 py-1">
+                                    <span className="px-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                                        {t("sensitiveViews")}
+                                    </span>
+                                    <Button
+                                        type="button"
+                                        variant={actionFilter === "patient_contact_revealed" ? "default" : "outline"}
+                                        size="sm"
+                                        className="h-8 rounded-full"
+                                        onClick={applyPatientContactRevealPreset}
+                                    >
+                                        {t("patientContactOnly")}
+                                    </Button>
+                                    {hasActiveFilters ? (
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 rounded-full"
+                                            onClick={clearFilters}
+                                        >
+                                            {t("clearFilters")}
+                                        </Button>
+                                    ) : null}
+                                </div>
                                 <div className="relative">
                                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                                     <Input

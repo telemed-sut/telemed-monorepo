@@ -6,8 +6,9 @@ import { clearWorkspaceTabsState } from "@/store/workspace-tabs-store";
 /** Refresh token 5 minutes before expiry */
 const REFRESH_BUFFER_SECONDS = 300;
 const COOKIE_SESSION_TOKEN = "__cookie_session__";
-const AUTH_SNAPSHOT_STORAGE_KEY = "telemed.auth.snapshot.v2";
+const AUTH_SNAPSHOT_STORAGE_KEY = "telemed.auth.snapshot.v3";
 const LEGACY_AUTH_SNAPSHOT_STORAGE_KEY = "telemed.auth.snapshot";
+const PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY = "telemed.auth.snapshot.v2";
 const AUTH_SNAPSHOT_REVALIDATE_AFTER_MS = 5 * 60 * 1000;
 const AUTH_SNAPSHOT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -20,10 +21,6 @@ interface PersistedAuthSnapshot {
   mfaAuthenticatedAt: string | null;
   authSource: string | null;
   ssoProvider: string | null;
-  privilegedRoles: string[];
-  canManagePrivilegedAdmins: boolean;
-  canManageSecurityRecovery: boolean;
-  canBootstrapPrivilegedRoles: boolean;
   sessionExpiresAt: number | null;
   lastVerifiedAt: number | null;
 }
@@ -37,10 +34,6 @@ interface AuthState {
   mfaAuthenticatedAt: string | null;
   authSource: string | null;
   ssoProvider: string | null;
-  privilegedRoles: string[];
-  canManagePrivilegedAdmins: boolean;
-  canManageSecurityRecovery: boolean;
-  canBootstrapPrivilegedRoles: boolean;
   hydrated: boolean;
   sessionExpiresAt: number | null;
   lastVerifiedAt: number | null;
@@ -72,10 +65,6 @@ function getSessionState(response: LoginResponse) {
     mfaAuthenticatedAt: response.user?.mfa_authenticated_at ?? null,
     authSource: response.user?.auth_source ?? "local",
     ssoProvider: response.user?.sso_provider ?? null,
-    privilegedRoles: response.user?.privileged_roles ?? [],
-    canManagePrivilegedAdmins: Boolean(response.user?.can_manage_privileged_admins),
-    canManageSecurityRecovery: Boolean(response.user?.can_manage_security_recovery),
-    canBootstrapPrivilegedRoles: Boolean(response.user?.can_bootstrap_privileged_roles),
     sessionExpiresAt: getExpiryEpoch(response.expires_in),
     lastVerifiedAt: Date.now(),
   };
@@ -91,10 +80,6 @@ function getCookieSessionState(user: UserMe) {
     mfaAuthenticatedAt: user.mfa_authenticated_at ?? null,
     authSource: user.auth_source ?? "local",
     ssoProvider: user.sso_provider ?? null,
-    privilegedRoles: user.privileged_roles ?? [],
-    canManagePrivilegedAdmins: Boolean(user.can_manage_privileged_admins),
-    canManageSecurityRecovery: Boolean(user.can_manage_security_recovery),
-    canBootstrapPrivilegedRoles: Boolean(user.can_bootstrap_privileged_roles),
     sessionExpiresAt: null,
     lastVerifiedAt: Date.now(),
   };
@@ -107,6 +92,7 @@ function persistAuthSnapshot(snapshot: PersistedAuthSnapshot | null) {
 
   if (!snapshot?.token) {
     window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
+    window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
     window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
     return;
   }
@@ -115,6 +101,7 @@ function persistAuthSnapshot(snapshot: PersistedAuthSnapshot | null) {
     AUTH_SNAPSHOT_STORAGE_KEY,
     JSON.stringify(snapshot)
   );
+  window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
   window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
 }
 
@@ -125,6 +112,7 @@ function readPersistedAuthSnapshot(): PersistedAuthSnapshot | null {
 
   const raw =
     window.localStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY) ??
+    window.localStorage.getItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY) ??
     window.sessionStorage.getItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
   if (!raw) {
     return null;
@@ -136,15 +124,31 @@ function readPersistedAuthSnapshot(): PersistedAuthSnapshot | null {
 
     if (!parsed.token || Date.now() - verifiedAt > AUTH_SNAPSHOT_RETENTION_MS) {
       window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
+      window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
       window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
       return null;
     }
 
-    window.localStorage.setItem(AUTH_SNAPSHOT_STORAGE_KEY, JSON.stringify(parsed));
+    const sanitized: PersistedAuthSnapshot = {
+      token: parsed.token,
+      role: parsed.role ?? null,
+      userId: parsed.userId ?? null,
+      mfaVerified: Boolean(parsed.mfaVerified),
+      mfaRecentForPrivilegedActions: Boolean(parsed.mfaRecentForPrivilegedActions),
+      mfaAuthenticatedAt: parsed.mfaAuthenticatedAt ?? null,
+      authSource: parsed.authSource ?? "local",
+      ssoProvider: parsed.ssoProvider ?? null,
+      sessionExpiresAt: parsed.sessionExpiresAt ?? null,
+      lastVerifiedAt: parsed.lastVerifiedAt ?? verifiedAt,
+    };
+
+    window.localStorage.setItem(AUTH_SNAPSHOT_STORAGE_KEY, JSON.stringify(sanitized));
+    window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
     window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
-    return parsed;
+    return sanitized;
   } catch {
     window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
+    window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
     window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
     return null;
   }
@@ -159,10 +163,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   mfaAuthenticatedAt: null,
   authSource: null,
   ssoProvider: null,
-  privilegedRoles: [],
-  canManagePrivilegedAdmins: false,
-  canManageSecurityRecovery: false,
-  canBootstrapPrivilegedRoles: false,
   hydrated: false,
   sessionExpiresAt: null,
   lastVerifiedAt: null,
@@ -189,10 +189,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       mfaAuthenticatedAt: null,
       authSource: null,
       ssoProvider: null,
-      privilegedRoles: [],
-      canManagePrivilegedAdmins: false,
-      canManageSecurityRecovery: false,
-      canBootstrapPrivilegedRoles: false,
       hydrated: true,
       sessionExpiresAt: null,
       lastVerifiedAt: null,
@@ -210,10 +206,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       mfaAuthenticatedAt: null,
       authSource: null,
       ssoProvider: null,
-      privilegedRoles: [],
-      canManagePrivilegedAdmins: false,
-      canManageSecurityRecovery: false,
-      canBootstrapPrivilegedRoles: false,
       hydrated: true,
       sessionExpiresAt: null,
       lastVerifiedAt: null,
@@ -234,10 +226,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         mfaAuthenticatedAt: persistedSnapshot.mfaAuthenticatedAt ?? null,
         authSource: persistedSnapshot.authSource ?? "local",
         ssoProvider: persistedSnapshot.ssoProvider ?? null,
-        privilegedRoles: persistedSnapshot.privilegedRoles ?? [],
-        canManagePrivilegedAdmins: persistedSnapshot.canManagePrivilegedAdmins ?? false,
-        canManageSecurityRecovery: persistedSnapshot.canManageSecurityRecovery ?? false,
-        canBootstrapPrivilegedRoles: persistedSnapshot.canBootstrapPrivilegedRoles ?? false,
         hydrated: true,
         sessionExpiresAt: persistedSnapshot.sessionExpiresAt,
         lastVerifiedAt: persistedSnapshot.lastVerifiedAt,
@@ -255,10 +243,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           mfaAuthenticatedAt: null,
           authSource: null,
           ssoProvider: null,
-          privilegedRoles: [],
-          canManagePrivilegedAdmins: false,
-          canManageSecurityRecovery: false,
-          canBootstrapPrivilegedRoles: false,
           hydrated: true,
           sessionExpiresAt: null,
           lastVerifiedAt: null,
@@ -315,10 +299,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         mfaAuthenticatedAt: null,
         authSource: null,
         ssoProvider: null,
-        privilegedRoles: [],
-        canManagePrivilegedAdmins: false,
-        canManageSecurityRecovery: false,
-        canBootstrapPrivilegedRoles: false,
         hydrated: true,
         sessionExpiresAt: null,
         lastVerifiedAt: null,

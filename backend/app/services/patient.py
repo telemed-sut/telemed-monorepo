@@ -415,8 +415,6 @@ def list_patients(
                 Patient.last_name.ilike(pattern),
                 Patient.name.ilike(pattern),
                 full_name.ilike(pattern),
-                Patient.email.ilike(pattern),
-                Patient.phone.ilike(pattern),
             )
         )
 

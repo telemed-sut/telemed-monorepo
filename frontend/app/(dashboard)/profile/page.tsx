@@ -1,7 +1,5 @@
-"use client";
-
-import { ProfileContent } from "@/components/dashboard/profile-content";
+import { redirect } from "next/navigation";
 
 export default function ProfilePage() {
-  return <ProfileContent />;
+  redirect("/settings?panel=account");
 }
