@@ -287,6 +287,7 @@ def test_admin_sso_callback_creates_cookie_session_and_redirects(
     assert response.headers["location"] == "http://localhost:3000/patients"
     cookie_header = response.headers.get("set-cookie", "")
     assert "access_token=" in cookie_header
+    assert f"Max-Age={auth_api.settings.admin_jwt_expires_in}" in cookie_header
     assert "admin_sso_logout_hint" not in cookie_header
     assert captured == {
         "code": "demo-code",

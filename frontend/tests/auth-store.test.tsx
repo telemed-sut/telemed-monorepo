@@ -7,6 +7,9 @@ const replaceMock = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   fetchCurrentUser: fetchCurrentUserMock,
+  getLoginRedirectPath: vi.fn(
+    (reason = "session_missing") => `/login?error=session_expired&reason=${reason}`,
+  ),
   refreshToken: refreshTokenMock,
 }));
 
@@ -117,5 +120,35 @@ describe("auth store hydration", () => {
     expect(refreshTokenMock).not.toHaveBeenCalled();
     expect(replaceMock).not.toHaveBeenCalled();
     expect(useAuthStore.getState().token).toBe("__cookie_session__");
+  });
+
+  it("routes expired tokens to login with a reason code", async () => {
+    const { useAuthStore } = await import("@/store/auth-store");
+    const { useTokenRefresh } = await import("@/hooks/use-token-refresh");
+
+    function Harness() {
+      useTokenRefresh();
+      return null;
+    }
+
+    useAuthStore.setState({
+      token: "__cookie_session__",
+      role: "admin",
+      userId: "admin-1",
+      mfaVerified: true,
+      mfaRecentForPrivilegedActions: true,
+      mfaAuthenticatedAt: "2026-03-30T01:00:00.000Z",
+      authSource: "local",
+      ssoProvider: null,
+      hydrated: true,
+      sessionExpiresAt: Date.now() - 1_000,
+    });
+
+    render(<Harness />);
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+
+    expect(replaceMock).toHaveBeenCalledWith(
+      "/login?error=session_expired&reason=token_expired",
+    );
   });
 });

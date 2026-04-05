@@ -115,14 +115,14 @@ def _retired_email(user_id: UUID) -> str:
     return f"deleted+{user_id.hex}@archive.example.com"
 
 
-def _set_auth_cookie(response: Response, access_token: str) -> None:
+def _set_auth_cookie(response: Response, access_token: str, *, max_age_seconds: int) -> None:
     response.set_cookie(
         key=settings.auth_cookie_name,
         value=access_token,
         httponly=True,
         secure=settings.auth_cookie_secure,
         samesite=settings.auth_cookie_samesite,
-        max_age=settings.jwt_expires_in,
+        max_age=max_age_seconds,
         path="/",
     )
 
@@ -1327,7 +1327,11 @@ def complete_admin_sso_login(
         url=_frontend_url_for(login_artifact.next_path),
         status_code=status.HTTP_303_SEE_OTHER,
     )
-    _set_auth_cookie(success_response, login_response["access_token"])
+    _set_auth_cookie(
+        success_response,
+        login_response["access_token"],
+        max_age_seconds=login_response["expires_in"],
+    )
     _clear_admin_sso_state_cookie(success_response)
     session_id = auth_service.get_request_auth_payload(request).get("session_id")
     if not isinstance(session_id, str) or not session_id:
@@ -1339,7 +1343,7 @@ def complete_admin_sso_login(
         admin_sso_store.store_logout_hint(
             session_id=session_id,
             id_token_hint=identity.id_token,
-            ttl_seconds=settings.jwt_expires_in,
+            ttl_seconds=login_response["expires_in"],
         )
 
     _write_auth_audit(
@@ -1592,7 +1596,11 @@ def login(
         mfa_verified=mfa_verified,
         mfa_authenticated_at=mfa_authenticated_at,
     )
-    _set_auth_cookie(response, login_response["access_token"])
+    _set_auth_cookie(
+        response,
+        login_response["access_token"],
+        max_age_seconds=login_response["expires_in"],
+    )
     if trusted_device_raw_token:
         _set_trusted_device_cookie(
             response,
@@ -1720,7 +1728,11 @@ def step_up_auth(
         sso_provider=sso_provider if isinstance(sso_provider, str) else None,
         session_id=session_id,
     )
-    _set_auth_cookie(response, login_response["access_token"])
+    _set_auth_cookie(
+        response,
+        login_response["access_token"],
+        max_age_seconds=login_response["expires_in"],
+    )
     if second_factor.trusted_device_raw_token:
         _set_trusted_device_cookie(
             response,
@@ -1750,7 +1762,11 @@ def refresh_token(
         sso_provider=payload.get("sso_provider"),
         session_id=str(payload.get("session_id") or ""),
     )
-    _set_auth_cookie(response, refreshed["access_token"])
+    _set_auth_cookie(
+        response,
+        refreshed["access_token"],
+        max_age_seconds=refreshed["expires_in"],
+    )
     return refreshed
 
 

@@ -12,6 +12,7 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -81,6 +82,9 @@ import {
   getStoredAppearance,
   persistAppearance,
 } from "@/lib/appearance";
+import {
+  formatCompactDuration,
+} from "@/lib/secure-session";
 import { DASHBOARD_HOME_HREF } from "@/components/dashboard/dashboard-route-utils";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
@@ -110,6 +114,25 @@ function formatDateTime(
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatTimeUntil(
+  value: string | null | undefined,
+  language: AppLanguage,
+): string {
+  if (!value) return "-";
+  const expiresAt = new Date(value).getTime();
+  if (Number.isNaN(expiresAt)) return "-";
+  const remainingSeconds = Math.max(
+    Math.floor((expiresAt - Date.now()) / 1000),
+    0,
+  );
+  if (remainingSeconds <= 0) {
+    return tr(language, "Expired", "หมดอายุแล้ว");
+  }
+  return language === "th"
+    ? `อีก ${formatCompactDuration(remainingSeconds, language)}`
+    : `${formatCompactDuration(remainingSeconds, language)} left`;
 }
 
 interface SettingsDisclosureProps {
@@ -279,9 +302,6 @@ export function SettingsContent({
   const clearToken = useAuthStore((state) => state.clearToken);
   const ssoProvider = useAuthStore((state) => state.ssoProvider);
   const mfaVerified = useAuthStore((state) => state.mfaVerified);
-  const mfaRecentForPrivilegedActions = useAuthStore(
-    (state) => state.mfaRecentForPrivilegedActions,
-  );
   const mfaAuthenticatedAt = useAuthStore((state) => state.mfaAuthenticatedAt);
   const hydrated = useAuthStore((state) => state.hydrated);
   const getTokenTTL = useAuthStore((state) => state.getTokenTTL);
@@ -507,7 +527,6 @@ export function SettingsContent({
     const seconds = tokenTTL % 60;
     return `${minutes}m ${seconds}s`;
   }, [tokenTTL, language]);
-
   const appearancePreview = useMemo(
     () => getAppearancePreviewPalette(appearanceDraft.theme),
     [appearanceDraft.theme],
@@ -543,9 +562,7 @@ export function SettingsContent({
     : tr(language, "Local password", "รหัสผ่านภายใน");
 
   const mfaStatusSummary = mfaVerified
-    ? mfaRecentForPrivilegedActions
-      ? tr(language, "Verified and recent", "ยืนยันแล้วและยังใหม่")
-      : tr(language, "Verified but stale", "ยืนยันแล้วแต่หมดช่วง")
+    ? tr(language, "Verified", "ยืนยันแล้ว")
     : tr(language, "Not verified", "ยังไม่ได้ยืนยัน");
 
   const securityHeaderSummary = useMemo(() => {
@@ -596,6 +613,10 @@ export function SettingsContent({
           `${trustedDevices.length} อุปกรณ์`,
         )
       : tr(language, "No devices", "ไม่มีอุปกรณ์");
+  const currentTrustedDevice = useMemo(
+    () => trustedDevices.find((device) => device.current_device) ?? null,
+    [trustedDevices],
+  );
 
   const adminToolsSummary = useMemo(() => {
     const parts: string[] = [];
@@ -2559,7 +2580,14 @@ export function SettingsContent({
                                   </div>
                                 </div>
 
-                                <div className="grid gap-3 lg:grid-cols-2">
+                                <div
+                                  className={cn(
+                                    "grid gap-3",
+                                    !isAdmin && twoFA.enabled
+                                      ? "lg:grid-cols-2"
+                                      : "grid-cols-1",
+                                  )}
+                                >
                                   <div className="space-y-2 rounded-xl border border-border bg-muted/15 p-3">
                                     <p className="text-sm font-medium">
                                       {tr(
@@ -2751,6 +2779,51 @@ export function SettingsContent({
                             }
                           >
                             <div className="space-y-3">
+                              <div className="rounded-xl border border-border bg-muted/15 p-3">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge
+                                    variant="outline"
+                                    className={
+                                      currentTrustedDevice
+                                        ? "border-emerald-200/80 bg-emerald-50 text-emerald-700"
+                                        : "border-amber-200/80 bg-amber-50 text-amber-700"
+                                    }
+                                  >
+                                    {currentTrustedDevice
+                                      ? tr(
+                                          language,
+                                          "Current browser trusted",
+                                          "เบราว์เซอร์นี้ถูกเชื่อถือ",
+                                        )
+                                      : tr(
+                                          language,
+                                          "Current browser not trusted",
+                                          "เบราว์เซอร์นี้ยังไม่ถูกเชื่อถือ",
+                                        )}
+                                  </Badge>
+                                  {currentTrustedDevice ? (
+                                    <span className="text-xs text-muted-foreground">
+                                      {formatTimeUntil(
+                                        currentTrustedDevice.expires_at,
+                                        language,
+                                      )}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <p className="mt-2 text-sm text-muted-foreground">
+                                  {currentTrustedDevice
+                                    ? tr(
+                                        language,
+                                        "This browser can skip some repeated verification prompts until the trusted-device window ends.",
+                                        "เบราว์เซอร์นี้จะข้ามการถามยืนยันซ้ำบางครั้งได้จนกว่าช่วงอุปกรณ์ที่เชื่อถือจะสิ้นสุด",
+                                      )
+                                    : tr(
+                                        language,
+                                        "When verification is requested again, you can choose to trust this browser for future prompts.",
+                                        "เมื่อระบบขอให้ยืนยันตัวตนอีกครั้ง คุณสามารถเลือกเชื่อถือเบราว์เซอร์นี้เพื่อลดการถามซ้ำในครั้งถัดไป",
+                                      )}
+                                </p>
+                              </div>
                               <div className="flex flex-wrap gap-2">
                                 <Button
                                   type="button"
@@ -2838,6 +2911,26 @@ export function SettingsContent({
                                           language,
                                         )}
                                       </p>
+                                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                                        {device.current_device ? (
+                                          <Badge
+                                            variant="outline"
+                                            className="border-emerald-200/80 bg-emerald-50 text-emerald-700"
+                                          >
+                                            {tr(
+                                              language,
+                                              "Current browser",
+                                              "เบราว์เซอร์นี้",
+                                            )}
+                                          </Badge>
+                                        ) : null}
+                                        <Badge variant="outline">
+                                          {formatTimeUntil(
+                                            device.expires_at,
+                                            language,
+                                          )}
+                                        </Badge>
+                                      </div>
                                       <Button
                                         type="button"
                                         variant="ghost"

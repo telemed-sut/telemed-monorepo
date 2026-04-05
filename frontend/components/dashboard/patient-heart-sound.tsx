@@ -1035,58 +1035,69 @@ export function PatientHeartSoundContent({
             )}
           </section>
 
-          <section className="rounded-[28px] border border-slate-200/80 bg-white px-5 py-5 shadow-[0_18px_42px_rgba(15,23,42,0.04)]">
+          <section className="rounded-[24px] border border-slate-200/80 bg-white px-4 py-4 shadow-[0_16px_32px_rgba(15,23,42,0.04)]">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
                   {tr(language, "Upload workflow", "ขั้นตอนอัปโหลด")}
                 </p>
-                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-900">
-                  {tr(language, "Prepare files", "เตรียมไฟล์")}
+                <h2 className="mt-1.5 text-lg font-semibold tracking-tight text-slate-900">
+                  {tr(language, "Queue files", "เพิ่มไฟล์เข้าคิว")}
                 </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  {tr(
+                    language,
+                    "Pick files, set side and assignment, then queue them into this patient workspace.",
+                    "เลือกไฟล์ ตั้งค่าด้านและการกำหนดตำแหน่ง แล้วเพิ่มเข้าคิวใน workspace ของผู้ป่วยรายนี้",
+                  )}
+                </p>
               </div>
               <Button
                 type="button"
                 variant={uploadOpen ? "default" : "outline"}
                 size="sm"
-                className="rounded-full"
+                className="rounded-full shrink-0"
                 onClick={() => setUploadOpen((current) => !current)}
               >
                 {uploadOpen ? tr(language, "Close", "ปิด") : tr(language, "Open", "เปิด")}
               </Button>
             </div>
 
-            <div className="mt-4 space-y-4">
-              <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50/75 px-4 py-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">
-                      {tr(language, "Patient-scoped uploads", "อัปโหลดเฉพาะผู้ป่วยรายนี้")}
-                    </p>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">
-                      {tr(
-                        language,
-                        "Prepared files stay inside this workspace. Assign positions automatically or pin them manually before queuing.",
-                        "ไฟล์ที่เตรียมไว้จะอยู่ภายในพื้นที่ทำงานนี้เสมอ และสามารถจัดตำแหน่งอัตโนมัติหรือกำหนดเองก่อนเข้าคิวได้"
-                      )}
-                    </p>
-                  </div>
-                  <AudioLines className="mt-1 size-5 text-[#0891B2]" />
-                </div>
-              </div>
-
+            <div className="mt-4 space-y-3">
               {uploadOpen ? (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="heart-sound-files">
-                      {tr(language, "Audio files", "ไฟล์เสียง")}
-                    </Label>
+                <div className="space-y-3">
+                  <div className="rounded-[18px] border border-dashed border-sky-200/90 bg-sky-50/60 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-900">
+                          {selectedFiles.length > 0
+                            ? tr(language, `${selectedFiles.length} files ready`, `${selectedFiles.length} ไฟล์พร้อมแล้ว`)
+                            : tr(language, "Add audio files", "เพิ่มไฟล์เสียง")}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-600">
+                          {tr(
+                            language,
+                            "Multiple audio files are supported in one queue.",
+                            "รองรับการเลือกหลายไฟล์และเพิ่มเข้าคิวพร้อมกัน",
+                          )}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        className="min-h-10 rounded-xl shrink-0"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <CloudUpload className="size-4" />
+                        {tr(language, "Choose files", "เลือกไฟล์")}
+                      </Button>
+                    </div>
                     <Input
                       id="heart-sound-files"
                       ref={fileInputRef}
                       type="file"
                       accept="audio/*"
                       multiple
+                      className="hidden"
                       onChange={(event) => {
                         const files = Array.from(event.target.files ?? []);
                         setSelectedFiles(files);
@@ -1094,73 +1105,81 @@ export function PatientHeartSoundContent({
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>{tr(language, "Recording side", "ด้านที่บันทึก")}</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(["anterior", "posterior"] as PanelKind[]).map((panel) => (
-                        <Button
-                          key={panel}
-                          type="button"
-                          variant={uploadPanel === panel ? "default" : "outline"}
-                          className="rounded-2xl"
-                          onClick={() => {
-                            setUploadPanel(panel);
-                            if (panel === "anterior" && manualPosition > 6) {
-                              setManualPosition(1);
-                            }
-                            if (panel === "posterior" && manualPosition <= 6) {
-                              setManualPosition(7);
-                            }
-                          }}
-                        >
-                          {getPanelLabel(language, panel)}
-                        </Button>
-                      ))}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        {tr(language, "Recording side", "ด้านที่บันทึก")}
+                      </Label>
+                      <div className="grid grid-cols-2 gap-1.5 rounded-2xl border border-slate-200 bg-slate-50/90 p-1">
+                        {(["anterior", "posterior"] as PanelKind[]).map((panel) => (
+                          <Button
+                            key={panel}
+                            type="button"
+                            variant={uploadPanel === panel ? "default" : "ghost"}
+                            className={cn(
+                              "rounded-xl h-10",
+                              uploadPanel === panel
+                                ? "bg-[#0891B2] text-white hover:bg-[#0b86a5]"
+                                : "text-slate-700 hover:bg-white",
+                            )}
+                            onClick={() => {
+                              setUploadPanel(panel);
+                              if (panel === "anterior" && manualPosition > 6) {
+                                setManualPosition(1);
+                              }
+                              if (panel === "posterior" && manualPosition <= 6) {
+                                setManualPosition(7);
+                              }
+                            }}
+                          >
+                            {getPanelLabel(language, panel)}
+                          </Button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-2">
-                    <Label>{tr(language, "Position assignment", "การกำหนดตำแหน่ง")}</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(["auto", "manual"] as AssignmentMode[]).map((mode) => (
-                        <Button
-                          key={mode}
-                          type="button"
-                          variant={assignmentMode === mode ? "default" : "outline"}
-                          className="rounded-2xl"
-                          onClick={() => setAssignmentMode(mode)}
-                        >
-                          {mode === "auto"
-                            ? tr(language, "Auto assign", "จัดให้อัตโนมัติ")
-                            : tr(language, "Manual assign", "กำหนดเอง")}
-                        </Button>
-                      ))}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        {tr(language, "Assignment", "การกำหนดตำแหน่ง")}
+                      </Label>
+                      <div className="grid grid-cols-2 gap-1.5 rounded-2xl border border-slate-200 bg-slate-50/90 p-1">
+                        {(["auto", "manual"] as AssignmentMode[]).map((mode) => (
+                          <Button
+                            key={mode}
+                            type="button"
+                            variant={assignmentMode === mode ? "default" : "ghost"}
+                            className={cn(
+                              "rounded-xl h-10",
+                              assignmentMode === mode
+                                ? "bg-[#0891B2] text-white hover:bg-[#0b86a5]"
+                                : "text-slate-700 hover:bg-white",
+                            )}
+                            onClick={() => setAssignmentMode(mode)}
+                          >
+                            {mode === "auto"
+                              ? tr(language, "Auto", "อัตโนมัติ")
+                              : tr(language, "Manual", "กำหนดเอง")}
+                          </Button>
+                        ))}
+                      </div>
                     </div>
-                    <p className="text-xs leading-5 text-slate-500">
-                      {assignmentMode === "auto"
-                        ? tr(
-                            language,
-                            "Files will be distributed to the least-used positions on the selected side.",
-                            "ไฟล์จะถูกกระจายไปยังตำแหน่งที่ใช้น้อยที่สุดของด้านที่เลือก"
-                          )
-                        : tr(
-                            language,
-                            "All selected files will be attached to the exact position you choose below.",
-                            "ไฟล์ที่เลือกทั้งหมดจะถูกผูกกับตำแหน่งที่กำหนดด้านล่าง"
-                          )}
-                    </p>
                   </div>
 
                   {assignmentMode === "manual" ? (
-                    <div className="space-y-2">
-                      <Label>{tr(language, "Manual position", "ตำแหน่งที่กำหนดเอง")}</Label>
-                      <div className="grid grid-cols-4 gap-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        {tr(language, "Manual position", "ตำแหน่งที่กำหนดเอง")}
+                      </Label>
+                      <div className="grid grid-cols-4 gap-1.5">
                         {PANEL_POSITIONS[uploadPanel].map((position) => (
                           <Button
                             key={position}
                             type="button"
                             variant={manualPosition === position ? "default" : "outline"}
-                            className="rounded-2xl"
+                            className={cn(
+                              "h-10 rounded-xl",
+                              manualPosition === position && "bg-slate-900 text-white hover:bg-slate-900/90",
+                            )}
                             onClick={() => setManualPosition(position)}
                           >
                             {position}
@@ -1173,16 +1192,18 @@ export function PatientHeartSoundContent({
                   {selectedFiles.length > 0 ? (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-3">
-                        <Label>{tr(language, "Selected files", "ไฟล์ที่เลือก")}</Label>
-                        <span className="text-xs text-slate-500">
+                        <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                          {tr(language, "Selected files", "ไฟล์ที่เลือก")}
+                        </Label>
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
                           {selectedFiles.length} {tr(language, "files", "ไฟล์")}
                         </span>
                       </div>
-                      <div className="space-y-2">
+                      <div className="max-h-40 space-y-1.5 overflow-y-auto pr-1">
                         {selectedFiles.map((file) => {
                           const key = `${file.name}-${file.size}`;
                           return (
-                            <div key={key} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 px-3 py-2">
+                            <div key={key} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2">
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-medium text-slate-800">{file.name}</p>
                                 <p className="text-xs text-slate-500">{formatFileSize(file.size)}</p>
@@ -1204,23 +1225,63 @@ export function PatientHeartSoundContent({
                     </div>
                   ) : null}
 
-                  <Button
-                    type="button"
-                    className="min-h-11 w-full rounded-2xl"
-                    disabled={selectedFiles.length === 0}
-                    onClick={queueSelectedFiles}
-                  >
-                    <CloudUpload className="size-4" />
-                    {selectedFiles.length === 0
-                      ? tr(language, "Choose files first", "เลือกไฟล์ก่อน")
-                      : tr(language, `Queue ${selectedFiles.length} files`, `เพิ่ม ${selectedFiles.length} ไฟล์เข้าคิว`)}
-                  </Button>
+                  <div className="rounded-[18px] border border-slate-200 bg-slate-50/70 px-3 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-900">
+                          {assignmentMode === "auto"
+                            ? tr(language, "Auto assignment is on", "เปิดการจัดตำแหน่งอัตโนมัติอยู่")
+                            : tr(language, `Send all files to position ${manualPosition}`, `ส่งทุกไฟล์ไปตำแหน่ง ${manualPosition}`)}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {assignmentMode === "auto"
+                            ? tr(
+                                language,
+                                "Files will be distributed to the least-used positions on the selected side.",
+                                "ไฟล์จะถูกกระจายไปยังตำแหน่งที่ใช้น้อยที่สุดของด้านที่เลือก",
+                              )
+                            : tr(
+                                language,
+                                "Every selected file will be queued to the exact position shown here.",
+                                "ไฟล์ที่เลือกทั้งหมดจะถูกเพิ่มเข้าคิวในตำแหน่งที่ระบุไว้นี้",
+                              )}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        className="min-h-11 rounded-xl shrink-0"
+                        disabled={selectedFiles.length === 0}
+                        onClick={queueSelectedFiles}
+                      >
+                        <CloudUpload className="size-4" />
+                        {selectedFiles.length === 0
+                          ? tr(language, "Choose files first", "เลือกไฟล์ก่อน")
+                          : tr(language, `Queue ${selectedFiles.length}`, `เพิ่ม ${selectedFiles.length} ไฟล์`)}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               ) : (
-                <Button type="button" className="min-h-11 w-full rounded-2xl" onClick={() => setUploadOpen(true)}>
-                  <CloudUpload className="size-4" />
-                  {tr(language, "Open upload workflow", "เปิดขั้นตอนอัปโหลด")}
-                </Button>
+                <div className="rounded-[18px] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-900">
+                        {tr(language, "Compact upload panel is ready", "แผงอัปโหลดแบบกระชับพร้อมใช้งาน")}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {tr(
+                          language,
+                          "Open it when you want to add files for this patient.",
+                          "เปิดเมื่อต้องการเพิ่มไฟล์ของผู้ป่วยรายนี้",
+                        )}
+                      </p>
+                    </div>
+                    <Button type="button" className="min-h-10 rounded-xl shrink-0" onClick={() => setUploadOpen(true)}>
+                      <CloudUpload className="size-4" />
+                      {tr(language, "Open upload", "เปิดอัปโหลด")}
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
           </section>

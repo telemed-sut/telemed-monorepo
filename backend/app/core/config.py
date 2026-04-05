@@ -54,8 +54,9 @@ class Settings(BaseSettings):
     super_admin_emails: Union[List[str], str] = ["admin@example.com"]
     admin_unlock_whitelisted_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
     admin_2fa_required: bool = True
+    admin_jwt_expires_in: int = 43200
     admin_2fa_issuer: str = "Telemed Admin"
-    privileged_action_mfa_max_age_seconds: int = 900
+    privileged_action_mfa_max_age_seconds: int = 14400
     trusted_device_cookie_name: str = "trusted_device_token"
     admin_trusted_device_days: int = 7
     user_trusted_device_days: int = 30

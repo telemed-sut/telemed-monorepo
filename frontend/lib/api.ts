@@ -253,6 +253,7 @@ const API_BASE_URL =
 export type ApiError = Error & { status?: number; detail?: unknown; code?: string };
 export type ApiLanguage = "en" | "th";
 export type AuthErrorContext = "login" | "step-up" | "forgot-password" | "reset-password";
+export type LoginRedirectReason = "token_expired" | "refresh_failed" | "session_missing";
 
 // Token refresh state to prevent multiple simultaneous refresh calls
 let refreshPromise: Promise<string | null> | null = null;
@@ -326,13 +327,21 @@ const AUTH_ERROR_RULES: Array<{
   messages: Record<ApiLanguage, string>;
 }> = [
   {
-    contexts: ["login", "step-up"],
+    contexts: ["login"],
     codes: ["invalid_credentials", "incorrect_email_or_password"],
-    statuses: [400, 401],
     patterns: [/invalid credentials|incorrect password|incorrect email or password|password is incorrect/i],
     messages: {
       en: "Email or password is incorrect.",
       th: "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
+    },
+  },
+  {
+    contexts: ["step-up"],
+    codes: ["invalid_credentials", "incorrect_email_or_password"],
+    patterns: [/invalid credentials|incorrect password|incorrect email or password|password is incorrect/i],
+    messages: {
+      en: "Password for this account is incorrect.",
+      th: "รหัสผ่านของบัญชีนี้ไม่ถูกต้อง",
     },
   },
   {
@@ -348,8 +357,8 @@ const AUTH_ERROR_RULES: Array<{
     contexts: ["login", "step-up"],
     patterns: [/invalid two-factor authentication code|invalid two-factor code/i],
     messages: {
-      en: "Verification code is incorrect.",
-      th: "รหัสยืนยันไม่ถูกต้อง",
+      en: "Authenticator code or backup code is incorrect.",
+      th: "รหัสจากแอปยืนยันตัวตนหรือรหัสสำรองไม่ถูกต้อง",
     },
   },
   {
@@ -550,11 +559,24 @@ export function getAuthErrorMessage(
       continue;
     }
 
-    const codeMatch = !rule.codes || (detailCode ? rule.codes.includes(detailCode) : false);
-    const statusMatch = !rule.statuses || (typeof apiError.status === "number" && rule.statuses.includes(apiError.status));
-    const patternMatch = !rule.patterns || rule.patterns.some((pattern) => pattern.test(rawMessage));
+    const hasCodeRule = Boolean(rule.codes?.length);
+    const hasStatusRule = Boolean(rule.statuses?.length);
+    const hasPatternRule = Boolean(rule.patterns?.length);
+    const codeMatch = hasCodeRule && detailCode ? rule.codes!.includes(detailCode) : false;
+    const statusMatch =
+      hasStatusRule && typeof apiError.status === "number"
+        ? rule.statuses!.includes(apiError.status)
+        : false;
+    const patternMatch = hasPatternRule
+      ? rule.patterns!.some((pattern) => pattern.test(rawMessage))
+      : false;
+    const primaryMatch =
+      hasCodeRule || hasPatternRule
+        ? codeMatch || patternMatch
+        : statusMatch;
+    const statusAllowed = !hasStatusRule || statusMatch;
 
-    if (codeMatch || statusMatch || patternMatch) {
+    if (primaryMatch && statusAllowed) {
       return rule.messages[language];
     }
   }
@@ -743,8 +765,16 @@ export function getAdminSsoLogoutPath(): string {
   return "/api/auth/admin/sso/logout";
 }
 
+export function getLoginRedirectPath(reason: LoginRedirectReason = "session_missing"): string {
+  const query = new URLSearchParams({
+    error: "session_expired",
+    reason,
+  });
+  return `/login?${query.toString()}`;
+}
+
 /** Force logout: clear token and redirect to login. */
-function forceLogout() {
+function forceLogout(reason: LoginRedirectReason = "refresh_failed") {
   // Only perform client-side logout/redirect — avoid importing client-only
   // stores or touching window during SSR.
   if (typeof window === "undefined") return;
@@ -760,7 +790,7 @@ function forceLogout() {
     // ignore import failures on client
   });
 
-  window.location.href = "/login";
+  window.location.href = getLoginRedirectPath(reason);
 }
 
 /** Try to refresh the token, updating the auth store. Deduplicates concurrent calls. */

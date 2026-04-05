@@ -2,7 +2,14 @@
 
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
-import { LoaderCircle, Pause, Play, RotateCcw, Volume1, Volume2 } from "lucide-react";
+import {
+  LoaderCircle,
+  Pause,
+  Play,
+  RotateCcw,
+  Volume1,
+  Volume2,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -124,14 +131,15 @@ export function HeartSoundInlinePlayer({
     }, 700);
   };
 
-  const progressPercent = duration > 0 ? Math.min((currentTime / duration) * 100, 100) : 0;
+  const progressPercent =
+    duration > 0 ? Math.min((currentTime / duration) * 100, 100) : 0;
   const volumePercent = Math.round(volumeLevel * 100);
 
   return (
     <div
       className={cn(
-        "rounded-[24px] border border-slate-200/80 bg-white px-3 py-3 shadow-[0_8px_18px_rgba(15,23,42,0.04)]",
-        className
+        "rounded-[12px] border border-slate-200/80 bg-white px-3 py-3 shadow-[0_8px_18px_rgba(15,23,42,0.04)]",
+        className,
       )}
     >
       <audio
@@ -173,7 +181,7 @@ export function HeartSoundInlinePlayer({
           size="icon-lg"
           className={cn(
             "shrink-0 rounded-full border-sky-200 bg-sky-50 text-sky-950 shadow-none hover:border-sky-300 hover:bg-sky-100 hover:text-sky-950",
-            isPlaying && "border-sky-300 bg-sky-100 text-sky-950"
+            isPlaying && "border-sky-300 bg-sky-100 text-sky-950",
           )}
           onClick={handleTogglePlayback}
           aria-label={isPlaying ? "Pause audio" : "Play audio"}
@@ -229,7 +237,9 @@ export function HeartSoundInlinePlayer({
                       onPointerUp={() => setVolumePanelOpen(false)}
                       onKeyUp={() => setVolumePanelOpen(false)}
                       className="heart-sound-volume-slider h-2 w-full cursor-pointer appearance-none rounded-full focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200"
-                      style={{ "--volume": `${volumePercent}%` } as CSSProperties}
+                      style={
+                        { "--volume": `${volumePercent}%` } as CSSProperties
+                      }
                       aria-label="Adjust volume"
                     />
                     <Volume2 className="size-4 shrink-0 text-slate-500" />

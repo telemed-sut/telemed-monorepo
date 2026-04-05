@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
-import { refreshToken } from "@/lib/api";
+import { getLoginRedirectPath, refreshToken } from "@/lib/api";
 
 /**
  * Proactively refreshes the JWT token before it expires.
@@ -31,7 +31,7 @@ export function useTokenRefresh() {
       // Token already fully expired — force logout
       if (ttl <= 0) {
         clearToken();
-        router.replace("/login");
+        router.replace(getLoginRedirectPath("token_expired"));
         return;
       }
 
@@ -46,7 +46,7 @@ export function useTokenRefresh() {
         } catch {
           // Refresh failed — token may already be expired
           clearToken();
-          router.replace("/login");
+          router.replace(getLoginRedirectPath("refresh_failed"));
         } finally {
           refreshingRef.current = false;
         }

@@ -25,6 +25,7 @@ http://localhost:3000 and http://localhost:8080, backend runs on port 8000.
 - DATABASE_URL: Postgres connection URL (Neon/Supabase)
 - JWT_SECRET: HMAC secret for HS256 tokens
 - JWT_EXPIRES_IN: token lifetime in seconds (e.g., 3600)
+- ADMIN_JWT_EXPIRES_IN: admin session lifetime in seconds (default 43200)
 - CORS_ORIGINS: comma-separated origins (default http://localhost:3000,http://localhost:8080)
 - DEVICE_API_SECRET: fallback secret for device pressure ingestion signatures (keep for legacy migration)
 - DEVICE_API_SECRETS: per-device secret map (JSON string), recommended for production
@@ -102,6 +103,12 @@ INFISICAL_RUN_ARGS="--env=dev" ./scripts/dev-api.sh
 - Login endpoint: POST /auth/login with {"email", "password"}.
 - Refresh endpoint: POST /auth/refresh (requires valid JWT token).
 - Logout endpoint: POST /auth/logout (stateless JWT - client should discard token).
+- Non-admin accounts use `JWT_EXPIRES_IN` for the rolling cookie session.
+- Admin accounts use `ADMIN_JWT_EXPIRES_IN` for the rolling cookie session.
+- Admin secure verification window for routine protected actions uses
+  `PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS` (default 4 hours).
+- Higher-risk admin recovery and privileged-management actions require a fresher
+  MFA check than the general secure window.
 - Local seed creates bootstrap accounts for:
   - `admin@example.com` (platform admin demo account)
   - `admin-ops@example.com` (regular admin demo account)

@@ -6,12 +6,13 @@ const setSessionMock = vi.fn();
 const hydrateMock = vi.fn();
 const loginRequestMock = vi.fn();
 const fetchAdminSsoStatusMock = vi.fn();
+let mockSearchParamsString = "";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     replace: replaceMock,
   }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mockSearchParamsString),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -47,6 +48,7 @@ describe("LoginClientPage", () => {
     hydrateMock.mockReset();
     loginRequestMock.mockReset();
     fetchAdminSsoStatusMock.mockReset();
+    mockSearchParamsString = "";
     fetchAdminSsoStatusMock.mockResolvedValue({
       enabled: false,
       enforced_for_admin: false,
@@ -169,5 +171,19 @@ describe("LoginClientPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hide setup key" }));
 
     expect(screen.queryByText("Setup key: SECRET123")).not.toBeInTheDocument();
+  });
+
+  it("shows a clear message when a session refresh failed", async () => {
+    mockSearchParamsString = "error=session_expired&reason=refresh_failed";
+
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    render(<LoginClientPage />);
+
+    expect(
+      await screen.findByText(
+        "We couldn't refresh your session securely. Please sign in again."
+      )
+    ).toBeInTheDocument();
   });
 });

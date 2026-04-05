@@ -16,6 +16,8 @@ Use `authentik` as the identity provider for `admin` accounts while keeping:
 1. Set these runtime variables for the backend:
    - `ADMIN_OIDC_ENABLED=true`
    - `ADMIN_OIDC_ENFORCED=true` when you want non-bootstrap admins to use SSO only
+   - `ADMIN_JWT_EXPIRES_IN=43200` unless your environment intentionally uses a different admin session TTL
+   - `PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS=14400` unless your environment intentionally uses a different routine secure-action window
    - `ADMIN_OIDC_ISSUER_URL=http://localhost:9000/application/o/telemed-admin`
    - `ADMIN_OIDC_CLIENT_ID=telemed-admin`
    - `ADMIN_OIDC_CLIENT_SECRET=<client secret from authentik>`
@@ -104,3 +106,6 @@ Recommended migration path:
    - `admin_sso_claim_mismatch`
    - `admin_sso_group_denied`
    - `admin_sso_logout`
+
+For broader browser and secure-session validation after SSO changes, use the
+[admin session validation checklist](/Volumes/P1Back/telemed-monorepo/docs/security/admin-session-validation-checklist.md).

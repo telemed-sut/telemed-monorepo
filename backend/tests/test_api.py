@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api import auth as auth_api
-from app.core.security import generate_totp_code, generate_totp_secret
+from app.core.security import decode_token, generate_totp_code, generate_totp_secret
 from app.models.audit_log import AuditLog
 from app.models.invite import UserInvite
 from app.models.patient import Patient
@@ -37,10 +37,12 @@ def test_login_endpoint(client: TestClient, db: Session):
     assert "access_token" in data
     assert data["token_type"] == "bearer"
     assert "expires_in" in data
+    assert data["expires_in"] == auth_api.settings.jwt_expires_in
     assert data["user"]["email"] == "test@example.com"
     assert data["user"]["role"] == "medical_student"
     assert data["user"]["mfa_verified"] is True
     assert "set-cookie" in response.headers
+    assert f"Max-Age={auth_api.settings.jwt_expires_in}" in response.headers["set-cookie"]
 
     audit = db.scalar(
         select(AuditLog).where(
@@ -50,6 +52,26 @@ def test_login_endpoint(client: TestClient, db: Session):
     )
     assert audit is not None
     assert audit.status == "success"
+
+
+def test_admin_login_uses_extended_session_ttl(client: TestClient, db: Session):
+    user = User(
+        email="admin-session@example.com",
+        password_hash=get_password_hash("TestPassword123"),
+        role=UserRole.admin,
+    )
+    db.add(user)
+    db.commit()
+
+    response = client.post("/auth/login", json={
+        "email": "admin-session@example.com",
+        "password": "TestPassword123",
+    })
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["expires_in"] == auth_api.settings.admin_jwt_expires_in
+    assert f"Max-Age={auth_api.settings.admin_jwt_expires_in}" in response.headers["set-cookie"]
 
 
 def test_login_invalid_credentials(client: TestClient, db: Session):
@@ -89,7 +111,41 @@ def test_refresh_endpoint(client: TestClient, db: Session):
     data = response.json()
     assert "access_token" in data
     assert data["token_type"] == "bearer"
+    assert data["expires_in"] == auth_api.settings.admin_jwt_expires_in
     assert data["user"]["email"] == "refresh@example.com"
+    assert f"Max-Age={auth_api.settings.admin_jwt_expires_in}" in response.headers["set-cookie"]
+
+
+def test_refresh_endpoint_preserves_recent_mfa_and_session_metadata(client: TestClient, db: Session):
+    user = User(
+        email="refresh-mfa@example.com",
+        password_hash=get_password_hash("TestPassword123"),
+        role=UserRole.admin,
+        two_factor_enabled=True,
+    )
+    db.add(user)
+    db.commit()
+
+    authenticated_at = datetime.now(timezone.utc) - timedelta(hours=3)
+    stale_token = auth_service.create_login_response(
+        user,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=authenticated_at,
+        session_id="refresh-session-id",
+    )["access_token"]
+
+    response = client.post(
+        "/auth/refresh",
+        headers={"Authorization": f"Bearer {stale_token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    refreshed_token = payload["access_token"]
+    assert payload["user"]["mfa_recent_for_privileged_actions"] is True
+    assert decode_token(refreshed_token)["session_id"] == "refresh-session-id"
+    assert decode_token(refreshed_token)["mfa_authenticated_at"] == decode_token(stale_token)["mfa_authenticated_at"]
 
 
 def test_refresh_endpoint_uses_auth_cookie(client: TestClient, db: Session):

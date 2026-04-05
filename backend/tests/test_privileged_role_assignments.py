@@ -140,6 +140,34 @@ def test_security_admin_can_run_recovery_actions(client: TestClient, db: Session
     assert password_reset.json()["reset_token"]
 
 
+def test_security_recovery_actions_require_fresh_high_risk_mfa(client: TestClient, db: Session):
+    bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+    security_admin = _make_user(db, email="stale-security-admin@example.com", role=UserRole.admin)
+    target_admin = _make_user(db, email="stale-target-admin@example.com", role=UserRole.admin)
+
+    _grant_privileged_role(
+        db,
+        user=security_admin,
+        role=PrivilegedRole.security_admin,
+        created_by=bootstrap_admin,
+    )
+
+    stale_response = create_login_response(
+        security_admin,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+    response = client.post(
+        f"/security/users/{target_admin.id}/2fa/reset",
+        json={"reason": "High risk action should require fresher MFA"},
+        headers=_auth(stale_response["access_token"]),
+    )
+
+    assert response.status_code == 401
+    assert "Recent multi-factor verification required" in response.json()["detail"]
+
+
 def test_hospital_admin_cannot_run_recovery_actions(client: TestClient, db: Session):
     bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
     hospital_admin = _make_user(db, email="hospital-admin@example.com", role=UserRole.admin)
@@ -261,7 +289,7 @@ def test_access_profile_hides_sensitive_details_without_recent_mfa(client: TestC
         created_by=bootstrap_admin,
     )
 
-    stale_auth_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    stale_auth_time = datetime.now(timezone.utc) - timedelta(hours=5)
     token = create_login_response(
         delegated_admin,
         db=db,

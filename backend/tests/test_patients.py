@@ -282,7 +282,7 @@ def test_patient_contact_endpoint_reveals_details_and_writes_audit(client: TestC
     assert audit_entry is not None
 
 
-def test_patient_contact_endpoint_requires_recent_secure_session(client: TestClient, db: Session):
+def test_patient_contact_endpoint_allows_stale_session(client: TestClient, db: Session):
     admin = create_test_user(db, UserRole.admin)
     patient = create_patient(
         db,
@@ -298,70 +298,51 @@ def test_patient_contact_endpoint_requires_recent_secure_session(client: TestCli
         admin,
         db=db,
         mfa_verified=True,
-        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
     )
     response = client.get(
         f"/patients/{patient.id}/contact",
         headers={"Authorization": f"Bearer {stale_response['access_token']}"},
     )
 
-    assert response.status_code == 403
-    assert "Recent multi-factor verification required" in response.json()["detail"]
+    assert response.status_code == 200
+    assert response.json()["phone"] == "+66123456789"
 
 
-def test_patient_contact_endpoint_succeeds_after_step_up_refresh(client: TestClient, db: Session):
-    doctor = create_test_user(db, UserRole.doctor)
+def test_patient_contact_endpoint_accepts_recent_session_within_four_hours(client: TestClient, db: Session):
+    admin = create_test_user(db, UserRole.admin)
     patient = create_patient(
         db,
         PatientCreate(
-            first_name="Fresh",
-            last_name="StepUp",
+            first_name="Recent",
+            last_name="Window",
             date_of_birth=date(1990, 1, 1),
             phone="+66123456789",
         ),
     )
-    assign_doctor_to_patient(db, doctor.id, patient.id)
 
-    stale_response = create_login_response(
-        doctor,
+    recent_response = create_login_response(
+        admin,
         db=db,
         mfa_verified=True,
-        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
-        session_id="doctor-step-up-session",
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=3),
     )
-    stale_headers = {"Authorization": f"Bearer {stale_response['access_token']}"}
-
-    blocked_response = client.get(
+    response = client.get(
         f"/patients/{patient.id}/contact",
-        headers=stale_headers,
+        headers={"Authorization": f"Bearer {recent_response['access_token']}"},
     )
-    assert blocked_response.status_code == 403
 
-    step_up_response = client.post(
-        "/auth/step-up",
-        json={"password": "password"},
-        headers=stale_headers,
-    )
-    assert step_up_response.status_code == 200, step_up_response.text
-    refreshed_headers = {
-        "Authorization": f"Bearer {step_up_response.json()['access_token']}",
-    }
-
-    revealed_response = client.get(
-        f"/patients/{patient.id}/contact",
-        headers=refreshed_headers,
-    )
-    assert revealed_response.status_code == 200
-    assert revealed_response.json()["phone"] == "+66123456789"
+    assert response.status_code == 200
+    assert response.json()["phone"] == "+66123456789"
 
 
-def test_create_patient_with_contact_requires_recent_secure_session(client: TestClient, db: Session):
+def test_create_patient_with_contact_allows_stale_session(client: TestClient, db: Session):
     admin = create_test_user(db, UserRole.admin)
     stale_response = create_login_response(
         admin,
         db=db,
         mfa_verified=True,
-        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
     )
 
     response = client.post(
@@ -375,11 +356,11 @@ def test_create_patient_with_contact_requires_recent_secure_session(client: Test
         headers={"Authorization": f"Bearer {stale_response['access_token']}"},
     )
 
-    assert response.status_code == 403
-    assert "Recent multi-factor verification required" in response.json()["detail"]
+    assert response.status_code == 201
+    assert response.json()["phone"] == "+66123456789"
 
 
-def test_update_patient_contact_requires_recent_secure_session(client: TestClient, db: Session):
+def test_update_patient_contact_allows_stale_session(client: TestClient, db: Session):
     admin = create_test_user(db, UserRole.admin)
     headers = get_auth_headers(admin)
     patient_response = client.post(
@@ -394,7 +375,7 @@ def test_update_patient_contact_requires_recent_secure_session(client: TestClien
         admin,
         db=db,
         mfa_verified=True,
-        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
     )
     response = client.put(
         f"/patients/{patient_id}",
@@ -402,8 +383,8 @@ def test_update_patient_contact_requires_recent_secure_session(client: TestClien
         headers={"Authorization": f"Bearer {stale_response['access_token']}"},
     )
 
-    assert response.status_code == 403
-    assert "Recent multi-factor verification required" in response.json()["detail"]
+    assert response.status_code == 200
+    assert response.json()["id"] == patient_id
 
 
 def test_patient_delete_is_soft_delete(client: TestClient, db: Session):

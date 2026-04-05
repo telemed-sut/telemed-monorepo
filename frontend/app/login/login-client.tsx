@@ -135,6 +135,35 @@ export default function LoginClientPage() {
   useEffect(() => {
     const errorCode = searchParams.get("error");
     const reason = searchParams.get("reason");
+    if (errorCode === "session_expired") {
+      const reasonMessages: Record<string, { en: string; th: string }> = {
+        token_expired: {
+          en: "Your session expired while you were away. Please sign in again.",
+          th: "เซสชันหมดอายุระหว่างที่คุณไม่ได้ใช้งาน กรุณาเข้าสู่ระบบอีกครั้ง",
+        },
+        refresh_failed: {
+          en: "We couldn't refresh your session securely. Please sign in again.",
+          th: "ระบบไม่สามารถรีเฟรชเซสชันอย่างปลอดภัยได้ กรุณาเข้าสู่ระบบอีกครั้ง",
+        },
+        session_missing: {
+          en: "Your previous session is no longer available. Please sign in again.",
+          th: "ไม่พบเซสชันก่อนหน้านี้แล้ว กรุณาเข้าสู่ระบบอีกครั้ง",
+        },
+      };
+
+      const message = reason ? reasonMessages[reason] : null;
+      setError(
+        message
+          ? tr(language, message.en, message.th)
+          : tr(
+              language,
+              "Your session is no longer available. Please sign in again.",
+              "ไม่พบเซสชันก่อนหน้านี้แล้ว กรุณาเข้าสู่ระบบอีกครั้ง",
+            ),
+      );
+      return;
+    }
+
     if (errorCode !== "admin_sso_failed") {
       return;
     }

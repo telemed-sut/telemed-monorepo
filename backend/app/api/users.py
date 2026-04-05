@@ -34,6 +34,7 @@ from app.services.auth import get_admin_user, get_current_user
 router = APIRouter(prefix="/users", tags=["users"])
 settings = get_settings()
 logger = logging.getLogger(__name__)
+HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS = 30 * 60
 
 
 # Use shared utility for consistent IP extraction across all routes.
@@ -411,7 +412,11 @@ def create_user_invite(
     """Create an invite link. Admin only."""
     invite_reason: str | None = None
     if payload.role == UserRole.admin:
-        auth_service.require_recent_privileged_session(request, current_user)
+        auth_service.require_recent_privileged_session(
+            request,
+            current_user,
+            max_age_seconds=HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS,
+        )
         invite_reason = _normalize_privileged_reason(payload.reason)
     if payload.role == UserRole.admin and not auth_service.can_manage_privileged_admins(current_user, db):
         raise HTTPException(
@@ -881,7 +886,11 @@ def resend_user_invite(
         raise HTTPException(status_code=404, detail="Invite not found.")
 
     if invite.role == UserRole.admin:
-        auth_service.require_recent_privileged_session(request, current_user)
+        auth_service.require_recent_privileged_session(
+            request,
+            current_user,
+            max_age_seconds=HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS,
+        )
     if invite.role == UserRole.admin and not auth_service.can_manage_privileged_admins(current_user, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -945,7 +954,11 @@ def revoke_user_invite(
     if not invite:
         raise HTTPException(status_code=404, detail="Invite not found.")
     if invite.role == UserRole.admin:
-        auth_service.require_recent_privileged_session(request, current_user)
+        auth_service.require_recent_privileged_session(
+            request,
+            current_user,
+            max_age_seconds=HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS,
+        )
     if invite.role == UserRole.admin and not auth_service.can_manage_privileged_admins(current_user, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

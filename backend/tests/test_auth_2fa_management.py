@@ -449,6 +449,57 @@ def test_step_up_auth_can_create_trusted_device(client: TestClient, db: Session)
     assert auth_api.settings.trusted_device_cookie_name in response.headers.get("set-cookie", "")
 
 
+def test_step_up_auth_trusted_device_satisfies_follow_up_challenge(client: TestClient, db: Session):
+    secret = generate_totp_secret()
+    user = _create_user(db, email="step-up-follow-up@example.com", role=UserRole.admin)
+    user.two_factor_secret = secret
+    user.two_factor_enabled = True
+    user.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+
+    first_token = create_login_response(
+        user,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
+        session_id="step-up-follow-up-session",
+    )["access_token"]
+
+    first_response = client.post(
+        "/auth/step-up",
+        json={
+            "password": "TestPass123",
+            "otp_code": generate_totp_code(secret),
+            "remember_device": True,
+        },
+        headers={"Authorization": f"Bearer {first_token}", "user-agent": "pytest-step-up-follow-up"},
+    )
+
+    assert first_response.status_code == 200, first_response.text
+    trusted_cookie = first_response.cookies.get(auth_api.settings.trusted_device_cookie_name)
+    assert trusted_cookie
+
+    client.cookies.set(auth_api.settings.trusted_device_cookie_name, trusted_cookie)
+
+    second_token = create_login_response(
+        user,
+        db=db,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
+        session_id="step-up-follow-up-session-2",
+    )["access_token"]
+
+    second_response = client.post(
+        "/auth/step-up",
+        json={"password": "TestPass123"},
+        headers={"Authorization": f"Bearer {second_token}", "user-agent": "pytest-step-up-follow-up"},
+    )
+
+    assert second_response.status_code == 200, second_response.text
+    assert second_response.json()["user"]["mfa_recent_for_privileged_actions"] is True
+
+
 def test_reset_two_factor_invalid_code_writes_failure_audit(
     client: TestClient,
     db: Session,

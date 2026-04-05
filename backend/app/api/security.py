@@ -27,6 +27,7 @@ from app.services.auth import get_admin_user, get_db
 router = APIRouter(prefix="/security", tags=["security"])
 settings = get_settings()
 logger = logging.getLogger(__name__)
+HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS = 30 * 60
 
 
 # Use shared utility for consistent IP extraction across all routes.
@@ -87,7 +88,11 @@ def _require_privileged_admin_management(
     db: Session,
     current_user: User,
 ) -> None:
-    auth_service.require_recent_privileged_session(request, current_user)
+    auth_service.require_recent_privileged_session(
+        request,
+        current_user,
+        max_age_seconds=HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS,
+    )
     if not auth_service.can_manage_privileged_admins(current_user, db):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin only.")
 
@@ -98,7 +103,11 @@ def _require_security_recovery_access(
     db: Session,
     current_user: User,
 ) -> None:
-    auth_service.require_recent_privileged_session(request, current_user)
+    auth_service.require_recent_privileged_session(
+        request,
+        current_user,
+        max_age_seconds=HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS,
+    )
     if not auth_service.can_manage_security_recovery(current_user, db):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security admin only.")
 

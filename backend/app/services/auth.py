@@ -267,6 +267,12 @@ def is_recent_mfa_authenticated(
     return _now_utc() - mfa_authenticated_at <= timedelta(seconds=max(threshold_seconds, 1))
 
 
+def get_access_token_ttl_seconds(user: User | None) -> int:
+    if user and user.role == UserRole.admin:
+        return settings.admin_jwt_expires_in
+    return settings.jwt_expires_in
+
+
 def create_login_response(
     user: User,
     *,
@@ -277,6 +283,7 @@ def create_login_response(
     sso_provider: str | None = None,
     session_id: str | None = None,
 ) -> dict:
+    expires_in = get_access_token_ttl_seconds(user)
     effective_mfa_verified = not requires_token_mfa(user) or bool(mfa_verified)
     auth_time = mfa_authenticated_at
     if effective_mfa_verified and auth_time is None:
@@ -292,12 +299,13 @@ def create_login_response(
             "auth_source": auth_source,
             "sso_provider": sso_provider,
             "session_id": effective_session_id,
-        }
+        },
+        expires_in=expires_in,
     )
     return {
         "access_token": token,
         "token_type": "bearer",
-        "expires_in": settings.jwt_expires_in,
+        "expires_in": expires_in,
         "user": {
             "id": str(user.id),
             "email": user.email,

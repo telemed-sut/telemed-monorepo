@@ -95,6 +95,14 @@ The current backend policy enforces admin 2FA and supports:
 - trusted devices, and
 - security-admin 2FA reset flows.
 
+The current session model also distinguishes between routine protected work and
+higher-risk recovery actions:
+
+- routine protected actions use a 4-hour secure verification window,
+- higher-risk recovery and privileged-management actions require fresher MFA,
+  and
+- admin browser sessions use a longer rolling session TTL than standard users.
+
 ## Onboarding policy
 
 Admin onboarding must follow this sequence:
@@ -169,6 +177,7 @@ At every review, confirm:
 - whitelisted unlock IPs are still valid,
 - invite-only admin onboarding is still enforced,
 - 2FA remains mandatory for admins, and
+- admin session TTL and secure-action windows still match the deployed policy,
 - runbooks still match the deployed system behavior.
 
 ## Next steps
@@ -178,4 +187,5 @@ runbooks without improvisation:
 
 - [Privileged admin bootstrap runbook](/Volumes/P1Back/telemed-monorepo/docs/security/privileged-admin-bootstrap-runbook.md)
 - [Admin emergency access runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md)
+- [Admin session validation checklist](/Volumes/P1Back/telemed-monorepo/docs/security/admin-session-validation-checklist.md)
 - [Secret rotation runbook](/Volumes/P1Back/telemed-monorepo/docs/security/secret-rotation-runbook.md)

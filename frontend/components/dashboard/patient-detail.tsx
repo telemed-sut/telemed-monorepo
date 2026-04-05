@@ -40,14 +40,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
 import { getPatientLoadErrorTitle } from "@/components/dashboard/patient-load-error";
-import { SensitiveActionReauthDialog } from "@/components/dashboard/sensitive-action-reauth-dialog";
 import {
   readPatientDetailCache,
   writePatientDetailCache,
 } from "@/lib/patient-workspace-cache";
 import { preloadPatientHeartSoundBundle } from "@/lib/patient-workspace-prefetch";
 import { toast } from "@/components/ui/toast";
-import { isRecentSensitiveSessionError } from "@/lib/sensitive-session";
 
 interface PatientDetailContentProps {
   patientId: string;
@@ -178,7 +176,6 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
   const [loadingContactDetails, setLoadingContactDetails] = useState(false);
   const [contactDetailsError, setContactDetailsError] = useState<string | null>(null);
   const [contactDetailsRevealed, setContactDetailsRevealed] = useState(false);
-  const [reauthOpen, setReauthOpen] = useState(false);
   const patientWorkspaceHrefs = React.useMemo(
     () => getPatientWorkspaceHrefs(patientId),
     [patientId]
@@ -202,7 +199,6 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     setContactDetailsError(null);
     setLoadingContactDetails(false);
     setContactDetailsRevealed(false);
-    setReauthOpen(false);
   }, [cachedSnapshot]);
 
   useEffect(() => {
@@ -243,11 +239,6 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
         err,
         tr(language, "Protected details could not be revealed.", "ยังไม่สามารถแสดงข้อมูลที่ถูกปกป้องได้")
       );
-      if (status === 403 && isRecentSensitiveSessionError(err)) {
-        setContactDetailsError(detail);
-        setReauthOpen(true);
-        return;
-      }
       setContactDetailsError(detail);
       toast.error(detail);
     } finally {
@@ -811,13 +802,14 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
           </div>
         </m.section>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
+        <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
           <m.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.22, delay: 0.03 }}
+            className="h-full"
           >
-            <Card className="rounded-[28px] border-border/70 bg-card shadow-sm">
+            <Card className="h-full rounded-[28px] border-border/70 bg-card shadow-sm">
               <CardContent className="space-y-5 px-5 py-5">
                 <div className="space-y-1">
                   <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
@@ -868,8 +860,9 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.22, delay: 0.06 }}
+            className="h-full"
           >
-            <Card className="rounded-[28px] border-border/70 bg-card shadow-sm">
+            <Card className="h-full rounded-[28px] border-border/70 bg-card shadow-sm">
               <CardContent className="space-y-5 px-5 py-5">
                 <div className="space-y-1">
                   <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
@@ -1063,20 +1056,6 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
           </Card>
         </m.section>
       </div>
-      <SensitiveActionReauthDialog
-        open={reauthOpen}
-        onOpenChange={setReauthOpen}
-        onSuccess={async () => {
-          await revealContactDetails();
-        }}
-        title={tr(language, "Refresh secure access", "รีเฟรช secure access")}
-        description={tr(
-          language,
-          "Confirm your identity again before revealing protected patient contact details.",
-          "ยืนยันตัวตนอีกครั้งก่อนแสดงข้อมูลติดต่อผู้ป่วยที่ถูกปกป้อง",
-        )}
-        actionLabel={tr(language, "Refresh and reveal", "รีเฟรชแล้วแสดงข้อมูล")}
-      />
     </LazyMotion>
   );
 }

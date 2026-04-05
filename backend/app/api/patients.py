@@ -54,18 +54,6 @@ def _patient_audit_details(patient) -> dict:
     }
 
 
-def _payload_contains_contact_details(payload: PatientCreate | PatientUpdate) -> bool:
-    data = payload.model_dump(exclude_unset=True)
-    for field in ("phone", "email", "address"):
-        value = data.get(field)
-        if value is None:
-            continue
-        if isinstance(value, str) and not value.strip():
-            continue
-        return True
-    return False
-
-
 def notify_care_team(
     db: Session,
     current_user: User,
@@ -115,11 +103,6 @@ def create_patient(
     """Create new patient (admin or doctor)."""
     if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
-    if _payload_contains_contact_details(payload):
-        auth_service.require_recent_sensitive_session(
-            request,
-            error_status=status.HTTP_403_FORBIDDEN,
-        )
     doctor_id = current_user.id if current_user.role == UserRole.doctor else None
     patient = patient_service.create_patient(db, payload, doctor_id=doctor_id)
     audit_service.log_action(
@@ -201,7 +184,7 @@ def get_patient_contact_details(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):
-    """Reveal patient contact fields after a recent secure session check."""
+    """Reveal patient contact fields for authorized users."""
     patient = patient_service.get_patient(db, patient_id)
     if not patient:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
@@ -211,10 +194,6 @@ def get_patient_contact_details(
         current_user=current_user,
         patient_id=patient.id,
         ip_address=get_client_ip(request),
-    )
-    auth_service.require_recent_sensitive_session(
-        request,
-        error_status=status.HTTP_403_FORBIDDEN,
     )
     audit_service.log_action(
         db=db,
@@ -256,11 +235,6 @@ def update_patient(
         patient_id=patient.id,
         ip_address=get_client_ip(request),
     )
-    if _payload_contains_contact_details(payload):
-        auth_service.require_recent_sensitive_session(
-            request,
-            error_status=status.HTTP_403_FORBIDDEN,
-        )
 
     updated = patient_service.update_patient(db, patient, payload)
     notify_care_team(db, current_user, background_tasks, "updated", str(updated.id))

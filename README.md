@@ -62,6 +62,7 @@ Production admin operations now have repo-backed policy and runbook documents:
 
 - [Admin access policy](/Volumes/P1Back/telemed-monorepo/docs/security/admin-access-policy.md)
 - [Admin emergency access runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md)
+- [Admin session validation checklist](/Volumes/P1Back/telemed-monorepo/docs/security/admin-session-validation-checklist.md)
 - [Admin SSO (authentik) runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-sso-authentik-runbook.md)
 - [Secret rotation runbook](/Volumes/P1Back/telemed-monorepo/docs/security/secret-rotation-runbook.md)
 
@@ -302,6 +303,7 @@ Minimum required:
 - `DATABASE_URL`
 - `JWT_SECRET`
 - `JWT_EXPIRES_IN`
+- `ADMIN_JWT_EXPIRES_IN`
 
 Important for production hardening:
 

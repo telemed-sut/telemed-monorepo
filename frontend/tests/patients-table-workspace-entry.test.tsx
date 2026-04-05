@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes, ReactNode, SVGProps } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,6 +7,7 @@ const {
   mockPrefetch,
   mockReplace,
   mockFetchPatients,
+  mockFetchPatientContactDetails,
   mockAuthState,
   mockLanguageState,
 } = vi.hoisted(() => ({
@@ -14,6 +15,7 @@ const {
   mockPrefetch: vi.fn(),
   mockReplace: vi.fn(),
   mockFetchPatients: vi.fn(),
+  mockFetchPatientContactDetails: vi.fn(),
   mockAuthState: {
     token: "test-token",
     role: "doctor",
@@ -50,6 +52,16 @@ vi.mock("framer-motion", () => ({
   },
 }));
 
+vi.mock("motion/react", () => ({
+  motion: {
+    path: (props: HTMLAttributes<SVGPathElement>) => <path {...props} />,
+    circle: (props: SVGProps<SVGCircleElement>) => <circle {...props} />,
+  },
+  useAnimation: () => ({
+    start: vi.fn(),
+  }),
+}));
+
 vi.mock("@/components/ui/toast", () => ({
   toast: {
     error: vi.fn(),
@@ -63,6 +75,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...actual,
     fetchPatients: mockFetchPatients,
+    fetchPatientContactDetails: mockFetchPatientContactDetails,
     createPatient: vi.fn(),
     updatePatient: vi.fn(),
     deletePatient: vi.fn(),
@@ -91,6 +104,11 @@ describe("patients table workspace entry", () => {
       total: 1,
       page: 1,
       limit: 10,
+    });
+    mockFetchPatientContactDetails.mockResolvedValue({
+      phone: "0812345678",
+      email: "john@example.com",
+      address: "Bangkok",
     });
   });
 
@@ -123,6 +141,65 @@ describe("patients table workspace entry", () => {
     expect(screen.queryByText("ไม่พบข้อมูลผู้ใช้ที่ต้องการ")).not.toBeInTheDocument();
   });
 
+  it("reveals and hides protected details for the current page", async () => {
+    const { PatientsTable } = await import("@/components/dashboard/patients-table");
+    render(<PatientsTable />);
+
+    await waitFor(() => expect(mockFetchPatients).toHaveBeenCalled());
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open this page" })
+    );
+
+    await waitFor(() =>
+      expect(mockFetchPatientContactDetails).toHaveBeenCalledWith(
+        "patient-1",
+        "test-token",
+      )
+    );
+
+    expect(await screen.findByText("john@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Bangkok")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide this page" }));
+
+    expect(
+      (await screen.findAllByText("Protected in workspace")).length
+    ).toBeGreaterThan(0);
+  });
+
+  it("reveals and hides protected details for a single patient row", async () => {
+    const { PatientsTable } = await import("@/components/dashboard/patients-table");
+    render(<PatientsTable />);
+
+    await waitFor(() => expect(mockFetchPatients).toHaveBeenCalled());
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Reveal protected details for John Doe",
+      })
+    );
+
+    await waitFor(() =>
+      expect(mockFetchPatientContactDetails).toHaveBeenCalledWith(
+        "patient-1",
+        "test-token",
+      )
+    );
+
+    expect(await screen.findByText("john@example.com")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Hide protected details for John Doe",
+      })
+    );
+
+    expect(
+      (await screen.findAllByText("Protected in workspace")).length
+    ).toBeGreaterThan(0);
+  });
+
   it("renders visible patients workspace copy in Thai", async () => {
     mockAuthState.role = "admin";
     mockLanguageState.language = "th";
@@ -131,8 +208,11 @@ describe("patients table workspace entry", () => {
     render(<PatientsTable />);
 
     expect(await screen.findByText("รายชื่อผู้ป่วย")).toBeInTheDocument();
-    expect(screen.getByText("จัดการข้อมูลผู้ป่วย การนัดหมาย และข้อมูลติดต่อ")).toBeInTheDocument();
+    expect(
+      screen.getByText("รายชื่อผู้ป่วยจะแสดงข้อมูลติดต่อแบบปกปิดเป็นค่าเริ่มต้น กดเปิดดูหน้านี้เพื่อแสดงข้อมูลติดต่อ หรือเปิด workspace เพื่อดูข้อมูลเต็ม")
+    ).toBeInTheDocument();
     expect(screen.getByPlaceholderText("ค้นหาผู้ป่วย...")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "เปิดดูหน้านี้" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "เพิ่มผู้ป่วย" })).toBeInTheDocument();
     expect(screen.getAllByText("ผู้ป่วย").length).toBeGreaterThan(0);
     expect(screen.getByText("อายุและวันเกิด")).toBeInTheDocument();
