@@ -15,6 +15,7 @@ import {
   Video,
   X,
 } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 
 import {
   getDashboardPageTitle,
@@ -432,20 +433,36 @@ export function WorkspaceTabs() {
   const setLanguage = useLanguageStore((state) => state.setLanguage);
   const userId = useAuthStore((state) => state.userId);
   const t = labels[language];
-  const tabs = useWorkspaceTabsStore((state) => state.tabs);
-  const activeTabId = useWorkspaceTabsStore((state) => state.activeTabId);
-  const homeHref = useWorkspaceTabsStore((state) => state.homeHref);
-  const ownerUserId = useWorkspaceTabsStore((state) => state.ownerUserId);
-  const recentWorkspaces = useWorkspaceTabsStore((state) => state.recentWorkspaces);
-  const hydrate = useWorkspaceTabsStore((state) => state.hydrate);
-  const syncCurrentRoute = useWorkspaceTabsStore((state) => state.syncCurrentRoute);
-  const activateTab = useWorkspaceTabsStore((state) => state.activateTab);
-  const closeTab = useWorkspaceTabsStore((state) => state.closeTab);
-  const renameTab = useWorkspaceTabsStore((state) => state.renameTab);
-  const setHomeHref = useWorkspaceTabsStore((state) => state.setHomeHref);
-  const resetTabs = useWorkspaceTabsStore((state) => state.resetTabs);
-  const clearAllTabsForUser = useWorkspaceTabsStore(
-    (state) => state.clearAllTabsForUser
+  const {
+    tabs,
+    activeTabId,
+    homeHref,
+    ownerUserId,
+    recentWorkspaces,
+    hydrate,
+    syncCurrentRoute,
+    activateTab,
+    closeTab,
+    renameTab,
+    setHomeHref,
+    resetTabs,
+    clearAllTabsForUser,
+  } = useWorkspaceTabsStore(
+    useShallow((state) => ({
+      tabs: state.tabs,
+      activeTabId: state.activeTabId,
+      homeHref: state.homeHref,
+      ownerUserId: state.ownerUserId,
+      recentWorkspaces: state.recentWorkspaces,
+      hydrate: state.hydrate,
+      syncCurrentRoute: state.syncCurrentRoute,
+      activateTab: state.activateTab,
+      closeTab: state.closeTab,
+      renameTab: state.renameTab,
+      setHomeHref: state.setHomeHref,
+      resetTabs: state.resetTabs,
+      clearAllTabsForUser: state.clearAllTabsForUser,
+    }))
   );
   const [renameTarget, setRenameTarget] = useState<WorkspaceTab | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -456,6 +473,7 @@ export function WorkspaceTabs() {
   const configReturnFocusRef = useRef<HTMLElement | null>(null);
   const configReturnTabIdRef = useRef<string | null>(null);
   const restoreClearFocusRef = useRef(true);
+  const prefetchedTabHrefsRef = useRef<Set<string>>(new Set());
 
   const selectedLanguageLabel =
     APP_LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ||
@@ -467,6 +485,11 @@ export function WorkspaceTabs() {
 
   useEffect(() => {
     tabs.forEach((tab) => {
+      if (prefetchedTabHrefsRef.current.has(tab.href)) {
+        return;
+      }
+
+      prefetchedTabHrefsRef.current.add(tab.href);
       router.prefetch(tab.href);
     });
   }, [router, tabs]);
@@ -476,14 +499,32 @@ export function WorkspaceTabs() {
       return;
     }
 
+    let resizeTimeout: number | null = null;
+
     const updateVisibleTabLimit = () => {
-      setVisibleTabLimit(getVisibleTabLimit(window.innerWidth));
+      const nextLimit = getVisibleTabLimit(window.innerWidth);
+      setVisibleTabLimit((currentLimit) =>
+        currentLimit === nextLimit ? currentLimit : nextLimit
+      );
+    };
+    const handleResize = () => {
+      if (resizeTimeout !== null) {
+        window.clearTimeout(resizeTimeout);
+      }
+
+      resizeTimeout = window.setTimeout(updateVisibleTabLimit, 150);
     };
 
     updateVisibleTabLimit();
-    window.addEventListener("resize", updateVisibleTabLimit);
+    window.addEventListener("resize", handleResize);
 
-    return () => window.removeEventListener("resize", updateVisibleTabLimit);
+    return () => {
+      if (resizeTimeout !== null) {
+        window.clearTimeout(resizeTimeout);
+      }
+
+      window.removeEventListener("resize", handleResize);
+    };
   }, []);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? null;

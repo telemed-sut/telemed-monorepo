@@ -1,13 +1,23 @@
 from datetime import datetime, timezone
+import logging
+from threading import Event, Lock, Thread
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.config import get_settings
+from app.db.session import SessionLocal
 from app.models.enums import MeetingStatus
 
 from app.models.meeting import Meeting
 from app.models.meeting_room_presence import MeetingRoomPresence
 from app.models.meeting_room_presence import ROOM_PRESENCE_HEARTBEAT_TIMEOUT_SECONDS
+
+settings = get_settings()
+logger = logging.getLogger(__name__)
+_reconcile_worker_lock = Lock()
+_reconcile_worker_stop = Event()
+_reconcile_worker_thread: Thread | None = None
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
@@ -140,6 +150,48 @@ def reconcile_active_meetings(db: Session, *, force: bool = False) -> int:
     if changed:
         db.commit()
     return changed
+
+
+def reconcile_active_meetings_in_new_session(*, force: bool = False) -> int:
+    with SessionLocal() as db:
+        return reconcile_active_meetings(db, force=force)
+
+
+def start_reconcile_worker() -> None:
+    if settings.app_env == "test":
+        return
+
+    interval_seconds = settings.meeting_presence_reconcile_interval_seconds
+    if interval_seconds <= 0:
+        return
+
+    global _reconcile_worker_thread
+    with _reconcile_worker_lock:
+        if _reconcile_worker_thread is not None and _reconcile_worker_thread.is_alive():
+            return
+
+        _reconcile_worker_stop.clear()
+
+        def _worker() -> None:
+            while not _reconcile_worker_stop.wait(interval_seconds):
+                try:
+                    reconcile_active_meetings_in_new_session()
+                except Exception:
+                    logger.exception("Meeting presence reconciliation worker failed.")
+
+        _reconcile_worker_thread = Thread(
+            target=_worker,
+            name="meeting-presence-reconcile-worker",
+            daemon=True,
+        )
+        _reconcile_worker_thread.start()
+
+
+def stop_reconcile_worker() -> None:
+    global _reconcile_worker_thread
+    with _reconcile_worker_lock:
+        _reconcile_worker_stop.set()
+        _reconcile_worker_thread = None
 
 
 def build_reliability_snapshot(

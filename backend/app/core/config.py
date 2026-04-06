@@ -85,8 +85,11 @@ class Settings(BaseSettings):
 
     # Auth cookie settings
     auth_cookie_name: str = "access_token"
-    auth_cookie_secure: bool = False
+    auth_cookie_secure: bool = True
     auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_recycle_seconds: int = 1800
     admin_oidc_enabled: bool = False
     admin_oidc_enforced: bool = False
     admin_oidc_provider_name: str = "authentik"
@@ -112,6 +115,7 @@ class Settings(BaseSettings):
     meeting_patient_invite_ttl_seconds: int = 86_400
     meeting_patient_join_base_url: str | None = None
     meeting_video_room_prefix: str = "telemed"
+    meeting_presence_reconcile_interval_seconds: int = 30
 
     @field_validator("database_url", mode="before")
     @classmethod
@@ -244,6 +248,13 @@ class Settings(BaseSettings):
             raise ValueError("DEVICE_API_MAX_BODY_BYTES must be <= 10485760.")
         return v
 
+    @field_validator("db_pool_size", "db_max_overflow", "db_pool_recycle_seconds")
+    @classmethod
+    def validate_db_pool_settings(cls, v: int, info) -> int:
+        if v < 0:
+            raise ValueError(f"{info.field_name.upper()} must be >= 0.")
+        return v
+
     @field_validator("meeting_video_token_ttl_seconds")
     @classmethod
     def validate_meeting_video_token_ttl_seconds(cls, v: int) -> int:
@@ -260,6 +271,15 @@ class Settings(BaseSettings):
             raise ValueError("MEETING_PATIENT_INVITE_TTL_SECONDS must be at least 300.")
         if v > 604_800:
             raise ValueError("MEETING_PATIENT_INVITE_TTL_SECONDS must be <= 604800.")
+        return v
+
+    @field_validator("meeting_presence_reconcile_interval_seconds")
+    @classmethod
+    def validate_meeting_presence_reconcile_interval_seconds(cls, v: int) -> int:
+        if v < 5:
+            raise ValueError("MEETING_PRESENCE_RECONCILE_INTERVAL_SECONDS must be at least 5.")
+        if v > 3600:
+            raise ValueError("MEETING_PRESENCE_RECONCILE_INTERVAL_SECONDS must be <= 3600.")
         return v
 
     @field_validator("meeting_video_room_prefix")
@@ -285,6 +305,14 @@ class Settings(BaseSettings):
         if not (value.startswith("http://") or value.startswith("https://")):
             raise ValueError("MEETING_PATIENT_JOIN_BASE_URL must start with http:// or https://.")
         return value.rstrip("/")
+
+    @field_validator("redis_url")
+    @classmethod
+    def validate_redis_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
 
     @field_validator(
         "admin_oidc_issuer_url",
@@ -344,6 +372,12 @@ class Settings(BaseSettings):
         if isinstance(v, str) and not v.strip():
             return None
         return v
+
+    @model_validator(mode="after")
+    def validate_production_requirements(self):
+        if self.app_env == "production" and not self.redis_url:
+            raise ValueError("REDIS_URL is required when APP_ENV=production.")
+        return self
 
     @model_validator(mode="after")
     def apply_device_api_secret_fallback(self):

@@ -55,6 +55,8 @@ interface NavItem {
   link: string;
 }
 
+const sidebarCurrentUserCache = new Map<string, UserMe>();
+
 const baseRoutes: NavItem[] = [
   { id: "overview", icon: Home, link: "/overview" },
   { id: "patients", icon: Users, link: "/patients" },
@@ -345,18 +347,38 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const language = useLanguageStore((state) => state.language);
   const t = SIDEBAR_LABELS[language];
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.userId);
   const userRole = useAuthStore((state) => state.role);
   const clearToken = useAuthStore((state) => state.clearToken);
   const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
+  const resolvedCurrentUser =
+    userId && currentUser?.id === userId
+      ? currentUser
+      : userId
+        ? sidebarCurrentUserCache.get(userId) ?? null
+        : null;
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !userId) {
+      return;
+    }
+
     let cancelled = false;
 
-    const loadCurrentUser = () => {
+    const loadCurrentUser = (forceRefresh = false) => {
+      const cachedUser = sidebarCurrentUserCache.get(userId);
+      if (cachedUser && !forceRefresh) {
+        setCurrentUser(cachedUser);
+        return;
+      }
+
       fetchCurrentUser(token)
         .then((user) => {
-          if (!cancelled) setCurrentUser(user);
+          sidebarCurrentUserCache.set(userId, user);
+
+          if (!cancelled) {
+            setCurrentUser(user);
+          }
         })
         .catch(() => {
           // silent
@@ -364,13 +386,17 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
     };
 
     loadCurrentUser();
-    window.addEventListener("telemed-profile-updated", loadCurrentUser);
+    const handleProfileUpdated = () => {
+      loadCurrentUser(true);
+    };
+
+    window.addEventListener("telemed-profile-updated", handleProfileUpdated);
 
     return () => {
       cancelled = true;
-      window.removeEventListener("telemed-profile-updated", loadCurrentUser);
+      window.removeEventListener("telemed-profile-updated", handleProfileUpdated);
     };
-  }, [token]);
+  }, [token, userId]);
 
   useEffect(() => {
     if (isMobile) {
@@ -502,7 +528,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
 
         <SidebarUserMenu
           isCollapsed={isCollapsed}
-          currentUser={currentUser}
+          currentUser={resolvedCurrentUser}
           labels={t}
           activeItem={activeProfileMenuItem}
           onSettings={() => {

@@ -4,6 +4,7 @@ from fastapi import Request
 from slowapi import Limiter
 
 from app.core.config import get_settings
+from app.db.session import get_redis_connection_pool
 from app.core.request_utils import get_client_ip
 
 settings = get_settings()
@@ -93,12 +94,21 @@ def get_strict_client_ip_rate_limit_key(request: Request):
     return f"ip:{client_ip}"
 
 
-# Initialize Limiter with support for Redis or Memory fallback
-# Default limits:
-# - Users/Dashboards: 200/minute (allows concurrent API calls)
-# - Devices: 200/minute (allows frequent health checks/data pushes)
+def _build_limiter_storage_configuration() -> tuple[str, dict[str, object]]:
+    redis_url = (settings.redis_url or "").strip() or None
+    if redis_url:
+        return redis_url, {"connection_pool": get_redis_connection_pool()}
+    if settings.app_env == "production":
+        raise RuntimeError("REDIS_URL is required for rate limiting in production.")
+    return "memory://", {}
+
+
+storage_uri, storage_options = _build_limiter_storage_configuration()
+
+
 limiter = Limiter(
     key_func=get_real_user_key,
     default_limits=["200/minute"],
-    storage_uri=settings.redis_url if settings.redis_url else "memory://",
+    storage_uri=storage_uri,
+    storage_options=storage_options,
 )

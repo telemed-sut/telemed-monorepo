@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
+from app.models.heart_sound_record import HeartSoundRecord
 from app.models.patient import Patient
+from app.models.pressure_record import PressureRecord
 from app.models.user import User, UserRole
 from app.schemas.patient import PatientCreate
 from app.services.auth import create_login_response
@@ -416,6 +418,106 @@ def test_patient_delete_is_soft_delete(client: TestClient, db: Session):
     assert list_response.status_code == 200
     listed_ids = {item["id"] for item in list_response.json()["items"]}
     assert patient_id not in listed_ids
+
+
+def test_patient_delete_cascades_pressure_and_heart_sound_records(client: TestClient, db: Session):
+    admin = create_test_user(db, UserRole.admin)
+    admin_headers = get_auth_headers(admin)
+
+    create_response = client.post(
+        "/patients",
+        json={
+            "first_name": "Cascade",
+            "last_name": "Delete",
+            "date_of_birth": "1990-01-01",
+        },
+        headers=admin_headers,
+    )
+    assert create_response.status_code == 201
+    patient_id = UUID(create_response.json()["id"])
+
+    db.add(
+        PressureRecord(
+            patient_id=patient_id,
+            device_id="device-pressure-001",
+            heart_rate=72,
+            sys_rate=120,
+            dia_rate=80,
+            measured_at=datetime.now(timezone.utc),
+        )
+    )
+    db.add(
+        HeartSoundRecord(
+            patient_id=patient_id,
+            device_id="device-heart-001",
+            mac_address="00:11:22:33:44:55",
+            position=1,
+            blob_url="https://example.com/heart.wav",
+            recorded_at=datetime.now(timezone.utc),
+        )
+    )
+    db.commit()
+
+    delete_response = client.delete(f"/patients/{patient_id}", headers=admin_headers)
+    assert delete_response.status_code == 204
+
+    remaining_pressure = db.scalars(
+        select(PressureRecord).where(PressureRecord.patient_id == patient_id)
+    ).all()
+    remaining_heart_sounds = db.scalars(
+        select(HeartSoundRecord).where(HeartSoundRecord.patient_id == patient_id)
+    ).all()
+
+    assert remaining_pressure == []
+    assert remaining_heart_sounds == []
+
+
+def test_patient_bulk_delete_is_atomic_when_any_patient_is_missing(client: TestClient, db: Session):
+    admin = create_test_user(db, UserRole.admin)
+    admin_headers = get_auth_headers(admin)
+
+    created_ids: list[str] = []
+    for first_name in ("Atomic", "Rollback"):
+        create_response = client.post(
+            "/patients",
+            json={
+                "first_name": first_name,
+                "last_name": "Delete",
+                "date_of_birth": "1990-01-01",
+            },
+            headers=admin_headers,
+        )
+        assert create_response.status_code == 201
+        created_ids.append(create_response.json()["id"])
+
+    response = client.post(
+        "/patients/bulk-delete",
+        json={"ids": [created_ids[0], str(uuid4()), created_ids[1]]},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["deleted"] == 0
+    assert len(response.json()["errors"]) == 1
+
+    for patient_id in created_ids:
+        patient_row = db.scalar(select(Patient).where(Patient.id == UUID(patient_id)))
+        assert patient_row is not None
+        assert patient_row.is_active is True
+        assert patient_row.deleted_at is None
+
+
+def test_patient_bulk_delete_rejects_batches_over_one_hundred_ids(client: TestClient, db: Session):
+    admin = create_test_user(db, UserRole.admin)
+    admin_headers = get_auth_headers(admin)
+
+    response = client.post(
+        "/patients/bulk-delete",
+        json={"ids": [str(uuid4()) for _ in range(101)]},
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 422
 
 
 def test_patient_api_unauthorized(client: TestClient):

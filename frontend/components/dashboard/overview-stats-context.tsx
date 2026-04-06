@@ -21,33 +21,27 @@ const OverviewStatsContext = createContext<OverviewStatsContextValue | null>(nul
 
 export function OverviewStatsProvider({ children }: { children: ReactNode }) {
   const token = useAuthStore((state) => state.token);
-  const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<OverviewStatsResponse | null>(null);
+  const [loadedToken, setLoadedToken] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) {
-      setStats(null);
-      setLoading(false);
       return;
     }
 
     let active = true;
-    setLoading(true);
 
     void fetchOverviewStats(token)
       .then((response) => {
         if (active) {
           setStats(response);
+          setLoadedToken(token);
         }
       })
       .catch(() => {
         if (active) {
           setStats(null);
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setLoading(false);
+          setLoadedToken(token);
         }
       });
 
@@ -56,12 +50,15 @@ export function OverviewStatsProvider({ children }: { children: ReactNode }) {
     };
   }, [token]);
 
+  const loading = Boolean(token) && loadedToken !== token;
+  const resolvedStats = token ? stats : null;
+
   const value = useMemo(
     () => ({
       loading,
-      stats,
+      stats: resolvedStats,
     }),
-    [loading, stats]
+    [loading, resolvedStats]
   );
 
   return (

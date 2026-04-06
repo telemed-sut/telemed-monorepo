@@ -20,6 +20,7 @@ from app.db.session import SessionLocal
 from app.middleware import IPBanMiddleware, SecurityAuditMiddleware, SecurityHeadersMiddleware
 from app.models.device_error_log import DeviceErrorLog
 from app.services import auth as auth_service
+from app.services import meeting_presence as meeting_presence_service
 from app.services.security import record_login_attempt
 from app.core.request_utils import get_client_ip
 
@@ -157,6 +158,14 @@ def create_app() -> FastAPI:
         except Exception:
             logger.exception("Bootstrap privileged role backfill failed during startup.")
             raise
+
+    @app.on_event("startup")
+    def start_meeting_presence_reconcile_worker():
+        meeting_presence_service.start_reconcile_worker()
+
+    @app.on_event("shutdown")
+    def stop_meeting_presence_reconcile_worker():
+        meeting_presence_service.stop_reconcile_worker()
 
     app.include_router(auth.router)
     app.include_router(patients.router)

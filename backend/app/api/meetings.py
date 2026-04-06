@@ -146,8 +146,6 @@ def list_meetings(
     if not auth_service.can_view_clinical_data(current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    meeting_presence_service.reconcile_active_meetings(db)
-
     visible_doctor_id = current_user.id if current_user.role != UserRole.admin else None
 
     items, total = meeting_service.list_meetings(

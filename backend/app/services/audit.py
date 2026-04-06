@@ -19,6 +19,8 @@ def log_action(
     old_values: Optional[dict] = None,
     new_values: Optional[dict] = None,
     status: str = "success",
+    *,
+    commit: bool = True,
 ) -> AuditLog:
     """Write an entry to the audit log."""
     entry = AuditLog(
@@ -35,6 +37,9 @@ def log_action(
         status=status,
     )
     db.add(entry)
-    db.commit()
-    db.refresh(entry)
+    if commit:
+        db.commit()
+        db.refresh(entry)
+    else:
+        db.flush()
     return entry

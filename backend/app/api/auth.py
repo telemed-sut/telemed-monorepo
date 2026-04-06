@@ -71,6 +71,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
 settings = get_settings()
 ADMIN_SSO_STATE_COOKIE = "admin_sso_state"
+CSRF_COOKIE_NAME = "csrf_token"
 
 
 def _frontend_url_for(path: str = "/login") -> str:
@@ -127,11 +128,40 @@ def _set_auth_cookie(response: Response, access_token: str, *, max_age_seconds: 
     )
 
 
+def _set_csrf_cookie(
+    response: Response,
+    *,
+    max_age_seconds: int,
+    token: str | None = None,
+) -> str:
+    csrf_token = token or generate_security_token()
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=csrf_token,
+        httponly=False,
+        secure=settings.auth_cookie_secure,
+        samesite=settings.auth_cookie_samesite,
+        max_age=max_age_seconds,
+        path="/",
+    )
+    return csrf_token
+
+
 def _clear_auth_cookie(response: Response) -> None:
     response.delete_cookie(
         key=settings.auth_cookie_name,
         path="/",
         httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite=settings.auth_cookie_samesite,
+    )
+
+
+def _clear_csrf_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=CSRF_COOKIE_NAME,
+        path="/",
+        httponly=False,
         secure=settings.auth_cookie_secure,
         samesite=settings.auth_cookie_samesite,
     )
@@ -1332,6 +1362,7 @@ def complete_admin_sso_login(
         login_response["access_token"],
         max_age_seconds=login_response["expires_in"],
     )
+    _set_csrf_cookie(success_response, max_age_seconds=login_response["expires_in"])
     _clear_admin_sso_state_cookie(success_response)
     session_id = auth_service.get_request_auth_payload(request).get("session_id")
     if not isinstance(session_id, str) or not session_id:
@@ -1385,6 +1416,7 @@ def logout_admin_sso(
         redirect_url = _frontend_url_for("/login")
     response = RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)
     _clear_auth_cookie(response)
+    _clear_csrf_cookie(response)
     _clear_admin_sso_state_cookie(response)
 
     _write_auth_audit(
@@ -1601,6 +1633,7 @@ def login(
         login_response["access_token"],
         max_age_seconds=login_response["expires_in"],
     )
+    _set_csrf_cookie(response, max_age_seconds=login_response["expires_in"])
     if trusted_device_raw_token:
         _set_trusted_device_cookie(
             response,
@@ -1733,6 +1766,7 @@ def step_up_auth(
         login_response["access_token"],
         max_age_seconds=login_response["expires_in"],
     )
+    _set_csrf_cookie(response, max_age_seconds=login_response["expires_in"])
     if second_factor.trusted_device_raw_token:
         _set_trusted_device_cookie(
             response,
@@ -1767,6 +1801,11 @@ def refresh_token(
         refreshed["access_token"],
         max_age_seconds=refreshed["expires_in"],
     )
+    _set_csrf_cookie(
+        response,
+        max_age_seconds=refreshed["expires_in"],
+        token=request.cookies.get(CSRF_COOKIE_NAME),
+    )
     return refreshed
 
 
@@ -1779,6 +1818,7 @@ def logout(
     """Logout endpoint (clears auth cookie)."""
     admin_sso_store.clear_logout_hint(_get_session_id_from_request(request))
     _clear_auth_cookie(response)
+    _clear_csrf_cookie(response)
     _clear_admin_sso_state_cookie(response)
     return {"message": "Successfully logged out"}
 

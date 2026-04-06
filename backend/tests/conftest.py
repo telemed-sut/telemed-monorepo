@@ -1,4 +1,6 @@
 import os
+import sys
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,6 +16,7 @@ os.environ.setdefault("ADMIN_2FA_REQUIRED", "false")
 os.environ.setdefault("DEVICE_API_REQUIRE_REGISTERED_DEVICE", "false")
 os.environ.setdefault("DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE", "false")
 os.environ.setdefault("DEVICE_API_REQUIRE_NONCE", "false")
+os.environ.setdefault("AUTH_COOKIE_SECURE", "false")
 
 from app.core.config import get_settings
 from app.db.base import Base
@@ -152,3 +155,47 @@ def _truncate_all_tables():
     joined_tables = ", ".join(f'"{name}"' for name in table_names)
     with engine.begin() as connection:
         connection.execute(text(f"TRUNCATE {joined_tables} RESTART IDENTITY CASCADE"))
+
+
+class FakeRedisConnectionPool:
+    created_pools = []
+
+    def __init__(self, url: str, **kwargs):
+        self.url = url
+        self.kwargs = kwargs
+        self.disconnected = False
+        type(self).created_pools.append(self)
+
+    @classmethod
+    def from_url(cls, url: str, **kwargs):
+        return cls(url, **kwargs)
+
+    def disconnect(self):
+        self.disconnected = True
+
+
+class FakeRedisClient:
+    created_clients = []
+
+    def __init__(self, connection_pool=None, **kwargs):
+        self.connection_pool = connection_pool
+        self.kwargs = kwargs
+        type(self).created_clients.append(self)
+
+    @classmethod
+    def from_url(cls, url: str, **kwargs):
+        pool = FakeRedisConnectionPool.from_url(url, **kwargs)
+        return cls(connection_pool=pool, **kwargs)
+
+
+@pytest.fixture
+def mock_redis_module(monkeypatch):
+    FakeRedisConnectionPool.created_pools.clear()
+    FakeRedisClient.created_clients.clear()
+    module = SimpleNamespace(
+        ConnectionPool=FakeRedisConnectionPool,
+        Redis=FakeRedisClient,
+        connection=SimpleNamespace(ConnectionPool=FakeRedisConnectionPool),
+    )
+    monkeypatch.setitem(sys.modules, "redis", module)
+    return module

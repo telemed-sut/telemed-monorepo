@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from app.core.config import Settings
 
 
@@ -93,7 +96,12 @@ def test_settings_enable_api_docs_by_default_in_development(monkeypatch):
 
 
 def test_settings_disable_api_docs_by_default_in_production(monkeypatch):
-    _apply_env(monkeypatch, APP_ENV="production", API_DOCS_ENABLED=None)
+    _apply_env(
+        monkeypatch,
+        APP_ENV="production",
+        API_DOCS_ENABLED=None,
+        REDIS_URL="redis://rate-limit-cache:6379/0",
+    )
 
     settings = Settings()
 
@@ -114,3 +122,33 @@ def test_settings_accept_explicit_allowed_hosts(monkeypatch):
     settings = Settings()
 
     assert settings.resolved_allowed_hosts == ["api.example.com", "internal.example.com"]
+
+
+def test_settings_enable_secure_auth_cookies_by_default(monkeypatch):
+    _apply_env(monkeypatch, AUTH_COOKIE_SECURE=None)
+
+    settings = Settings()
+
+    assert settings.auth_cookie_secure is True
+
+
+def test_settings_default_db_pool_tuning(monkeypatch):
+    _apply_env(
+        monkeypatch,
+        DB_POOL_SIZE=None,
+        DB_MAX_OVERFLOW=None,
+        DB_POOL_RECYCLE_SECONDS=None,
+    )
+
+    settings = Settings()
+
+    assert settings.db_pool_size == 5
+    assert settings.db_max_overflow == 10
+    assert settings.db_pool_recycle_seconds == 1800
+
+
+def test_settings_require_redis_url_in_production(monkeypatch):
+    _apply_env(monkeypatch, APP_ENV="production", REDIS_URL=None)
+
+    with pytest.raises(ValidationError, match="REDIS_URL is required when APP_ENV=production"):
+        Settings()

@@ -3,7 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, BackgroundTasks
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.models.enums import UserRole
+from app.models.patient import Patient
 from app.models.user import User
 from app.schemas.patient_assignment import (
     PatientAssignmentCreate,
@@ -33,6 +34,7 @@ from app.core.request_utils import get_client_ip
 router = APIRouter(prefix="/patients", tags=["patients"])
 settings = get_settings()
 logger = logging.getLogger(__name__)
+MAX_BULK_DELETE_PATIENTS = 100
 
 
 def _mask_people_id(people_id: Optional[str]) -> Optional[str]:
@@ -420,7 +422,7 @@ def delete_patient(
 
 
 class BulkDeleteRequest(BaseModel):
-    ids: List[str]
+    ids: List[str] = Field(min_length=1, max_length=MAX_BULK_DELETE_PATIENTS)
 
 
 class BulkDeleteResponse(BaseModel):
@@ -438,36 +440,78 @@ def bulk_delete_patients(
     current_user: User = Depends(auth_service.get_admin_user),
 ):
     """Bulk delete patients (admin only)."""
-    deleted = 0
     errors: List[str] = []
     deleted_ids: List[str] = []
+    patient_ids: List[UUID] = []
+    patients_by_id: dict[str, Patient] = {}
 
     for patient_id in payload.ids:
-        patient = patient_service.get_patient(db, patient_id)
-        if not patient:
+        try:
+            patient_ids.append(UUID(patient_id))
+        except ValueError:
             errors.append(f"Patient {patient_id} not found")
-            continue
-        patient_service.delete_patient(db, patient, deleted_by=current_user.id)
+
+    if not errors:
+        patients = db.scalars(
+            select(Patient)
+            .where(
+                Patient.id.in_(patient_ids),
+                Patient.deleted_at.is_(None),
+                Patient.is_active == True,  # noqa: E712
+            )
+            .with_for_update()
+        ).all()
+        patients_by_id = {str(patient.id): patient for patient in patients}
+
+        for patient_id in payload.ids:
+            if patient_id not in patients_by_id:
+                errors.append(f"Patient {patient_id} not found")
+
+    if errors:
         audit_service.log_action(
             db=db,
             user_id=current_user.id,
-            action="delete_patient",
+            action="bulk_delete_patients_denied",
             resource_type="patient",
-            resource_id=patient.id,
-            details={**_patient_audit_details(patient), "bulk": True},
+            details={"requested_ids": payload.ids, "deleted_ids": [], "errors": errors},
             ip_address=get_client_ip(request),
         )
-        notify_care_team(db, current_user, background_tasks, "deleted", str(patient.id))
-        deleted += 1
-        deleted_ids.append(str(patient.id))
+        return BulkDeleteResponse(deleted=0, errors=errors)
 
-    audit_service.log_action(
-        db=db,
-        user_id=current_user.id,
-        action="bulk_delete_patients",
-        resource_type="patient",
-        details={"requested_ids": payload.ids, "deleted_ids": deleted_ids, "errors": errors},
-        ip_address=get_client_ip(request),
-    )
+    try:
+        for patient_id in payload.ids:
+            patient = patients_by_id[patient_id]
+            patient_service.delete_patient(
+                db,
+                patient,
+                deleted_by=current_user.id,
+                commit=False,
+            )
+            audit_service.log_action(
+                db=db,
+                user_id=current_user.id,
+                action="delete_patient",
+                resource_type="patient",
+                resource_id=patient.id,
+                details={**_patient_audit_details(patient), "bulk": True},
+                ip_address=get_client_ip(request),
+                commit=False,
+            )
+            notify_care_team(db, current_user, background_tasks, "deleted", str(patient.id))
+            deleted_ids.append(str(patient.id))
 
-    return BulkDeleteResponse(deleted=deleted, errors=errors)
+        audit_service.log_action(
+            db=db,
+            user_id=current_user.id,
+            action="bulk_delete_patients",
+            resource_type="patient",
+            details={"requested_ids": payload.ids, "deleted_ids": deleted_ids, "errors": []},
+            ip_address=get_client_ip(request),
+            commit=False,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return BulkDeleteResponse(deleted=len(deleted_ids), errors=[])

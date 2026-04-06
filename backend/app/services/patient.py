@@ -4,14 +4,16 @@ from typing import List, Literal, Optional, Tuple
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import case, func, literal, or_, select
+from sqlalchemy import case, delete, func, literal, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
 from app.core.search import normalize_search_term
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole
+from app.models.heart_sound_record import HeartSoundRecord
 from app.models.patient import Patient
+from app.models.pressure_record import PressureRecord
 from app.models.user import User
 from app.schemas.patient import PatientCreate, PatientUpdate
 from app.services import audit as audit_service
@@ -373,12 +375,27 @@ def update_patient(db: Session, patient: Patient, payload: PatientUpdate) -> Pat
     return patient
 
 
-def delete_patient(db: Session, patient: Patient, *, deleted_by: UUID) -> None:
+def delete_patient(
+    db: Session,
+    patient: Patient,
+    *,
+    deleted_by: UUID,
+    commit: bool = True,
+) -> None:
+    db.execute(
+        delete(PressureRecord).where(PressureRecord.patient_id == patient.id)
+    )
+    db.execute(
+        delete(HeartSoundRecord).where(HeartSoundRecord.patient_id == patient.id)
+    )
     patient.is_active = False
     patient.deleted_at = datetime.now(timezone.utc)
     patient.deleted_by = deleted_by
     db.add(patient)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
 
 def list_patients(

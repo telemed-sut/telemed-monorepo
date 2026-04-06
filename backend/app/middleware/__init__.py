@@ -1,7 +1,8 @@
+from collections import OrderedDict
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Dict, Tuple
+from typing import OrderedDict as OrderedDictType, Tuple
 from uuid import UUID
 
 from fastapi import Request
@@ -21,8 +22,37 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # In-memory IP ban cache: ip -> (banned_until_timestamp, cached_at_timestamp)
-_ip_ban_cache: Dict[str, Tuple[float, float]] = {}
+_IP_BAN_CACHE_MAX_ENTRIES = 10_000
+_ip_ban_cache: OrderedDictType[str, Tuple[float, float]] = OrderedDict()
 _CACHE_TTL = 30  # seconds
+
+
+def _get_ip_ban_cache_entry(ip: str, now: float) -> Tuple[float, float] | None:
+    entry = _ip_ban_cache.get(ip)
+    if entry is None:
+        return None
+
+    banned_until_ts, cached_at = entry
+    if now - cached_at >= _CACHE_TTL:
+        _ip_ban_cache.pop(ip, None)
+        return None
+
+    _ip_ban_cache.move_to_end(ip)
+    return entry
+
+
+def _set_ip_ban_cache_entry(ip: str, banned_until_ts: float, cached_at: float) -> None:
+    if ip in _ip_ban_cache:
+        _ip_ban_cache.pop(ip, None)
+
+    _ip_ban_cache[ip] = (banned_until_ts, cached_at)
+
+    while len(_ip_ban_cache) > _IP_BAN_CACHE_MAX_ENTRIES:
+        _ip_ban_cache.popitem(last=False)
+
+
+def _clear_ip_ban_cache_entry(ip: str) -> None:
+    _ip_ban_cache.pop(ip, None)
 
 
 
@@ -30,12 +60,24 @@ _CACHE_TTL = 30  # seconds
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
+        csp_policy = (
+            "default-src 'self'; "
+            "base-uri 'self'; "
+            "frame-ancestors 'none'; "
+            "object-src 'none'; "
+            "form-action 'self'; "
+            "img-src 'self' data: https:; "
+            "style-src 'self' 'unsafe-inline'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "connect-src 'self' https: wss:"
+        )
 
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = csp_policy
 
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
@@ -119,16 +161,14 @@ class IPBanMiddleware(BaseHTTPMiddleware):
 
         # Check in-memory cache first
         now = time.time()
-        if ip in _ip_ban_cache:
-            banned_until_ts, cached_at = _ip_ban_cache[ip]
-            if now - cached_at < _CACHE_TTL:
-                if banned_until_ts > now:
-                    return JSONResponse(
-                        status_code=403,
-                        content={"detail": "Access denied. Your IP has been temporarily blocked."},
-                    )
-            else:
-                del _ip_ban_cache[ip]
+        cached_entry = _get_ip_ban_cache_entry(ip, now)
+        if cached_entry is not None:
+            banned_until_ts, _cached_at = cached_entry
+            if banned_until_ts > now:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Access denied. Your IP has been temporarily blocked."},
+                )
 
         # Check DB
         try:
@@ -143,7 +183,7 @@ class IPBanMiddleware(BaseHTTPMiddleware):
                             banned_until = banned_until.replace(tzinfo=timezone.utc)
 
                         if banned_until > datetime.now(timezone.utc):
-                            _ip_ban_cache[ip] = (banned_until.timestamp(), now)
+                            _set_ip_ban_cache_entry(ip, banned_until.timestamp(), now)
                             return JSONResponse(
                                 status_code=403,
                                 content={"detail": "Access denied. Your IP has been temporarily blocked."},
@@ -151,9 +191,10 @@ class IPBanMiddleware(BaseHTTPMiddleware):
                         else:
                             db.delete(ban)
                             db.commit()
+                            _clear_ip_ban_cache_entry(ip)
                     else:
                         # Permanent ban (banned_until is None)
-                        _ip_ban_cache[ip] = (now + 86400, now)  # Cache for 24h
+                        _set_ip_ban_cache_entry(ip, now + 86400, now)
                         return JSONResponse(
                             status_code=403,
                             content={"detail": "Access denied. Your IP has been blocked."},

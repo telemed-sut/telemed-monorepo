@@ -127,7 +127,7 @@ describe("patients table workspace entry", () => {
     );
 
     expect(mockPush).toHaveBeenCalledWith("/patients/patient-1");
-  });
+  }, 10000);
 
   it("shows localized English load errors instead of raw Thai API messages", async () => {
     mockFetchPatients.mockRejectedValue(

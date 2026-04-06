@@ -164,10 +164,11 @@ def test_refresh_endpoint_uses_auth_cookie(client: TestClient, db: Session):
     assert login_response.status_code == 200
 
     # No Authorization header; relies on cookie set by /auth/login
-    response = client.post("/auth/refresh")
+    response = client.post("/auth/refresh", headers={"origin": str(client.base_url).rstrip("/")})
     assert response.status_code == 200
     assert "access_token" in response.json()
     assert response.json()["user"]["email"] == "refresh-cookie@example.com"
+    assert "csrf_token" in response.cookies
 
 
 def test_refresh_endpoint_allows_same_origin_cookie_csrf(client: TestClient, db: Session):
@@ -208,6 +209,49 @@ def test_refresh_endpoint_rejects_cross_origin_cookie_csrf(client: TestClient, d
     response = client.post("/auth/refresh", headers={"origin": "https://evil.example.com"})
     assert response.status_code == 403
     assert response.json()["detail"] == "CSRF validation failed."
+
+
+def test_refresh_endpoint_rejects_cookie_csrf_when_origin_and_referer_are_missing(client: TestClient, db: Session):
+    user = User(
+        email="refresh-missing-origin@example.com",
+        password_hash=get_password_hash("TestPassword123"),
+        role=UserRole.admin,
+    )
+    db.add(user)
+    db.commit()
+
+    login_response = client.post("/auth/login", json={
+        "email": "refresh-missing-origin@example.com",
+        "password": "TestPassword123",
+    })
+    assert login_response.status_code == 200
+
+    response = client.post("/auth/refresh")
+    assert response.status_code == 403
+    assert response.json()["detail"] == "CSRF validation failed."
+
+
+def test_refresh_endpoint_allows_csrf_header_fallback_when_origin_and_referer_are_missing(client: TestClient, db: Session):
+    user = User(
+        email="refresh-csrf-header@example.com",
+        password_hash=get_password_hash("TestPassword123"),
+        role=UserRole.admin,
+    )
+    db.add(user)
+    db.commit()
+
+    login_response = client.post("/auth/login", json={
+        "email": "refresh-csrf-header@example.com",
+        "password": "TestPassword123",
+    })
+    assert login_response.status_code == 200
+
+    csrf_token = client.cookies.get("csrf_token")
+    assert csrf_token
+
+    response = client.post("/auth/refresh", headers={"x-csrf-token": csrf_token})
+    assert response.status_code == 200
+    assert response.json()["user"]["email"] == "refresh-csrf-header@example.com"
 
 
 def test_logout_endpoint(client: TestClient, db: Session):
