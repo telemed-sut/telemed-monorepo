@@ -6,6 +6,8 @@ const assignMock = vi.fn();
 const logoutMock = vi.fn().mockResolvedValue({ message: "Successfully logged out" });
 const originalLocation = window.location;
 const WORKSPACE_TABS_STORAGE_KEY = "workspace_tabs_state_v3";
+const PATIENT_CACHE_KEY =
+  "telemed.patient-workspace.detail.v2:user-a:patient-1";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -78,6 +80,10 @@ describe("useSessionLogout", () => {
       WORKSPACE_TABS_STORAGE_KEY,
       createWorkspaceTabsStorage("user-a")
     );
+    window.localStorage.setItem(
+      PATIENT_CACHE_KEY,
+      JSON.stringify({ version: 2, data: { patient: { id: "patient-1" } } })
+    );
 
     const { getByRole } = render(<Harness />);
     fireEvent.click(getByRole("button", { name: "logout" }));
@@ -90,6 +96,7 @@ describe("useSessionLogout", () => {
     expect(window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY)).toBe(
       createWorkspaceTabsStorage("user-a")
     );
+    expect(window.localStorage.getItem(PATIENT_CACHE_KEY)).toBeNull();
   });
 
   it("routes local sessions to /login and revokes the backend session", async () => {
@@ -110,6 +117,10 @@ describe("useSessionLogout", () => {
       WORKSPACE_TABS_STORAGE_KEY,
       createWorkspaceTabsStorage("user-a")
     );
+    window.localStorage.setItem(
+      PATIENT_CACHE_KEY,
+      JSON.stringify({ version: 2, data: { patient: { id: "patient-1" } } })
+    );
 
     const { getByRole } = render(<Harness />);
     fireEvent.click(getByRole("button", { name: "logout" }));
@@ -124,6 +135,7 @@ describe("useSessionLogout", () => {
     expect(window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY)).toBe(
       createWorkspaceTabsStorage("user-a")
     );
+    expect(window.localStorage.getItem(PATIENT_CACHE_KEY)).toBeNull();
   });
 
   it("routes unknown sessions to /login and revokes the backend session", async () => {
@@ -144,6 +156,10 @@ describe("useSessionLogout", () => {
       WORKSPACE_TABS_STORAGE_KEY,
       createWorkspaceTabsStorage("user-a")
     );
+    window.localStorage.setItem(
+      PATIENT_CACHE_KEY,
+      JSON.stringify({ version: 2, data: { patient: { id: "patient-1" } } })
+    );
 
     const { getByRole } = render(<Harness />);
     fireEvent.click(getByRole("button", { name: "logout" }));
@@ -158,5 +174,6 @@ describe("useSessionLogout", () => {
     expect(window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY)).toBe(
       createWorkspaceTabsStorage("user-a")
     );
+    expect(window.localStorage.getItem(PATIENT_CACHE_KEY)).toBeNull();
   });
 });

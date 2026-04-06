@@ -1872,7 +1872,11 @@ def reset_password(request: Request, payload: ResetPasswordRequest, db: Session 
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset token")
 
-    if auth_service.is_password_reset_token_stale(user, issued_at=token_claims.issued_at):
+    if auth_service.is_password_reset_token_stale(
+        user,
+        issued_at=token_claims.issued_at,
+        password_changed_marker=token_claims.password_changed_marker,
+    ):
         _write_auth_audit(
             db,
             action="password_reset_denied",

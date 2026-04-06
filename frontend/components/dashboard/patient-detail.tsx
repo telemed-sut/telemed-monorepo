@@ -151,9 +151,10 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
   const userId = useAuthStore((state) => state.userId);
   const language = useLanguageStore((state) => state.language);
   const router = useRouter();
+  const canUseProtectedCache = Boolean(token && userId);
   const cachedSnapshot = React.useMemo(
-    () => readPatientDetailCache(userId, patientId),
-    [patientId, userId]
+    () => (canUseProtectedCache ? readPatientDetailCache(userId, patientId) : null),
+    [canUseProtectedCache, patientId, userId]
   );
 
   const [patient, setPatient] = useState<Patient | null>(

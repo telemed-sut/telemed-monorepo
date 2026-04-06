@@ -499,9 +499,10 @@ export function PatientHeartSoundContent({
   );
   const patientWorkspaceHref = patientWorkspaceHrefs[0];
   const denseModeHref = patientWorkspaceHrefs[2];
+  const canUseProtectedCache = Boolean(token && userId);
   const cachedSnapshot = useMemo(
-    () => readPatientHeartSoundCache(userId, patientId),
-    [patientId, userId]
+    () => (canUseProtectedCache ? readPatientHeartSoundCache(userId, patientId) : null),
+    [canUseProtectedCache, patientId, userId]
   );
   const cachedRecords = useMemo(
     () => cachedSnapshot?.records ?? [],
@@ -735,10 +736,13 @@ export function PatientHeartSoundContent({
     }
 
     requestAnimationFrame(() => {
-      rowRefs.current[match.id]?.scrollIntoView({
-        behavior: getScrollBehavior(),
-        block: "center",
-      });
+      const activeRow = rowRefs.current[match.id];
+      if (activeRow && typeof activeRow.scrollIntoView === "function") {
+        activeRow.scrollIntoView({
+          behavior: getScrollBehavior(),
+          block: "center",
+        });
+      }
       setActiveRowId(match.id);
       shouldScrollRef.current = false;
       window.setTimeout(() => {

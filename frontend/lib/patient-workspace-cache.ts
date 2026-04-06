@@ -4,6 +4,9 @@ const CACHE_SCHEMA_VERSION = 2;
 const DETAIL_CACHE_TTL_MS = 5 * 60 * 1000;
 const MEETINGS_CACHE_TTL_MS = 60 * 1000;
 const HEART_SOUND_CACHE_TTL_MS = 60 * 1000;
+const PATIENT_WORKSPACE_CACHE_KEY_PREFIX = "telemed.patient-workspace.";
+const PATIENT_WORKSPACE_CACHE_REGISTRY_KEY = `${PATIENT_WORKSPACE_CACHE_KEY_PREFIX}_keys`;
+let patientWorkspaceCacheRegistry: Set<string> | null = null;
 
 type CacheEnvelope<T> = {
   version: number;
@@ -41,7 +44,7 @@ function getStorageKey(
   userId: string | null | undefined,
   patientId: string
 ) {
-  return `telemed.patient-workspace.${scope}.v${CACHE_SCHEMA_VERSION}:${userId ?? "anonymous"}:${patientId}`;
+  return `${PATIENT_WORKSPACE_CACHE_KEY_PREFIX}${scope}.v${CACHE_SCHEMA_VERSION}:${userId ?? "anonymous"}:${patientId}`;
 }
 
 function isFresh(timestamp: number | null, ttlMs: number) {
@@ -84,8 +87,83 @@ function writeEnvelope<T>(storageKey: string, data: T) {
         data,
       } satisfies CacheEnvelope<T>)
     );
+    registerPatientWorkspaceCacheKey(storageKey);
   } catch {
     // Ignore cache write failures and keep the page usable.
+  }
+}
+
+function readPatientWorkspaceCacheRegistry(options?: { preferStorage?: boolean }) {
+  if (!options?.preferStorage && patientWorkspaceCacheRegistry) {
+    return new Set(patientWorkspaceCacheRegistry);
+  }
+
+  if (typeof window === "undefined") {
+    return new Set<string>();
+  }
+
+  try {
+    const raw = window.localStorage.getItem(PATIENT_WORKSPACE_CACHE_REGISTRY_KEY);
+    if (!raw) {
+      patientWorkspaceCacheRegistry = new Set<string>();
+      return new Set<string>();
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      patientWorkspaceCacheRegistry = new Set<string>();
+      return new Set<string>();
+    }
+
+    patientWorkspaceCacheRegistry = new Set(
+      parsed.filter((value): value is string => {
+        return (
+          typeof value === "string" &&
+          value.startsWith(PATIENT_WORKSPACE_CACHE_KEY_PREFIX) &&
+          value !== PATIENT_WORKSPACE_CACHE_REGISTRY_KEY
+        );
+      })
+    );
+    return new Set(patientWorkspaceCacheRegistry);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writePatientWorkspaceCacheRegistry(keys: Set<string>) {
+  patientWorkspaceCacheRegistry = new Set(keys);
+
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (keys.size === 0) {
+    window.localStorage.removeItem(PATIENT_WORKSPACE_CACHE_REGISTRY_KEY);
+    return;
+  }
+
+  window.localStorage.setItem(
+    PATIENT_WORKSPACE_CACHE_REGISTRY_KEY,
+    JSON.stringify([...keys])
+  );
+}
+
+function registerPatientWorkspaceCacheKey(storageKey: string) {
+  if (typeof window === "undefined" || storageKey === PATIENT_WORKSPACE_CACHE_REGISTRY_KEY) {
+    return;
+  }
+
+  const keys = readPatientWorkspaceCacheRegistry();
+  if (keys.has(storageKey)) {
+    return;
+  }
+
+  keys.add(storageKey);
+
+  try {
+    writePatientWorkspaceCacheRegistry(keys);
+  } catch {
+    // Ignore registry write failures and keep the page usable.
   }
 }
 
@@ -195,4 +273,26 @@ export function writePatientHeartSoundCache(
     ...existing,
     ...patch,
   } satisfies PatientHeartSoundCacheEntry);
+}
+
+export function clearPatientWorkspaceCache() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const registryKeys = readPatientWorkspaceCacheRegistry({ preferStorage: true });
+  if (registryKeys.size > 0) {
+    for (const key of registryKeys) {
+      window.localStorage.removeItem(key);
+    }
+    writePatientWorkspaceCacheRegistry(new Set());
+    return;
+  }
+
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.localStorage.key(index);
+    if (key?.startsWith(PATIENT_WORKSPACE_CACHE_KEY_PREFIX)) {
+      window.localStorage.removeItem(key);
+    }
+  }
 }

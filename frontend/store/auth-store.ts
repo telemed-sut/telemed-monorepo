@@ -1,6 +1,7 @@
 import { create } from "zustand";
 
 import type { LoginResponse, UserMe } from "@/lib/api";
+import { clearPatientWorkspaceCache } from "@/lib/patient-workspace-cache";
 import { clearWorkspaceTabsState } from "@/store/workspace-tabs-store";
 
 /** Refresh token 5 minutes before expiry */
@@ -48,6 +49,21 @@ interface AuthState {
 }
 
 let hydratePromise: Promise<void> | null = null;
+
+function getEmptyAuthState() {
+  return {
+    token: null,
+    role: null,
+    userId: null,
+    mfaVerified: false,
+    mfaRecentForPrivilegedActions: false,
+    mfaAuthenticatedAt: null,
+    authSource: null,
+    ssoProvider: null,
+    sessionExpiresAt: null,
+    lastVerifiedAt: null,
+  };
+}
 
 function getExpiryEpoch(expiresIn?: number): number | null {
   if (!Number.isFinite(expiresIn)) return null;
@@ -154,6 +170,12 @@ function readPersistedAuthSnapshot(): PersistedAuthSnapshot | null {
   }
 }
 
+function clearProtectedClientState() {
+  persistAuthSnapshot(null);
+  clearWorkspaceTabsState();
+  clearPatientWorkspaceCache();
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   role: null,
@@ -178,37 +200,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         .then(({ logout }) => logout(activeToken))
         .catch(() => undefined);
     }
-    persistAuthSnapshot(null);
-    clearWorkspaceTabsState();
+    clearProtectedClientState();
     set({
-      token: null,
-      role: null,
-      userId: null,
-      mfaVerified: false,
-      mfaRecentForPrivilegedActions: false,
-      mfaAuthenticatedAt: null,
-      authSource: null,
-      ssoProvider: null,
+      ...getEmptyAuthState(),
       hydrated: true,
-      sessionExpiresAt: null,
-      lastVerifiedAt: null,
     });
   },
   clearSessionState: () => {
-    persistAuthSnapshot(null);
-    clearWorkspaceTabsState();
+    clearProtectedClientState();
     set({
-      token: null,
-      role: null,
-      userId: null,
-      mfaVerified: false,
-      mfaRecentForPrivilegedActions: false,
-      mfaAuthenticatedAt: null,
-      authSource: null,
-      ssoProvider: null,
+      ...getEmptyAuthState(),
       hydrated: true,
-      sessionExpiresAt: null,
-      lastVerifiedAt: null,
     });
   },
   hydrate: async () => {
@@ -216,47 +218,21 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const currentState = get();
     const hasKnownSession = Boolean(persistedSnapshot?.token || currentState.token);
 
-    if (!currentState.hydrated && persistedSnapshot?.token) {
-      set({
-        token: persistedSnapshot.token,
-        role: persistedSnapshot.role,
-        userId: persistedSnapshot.userId,
-        mfaVerified: persistedSnapshot.mfaVerified,
-        mfaRecentForPrivilegedActions: persistedSnapshot.mfaRecentForPrivilegedActions ?? false,
-        mfaAuthenticatedAt: persistedSnapshot.mfaAuthenticatedAt ?? null,
-        authSource: persistedSnapshot.authSource ?? "local",
-        ssoProvider: persistedSnapshot.ssoProvider ?? null,
-        hydrated: true,
-        sessionExpiresAt: persistedSnapshot.sessionExpiresAt,
-        lastVerifiedAt: persistedSnapshot.lastVerifiedAt,
-      });
-    }
-
     if (!hasKnownSession) {
       if (!currentState.hydrated) {
         set({
-          token: null,
-          role: null,
-          userId: null,
-          mfaVerified: false,
-          mfaRecentForPrivilegedActions: false,
-          mfaAuthenticatedAt: null,
-          authSource: null,
-          ssoProvider: null,
+          ...getEmptyAuthState(),
           hydrated: true,
-          sessionExpiresAt: null,
-          lastVerifiedAt: null,
         });
       }
       return;
     }
 
-    const nextState = get();
     if (
-      nextState.hydrated &&
-      nextState.token &&
-      nextState.lastVerifiedAt &&
-      Date.now() - nextState.lastVerifiedAt < AUTH_SNAPSHOT_REVALIDATE_AFTER_MS
+      currentState.hydrated &&
+      currentState.token &&
+      currentState.lastVerifiedAt &&
+      Date.now() - currentState.lastVerifiedAt < AUTH_SNAPSHOT_REVALIDATE_AFTER_MS
     ) {
       return;
     }
@@ -289,19 +265,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         // No valid session cookie or refresh failed.
       }
 
-      persistAuthSnapshot(null);
+      clearProtectedClientState();
       set({
-        token: null,
-        role: null,
-        userId: null,
-        mfaVerified: false,
-        mfaRecentForPrivilegedActions: false,
-        mfaAuthenticatedAt: null,
-        authSource: null,
-        ssoProvider: null,
+        ...getEmptyAuthState(),
         hydrated: true,
-        sessionExpiresAt: null,
-        lastVerifiedAt: null,
       });
     })().finally(() => {
       hydratePromise = null;

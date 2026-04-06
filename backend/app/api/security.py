@@ -1,3 +1,4 @@
+import json
 import logging
 import secrets
 from datetime import datetime, timezone, timedelta
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
-from app.core.security import generate_totp_secret, get_password_hash
+from app.core.security import generate_totp_secret
 from app.models.audit_log import AuditLog
 from app.models.device_registration import DeviceRegistration
 from app.models.enums import PrivilegedRole, UserRole
@@ -80,6 +81,35 @@ def _normalize_privileged_reason(raw_reason: str) -> str:
             detail="Reason must be at least 8 characters.",
         )
     return reason
+
+
+def _emit_security_monitoring_event(
+    *,
+    action: str,
+    status: str,
+    actor: Optional[User],
+    target_user: Optional[User],
+    ip_address: str | None,
+    details: Optional[dict[str, object]] = None,
+) -> None:
+    payload = {
+        "event": "security_audit_event",
+        "action": action,
+        "status": status,
+        "actor_user_id": str(actor.id) if actor else None,
+        "target_user_id": str(target_user.id) if target_user else None,
+        "ip_address": ip_address,
+        **(details or {}),
+    }
+    sanitized_payload = {key: value for key, value in payload.items() if value is not None}
+    logger.info(
+        json.dumps(
+            sanitized_payload,
+            default=str,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
 
 
 def _require_privileged_admin_management(
@@ -730,7 +760,6 @@ def reset_user_two_factor_by_super_admin(
     target.two_factor_enabled_at = None
     revoked_devices = security_service.revoke_all_trusted_devices(db, user_id=target.id)
     revoked_backup_codes = security_service.revoke_backup_codes(db, user_id=target.id)
-    db.add(target)
     db.add(
         AuditLog(
             user_id=current_user.id,
@@ -807,13 +836,15 @@ def reset_user_password_by_super_admin(
         db.commit()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    # Immediately invalidate old credentials, then issue a short-lived one-time reset token.
-    target.password_hash = get_password_hash(generate_totp_secret(16))
+    # Immediately invalidate old credentials, revoke MFA bypass artifacts,
+    # then issue a short-lived one-time reset token.
+    auth_service.reset_user_password(db, target, generate_totp_secret(16))
     target.failed_login_attempts = 0
     target.account_locked_until = None
     target.last_failed_login_at = None
+    revoked_devices = security_service.revoke_all_trusted_devices(db, user_id=target.id)
+    revoked_backup_codes = security_service.revoke_backup_codes(db, user_id=target.id)
     reset_token = auth_service.create_password_reset_token(target)
-    db.add(target)
     db.add(
         AuditLog(
             user_id=current_user.id,
@@ -824,6 +855,8 @@ def reset_user_password_by_super_admin(
                 "reason": reason,
                 "target_email": target.email,
                 "reset_token_expires_in": settings.password_reset_expires_in,
+                "revoked_devices": revoked_devices,
+                "revoked_backup_codes": revoked_backup_codes,
             },
             ip_address=ip,
             is_break_glass=False,
@@ -831,6 +864,18 @@ def reset_user_password_by_super_admin(
         )
     )
     db.commit()
+    _emit_security_monitoring_event(
+        action="admin_force_password_reset",
+        status="success",
+        actor=current_user,
+        target_user=target,
+        ip_address=ip,
+        details={
+            "reason_present": bool(reason),
+            "revoked_devices": revoked_devices,
+            "revoked_backup_codes": revoked_backup_codes,
+        },
+    )
 
     return AdminUserPasswordResetResponse(
         message=f"Password has been reset for {target.email}.",

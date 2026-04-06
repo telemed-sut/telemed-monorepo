@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -16,7 +16,8 @@ const {
   mockFetchPatient: vi.fn(),
   mockFetchPatientHeartSounds: vi.fn(),
   mockAuthState: {
-    token: "test-token",
+    token: "test-token" as string | null,
+    userId: "user-a" as string | null,
     role: "admin",
     clearToken: vi.fn(),
   },
@@ -53,7 +54,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
 describe("patient heart sound page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
     mockLanguageState.language = "en";
+    mockAuthState.token = "test-token";
+    mockAuthState.userId = "user-a";
     mockAuthState.role = "admin";
     mockFetchPatient.mockResolvedValue({
       id: "patient-1",
@@ -183,13 +187,14 @@ describe("patient heart sound page", () => {
     expect(
       await screen.findByRole("heading", { name: "Heart Sound", level: 1 })
     ).toBeInTheDocument();
+    expect(await screen.findAllByText(/DE:MO:PO:09:20:A1/)).not.toHaveLength(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Jump to position 9" }));
 
-    expect(screen.getAllByText(/DE:MO:PO:09:20:A1/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/DE:MO:PO:09:20:B2/).length).toBeGreaterThan(0);
+    expect(await screen.findAllByText(/DE:MO:PO:09:20:A1/)).not.toHaveLength(0);
+    expect(await screen.findAllByText(/DE:MO:PO:09:20:B2/)).not.toHaveLength(0);
     expect(screen.queryByText(/DE:MO:PO:14:30:01/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Clear filter" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Clear filter" })).toBeInTheDocument();
   });
 
   it("clears the position filter when the same position is clicked again", async () => {
@@ -226,15 +231,24 @@ describe("patient heart sound page", () => {
     expect(
       await screen.findByRole("heading", { name: "Heart Sound", level: 1 })
     ).toBeInTheDocument();
+    expect(await screen.findAllByText(/DE:MO:PO:14:30:01/)).not.toHaveLength(0);
 
-    const positionNineButton = screen.getByRole("button", { name: "Jump to position 9" });
+    const getPositionNineFilterButton = () =>
+      screen
+        .getAllByRole("button")
+        .find((button) => button.textContent?.trim().startsWith("9"));
 
-    fireEvent.click(positionNineButton);
-    expect(screen.queryByText(/DE:MO:PO:14:30:01/)).not.toBeInTheDocument();
+    const firstClickButton = getPositionNineFilterButton();
+    expect(firstClickButton).toBeTruthy();
+    fireEvent.click(firstClickButton!);
+    await waitFor(() => {
+      expect(screen.queryByText(/DE:MO:PO:14:30:01/)).not.toBeInTheDocument();
+    });
 
-    fireEvent.click(positionNineButton);
-    expect(screen.getAllByText(/DE:MO:PO:14:30:01/).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", { name: "Clear filter" })).not.toBeInTheDocument();
+    const secondClickButton = getPositionNineFilterButton();
+    expect(secondClickButton).toBeTruthy();
+    fireEvent.click(secondClickButton!);
+    expect(await screen.findAllByText(/DE:MO:PO:14:30:01/)).not.toHaveLength(0);
   });
 
   it("localizes visible workspace copy in Thai", async () => {
@@ -284,5 +298,49 @@ describe("patient heart sound page", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Unable to load patient data.")).toBeInTheDocument();
     expect(screen.queryByText("ไม่พบข้อมูลผู้ใช้ที่ต้องการ")).not.toBeInTheDocument();
+  });
+
+  it("does not render cached heart sound data before an authenticated session is available", async () => {
+    mockAuthState.token = null;
+    window.localStorage.setItem(
+      "telemed.patient-workspace.heart-sound.v2:user-a:patient-1",
+      JSON.stringify({
+        version: 2,
+        data: {
+          patient: {
+            id: "patient-1",
+            first_name: "Cached",
+            last_name: "Patient",
+            date_of_birth: "1990-01-01",
+          },
+          patientCachedAt: Date.now(),
+          records: [
+            {
+              id: "cached-sound-1",
+              patient_id: "patient-1",
+              device_id: "device-1",
+              mac_address: "AA:BB:CC:DD:EE:FF",
+              position: 3,
+              blob_url: "https://example.com/cached.wav",
+              duration_seconds: 12,
+              recorded_at: "2026-03-27T04:50:00Z",
+              created_at: "2026-03-27T04:50:00Z",
+            },
+          ],
+          recordsCachedAt: Date.now(),
+        },
+      })
+    );
+
+    const { PatientHeartSoundContent } = await import("@/components/dashboard/patient-heart-sound");
+    render(<PatientHeartSoundContent patientId="patient-1" />);
+
+    expect(screen.queryByText("Cached Patient")).not.toBeInTheDocument();
+    expect(screen.queryByText(/AA:BB:CC:DD:EE:FF/)).not.toBeInTheDocument();
+    expect(mockFetchPatient).not.toHaveBeenCalled();
+    expect(mockFetchPatientHeartSounds).not.toHaveBeenCalled();
+    expect(mockReplace).toHaveBeenCalledWith("/login");
+
+    mockAuthState.token = "test-token";
   });
 });

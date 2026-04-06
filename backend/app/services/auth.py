@@ -58,6 +58,7 @@ INVITABLE_ROLES = frozenset({
 class PasswordResetTokenClaims:
     user_id: str
     issued_at: datetime | None
+    password_changed_marker: int | None
 
 
 def get_db():
@@ -327,6 +328,7 @@ def create_password_reset_token(user: User) -> str:
     payload = {
         "sub": str(user.id),
         "type": "password_reset",
+        "pwdv": _get_password_changed_marker(user),
     }
     return create_access_token(payload, expires_in=settings.password_reset_expires_in)
 
@@ -343,9 +345,13 @@ def parse_password_reset_token(token: str) -> PasswordResetTokenClaims:
         if token_type != "password_reset" or not user_id:
             raise credentials_exception
         issued_at = _coerce_timestamp(payload.get("iat"))
+        password_changed_marker = payload.get("pwdv")
         return PasswordResetTokenClaims(
             user_id=str(user_id),
             issued_at=issued_at,
+            password_changed_marker=int(password_changed_marker)
+            if isinstance(password_changed_marker, (int, float))
+            else None,
         )
     except JWTError:
         raise credentials_exception
@@ -359,7 +365,11 @@ def is_password_reset_token_stale(
     user: User,
     *,
     issued_at: datetime | None,
+    password_changed_marker: int | None = None,
 ) -> bool:
+    current_password_changed_marker = _get_password_changed_marker(user)
+    if password_changed_marker is not None:
+        return current_password_changed_marker != password_changed_marker
     if issued_at is None:
         return True
     password_changed_at = _normalize_dt(user.password_changed_at) if user.password_changed_at else None
@@ -369,12 +379,18 @@ def is_password_reset_token_stale(
 def reset_user_password(db: Session, user: User, new_password: str) -> None:
     user.password_hash = get_password_hash(new_password)
     user.password_changed_at = _now_utc()
-    db.add(user)
     db.flush()
 
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _get_password_changed_marker(user: User) -> int | None:
+    if not user.password_changed_at:
+        return None
+    normalized = _normalize_dt(user.password_changed_at)
+    return int(normalized.timestamp() * 1_000_000)
 
 
 def hash_invite_token(token: str) -> str:

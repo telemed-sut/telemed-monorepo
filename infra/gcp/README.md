@@ -92,6 +92,11 @@ Auto deploy:
   - `.github/workflows/cloud-run-uptime-check.yml`
 - Monitoring guide:
   - `infra/gcp/monitoring-runbook.md`
+- Security alert templates:
+  - `infra/gcp/alerts/admin-force-password-reset-log-metric.yaml`
+  - `infra/gcp/alerts/admin-force-password-reset-alert-policy.yaml`
+
+> **Before deploying alerts:** Replace `REPLACE_BACKEND_SERVICE`, `REPLACE_PROJECT_ID`, and `REPLACE_SECURITY_CHANNEL` in `infra/gcp/alerts/*.yaml` before you run the `gcloud` commands.
 
 ## 5) Cloud SQL backup/restore drill
 

@@ -230,7 +230,6 @@ def revoke_all_trusted_devices(db: Session, *, user_id: UUID) -> int:
     ).all()
     for device in devices:
         device.revoked_at = now
-        db.add(device)
     db.flush()
     return len(devices)
 
@@ -246,7 +245,6 @@ def revoke_trusted_device(db: Session, *, user_id: UUID, device_id: UUID) -> boo
     if not device:
         return False
     device.revoked_at = _now_utc()
-    db.add(device)
     db.flush()
     return True
 
@@ -291,7 +289,6 @@ def revoke_backup_codes(db: Session, *, user_id: UUID) -> int:
     ).all()
     for item in items:
         item.used_at = now
-        db.add(item)
     db.flush()
     return len(items)
 

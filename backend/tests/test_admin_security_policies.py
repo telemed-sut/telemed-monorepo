@@ -12,8 +12,11 @@ from app.core.security import generate_totp_code, generate_totp_secret, get_pass
 from app.models.audit_log import AuditLog
 from app.models.device_registration import DeviceRegistration
 from app.models.enums import PrivilegedRole, UserRole
+from app.models.user_backup_code import UserBackupCode
 from app.models.user import User
 from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
+from app.services import security as security_service
+from app.services.auth import create_login_response
 
 
 def _make_user(db: Session, *, email: str, role: UserRole = UserRole.medical_student, password: str = "TestPass123") -> User:
@@ -390,6 +393,117 @@ def test_admin_force_password_reset_token_cannot_be_reused(client: TestClient, d
         json={"token": reset_token, "new_password": "AnotherStrongPass456"},
     )
     assert second_reset.status_code == 400, second_reset.text
+
+
+def test_admin_force_password_reset_invalidates_existing_access_tokens(client: TestClient, db: Session):
+    super_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+    target = _make_user(
+        db,
+        email="target-password-reset-token@example.com",
+        role=UserRole.medical_student,
+        password="OldPass123",
+    )
+    stale_access_token = create_login_response(target)["access_token"]
+    token = _login(client, super_admin.email).json()["access_token"]
+
+    response = client.post(
+        f"/security/users/{target.id}/password/reset",
+        json={"reason": "Emergency account recovery after lockout"},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200, response.text
+
+    me_response = client.get(
+        "/auth/me",
+        headers=_auth(stale_access_token),
+    )
+    assert me_response.status_code == 401, me_response.text
+
+
+def test_admin_force_password_reset_invalidates_previous_reset_tokens_and_mfa_bypass_artifacts(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    super_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+    target = _make_user(
+        db,
+        email="target-password-reset-artifacts@example.com",
+        role=UserRole.medical_student,
+        password="OldPass123",
+    )
+    secret = generate_totp_secret()
+    target.two_factor_secret = secret
+    target.two_factor_enabled = True
+    target.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(target)
+    db.commit()
+
+    trusted_device_token, trusted_device = security_service.create_trusted_device(
+        db,
+        user=target,
+        ip_address="203.0.113.42",
+        user_agent="pytest-agent",
+    )
+    backup_codes, _ = security_service.generate_backup_codes(db, user_id=target.id)
+    db.commit()
+    assert trusted_device_token
+    assert trusted_device.id
+    assert backup_codes
+
+    monkeypatch.setattr(auth_api.settings, "password_reset_return_token_in_response", True)
+
+    forgot_response = client.post(
+        "/auth/forgot-password",
+        json={"email": target.email},
+        headers={"host": "localhost"},
+    )
+    assert forgot_response.status_code == 200, forgot_response.text
+    stale_reset_token = forgot_response.json()["reset_token"]
+    assert stale_reset_token
+
+    token = _login(client, super_admin.email).json()["access_token"]
+    response = client.post(
+        f"/security/users/{target.id}/password/reset",
+        json={"reason": "Emergency account recovery after lockout"},
+        headers=_auth(token),
+    )
+    assert response.status_code == 200, response.text
+    fresh_reset_token = response.json()["reset_token"]
+    assert fresh_reset_token
+
+    reset_response = client.post(
+        "/auth/reset-password",
+        json={"token": stale_reset_token, "new_password": "AnotherStrongPass456"},
+    )
+    assert reset_response.status_code == 400, reset_response.text
+
+    fresh_reset_response = client.post(
+        "/auth/reset-password",
+        json={"token": fresh_reset_token, "new_password": "AnotherStrongPass456"},
+    )
+    assert fresh_reset_response.status_code == 200, fresh_reset_response.text
+
+    db.refresh(trusted_device)
+    assert trusted_device.revoked_at is not None
+
+    active_backup_codes = db.scalars(
+        select(UserBackupCode).where(
+            UserBackupCode.user_id == target.id,
+            UserBackupCode.used_at.is_(None),
+        )
+    ).all()
+    assert active_backup_codes == []
+
+    audit = db.scalar(
+        select(AuditLog)
+        .where(AuditLog.action == "admin_force_password_reset")
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert audit is not None
+    details = audit.details if isinstance(audit.details, dict) else {}
+    assert details.get("revoked_devices") == 1
+    assert details.get("revoked_backup_codes") == len(backup_codes)
 
 
 def test_non_super_admin_cannot_reset_user_password(client: TestClient, db: Session):

@@ -17,7 +17,8 @@ const {
   mockFetchPatient: vi.fn(),
   mockFetchMeetings: vi.fn(),
   mockAuthState: {
-    token: "test-token",
+    token: "test-token" as string | null,
+    userId: "user-a" as string | null,
     clearToken: vi.fn(),
   },
   mockLanguageState: {
@@ -64,6 +65,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
 describe("patient workspace overview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.localStorage.clear();
+    mockAuthState.token = "test-token";
+    mockAuthState.userId = "user-a";
     mockFetchPatient.mockResolvedValue({
       id: "patient-1",
       first_name: "John",
@@ -114,6 +118,36 @@ describe("patient workspace overview", () => {
     expect(screen.getByText("Unable to load patient data.")).toBeInTheDocument();
     expect(screen.queryByText("ไม่พบข้อมูลผู้ใช้ที่ต้องการ")).not.toBeInTheDocument();
   });
+
+  it("does not render cached patient data before an authenticated session is available", async () => {
+    mockAuthState.token = null;
+    window.localStorage.setItem(
+      "telemed.patient-workspace.detail.v2:user-a:patient-1",
+      JSON.stringify({
+        version: 2,
+        data: {
+          patient: {
+            id: "patient-1",
+            first_name: "Cached",
+            last_name: "Patient",
+            date_of_birth: "1990-01-01",
+          },
+          patientCachedAt: Date.now(),
+          meetings: [],
+          meetingsTotal: 0,
+          meetingsCachedAt: Date.now(),
+        },
+      })
+    );
+
+    const { PatientDetailContent } = await import("@/components/dashboard/patient-detail");
+    render(<PatientDetailContent patientId="patient-1" />);
+
+    expect(screen.queryByText("Cached Patient")).not.toBeInTheDocument();
+    expect(mockFetchPatient).not.toHaveBeenCalled();
+
+    mockAuthState.token = "test-token";
+  });
 });
 
 describe("dashboard header patient route titles", () => {
@@ -126,5 +160,109 @@ describe("dashboard header patient route titles", () => {
     expect(getDashboardPageTitle("/patients/patient-1/dense", "en")).toBe("Clinical Focus Mode");
     expect(getDashboardPageTitle("/patients/patient-1", "th")).toBe("พื้นที่ทำงานผู้ป่วย");
     expect(getDashboardPageTitle("/patients/patient-1/heart-sound", "th")).toBe("เสียงหัวใจ");
+  });
+});
+
+describe("patient workspace cache registry", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("clears only registered patient workspace keys without touching unrelated storage", async () => {
+    const {
+      clearPatientWorkspaceCache,
+      writePatientDetailCache,
+      writePatientHeartSoundCache,
+    } = await import("@/lib/patient-workspace-cache");
+
+    writePatientDetailCache("user-a", "patient-1", {
+      patient: {
+        id: "patient-1",
+        first_name: "Cached",
+        last_name: "Patient",
+        date_of_birth: "1990-01-01",
+      },
+      patientCachedAt: Date.now(),
+      meetings: [],
+      meetingsTotal: 0,
+      meetingsCachedAt: Date.now(),
+    });
+    writePatientHeartSoundCache("user-a", "patient-1", {
+      patient: {
+        id: "patient-1",
+        first_name: "Cached",
+        last_name: "Patient",
+        date_of_birth: "1990-01-01",
+      },
+      patientCachedAt: Date.now(),
+      records: [],
+      recordsCachedAt: Date.now(),
+    });
+    window.localStorage.setItem("unrelated-key", "keep-me");
+
+    clearPatientWorkspaceCache();
+
+    expect(
+      window.localStorage.getItem("telemed.patient-workspace.detail.v2:user-a:patient-1")
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem("telemed.patient-workspace.heart-sound.v2:user-a:patient-1")
+    ).toBeNull();
+    expect(window.localStorage.getItem("telemed.patient-workspace._keys")).toBeNull();
+    expect(window.localStorage.getItem("unrelated-key")).toBe("keep-me");
+  });
+
+  it("refreshes the registry from storage before clearing so cross-tab keys are not missed", async () => {
+    const {
+      clearPatientWorkspaceCache,
+      writePatientDetailCache,
+    } = await import("@/lib/patient-workspace-cache");
+
+    writePatientDetailCache("user-a", "patient-1", {
+      patient: {
+        id: "patient-1",
+        first_name: "Cached",
+        last_name: "Patient",
+        date_of_birth: "1990-01-01",
+      },
+      patientCachedAt: Date.now(),
+      meetings: [],
+      meetingsTotal: 0,
+      meetingsCachedAt: Date.now(),
+    });
+
+    const crossTabKey = "telemed.patient-workspace.heart-sound.v2:user-a:patient-2";
+    window.localStorage.setItem(
+      crossTabKey,
+      JSON.stringify({
+        version: 2,
+        data: {
+          patient: {
+            id: "patient-2",
+            first_name: "Other",
+            last_name: "Patient",
+            date_of_birth: "1990-01-01",
+          },
+          patientCachedAt: Date.now(),
+          records: [],
+          recordsCachedAt: Date.now(),
+        },
+      })
+    );
+    window.localStorage.setItem(
+      "telemed.patient-workspace._keys",
+      JSON.stringify([
+        "telemed.patient-workspace.detail.v2:user-a:patient-1",
+        crossTabKey,
+      ])
+    );
+
+    clearPatientWorkspaceCache();
+
+    expect(
+      window.localStorage.getItem("telemed.patient-workspace.detail.v2:user-a:patient-1")
+    ).toBeNull();
+    expect(window.localStorage.getItem(crossTabKey)).toBeNull();
+    expect(window.localStorage.getItem("telemed.patient-workspace._keys")).toBeNull();
   });
 });
