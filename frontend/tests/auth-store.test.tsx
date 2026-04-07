@@ -37,7 +37,7 @@ describe("auth store hydration", () => {
   });
 
   it("keeps a cookie-backed session and persists a local snapshot when /auth/me succeeds", async () => {
-    window.localStorage.setItem(
+    window.sessionStorage.setItem(
       AUTH_SNAPSHOT_STORAGE_KEY,
       JSON.stringify({
         token: "__cookie_session__",
@@ -78,13 +78,13 @@ describe("auth store hydration", () => {
     expect(state.role).toBe("doctor");
     expect(state.userId).toBe("doctor-1");
     expect(state.sessionExpiresAt).toBeNull();
-    expect(window.localStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY)).toContain(
+    expect(window.sessionStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY)).toContain(
       "\"userId\":\"doctor-1\""
     );
   });
 
   it("treats a persisted snapshot as an auth candidate until remote validation succeeds", async () => {
-    window.localStorage.setItem(
+    window.sessionStorage.setItem(
       AUTH_SNAPSHOT_STORAGE_KEY,
       JSON.stringify({
         token: "__cookie_session__",
@@ -123,7 +123,7 @@ describe("auth store hydration", () => {
   });
 
   it("clears persisted auth and protected cache when remote revalidation fails", async () => {
-    window.localStorage.setItem(
+    window.sessionStorage.setItem(
       AUTH_SNAPSHOT_STORAGE_KEY,
       JSON.stringify({
         token: "__cookie_session__",
@@ -160,7 +160,7 @@ describe("auth store hydration", () => {
 
     expect(useAuthStore.getState().hydrated).toBe(true);
     expect(useAuthStore.getState().token).toBeNull();
-    expect(window.localStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY)).toBeNull();
+    expect(window.sessionStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(PATIENT_CACHE_KEY)).toBeNull();
   });
 

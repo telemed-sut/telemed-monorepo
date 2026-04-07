@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
+from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole
 from app.models.patient import Patient
 from app.models.user import User
@@ -76,8 +77,19 @@ def notify_care_team(
     # Lazy import — only loaded when Novu is actually enabled.
     from app.services import novu as novu_service  # noqa: E402
 
-    stmt = select(User.id).where(User.role.in_([UserRole.admin, UserRole.doctor]))
-    user_ids = [str(row[0]) for row in db.execute(stmt).fetchall() if str(row[0]) != str(current_user.id)]
+    patient_uuid = UUID(patient_id)
+
+    assigned_doctor_ids = db.scalars(
+        select(DoctorPatientAssignment.doctor_id)
+        .where(DoctorPatientAssignment.patient_id == patient_uuid)
+        .distinct()
+    ).all()
+    admin_ids = db.scalars(select(User.id).where(User.role == UserRole.admin)).all()
+    user_ids = [
+        str(user_id)
+        for user_id in set(assigned_doctor_ids + admin_ids)
+        if str(user_id) != str(current_user.id)
+    ]
     
     if not user_ids:
         return

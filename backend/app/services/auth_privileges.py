@@ -2,6 +2,8 @@ import logging
 from typing import Any, Optional
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -30,7 +32,7 @@ def is_admin_sso_enforced_for_user(user: User | None) -> bool:
 
 
 def _normalize_super_admin_emails() -> set[str]:
-    raw_super_admins = settings.super_admin_emails
+    raw_super_admins = get_settings().super_admin_emails
     if isinstance(raw_super_admins, str):
         return {email.strip().lower() for email in raw_super_admins.split(",") if email.strip()}
     return {email.strip().lower() for email in raw_super_admins if email and email.strip()}
@@ -166,24 +168,20 @@ def backfill_bootstrap_privileged_roles(db: Session) -> int:
         admin = admin_by_email.get(email)
         if admin is None:
             continue
-        existing = db.scalar(
-            select(UserPrivilegedRoleAssignment.id).where(
-                UserPrivilegedRoleAssignment.user_id == admin.id,
-                UserPrivilegedRoleAssignment.role == PrivilegedRole.platform_super_admin,
-                UserPrivilegedRoleAssignment.revoked_at.is_(None),
-            )
+        insert_factory = sqlite_insert if db.bind and db.bind.dialect.name == "sqlite" else pg_insert
+        stmt = insert_factory(UserPrivilegedRoleAssignment).values(
+            user_id=admin.id,
+            role=PrivilegedRole.platform_super_admin,
+            created_by=None,
+            reason="bootstrap_backfill_from_super_admin_emails",
         )
-        if existing:
-            continue
-        db.add(
-            UserPrivilegedRoleAssignment(
-                user_id=admin.id,
-                role=PrivilegedRole.platform_super_admin,
-                created_by=None,
-                reason="bootstrap_backfill_from_super_admin_emails",
-            )
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=["user_id", "role"],
+            index_where=UserPrivilegedRoleAssignment.revoked_at.is_(None),
         )
-        created += 1
+        result = db.execute(stmt)
+        if result.rowcount and result.rowcount > 0:
+            created += 1
 
     if created:
         db.flush()

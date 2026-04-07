@@ -183,6 +183,19 @@ jobs:
         cache-from: type=gha,scope=gcp-backend
         cache-to: type=gha,mode=max,scope=gcp-backend
 
+    - name: Run database migrations
+      if: ${{ github.event_name == 'push' || inputs.run_migrations_on_startup }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        database_url="$(gcloud secrets versions access latest --secret "$DATABASE_URL_SECRET_NAME" --project "$GCP_PROJECT_ID")"
+        echo "::add-mask::$database_url"
+
+        docker run --rm \
+          -e DATABASE_URL="$database_url" \
+          "$BACKEND_IMAGE" \
+          alembic upgrade head
+
     - name: Deploy backend service
       shell: bash
       run: |

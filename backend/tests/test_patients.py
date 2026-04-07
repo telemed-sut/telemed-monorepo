@@ -1,6 +1,8 @@
+from types import SimpleNamespace
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,6 +15,7 @@ from app.models.patient import Patient
 from app.models.pressure_record import PressureRecord
 from app.models.user import User, UserRole
 from app.schemas.patient import PatientCreate
+from app.api.patients import notify_care_team
 from app.services.auth import create_login_response
 from app.services.patient import create_patient, get_patient, list_patients
 
@@ -218,6 +221,53 @@ def test_patient_api_endpoints(client: TestClient, db: Session):
 
     response = client.delete(f"/patients/{patient_id}", headers=admin_headers)
     assert response.status_code == 204
+
+
+def test_notify_care_team_targets_only_assigned_doctors_and_admins(db: Session, monkeypatch):
+    admin = create_test_user(db, UserRole.admin)
+    current_doctor = create_test_user(db, UserRole.doctor)
+    assigned_peer = create_test_user(db, UserRole.doctor)
+    unassigned_doctor = create_test_user(db, UserRole.doctor)
+    patient = create_patient(
+        db,
+        PatientCreate(
+            first_name="Notify",
+            last_name="Scope",
+            date_of_birth=date(1993, 3, 3),
+        ),
+    )
+
+    assign_doctor_to_patient(db, current_doctor.id, patient.id)
+    assign_doctor_to_patient(db, assigned_peer.id, patient.id, role="consulting")
+
+    monkeypatch.setattr(
+        "app.core.config.get_settings",
+        lambda: SimpleNamespace(novu_enabled=True),
+    )
+
+    captured: dict[str, list[str] | str] = {}
+
+    def fake_notify(user_ids: list[str], patient_id: str, actor_user_id: str):
+        captured["user_ids"] = user_ids
+        captured["patient_id"] = patient_id
+        captured["actor_user_id"] = actor_user_id
+
+    monkeypatch.setattr("app.services.novu.notify_patient_updated", fake_notify)
+
+    background_tasks = BackgroundTasks()
+    notify_care_team(db, current_doctor, background_tasks, "updated", str(patient.id))
+
+    assert len(background_tasks.tasks) == 1
+
+    task = background_tasks.tasks[0]
+    task.func()
+
+    recipients = set(captured["user_ids"])
+    assert recipients == {str(admin.id), str(assigned_peer.id)}
+    assert str(current_doctor.id) not in recipients
+    assert str(unassigned_doctor.id) not in recipients
+    assert captured["patient_id"] == str(patient.id)
+    assert captured["actor_user_id"] == str(current_doctor.id)
 
 
 def test_patient_list_response_omits_contact_fields(client: TestClient, db: Session):

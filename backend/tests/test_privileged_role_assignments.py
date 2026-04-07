@@ -332,6 +332,15 @@ def test_backfill_bootstrap_privileged_roles_assigns_platform_super_admin(monkey
     assert assignments[0].reason == "bootstrap_backfill_from_super_admin_emails"
 
     rerun_created = backfill_bootstrap_privileged_roles(db)
+    db.commit()
+    rerun_assignments = db.scalars(
+        select(UserPrivilegedRoleAssignment).where(
+            UserPrivilegedRoleAssignment.user_id == admin.id,
+            UserPrivilegedRoleAssignment.revoked_at.is_(None),
+        )
+    ).all()
+
     assert rerun_created == 0
+    assert len(rerun_assignments) == 1
 
     get_settings.cache_clear()

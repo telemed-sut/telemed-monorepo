@@ -107,18 +107,18 @@ function persistAuthSnapshot(snapshot: PersistedAuthSnapshot | null) {
   }
 
   if (!snapshot?.token) {
-    window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
+    window.sessionStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
     window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
-    window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
     return;
   }
 
-  window.localStorage.setItem(
+  window.sessionStorage.setItem(
     AUTH_SNAPSHOT_STORAGE_KEY,
     JSON.stringify(snapshot)
   );
   window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
-  window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
+  window.localStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
 }
 
 function readPersistedAuthSnapshot(): PersistedAuthSnapshot | null {
@@ -127,9 +127,9 @@ function readPersistedAuthSnapshot(): PersistedAuthSnapshot | null {
   }
 
   const raw =
-    window.localStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY) ??
+    window.sessionStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY) ??
     window.localStorage.getItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY) ??
-    window.sessionStorage.getItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
+    window.localStorage.getItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
   if (!raw) {
     return null;
   }
@@ -139,9 +139,9 @@ function readPersistedAuthSnapshot(): PersistedAuthSnapshot | null {
     const verifiedAt = parsed.lastVerifiedAt ?? 0;
 
     if (!parsed.token || Date.now() - verifiedAt > AUTH_SNAPSHOT_RETENTION_MS) {
-      window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
+      window.sessionStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
       window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
-      window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
+      window.localStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
       return null;
     }
 
@@ -158,14 +158,14 @@ function readPersistedAuthSnapshot(): PersistedAuthSnapshot | null {
       lastVerifiedAt: parsed.lastVerifiedAt ?? verifiedAt,
     };
 
-    window.localStorage.setItem(AUTH_SNAPSHOT_STORAGE_KEY, JSON.stringify(sanitized));
+    window.sessionStorage.setItem(AUTH_SNAPSHOT_STORAGE_KEY, JSON.stringify(sanitized));
     window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
-    window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
     return sanitized;
   } catch {
-    window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
+    window.sessionStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
     window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
-    window.sessionStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
+    window.localStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
     return null;
   }
 }
