@@ -11,7 +11,12 @@ from app.models.enums import OrderStatus
 from app.models.lab import Lab
 from app.models.medication import Medication
 from app.models.user import User
-from app.schemas.dense_mode import PatientDenseSummary
+from app.schemas.dense_mode import (
+    ActiveMedicationBrief,
+    ActiveOrdersResponse,
+    PatientDenseSummary,
+    PendingLabBrief,
+)
 from app.schemas.order import NoteCreate, OrderCreate
 from app.schemas.timeline import TimelineListResponse
 from app.services import audit as audit_service
@@ -76,7 +81,7 @@ def get_patient_timeline(
     return timeline_service.get_patient_timeline(db, patient_id, cursor, limit)
 
 
-@router.get("/{patient_id}/active-orders")
+@router.get("/{patient_id}/active-orders", response_model=ActiveOrdersResponse)
 @limiter.limit("60/minute")
 def get_active_orders(
     request: Request,
@@ -106,7 +111,10 @@ def get_active_orders(
         ip_address=get_client_ip(request),
     )
 
-    return {"medications": list(meds), "labs": list(labs)}
+    return ActiveOrdersResponse(
+        medications=[ActiveMedicationBrief.model_validate(m) for m in meds],
+        labs=[PendingLabBrief.model_validate(l) for l in labs],
+    )
 
 
 @router.get("/{patient_id}/results/trends")

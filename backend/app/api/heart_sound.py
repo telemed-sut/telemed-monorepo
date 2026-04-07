@@ -3,19 +3,27 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.pressure import log_device_error, verify_device_signature
 from app.core.limiter import limiter
 from app.core.request_utils import get_client_ip
 from app.models.user import User
-from app.schemas.heart_sound import HeartSoundCreate, HeartSoundIngestResponse, HeartSoundListResponse
+from app.schemas.heart_sound import HeartSoundCreate, HeartSoundIngestResponse, HeartSoundRecordOut
 from app.services import audit as audit_service
 from app.services.auth import get_db, verify_patient_access
 from app.services.heart_sound import heart_sound_service
 
 router = APIRouter()
+
+
+class HeartSoundListPaginatedResponse(BaseModel):
+    items: list[HeartSoundRecordOut]
+    total: int
+    limit: int
+    offset: int
 
 
 @router.post("/device/v1/heart-sounds", response_model=HeartSoundIngestResponse, status_code=201)
@@ -68,15 +76,17 @@ def create_heart_sound_record(
         )
 
 
-@router.get("/patients/{patient_id}/heart-sounds", response_model=HeartSoundListResponse)
+@router.get("/patients/{patient_id}/heart-sounds", response_model=HeartSoundListPaginatedResponse)
 @limiter.limit("60/minute")
 def get_patient_heart_sounds(
     request: Request,
     patient_id: UUID,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(verify_patient_access),
 ):
-    items = heart_sound_service.list_patient_heart_sounds(db, patient_id)
+    items, total = heart_sound_service.list_patient_heart_sounds(db, patient_id, limit=limit, offset=offset)
     audit_service.log_action(
         db,
         current_user.id,
@@ -86,4 +96,4 @@ def get_patient_heart_sounds(
         ip_address=get_client_ip(request),
         details={"count": len(items)},
     )
-    return {"items": items}
+    return {"items": items, "total": total, "limit": limit, "offset": offset}

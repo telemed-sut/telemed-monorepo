@@ -1,9 +1,33 @@
+import logging
+from datetime import UTC, datetime
 from typing import Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
+
+
+logger = logging.getLogger(__name__)
+
+
+def _audit_log_payload(entry: AuditLog) -> dict[str, str | None]:
+    created_at = entry.created_at
+    if isinstance(created_at, datetime):
+        timestamp = created_at.astimezone(UTC).isoformat()
+    else:
+        timestamp = datetime.now(UTC).isoformat()
+
+    return {
+        "event_type": "audit_log",
+        "action": entry.action,
+        "user_id": str(entry.user_id) if entry.user_id else None,
+        "resource_type": entry.resource_type,
+        "resource_id": str(entry.resource_id) if entry.resource_id else None,
+        "ip_address": entry.ip_address,
+        "status": entry.status,
+        "timestamp": timestamp,
+    }
 
 
 def log_action(
@@ -42,4 +66,5 @@ def log_action(
         db.refresh(entry)
     else:
         db.flush()
+    logger.info("audit_log_event", extra=_audit_log_payload(entry))
     return entry

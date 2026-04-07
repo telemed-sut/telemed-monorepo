@@ -153,6 +153,22 @@ def list_meetings(
         status_filter=status,
         visible_doctor_id=visible_doctor_id,
     )
+
+    reconciled_meetings = []
+    for meeting in items:
+        if meeting.status not in (MeetingStatus.waiting, MeetingStatus.in_progress):
+            continue
+        presence = meeting.room_presence
+        if not presence:
+            continue
+        if meeting_presence_service.reconcile_active_meeting_status(db, meeting, presence):
+            reconciled_meetings.append(meeting)
+
+    if reconciled_meetings:
+        db.commit()
+        for meeting in reconciled_meetings:
+            db.refresh(meeting)
+
     return MeetingListResponse(items=items, page=page, limit=min(limit, settings.max_limit), total=total)
 
 

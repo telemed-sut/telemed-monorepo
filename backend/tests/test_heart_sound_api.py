@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import os
 import time
 from datetime import date
 
@@ -54,7 +55,7 @@ def test_create_and_list_patient_heart_sounds(
     admin_email = "heart-sound-admin@example.com"
     admin_password = "TestPass123"
     device_id = "heart-sound-device-001"
-    device_secret = "test_device_secret_1234567890abcdef1234567890abcdef"
+    device_secret = os.environ["DEVICE_API_SECRET"]
 
     _create_admin(db, admin_email, admin_password)
     patient = _create_patient(db)

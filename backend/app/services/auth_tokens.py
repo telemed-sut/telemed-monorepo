@@ -169,7 +169,7 @@ def is_password_reset_token_stale(
     if issued_at is None:
         return True
     password_changed_at = _normalize_dt(user.password_changed_at) if user.password_changed_at else None
-    return bool(password_changed_at and issued_at <= password_changed_at)
+    return bool(password_changed_at and issued_at < password_changed_at)
 
 
 def _validate_token_session(

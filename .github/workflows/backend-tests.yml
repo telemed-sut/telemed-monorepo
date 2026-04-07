@@ -74,11 +74,11 @@ jobs:
   backend-test:
     runs-on: ubuntu-latest
     env:
-      DEVICE_API_SECRET: test_device_secret_001_1234567890abcdef1234567890abc
+      DEVICE_API_SECRET: test-device-api-secret-must-be-at-least-32-chars
       DATABASE_URL: postgresql+psycopg://test_user:test_password@localhost:5432/test_db
       TEST_DATABASE_URL: postgresql+psycopg://test_user:test_password@localhost:5432/test_db
       REDIS_URL: redis://localhost:6379/0
-      JWT_SECRET: test-secret-key
+      JWT_SECRET: test-jwt-secret-key-must-be-at-least-32-chars
       JWT_EXPIRES_IN: 3600
       RUN_TEST_MIGRATIONS: "true"
     
@@ -227,7 +227,7 @@ jobs:
       working-directory: ./backend
       env:
         DATABASE_URL: sqlite:///./strict_test.db
-        JWT_SECRET: test-secret-key
+        JWT_SECRET: test-jwt-secret-key-must-be-at-least-32-chars
         JWT_EXPIRES_IN: 3600
         DEVICE_API_ALLOW_JWT_SECRET_FALLBACK: "false"
         DEVICE_API_REQUIRE_REGISTERED_DEVICE: "true"

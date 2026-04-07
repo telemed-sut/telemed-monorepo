@@ -532,9 +532,45 @@ def update_user(
             )
 
     before = _user_snapshot(user)
+    email_change_requested = bool(user_in.email) and user_in.email.lower() != user.email
+    is_self_service_email_change = (
+        current_user.role != UserRole.admin
+        and current_user.id == user_id
+        and email_change_requested
+    )
 
     if user_in.email:
         normalized_email = user_in.email.lower()
+        if is_self_service_email_change:
+            auth_payload = getattr(request.state, "auth_payload", None)
+            auth_payload = auth_payload if isinstance(auth_payload, dict) else {}
+            mfa_authenticated_at = auth_service._coerce_timestamp(auth_payload.get("mfa_authenticated_at"))
+            mfa_max_age = settings.privileged_action_mfa_max_age_seconds
+            if not auth_service.is_recent_mfa_authenticated(
+                mfa_authenticated_at,
+                max_age_seconds=mfa_max_age,
+            ):
+                log_action(
+                    db,
+                    user_id=current_user.id,
+                    action="user_email_change_attempt",
+                    resource_type="user",
+                    resource_id=user.id,
+                    details={
+                        "status": "failure",
+                        "reason": "recent_mfa_required",
+                        "old_email": user.email,
+                        "new_email": normalized_email,
+                        "mfa_max_age_seconds": mfa_max_age,
+                    },
+                    ip_address=_client_ip(request),
+                    status="failure",
+                    commit=False,
+                )
+                raise HTTPException(
+                    status_code=403,
+                    detail="Recent MFA verification required to change email address.",
+                )
         dup = db.scalar(
             select(User).where(
                 User.email == normalized_email,
@@ -542,6 +578,23 @@ def update_user(
             )
         )
         if dup and dup.id != user_id:
+            if is_self_service_email_change:
+                log_action(
+                    db,
+                    user_id=current_user.id,
+                    action="user_email_change_attempt",
+                    resource_type="user",
+                    resource_id=user.id,
+                    details={
+                        "status": "failure",
+                        "reason": "email_already_in_use",
+                        "old_email": user.email,
+                        "new_email": normalized_email,
+                    },
+                    ip_address=_client_ip(request),
+                    status="failure",
+                    commit=False,
+                )
             raise HTTPException(status_code=400, detail="Email already in use.")
 
         legacy_deleted = db.scalar(
@@ -586,6 +639,22 @@ def update_user(
     db.refresh(user)
 
     after = _user_snapshot(user)
+    if is_self_service_email_change:
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_email_change_attempt",
+            resource_type="user",
+            resource_id=user.id,
+            details={
+                "status": "success",
+                "old_email": before["email"],
+                "new_email": after["email"],
+                "mfa_max_age_seconds": settings.privileged_action_mfa_max_age_seconds,
+            },
+            ip_address=_client_ip(request),
+            commit=False,
+        )
     log_action(
         db,
         user_id=current_user.id,
@@ -1092,7 +1161,6 @@ def bulk_delete_users(
         user.restored_at = None
         user.restored_by = None
         db.add(user)
-        db.commit()
 
         log_action(
             db,
@@ -1104,6 +1172,13 @@ def bulk_delete_users(
             ip_address=_client_ip(request),
         )
         deleted += 1
+
+    # Single commit for all changes — ensures atomicity across the batch
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     log_action(
         db,

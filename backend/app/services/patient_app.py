@@ -197,11 +197,13 @@ def login_patient_app(
     """Authenticate patient by phone + PIN."""
     normalized_phone = _normalize_phone(phone)
 
-    # Find patient by phone.
-    patient = db.scalar(
+    # Query by phone first so we only evaluate a small, indexed candidate set.
+    phone_candidates = [normalized_phone]
+
+    matched_patient = db.scalar(
         select(Patient).where(
             and_(
-                Patient.phone.isnot(None),
+                Patient.phone.in_(phone_candidates),
                 Patient.deleted_at.is_(None),
                 Patient.is_active.is_(True),
                 Patient.pin_hash.isnot(None),
@@ -209,26 +211,8 @@ def login_patient_app(
         ).order_by(Patient.created_at.desc())
     )
 
-    # We need to check all patients with this phone since query above doesn't filter by phone.
-    patients = db.scalars(
-        select(Patient).where(
-            and_(
-                Patient.deleted_at.is_(None),
-                Patient.is_active.is_(True),
-                Patient.pin_hash.isnot(None),
-            )
-        )
-    ).all()
-
-    matched_patient = None
-    for p in patients:
-        p_phone = _normalize_phone(p.phone or "")
-        if p_phone == normalized_phone or (
-            p_phone and normalized_phone and normalized_phone.endswith(p_phone[-4:]) and p_phone.endswith(normalized_phone[-4:])
-        ):
-            if verify_password(pin, p.pin_hash):
-                matched_patient = p
-                break
+    if matched_patient and not verify_password(pin, matched_patient.pin_hash):
+        matched_patient = None
 
     if not matched_patient:
         raise HTTPException(

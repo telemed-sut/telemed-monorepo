@@ -1,4 +1,3 @@
-import enum
 from uuid import uuid4
 
 from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String, func

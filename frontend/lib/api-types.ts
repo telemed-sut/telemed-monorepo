@@ -208,6 +208,9 @@ export interface HeartSoundRecord {
 
 export interface HeartSoundListResponse {
   items: HeartSoundRecord[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export const MEETING_STATUSES = [

@@ -1,6 +1,12 @@
 import os
 import sys
+from pathlib import Path
 from types import SimpleNamespace
+
+# Load .env.test before any app imports
+from dotenv import load_dotenv
+_project_root = Path(__file__).resolve().parent.parent
+load_dotenv(_project_root / ".env.test", override=False)
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +18,8 @@ from sqlalchemy.pool import StaticPool
 
 # Ensure required secrets are available in test environment.
 os.environ.setdefault("DEVICE_API_SECRET", "test_device_secret_1234567890abcdef1234567890abcdef")
-os.environ.setdefault("ADMIN_2FA_REQUIRED", "false")
+# Most tests assume plain admin login unless they explicitly opt into MFA.
+os.environ["ADMIN_2FA_REQUIRED"] = "false"
 os.environ.setdefault("DEVICE_API_REQUIRE_REGISTERED_DEVICE", "false")
 os.environ.setdefault("DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE", "false")
 os.environ.setdefault("DEVICE_API_REQUIRE_NONCE", "false")
@@ -22,6 +29,7 @@ from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine as app_engine
 from app.main import app
+from app.api import pressure as pressure_api
 from app.services.auth import get_db
 from app.services import admin_sso, admin_sso_store
 
@@ -116,6 +124,23 @@ def reset_admin_sso_runtime_state():
     yield
     admin_sso.reset_runtime_caches()
     admin_sso_store.reset_runtime_state()
+
+
+@pytest.fixture(scope="function", autouse=True)
+def reset_device_api_runtime_settings():
+    original_secret = pressure_api.settings.device_api_secret
+    original_secret_map = dict(pressure_api.settings.device_api_secrets)
+    original_require_registered = pressure_api.settings.device_api_require_registered_device
+    original_require_body_hash = pressure_api.settings.device_api_require_body_hash_signature
+    original_require_nonce = pressure_api.settings.device_api_require_nonce
+
+    yield
+
+    pressure_api.settings.device_api_secret = original_secret
+    pressure_api.settings.device_api_secrets = original_secret_map
+    pressure_api.settings.device_api_require_registered_device = original_require_registered
+    pressure_api.settings.device_api_require_body_hash_signature = original_require_body_hash
+    pressure_api.settings.device_api_require_nonce = original_require_nonce
 
 
 @pytest.fixture

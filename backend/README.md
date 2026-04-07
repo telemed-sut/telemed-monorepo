@@ -95,9 +95,29 @@ INFISICAL_RUN_ARGS="--env=dev" ./scripts/dev-api.sh
 
 ### Running with Docker Compose
 1) Preferred: run the team script from repo root (`./scripts/dev-backend.sh`).
-2) Alternative: export the required env vars in your shell, then run `docker compose up --build`.
+2) Alternative: export the required env vars in your shell, create a local
+   `docker-compose.override.yml`, then run `docker compose up --build`.
 3) Backend runs on port 8000; local Docker Compose can run migrations and demo
    seed before uvicorn starts.
+4) Keep tracked `docker-compose.yml` production-safe. For local hot reload, add
+   the backend bind mount in `docker-compose.override.yml`:
+
+```yaml
+services:
+  backend:
+    volumes:
+      - ./backend:/app
+```
+
+5) If you need to debug PostgreSQL from the host, add the port mapping only in
+   your local override and remove it after use:
+
+```yaml
+services:
+  db:
+    ports:
+      - "5432:5432"
+```
 
 ### Auth and local demo users
 - Login endpoint: POST /auth/login with {"email", "password"}.

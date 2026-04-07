@@ -1,4 +1,5 @@
-import { apiFetch, appendPagination, clampLimit, MAX_QUERY_LIMIT } from "./api-client";
+import { apiFetch, appendPagination } from "./api-client";
+import { fetchAllPages } from "./api-fetch-all";
 import type {
   FetchMeetingsParams,
   Meeting,
@@ -15,14 +16,6 @@ import type {
 interface FetchAllOptions {
   pageSize?: number;
   maxItems?: number;
-}
-
-const BULK_FETCH_DEFAULT_PAGE_SIZE = 200;
-const BULK_FETCH_DEFAULT_MAX_ITEMS = 5000;
-
-function normalizeMaxItems(maxItems?: number): number {
-  if (!Number.isFinite(maxItems)) return BULK_FETCH_DEFAULT_MAX_ITEMS;
-  return Math.max(1, Math.floor(maxItems as number));
 }
 
 export async function fetchMeetings(params: FetchMeetingsParams, token: string) {
@@ -45,23 +38,10 @@ export async function fetchAllMeetings(
   token: string,
   options: FetchAllOptions = {}
 ) {
-  const pageSize = clampLimit(options.pageSize ?? BULK_FETCH_DEFAULT_PAGE_SIZE, MAX_QUERY_LIMIT);
-  const maxItems = normalizeMaxItems(options.maxItems);
-  const maxPages = Math.ceil(maxItems / pageSize);
-  const items: Meeting[] = [];
-
-  for (let page = 1; page <= maxPages; page += 1) {
-    const res = await fetchMeetings({ ...params, page, limit: pageSize }, token);
-    if (res.items.length === 0) break;
-
-    const remaining = maxItems - items.length;
-    items.push(...res.items.slice(0, remaining));
-    if (items.length >= res.total || res.items.length < pageSize || items.length >= maxItems) {
-      break;
-    }
-  }
-
-  return items;
+  return fetchAllPages<Meeting>(
+    ({ page, limit }) => fetchMeetings({ ...params, page, limit }, token),
+    options,
+  );
 }
 
 export async function createMeeting(payload: MeetingCreatePayload, token: string) {

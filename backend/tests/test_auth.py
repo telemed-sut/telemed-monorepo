@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash, verify_password
 from app.models.user import User, UserRole
 from app.services.auth import authenticate_user, create_login_response
+from app.services.auth_tokens import _get_password_changed_marker, is_password_reset_token_stale
 
 
 def test_password_hashing():
@@ -71,3 +74,27 @@ def test_create_login_response():
     assert isinstance(response["expires_in"], int)
     assert response["user"]["email"] == "test@example.com"
     assert response["user"]["role"] == "admin"
+
+
+def test_password_reset_token_marker_changes_for_same_second_updates():
+    user = User(
+        email="marker@example.com",
+        password_hash="hashed_password",
+        role=UserRole.medical_student,
+    )
+
+    initial_change = datetime(2026, 4, 8, 12, 0, 0, 100_000, tzinfo=timezone.utc)
+    later_change = datetime(2026, 4, 8, 12, 0, 0, 900_000, tzinfo=timezone.utc)
+
+    user.password_changed_at = initial_change
+    initial_marker = _get_password_changed_marker(user)
+
+    user.password_changed_at = later_change
+    later_marker = _get_password_changed_marker(user)
+
+    assert initial_marker != later_marker
+    assert is_password_reset_token_stale(
+        user,
+        issued_at=None,
+        password_changed_marker=initial_marker,
+    ) is True

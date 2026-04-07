@@ -5,12 +5,9 @@ import { useRouter } from "next/navigation";
 import { MeetingsContent } from "@/components/dashboard/meetings-content";
 import { Button } from "@/components/ui/button";
 import { canViewClinicalData } from "@/lib/api";
+import { t as tr } from "@/lib/i18n-utils";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
-import type { AppLanguage } from "@/store/language-config";
-
-const tr = (language: AppLanguage, en: string, th: string) =>
-  language === "th" ? th : en;
 
 export default function MeetingsPage() {
   const router = useRouter();

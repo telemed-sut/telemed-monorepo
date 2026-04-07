@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.heart_sound_record import HeartSoundRecord
@@ -52,13 +53,27 @@ class HeartSoundService:
         db.refresh(record)
         return record
 
-    def list_patient_heart_sounds(self, db: Session, patient_id: UUID) -> list[HeartSoundRecord]:
-        return (
-            db.query(HeartSoundRecord)
-            .filter(HeartSoundRecord.patient_id == patient_id)
+    def list_patient_heart_sounds(
+        self,
+        db: Session,
+        patient_id: UUID,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[HeartSoundRecord], int]:
+        total = db.scalar(
+            select(func.count(HeartSoundRecord.id)).where(HeartSoundRecord.patient_id == patient_id)
+        ) or 0
+
+        stmt = (
+            select(HeartSoundRecord)
+            .where(HeartSoundRecord.patient_id == patient_id)
             .order_by(HeartSoundRecord.recorded_at.desc(), HeartSoundRecord.created_at.desc())
-            .all()
+            .limit(limit)
+            .offset(offset)
         )
+        items = db.scalars(stmt).all()
+        return list(items), int(total)
 
 
 heart_sound_service = HeartSoundService()

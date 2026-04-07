@@ -84,7 +84,31 @@ services:
       NEXT_SERVER_API_PROXY_TARGET: "${NEXT_SERVER_API_PROXY_TARGET:-http://localhost:8000}"
       NEXT_SERVER_API_BASE_URL: "${NEXT_SERVER_API_BASE_URL:-http://localhost:8000}"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:3000', (res) => process.exit(res.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1));",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+    networks:
+      - frontend-net
+      - backend-net
     restart: always
 
   backend:
@@ -96,11 +120,32 @@ services:
       <<: *backend-common-env
       RUN_MIGRATIONS_ON_STARTUP: "${RUN_MIGRATIONS_ON_STARTUP:-true}"
       RUN_SEED_ON_STARTUP: "${RUN_SEED_ON_STARTUP:-false}"
-    volumes:
-      - ./backend:/app
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+    networks:
+      - backend-net
+      - db-net
     restart: always
 
   db:
@@ -110,8 +155,6 @@ services:
       POSTGRES_USER: "${POSTGRES_USER:-user}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-password}"
       POSTGRES_DB: "${POSTGRES_DB:-patient_db}"
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -124,6 +167,16 @@ services:
       timeout: 5s
       retries: 12
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "1.0"
+          memory: 512M
+    networks:
+      - db-net
 
   authentik-postgresql:
     profiles: ["identity"]
@@ -135,12 +188,32 @@ services:
       POSTGRES_DB: "${AUTHENTIK_POSTGRES_DB:-authentik}"
     volumes:
       - authentik_postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "1.0"
+          memory: 512M
+    networks:
+      - db-net
 
   authentik-redis:
     profiles: ["identity"]
     image: redis:7-alpine
     container_name: telemed-authentik-redis
     command: ["redis-server", "--save", "", "--appendonly", "no"]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    networks:
+      - db-net
 
   authentik-server:
     profiles: ["identity"]
@@ -160,9 +233,32 @@ services:
     depends_on:
       - authentik-postgresql
       - authentik-redis
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/-/health/ready/', timeout=2)",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 256M
     volumes:
       - authentik_media:/media
       - authentik_templates:/templates
+    networks:
+      - backend-net
+      - db-net
 
   authentik-worker:
     profiles: ["identity"]
@@ -180,12 +276,28 @@ services:
     depends_on:
       - authentik-postgresql
       - authentik-redis
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 256M
     volumes:
       - authentik_media:/media
       - authentik_templates:/templates
+    networks:
+      - backend-net
+      - db-net
 
 volumes:
   postgres_data:
   authentik_postgres_data:
   authentik_media:
   authentik_templates:
+
+networks:
+  frontend-net:
+  backend-net:
+  db-net:

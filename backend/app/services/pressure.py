@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
-import uuid
 
 from app.models.pressure_record import PressureRecord
 from app.models.patient import Patient

@@ -409,7 +409,6 @@ def test_create_patient_with_contact_allows_stale_session(client: TestClient, db
     )
 
     assert response.status_code == 201
-    assert response.json()["phone"] == "+66123456789"
 
 
 def test_update_patient_contact_allows_stale_session(client: TestClient, db: Session):

@@ -16,6 +16,7 @@ from app.api import patient_app as patient_app_api
 from app.api import security as security_api
 from app.core.config import get_settings
 from app.core.limiter import limiter
+from app.core.logging_config import configure_logging
 from app.db.session import SessionLocal
 from app.middleware import IPBanMiddleware, SecurityAuditMiddleware, SecurityHeadersMiddleware
 from app.models.device_error_log import DeviceErrorLog
@@ -110,6 +111,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_logging(settings.app_env)
     docs_enabled = settings.should_enable_api_docs
     app = FastAPI(
         title=settings.app_name,
@@ -125,8 +127,15 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allow_headers=[
+            "Content-Type",
+            "Authorization",
+            "X-Device-Id",
+            "X-Device-Nonce",
+            "X-Device-Timestamp",
+            "X-Device-Signature",
+        ],
     )
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(IPBanMiddleware)

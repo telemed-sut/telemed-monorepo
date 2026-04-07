@@ -2,7 +2,7 @@ import csv
 import io
 import json
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -107,9 +107,6 @@ def _apply_filters(
 def _derive_result(log: AuditLog) -> str:
     # Use the status column directly now that it's part of the DB schema
     return log.status or "success"
-
-
-from typing import Any
 
 def _sanitize_csv_field(value: Any) -> str:
     """Prevent CSV Injection (Formula Injection) by escaping formula characters."""

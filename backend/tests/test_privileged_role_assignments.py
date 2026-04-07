@@ -8,7 +8,8 @@ from app.core.security import generate_totp_secret, get_password_hash
 from app.models.enums import PrivilegedRole, UserRole
 from app.models.user import User
 from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
-from app.services.auth import backfill_bootstrap_privileged_roles, create_login_response
+from app.services.auth import create_login_response
+from app.services.auth_privileges import backfill_bootstrap_privileged_roles
 
 
 def _make_user(

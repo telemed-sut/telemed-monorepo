@@ -225,6 +225,16 @@ def _get_trusted_device_cookie(request: Request) -> str | None:
 from app.core.request_utils import get_client_ip as _client_ip  # noqa: E402
 
 
+def _account_locked_detail(locked_until: datetime) -> dict[str, object]:
+    now = datetime.now(timezone.utc)
+    remaining_seconds = max(0, int((locked_until - now).total_seconds()))
+    return {
+        "code": "ACCOUNT_LOCKED",
+        "message": "Account temporarily locked due to multiple failed login attempts.",
+        "retry_after_seconds": remaining_seconds,
+    }
+
+
 def _two_factor_required_for_user(user: User) -> bool:
     return (settings.admin_2fa_required and user.role == UserRole.admin) or bool(user.two_factor_enabled)
 
@@ -1467,7 +1477,7 @@ def login(
     if locked_until:
         raise HTTPException(
             status_code=423,
-            detail="บัญชีถูกล็อกชั่วคราวเนื่องจากพยายามเข้าสู่ระบบผิดหลายครั้ง โปรดลองอีกครั้งภายหลังหรือติดต่อผู้ดูแลระบบ",
+            detail=_account_locked_detail(locked_until),
         )
 
     # Attempt authentication

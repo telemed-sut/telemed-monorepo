@@ -220,6 +220,10 @@ Notes:
 - Official scripts ignore root `.env`; the source of truth is Infisical runtime env.
 - Backend container runs migrations on startup and can run the local demo seed
   step via `backend/entrypoint.sh`.
+- Keep tracked `docker-compose.yml` free of local-only bind mounts and host DB
+  exposure. Use your gitignored `docker-compose.override.yml` for hot reload
+  (`./backend:/app`) and any temporary `db` port mapping you need for local
+  debugging.
 - To bring up local admin SSO with Authentik, start the identity profile:
 
 ```bash

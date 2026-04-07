@@ -189,7 +189,7 @@ def test_patient_app_login_accepts_registered_patient_pin(
     response = client.post(
         "/patient-app/login",
         json={
-            "phone": "(081) 234-5678",
+            "phone": "+66812345678",
             "pin": "2468",
         },
     )

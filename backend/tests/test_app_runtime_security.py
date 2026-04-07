@@ -1,8 +1,11 @@
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
 from app.main import create_app
 from app import middleware as app_middleware
+from app.services.auth import get_db
 
 
 def test_create_app_disables_docs_in_production(monkeypatch):
@@ -66,3 +69,22 @@ def test_ip_ban_cache_is_bounded_lru():
     assert "ip-overflow" in app_middleware._ip_ban_cache
 
     app_middleware._ip_ban_cache.clear()
+
+
+def test_middleware_db_session_uses_dependency_override():
+    sentinel_session = object()
+    cleanup_called = False
+
+    def override_get_db():
+        nonlocal cleanup_called
+        yield sentinel_session
+        cleanup_called = True
+
+    request = SimpleNamespace(
+        app=SimpleNamespace(dependency_overrides={get_db: override_get_db})
+    )
+
+    with app_middleware._get_middleware_db_session(request) as db:
+        assert db is sentinel_session
+
+    assert cleanup_called is True

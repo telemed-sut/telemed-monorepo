@@ -16,12 +16,13 @@ export type ApiError = Error & { status?: number; detail?: unknown; code?: strin
 export type ApiLanguage = "en" | "th";
 export type AuthErrorContext = "login" | "step-up" | "forgot-password" | "reset-password";
 export type LoginRedirectReason = "token_expired" | "refresh_failed" | "session_missing";
+type RawFetchResult<T> = { ok: boolean; status: number; data: T | null; error?: ApiError };
+export type ApiFetchOptions = RequestInit & { skipCache?: boolean };
 
 const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 export const MAX_QUERY_LIMIT = 200;
 const DEFAULT_ERROR_MESSAGE_TH = "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง";
-const COOKIE_SESSION_TOKEN = "__cookie_session__";
 
 const INTERNAL_ERROR_PATTERN =
   /(traceback|pydantic|validationerror|sqlalchemy|stack trace|line \d+|value_error|type_error)/i;
@@ -55,6 +56,15 @@ const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
   { pattern: /organization sso|admin account must continue with organization sso/i, message: "บัญชีผู้ดูแลต้องเข้าสู่ระบบผ่าน Organization SSO" },
 ];
 
+const TRANSLATED_CODE_MESSAGES: Record<string, string> = {
+  account_locked: "บัญชีถูกล็อกชั่วคราวจากการพยายามเข้าสู่ระบบผิดหลายครั้ง กรุณาลองใหม่ภายหลัง",
+  invalid_credentials: "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
+  mfa_required: "ต้องยืนยันตัวตนแบบหลายปัจจัยก่อนดำเนินการต่อ",
+  mfa_verification_failed: "รหัสยืนยันตัวตนแบบหลายปัจจัยไม่ถูกต้อง",
+  token_expired: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่",
+  rate_limited: "คุณทำรายการถี่เกินไป กรุณาลองใหม่อีกครั้ง",
+};
+
 const AUTH_ERROR_FALLBACKS: Record<AuthErrorContext, Record<ApiLanguage, string>> = {
   login: {
     en: "Unable to sign in. Please try again.",
@@ -81,6 +91,14 @@ const AUTH_ERROR_RULES: Array<{
   patterns?: RegExp[];
   messages: Record<ApiLanguage, string>;
 }> = [
+  {
+    contexts: ["login"],
+    codes: ["account_locked"],
+    messages: {
+      en: "Your account is temporarily locked. Please try again later.",
+      th: "บัญชีถูกล็อกชั่วคราว กรุณาลองใหม่อีกครั้งภายหลัง",
+    },
+  },
   {
     contexts: ["login"],
     codes: ["invalid_credentials", "incorrect_email_or_password"],
@@ -110,10 +128,19 @@ const AUTH_ERROR_RULES: Array<{
   },
   {
     contexts: ["login", "step-up"],
+    codes: ["mfa_verification_failed"],
     patterns: [/invalid two-factor authentication code|invalid two-factor code/i],
     messages: {
       en: "Authenticator code or backup code is incorrect.",
       th: "รหัสจากแอปยืนยันตัวตนหรือรหัสสำรองไม่ถูกต้อง",
+    },
+  },
+  {
+    contexts: ["login", "step-up"],
+    codes: ["mfa_required"],
+    messages: {
+      en: "Two-factor verification is required.",
+      th: "ต้องยืนยันตัวตนแบบหลายปัจจัยก่อนดำเนินการต่อ",
     },
   },
   {
@@ -137,6 +164,7 @@ const AUTH_ERROR_RULES: Array<{
   },
   {
     contexts: ["forgot-password", "reset-password"],
+    codes: ["token_expired"],
     patterns: [/invalid or expired reset token|invalid or expired token/i],
     messages: {
       en: "This reset link is invalid or has expired.",
@@ -145,6 +173,7 @@ const AUTH_ERROR_RULES: Array<{
   },
   {
     contexts: ["forgot-password", "reset-password"],
+    codes: ["rate_limited"],
     statuses: [429],
     patterns: [/too many requests|rate limit/i],
     messages: {
@@ -164,6 +193,8 @@ const AUTH_ERROR_RULES: Array<{
 ];
 
 let refreshPromise: Promise<string | null> | null = null;
+const CACHE_TTL_MS = 30_000;
+const requestCache = new Map<string, { promise: Promise<RawFetchResult<unknown>>; timestamp: number }>();
 
 export function isProbablyJwt(token: string): boolean {
   return token.split(".").length === 3;
@@ -236,6 +267,11 @@ function extractApiErrorCode(detail: unknown): string | undefined {
   return undefined;
 }
 
+function translateKnownCode(code?: string): string | null {
+  if (!code) return null;
+  return TRANSLATED_CODE_MESSAGES[code.toLowerCase()] ?? null;
+}
+
 function statusFallbackMessage(status?: number, fallback: string = DEFAULT_ERROR_MESSAGE_TH): string {
   if (status === 0) return "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่";
   if (status === 400) return "ข้อมูลที่ส่งมาไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง";
@@ -288,6 +324,8 @@ export function toUserFacingMessage(
 export function getErrorMessage(error: unknown, fallback: string = DEFAULT_ERROR_MESSAGE_TH): string {
   if (error instanceof Error) {
     const apiError = error as ApiError;
+    const translatedCode = translateKnownCode(apiError.code || extractApiErrorCode(apiError.detail));
+    if (translatedCode) return translatedCode;
     return toUserFacingMessage(apiError.status, apiError.message, fallback);
   }
   if (typeof error === "string") {
@@ -388,7 +426,7 @@ export async function rawFetch<T>(
   path: string,
   options: RequestInit = {},
   token?: string,
-): Promise<{ ok: boolean; status: number; data: T | null; error?: ApiError }> {
+): Promise<RawFetchResult<T>> {
   const url = `${API_BASE_URL}${path}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -419,8 +457,9 @@ export async function rawFetch<T>(
   }
 
   const contentLength = res.headers.get("content-length");
-  const isJson = res.headers.get("content-type")?.includes("application/json");
-  const hasBody = contentLength !== "0" && contentLength !== null ? true : isJson;
+  const contentType = res.headers.get("content-type") || "";
+  const isJson = contentType.includes("json");
+  const hasBody = isJson || (contentLength !== "0" && contentLength !== null);
 
   let data: unknown = null;
   if (hasBody && isJson) {
@@ -455,7 +494,65 @@ export async function rawFetch<T>(
   return { ok: true, status: res.status, data: data as T };
 }
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+function getCacheKey(path: string, options: RequestInit = {}, token?: string): string {
+  const method = (options.method ?? "GET").toUpperCase();
+  const body = typeof options.body === "string" ? options.body : "";
+  const authScope = token ?? "";
+  return `${method}:${path}:${body}:${authScope}`;
+}
+
+async function cachedFetch<T>(
+  path: string,
+  options: RequestInit = {},
+  token?: string,
+): Promise<RawFetchResult<T>> {
+  const method = (options.method ?? "GET").toUpperCase();
+  if (method !== "GET") {
+    return rawFetch<T>(path, options, token);
+  }
+
+  const key = getCacheKey(path, options, token);
+  const cached = requestCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.promise as Promise<RawFetchResult<T>>;
+  }
+
+  const promise = rawFetch<T>(path, options, token).then((result) => {
+    if (!result.ok) {
+      requestCache.delete(key);
+    }
+    return result;
+  });
+
+  requestCache.set(key, {
+    promise: promise as Promise<RawFetchResult<unknown>>,
+    timestamp: Date.now(),
+  });
+
+  setTimeout(() => {
+    const active = requestCache.get(key);
+    if (active?.promise === (promise as Promise<RawFetchResult<unknown>>)) {
+      requestCache.delete(key);
+    }
+  }, CACHE_TTL_MS + 1_000);
+
+  return promise;
+}
+
+export function invalidateCache(urlPattern: string): void {
+  for (const [key] of requestCache.entries()) {
+    if (key.includes(urlPattern)) {
+      requestCache.delete(key);
+    }
+  }
+}
+
+export function invalidateAllCache(): void {
+  requestCache.clear();
+}
+
+export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, token?: string): Promise<T> {
+  const { skipCache = false, ...requestOptions } = options;
   let activeToken = token;
   const canAttemptRefresh = Boolean(activeToken);
 
@@ -468,12 +565,13 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, token
     isTokenExpiring(activeToken!)
   ) {
     const refreshed = await tryRefreshToken(activeToken);
-    if (refreshed) {
+    if (refreshed !== null) {
       activeToken = refreshed;
     }
   }
 
-  const result = await rawFetch<T>(path, options, activeToken);
+  const requestFn = skipCache ? rawFetch<T> : cachedFetch<T>;
+  const result = await requestFn(path, requestOptions, activeToken);
 
   if (result.ok) return result.data as T;
 
@@ -486,10 +584,10 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, token
     path !== "/auth/logout"
   ) {
     const newToken = await tryRefreshToken(activeToken);
-    if (newToken) {
-      const retry = await rawFetch<T>(path, options, newToken);
+    if (newToken !== null) {
+      const retry = await requestFn(path, requestOptions, newToken);
       if (retry.ok) return retry.data as T;
-      if (retry.error) throw retry.error;
+      throw retry.error || result.error!;
     }
     forceLogout();
   }
@@ -536,7 +634,7 @@ async function tryRefreshToken(currentToken?: string): Promise<string | null> {
             // ignore store failures
           }
         }
-        return COOKIE_SESSION_TOKEN;
+        return "__cookie_session__";
       }
       return null;
     } catch {

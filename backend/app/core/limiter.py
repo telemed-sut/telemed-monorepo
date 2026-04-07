@@ -17,6 +17,27 @@ def _rate_limit_whitelist() -> set[str]:
     return {item.strip() for item in configured if item and item.strip()}
 
 
+def _get_bearer_rate_limit_key(auth_header: str, client_ip: str) -> str:
+    """
+    Derive a rate-limit key from a bearer token.
+
+    Security: Hashes the raw bearer token instead of decoding the JWT payload.
+    Decoding unverified JWT payloads would allow an attacker to forge arbitrary
+    `sub` values and bypass per-user throttling. Hashing the full token ensures
+    each distinct token maps to a unique bucket — safe for this pre-auth layer.
+
+    Trade-off: This buckets per-token rather than per-user, which is the correct
+    choice here since auth hasn't run yet and we can't trust the payload.
+    """
+    token = auth_header.removeprefix("Bearer ").strip()
+    if not token:
+        return f"ip:{client_ip}"
+
+    # Hash the raw token — stable per-token, no forgery risk
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+    return f"tok:{token_hash}"
+
+
 def get_real_user_key(request: Request):
     """
     Determine the rate limit key based on the request.
@@ -36,8 +57,7 @@ def get_real_user_key(request: Request):
     # 2. Check for Authorization header (User context)
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
-        # Hash the token so we don't keep raw bearer tokens in limiter keys or logs.
-        return f"bearer:{hashlib.sha256(auth_header.encode('utf-8')).hexdigest()}"
+        return _get_bearer_rate_limit_key(auth_header, client_ip)
 
     # 3. Check for X-Device-Id header (IoT Device context)
     device_id = request.headers.get("X-Device-Id")

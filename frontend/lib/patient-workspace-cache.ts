@@ -1,3 +1,15 @@
+/**
+ * Patient Workspace Cache
+ *
+ * A lightweight, LRU-style cache for patient workspace state that persists
+ * only for the duration of the browser tab session.
+ *
+ * - Uses sessionStorage (tab-scoped, cleared on tab close)
+ * - Cleared on logout via clearPatientWorkspaceCache()
+ * - Per-patient and per-workspace
+ * - Designed for fast workspace switching without PII persistence across sessions
+ */
+
 import type { HeartSoundRecord, Meeting, Patient } from "@/lib/api";
 
 const CACHE_SCHEMA_VERSION = 2;
@@ -57,14 +69,14 @@ function readEnvelope<T>(storageKey: string): T | null {
   }
 
   try {
-    const raw = window.localStorage.getItem(storageKey);
+    const raw = window.sessionStorage.getItem(storageKey);
     if (!raw) {
       return null;
     }
 
     const parsed = JSON.parse(raw) as CacheEnvelope<T>;
     if (parsed.version !== CACHE_SCHEMA_VERSION) {
-      window.localStorage.removeItem(storageKey);
+      window.sessionStorage.removeItem(storageKey);
       return null;
     }
 
@@ -80,7 +92,7 @@ function writeEnvelope<T>(storageKey: string, data: T) {
   }
 
   try {
-    window.localStorage.setItem(
+    window.sessionStorage.setItem(
       storageKey,
       JSON.stringify({
         version: CACHE_SCHEMA_VERSION,
@@ -103,7 +115,7 @@ function readPatientWorkspaceCacheRegistry(options?: { preferStorage?: boolean }
   }
 
   try {
-    const raw = window.localStorage.getItem(PATIENT_WORKSPACE_CACHE_REGISTRY_KEY);
+    const raw = window.sessionStorage.getItem(PATIENT_WORKSPACE_CACHE_REGISTRY_KEY);
     if (!raw) {
       patientWorkspaceCacheRegistry = new Set<string>();
       return new Set<string>();
@@ -138,11 +150,11 @@ function writePatientWorkspaceCacheRegistry(keys: Set<string>) {
   }
 
   if (keys.size === 0) {
-    window.localStorage.removeItem(PATIENT_WORKSPACE_CACHE_REGISTRY_KEY);
+    window.sessionStorage.removeItem(PATIENT_WORKSPACE_CACHE_REGISTRY_KEY);
     return;
   }
 
-  window.localStorage.setItem(
+  window.sessionStorage.setItem(
     PATIENT_WORKSPACE_CACHE_REGISTRY_KEY,
     JSON.stringify([...keys])
   );
@@ -283,16 +295,16 @@ export function clearPatientWorkspaceCache() {
   const registryKeys = readPatientWorkspaceCacheRegistry({ preferStorage: true });
   if (registryKeys.size > 0) {
     for (const key of registryKeys) {
-      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(key);
     }
     writePatientWorkspaceCacheRegistry(new Set());
     return;
   }
 
-  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
-    const key = window.localStorage.key(index);
+  for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.sessionStorage.key(index);
     if (key?.startsWith(PATIENT_WORKSPACE_CACHE_KEY_PREFIX)) {
-      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(key);
     }
   }
 }

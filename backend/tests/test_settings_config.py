@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 
 
 BASELINE_ENV = {
@@ -22,6 +22,10 @@ def _apply_env(monkeypatch, **overrides) -> None:
             monkeypatch.delenv(key, raising=False)
             continue
         monkeypatch.setenv(key, value)
+
+
+def _clear_settings_cache() -> None:
+    get_settings.cache_clear()
 
 
 def test_settings_accepts_json_device_api_secrets(monkeypatch):
@@ -152,3 +156,36 @@ def test_settings_require_redis_url_in_production(monkeypatch):
 
     with pytest.raises(ValidationError, match="REDIS_URL is required when APP_ENV=production"):
         Settings()
+
+
+def test_get_settings_raises_runtime_error_for_short_jwt_secret(monkeypatch):
+    _apply_env(monkeypatch, JWT_SECRET="too-short")
+    _clear_settings_cache()
+
+    with pytest.raises(RuntimeError, match="JWT_SECRET must be at least 32 characters long"):
+        get_settings()
+
+    _clear_settings_cache()
+
+
+def test_get_settings_raises_runtime_error_for_short_device_api_secret(monkeypatch):
+    _apply_env(monkeypatch, DEVICE_API_SECRET="too-short")
+    _clear_settings_cache()
+
+    with pytest.raises(RuntimeError, match="DEVICE_API_SECRET must be at least 32 characters long"):
+        get_settings()
+
+    _clear_settings_cache()
+
+
+def test_get_settings_raises_runtime_error_for_default_database_credentials(monkeypatch):
+    _apply_env(
+        monkeypatch,
+        DATABASE_URL="postgresql://user:password@db.example.com:5432/patient_db?sslmode=require",
+    )
+    _clear_settings_cache()
+
+    with pytest.raises(RuntimeError, match="DATABASE_URL must not use default credentials 'user:password@'"):
+        get_settings()
+
+    _clear_settings_cache()

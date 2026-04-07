@@ -1,20 +1,23 @@
+from contextlib import contextmanager
 from collections import OrderedDict
 import logging
 import time
 from datetime import datetime, timezone
-from typing import OrderedDict as OrderedDictType, Tuple
+from typing import Iterator, OrderedDict as OrderedDictType, Tuple
 from uuid import UUID
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
 from app.core.config import get_settings
 from app.core.security import decode_token
-from app.db.session import SessionLocal
+from app.db.session import engine
 from app.models.audit_log import AuditLog
 from app.models.ip_ban import IPBan
+from app.services.auth import get_db
 from app.services.security import is_ip_whitelisted
 from app.core.request_utils import get_client_ip as _get_client_ip
 
@@ -53,6 +56,28 @@ def _set_ip_ban_cache_entry(ip: str, banned_until_ts: float, cached_at: float) -
 
 def _clear_ip_ban_cache_entry(ip: str) -> None:
     _ip_ban_cache.pop(ip, None)
+
+
+@contextmanager
+def _get_middleware_db_session(request: Request) -> Iterator[Session]:
+    override = request.app.dependency_overrides.get(get_db)
+    if override is not None:
+        db_gen = override()
+        db = next(db_gen)
+        try:
+            yield db
+        finally:
+            try:
+                next(db_gen)
+            except StopIteration:
+                pass
+        return
+
+    db = Session(engine)
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 
@@ -130,8 +155,7 @@ class SecurityAuditMiddleware(BaseHTTPMiddleware):
         }
 
         try:
-            db = SessionLocal()
-            try:
+            with _get_middleware_db_session(request) as db:
                 db.add(
                     AuditLog(
                         user_id=actor_id,
@@ -144,8 +168,6 @@ class SecurityAuditMiddleware(BaseHTTPMiddleware):
                     )
                 )
                 db.commit()
-            finally:
-                db.close()
         except Exception:
             logger.exception("Failed to write 403 audit log for %s", path)
 
@@ -172,8 +194,7 @@ class IPBanMiddleware(BaseHTTPMiddleware):
 
         # Check DB
         try:
-            db = SessionLocal()
-            try:
+            with _get_middleware_db_session(request) as db:
                 from sqlalchemy import select as sa_select
                 ban = db.scalar(sa_select(IPBan).where(IPBan.ip_address == ip))
                 if ban:
@@ -199,8 +220,6 @@ class IPBanMiddleware(BaseHTTPMiddleware):
                             status_code=403,
                             content={"detail": "Access denied. Your IP has been blocked."},
                         )
-            finally:
-                db.close()
         except Exception:
             logger.exception("Error checking IP ban for %s", ip)
 

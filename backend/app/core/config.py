@@ -2,8 +2,9 @@ import json
 import re
 from functools import lru_cache
 from typing import Dict, List, Literal, Union
+from urllib.parse import urlsplit
 
-from pydantic import field_validator, model_validator
+from pydantic import ValidationError, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     DotEnvSettingsSource,
@@ -155,6 +156,14 @@ class Settings(BaseSettings):
             return v
         return v.strip().lower()
 
+    @field_validator("jwt_secret")
+    @classmethod
+    def validate_jwt_secret(cls, v: str) -> str:
+        value = (v or "").strip()
+        if len(value) < 32:
+            raise ValueError("JWT_SECRET must be at least 32 characters long.")
+        return value
+
     @field_validator("device_api_secret")
     @classmethod
     def validate_device_api_secret(cls, v: str | None) -> str | None:
@@ -179,6 +188,15 @@ class Settings(BaseSettings):
         if len(value) < 32:
             raise ValueError(f"{source_name} must be at least 32 characters long.")
         return value
+
+    @classmethod
+    def _uses_default_database_credentials(cls, database_url: str) -> bool:
+        value = (database_url or "").strip()
+        if not value or value.lower().startswith("sqlite"):
+            return False
+
+        parsed = urlsplit(value)
+        return parsed.username == "user" and parsed.password == "password"
 
     @field_validator("device_api_secrets", mode="before")
     @classmethod
@@ -480,4 +498,28 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    try:
+        settings = Settings()
+    except ValidationError as exc:
+        security_fields = {"jwt_secret", "device_api_secret"}
+        security_messages: List[str] = []
+
+        for error in exc.errors():
+            loc = error.get("loc") or ()
+            field_name = loc[-1] if loc else None
+            if field_name in security_fields:
+                security_messages.append(error.get("msg", "Invalid security configuration."))
+
+        if security_messages:
+            raise RuntimeError(
+                "Startup security validation failed: " + "; ".join(dict.fromkeys(security_messages))
+            ) from exc
+
+        raise
+
+    if Settings._uses_default_database_credentials(settings.database_url):
+        raise RuntimeError(
+            "Startup security validation failed: DATABASE_URL must not use default credentials 'user:password@'."
+        )
+
+    return settings

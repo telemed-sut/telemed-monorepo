@@ -105,3 +105,10 @@ class PatientDenseSummary(BaseModel):
     current_conditions: list[CurrentConditionBrief]
     active_treatments: list[TreatmentBrief]
     assigned_doctors: list[AssignedDoctorBrief]
+
+
+class ActiveOrdersResponse(BaseModel):
+    """Response schema for GET /patients/{id}/active-orders."""
+
+    medications: list[ActiveMedicationBrief]
+    labs: list[PendingLabBrief]

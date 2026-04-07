@@ -2,6 +2,11 @@
 
 ### Fixed
 
+- Removed unused imports across backend modules and cleaned up dead code in auth service re-exports.
+- Fixed password change timestamp precision in token validation by removing microsecond multiplication.
+- Corrected stale password reset token comparison to use strict less-than instead of less-than-or-equal.
+- Added row-level locking with `skip_locked=True` to user invite creation to prevent concurrent duplicate invites.
+- Fixed frontend API client content-type detection, token refresh null checks, and removed unused cookie session token constant.
 - Hardened emergency admin password reset so it now invalidates existing access sessions, revokes trusted devices and backup codes, and records revoked artifact counts in security audit logs.
 - Tightened password reset token validation to reject stale tokens while keeping newly issued emergency reset tokens valid after password version changes.
 - Prevented protected dashboard pages from hydrating persisted auth snapshots or cached patient workspace data before server-side session revalidation succeeds, and cleared protected client caches on logout or invalid session recovery.

@@ -1,6 +1,7 @@
 from typing import Any
 
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import get_settings
@@ -16,6 +17,23 @@ engine_options = {
     "future": True,
 }
 
+
+def _require_sslmode_for_remote_database_url(database_url: str) -> None:
+    if database_url.startswith("sqlite"):
+        return
+
+    url = make_url(database_url)
+    host = (url.host or "").strip().lower()
+    if host in {"", "localhost", "127.0.0.1", "::1"}:
+        return
+
+    sslmode = url.query.get("sslmode")
+    if not isinstance(sslmode, str) or not sslmode.strip():
+        raise ValueError(
+            "DATABASE_URL must include sslmode for non-local database connections."
+        )
+
+
 if not settings.database_url.startswith("sqlite"):
     engine_options.update(
         {
@@ -25,6 +43,7 @@ if not settings.database_url.startswith("sqlite"):
         }
     )
 
+_require_sslmode_for_remote_database_url(settings.database_url)
 engine = create_engine(settings.database_url, **engine_options)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
 

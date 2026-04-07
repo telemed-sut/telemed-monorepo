@@ -19,15 +19,6 @@ from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole
 from app.models.user import User
 from app.core.request_utils import get_client_ip
-from app.services.auth_privileges import (
-    backfill_bootstrap_privileged_roles,
-    build_access_profile,
-    can_manage_privileged_admins,
-    can_manage_security_recovery,
-    is_admin_sso_enforced_for_user,
-    is_bootstrap_super_admin,
-    requires_token_mfa,
-)
 from app.services.authz import (
     can_manage_users,
     can_receive_patient_assignments,
@@ -35,6 +26,13 @@ from app.services.authz import (
     can_view_clinical_data,
     can_write_clinical_data,
     is_medical_student_role,
+)
+from app.services.auth_privileges import (
+    backfill_bootstrap_privileged_roles,
+    build_access_profile,
+    can_manage_privileged_admins,
+    can_manage_security_recovery,
+    is_admin_sso_enforced_for_user,
 )
 from app.services import patient as patient_service
 from .auth_2fa import *  # noqa: F401,F403

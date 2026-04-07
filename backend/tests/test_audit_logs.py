@@ -1,6 +1,7 @@
 import csv
 import io
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -9,6 +10,7 @@ from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
 from app.models.enums import UserRole
 from app.models.user import User
+from app.services import audit as audit_service
 
 
 def _make_user(
@@ -240,3 +242,35 @@ def test_audit_export_serializes_dict_details_for_csv_reports(client: TestClient
     assert len(rows) == 1
     assert rows[0]["Details"].startswith("{")
     assert '"reason": "export dict payload"' in rows[0]["Details"]
+
+
+def test_log_action_emits_structured_audit_log_without_sensitive_details(db: Session, monkeypatch):
+    admin = _make_user(db, email="admin-audit-stream@example.com", role=UserRole.admin)
+    captured_calls = []
+
+    monkeypatch.setattr(
+        audit_service.logger,
+        "info",
+        lambda message, *args, **kwargs: captured_calls.append((message, kwargs)),
+    )
+
+    audit_service.log_action(
+        db,
+        user_id=admin.id,
+        action="user_update",
+        resource_type="user",
+        resource_id=uuid4(),
+        details={"password": "do-not-log-me", "token": "do-not-log-me"},
+        ip_address="203.0.113.10",
+        status="success",
+    )
+
+    assert len(captured_calls) == 1
+    message, kwargs = captured_calls[0]
+    assert message == "audit_log_event"
+    assert kwargs["extra"]["event_type"] == "audit_log"
+    assert kwargs["extra"]["action"] == "user_update"
+    assert kwargs["extra"]["user_id"] == str(admin.id)
+    assert kwargs["extra"]["ip_address"] == "203.0.113.10"
+    assert kwargs["extra"]["status"] == "success"
+    assert "details" not in kwargs["extra"]

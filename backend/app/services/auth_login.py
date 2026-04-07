@@ -58,7 +58,7 @@ def create_user_invite(
                 UserInvite.used_at.is_(None),
                 UserInvite.expires_at > now,
             )
-        )
+        ).with_for_update(skip_locked=True)
     ).all()
     for existing_invite in existing_invites:
         existing_invite.used_at = now
