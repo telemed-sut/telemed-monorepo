@@ -117,4 +117,5 @@ def test_audit_logs_cursor_contract_for_admin(client: TestClient, db: Session):
     assert payload["limit"] == 1
     assert len(payload["items"]) == 1
     assert payload["items"][0]["action"] == "contract_check"
+    assert payload["items"][0]["status"] == "success"
     assert "next_cursor" in payload

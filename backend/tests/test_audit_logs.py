@@ -135,7 +135,7 @@ def test_audit_logs_filter_by_user_result_and_date(client: TestClient, db: Sessi
     # total is no longer returned due to cursor pagination
     assert len(payload["items"]) == 1
     assert payload["items"][0]["user_email"] == doctor.email
-    assert payload["items"][0]["result"] == "failure"
+    assert payload["items"][0]["status"] == "failure"
 
 
 def test_audit_export_honors_user_and_result_filters(client: TestClient, db: Session):
@@ -196,7 +196,7 @@ def test_audit_logs_infers_failure_status_when_omitted(client: TestClient, db: S
     payload = response.json()
     assert len(payload["items"]) == 1
     assert payload["items"][0]["action"] == "login_failed"
-    assert payload["items"][0]["result"] == "failure"
+    assert payload["items"][0]["status"] == "failure"
 
 
 def test_audit_logs_query_returns_dict_details_for_jsonb_rows(client: TestClient, db: Session):

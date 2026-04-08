@@ -207,7 +207,7 @@ def get_audit_logs(
                 user_email=user_email,
                 user_name=user_name,
                 action=log.action,
-                result=_derive_result(log),
+                status=_derive_result(log),
                 resource_type=log.resource_type,
                 resource_id=str(log.resource_id) if log.resource_id else None,
                 details=log.details,

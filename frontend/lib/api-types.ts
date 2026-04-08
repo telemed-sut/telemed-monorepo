@@ -636,7 +636,7 @@ export interface AuditLogItem {
   user_email: string | null;
   user_name: string | null;
   action: string;
-  result: "success" | "failure";
+  status: "success" | "failure";
   resource_type: string | null;
   resource_id: string | null;
   details: Record<string, unknown> | string | null;

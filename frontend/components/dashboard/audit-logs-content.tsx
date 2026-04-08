@@ -1070,12 +1070,12 @@ export function AuditLogsContent() {
                                                                 variant="outline"
                                                                 className={cn(
                                                                     "text-sm",
-                                                                    log.result === "failure"
+                                                                    log.status === "failure"
                                                                         ? "border-red-500/20 text-red-500 bg-red-500/10"
                                                                         : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
                                                                 )}
                                                             >
-                                                                {resultLabel(log.result)}
+                                                                {resultLabel(log.status)}
                                                             </Badge>
                                                         </TableCell>
                                                         <TableCell>
@@ -1186,12 +1186,12 @@ export function AuditLogsContent() {
                                                     variant="outline"
                                                     className={cn(
                                                         "text-sm",
-                                                        selectedLog.result === "failure"
+                                                        selectedLog.status === "failure"
                                                             ? "border-red-500/20 text-red-500 bg-red-500/10"
                                                             : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
                                                     )}
                                                 >
-                                                    {resultLabel(selectedLog.result)}
+                                                    {resultLabel(selectedLog.status)}
                                                 </Badge>
                                                 {selectedLog.is_break_glass && (
                                                     <Badge variant="outline" className="border-red-500/20 bg-red-500/10 text-sm text-red-500">

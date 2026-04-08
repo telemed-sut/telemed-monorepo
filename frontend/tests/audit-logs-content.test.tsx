@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { HTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -106,5 +106,37 @@ describe("AuditLogsContent", () => {
         description: "Unable to load audit logs",
       });
     });
+  });
+
+  it("renders audit log status labels from the status contract field", async () => {
+    mockFetchAuditLogs.mockResolvedValue({
+      items: [
+        {
+          id: "log-1",
+          user_id: "user-1",
+          user_email: "doctor@example.com",
+          user_name: "Doctor Example",
+          action: "user_update",
+          status: "success",
+          resource_type: "user",
+          resource_id: "user-1",
+          details: null,
+          ip_address: "127.0.0.1",
+          is_break_glass: false,
+          break_glass_reason: null,
+          old_values: null,
+          new_values: null,
+          created_at: new Date().toISOString(),
+        },
+      ],
+      limit: 50,
+      next_cursor: null,
+    });
+
+    const { AuditLogsContent } = await import("@/components/dashboard/audit-logs-content");
+    render(<AuditLogsContent />);
+
+    expect(await screen.findByText("doctor@example.com")).toBeInTheDocument();
+    expect(await screen.findByText("Success")).toBeInTheDocument();
   });
 });

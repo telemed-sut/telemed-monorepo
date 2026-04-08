@@ -79,6 +79,7 @@ def _presence_response(meeting, presence) -> MeetingRoomPresenceResponse:
         doctor_online=presence.doctor_online,
         patient_online=presence.patient_online,
         refreshed_at=presence.refreshed_at,
+        patient_joined_at=presence.patient_joined_at,
         doctor_last_seen_at=presence.doctor_last_seen_at,
         patient_last_seen_at=presence.patient_last_seen_at,
         doctor_left_at=presence.doctor_left_at,
