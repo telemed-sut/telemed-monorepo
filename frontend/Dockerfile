@@ -1,12 +1,12 @@
 # Dependencies stage
-FROM oven/bun:1.3.9-alpine AS deps
+FROM oven/bun:1.3.9-alpine@sha256:9028ee7a60a04777190f0c3129ce49c73384d3fc918f3e5c75f5af188e431981 AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 # Build stage
-FROM oven/bun:1.3.9-alpine AS builder
+FROM oven/bun:1.3.9-alpine@sha256:9028ee7a60a04777190f0c3129ce49c73384d3fc918f3e5c75f5af188e431981 AS builder
 WORKDIR /app
 ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ARG NEXT_SERVER_API_PROXY_TARGET=http://localhost:8000
@@ -20,7 +20,7 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
 RUN bun run build
 
 # Production stage
-FROM node:24-alpine AS runner
+FROM node:24-alpine@sha256:01743339035a5c3c11a373cd7c83aeab6ed1457b55da6a69e014a95ac4e4700b AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
   NEXT_TELEMETRY_DISABLED=1 \
@@ -41,6 +41,6 @@ EXPOSE 3000
 ENV PORT=3000 HOSTNAME="0.0.0.0"
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:3000/health', { cache: 'no-store' }).then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1))"
+  CMD node --input-type=module -e "try { const response = await fetch('http://127.0.0.1:3000/health', { cache: 'no-store' }); if (!response.ok) process.exit(1); } catch { process.exit(1); }"
 
 CMD ["node", "server.js"]

@@ -1,5 +1,6 @@
 services:
   backend:
+    init: true
     image: ${BACKEND_IMAGE:-ghcr.io/telemed-sut/telemed-backend:latest}
     restart: unless-stopped
     environment:
@@ -10,6 +11,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-lax}
       ADMIN_OIDC_ENABLED: ${ADMIN_OIDC_ENABLED:-false}
       ADMIN_OIDC_ENFORCED: ${ADMIN_OIDC_ENFORCED:-false}
       ADMIN_OIDC_PROVIDER_NAME: ${ADMIN_OIDC_PROVIDER_NAME:-authentik}
@@ -37,8 +39,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    networks:
+      - frontend-net
+      - backend-net
+      - db-net
 
   frontend:
+    init: true
     image: ${FRONTEND_IMAGE:-ghcr.io/telemed-sut/telemed-frontend:latest}
     restart: unless-stopped
     environment:
@@ -62,9 +69,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    networks:
+      - frontend-net
+      - backend-net
 
   authentik-postgresql:
     profiles: ["identity"]
+    init: true
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
@@ -73,15 +84,28 @@ services:
       POSTGRES_DB: ${AUTHENTIK_POSTGRES_DB:-authentik}
     volumes:
       - authentik_postgres_data:/var/lib/postgresql/data
+    networks:
+      - db-net
 
   authentik-redis:
     profiles: ["identity"]
+    init: true
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    environment:
+      AUTHENTIK_REDIS_PASSWORD: ${AUTHENTIK_REDIS_PASSWORD}
+    command:
+      [
+        "sh",
+        "-c",
+        "exec redis-server --save '' --appendonly no --requirepass \"$${AUTHENTIK_REDIS_PASSWORD}\"",
+      ]
+    networks:
+      - db-net
 
   authentik-server:
     profiles: ["identity"]
+    init: true
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server:latest}
     restart: unless-stopped
     command: server
@@ -92,6 +116,7 @@ services:
       AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD:-authentik}
       AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRES_DB:-authentik}
       AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_REDIS__PASSWORD: ${AUTHENTIK_REDIS_PASSWORD}
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
     ports:
       - "${AUTHENTIK_PORT:-9000}:9000"
@@ -101,9 +126,13 @@ services:
     volumes:
       - authentik_media:/media
       - authentik_templates:/templates
+    networks:
+      - backend-net
+      - db-net
 
   authentik-worker:
     profiles: ["identity"]
+    init: true
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server:latest}
     restart: unless-stopped
     command: worker
@@ -114,6 +143,7 @@ services:
       AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD:-authentik}
       AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRES_DB:-authentik}
       AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_REDIS__PASSWORD: ${AUTHENTIK_REDIS_PASSWORD}
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
     depends_on:
       - authentik-postgresql
@@ -121,8 +151,16 @@ services:
     volumes:
       - authentik_media:/media
       - authentik_templates:/templates
+    networks:
+      - backend-net
+      - db-net
 
 volumes:
   authentik_postgres_data:
   authentik_media:
   authentik_templates:
+
+networks:
+  frontend-net:
+  backend-net:
+  db-net:

@@ -43,6 +43,7 @@ def test_login_endpoint(client: TestClient, db: Session):
     assert data["user"]["mfa_verified"] is True
     assert "set-cookie" in response.headers
     assert f"Max-Age={auth_api.settings.jwt_expires_in}" in response.headers["set-cookie"]
+    assert "SameSite=lax" in response.headers["set-cookie"]
 
     audit = db.scalar(
         select(AuditLog).where(

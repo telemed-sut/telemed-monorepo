@@ -41,6 +41,18 @@ def test_compose_does_not_expose_database_port_on_host():
     assert '"5432:5432"' not in db_block
 
 
+def test_compose_binds_app_ports_to_localhost_only():
+    compose_text = _read_text(REPO_ROOT / "docker-compose.yml")
+
+    frontend_block = _service_block(compose_text, "frontend")
+    backend_block = _service_block(compose_text, "backend")
+    authentik_server_block = _service_block(compose_text, "authentik-server")
+
+    assert '"127.0.0.1:3000:3000"' in frontend_block
+    assert '"127.0.0.1:8000:8000"' in backend_block
+    assert '"127.0.0.1:9000:9000"' in authentik_server_block
+
+
 def test_compose_defines_segmented_networks():
     compose_text = _read_text(REPO_ROOT / "docker-compose.yml")
 
@@ -115,6 +127,40 @@ def test_compose_applies_resource_limits_and_health_checks():
     assert "memory: 256M" in authentik_redis_block
 
 
+def test_compose_hardens_runtime_services_and_requires_authentik_redis_password():
+    compose_text = _read_text(REPO_ROOT / "docker-compose.yml")
+
+    for service_name in ("frontend", "backend", "authentik-server", "authentik-worker"):
+        block = _service_block(compose_text, service_name)
+        assert "cap_drop:" in block
+        assert "      - ALL" in block
+        assert "security_opt:" in block
+        assert "      - no-new-privileges:true" in block
+        assert "read_only: true" in block
+        assert "tmpfs:" in block
+        assert "      - /tmp" in block
+
+    authentik_redis_block = _service_block(compose_text, "authentik-redis")
+    assert "AUTHENTIK_REDIS_PASSWORD" in authentik_redis_block
+    assert "--requirepass" in authentik_redis_block
+
+
+def test_compose_enables_init_for_all_services():
+    compose_text = _read_text(REPO_ROOT / "docker-compose.yml")
+
+    for service_name in (
+        "frontend",
+        "backend",
+        "db",
+        "authentik-postgresql",
+        "authentik-redis",
+        "authentik-server",
+        "authentik-worker",
+    ):
+        block = _service_block(compose_text, service_name)
+        assert "init: true" in block
+
+
 def test_gitignore_excludes_local_compose_override():
     gitignore_text = _read_text(REPO_ROOT / ".gitignore")
 
@@ -151,6 +197,62 @@ def test_backend_ci_uses_minimum_length_test_secrets():
 
     assert "JWT_SECRET: test-jwt-secret-key-must-be-at-least-32-chars" in workflow_text
     assert "DEVICE_API_SECRET: test-device-api-secret-must-be-at-least-32-chars" in workflow_text
+
+
+def test_publish_images_workflow_scans_built_images_with_trivy():
+    workflow_text = _read_text(REPO_ROOT / ".github" / "workflows" / "publish-images.yml")
+
+    assert "security-events: write" in workflow_text
+    assert "aquasecurity/trivy-action@0.33.1" in workflow_text
+    assert "github/codeql-action/upload-sarif@v3" in workflow_text
+    assert "severity: CRITICAL,HIGH" in workflow_text
+
+
+def test_staging_compose_defines_segmented_networks_and_cookie_samesite():
+    compose_text = _read_text(REPO_ROOT / "infra" / "staging" / "docker-compose.staging.yml")
+
+    assert "networks:" in compose_text
+    assert "  frontend-net:" in compose_text
+    assert "  backend-net:" in compose_text
+    assert "  db-net:" in compose_text
+
+    backend_block = _service_block(compose_text, "backend")
+    frontend_block = _service_block(compose_text, "frontend")
+    authentik_postgres_block = _service_block(compose_text, "authentik-postgresql")
+    authentik_redis_block = _service_block(compose_text, "authentik-redis")
+    authentik_server_block = _service_block(compose_text, "authentik-server")
+    authentik_worker_block = _service_block(compose_text, "authentik-worker")
+
+    assert "AUTH_COOKIE_SAMESITE: ${AUTH_COOKIE_SAMESITE:-lax}" in backend_block
+    assert "      - frontend-net" in backend_block
+    assert "      - backend-net" in backend_block
+    assert "      - db-net" in backend_block
+    assert "      - frontend-net" in frontend_block
+    assert "      - backend-net" in frontend_block
+    assert "      - db-net" in authentik_postgres_block
+    assert "AUTHENTIK_REDIS_PASSWORD" in authentik_redis_block
+    assert "      - db-net" in authentik_redis_block
+    assert "AUTHENTIK_REDIS__PASSWORD" in authentik_server_block
+    assert "      - backend-net" in authentik_server_block
+    assert "      - db-net" in authentik_server_block
+    assert "AUTHENTIK_REDIS__PASSWORD" in authentik_worker_block
+    assert "      - backend-net" in authentik_worker_block
+    assert "      - db-net" in authentik_worker_block
+
+
+def test_staging_compose_enables_init_for_all_services():
+    compose_text = _read_text(REPO_ROOT / "infra" / "staging" / "docker-compose.staging.yml")
+
+    for service_name in (
+        "backend",
+        "frontend",
+        "authentik-postgresql",
+        "authentik-redis",
+        "authentik-server",
+        "authentik-worker",
+    ):
+        block = _service_block(compose_text, service_name)
+        assert "init: true" in block
 
 
 def test_frontend_next_config_sets_explicit_body_size_limits():
@@ -206,3 +308,19 @@ def test_backend_dockerignore_excludes_sensitive_and_local_artifacts():
     assert ".pytest_cache/" in dockerignore_text
     assert ".coverage" in dockerignore_text
     assert "htmlcov/" in dockerignore_text
+
+
+def test_dockerfiles_pin_base_images_to_sha_digests():
+    backend_dockerfile = _read_text(REPO_ROOT / "backend" / "Dockerfile")
+    frontend_dockerfile = _read_text(REPO_ROOT / "frontend" / "Dockerfile")
+
+    assert "python:3.11.11-slim@sha256:081075da77b2b55c23c088251026fb69a7b2bf92471e491ff5fd75c192fd38e5" in backend_dockerfile
+    assert "oven/bun:1.3.9-alpine@sha256:9028ee7a60a04777190f0c3129ce49c73384d3fc918f3e5c75f5af188e431981" in frontend_dockerfile
+    assert "node:24-alpine@sha256:01743339035a5c3c11a373cd7c83aeab6ed1457b55da6a69e014a95ac4e4700b" in frontend_dockerfile
+
+
+def test_frontend_dockerfile_healthcheck_awaits_fetch_result():
+    dockerfile_text = _read_text(REPO_ROOT / "frontend" / "Dockerfile")
+
+    assert "node --input-type=module -e" in dockerfile_text
+    assert "const response = await fetch('http://127.0.0.1:3000/health'" in dockerfile_text

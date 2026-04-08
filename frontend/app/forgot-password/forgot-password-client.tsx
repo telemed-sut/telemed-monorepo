@@ -11,7 +11,9 @@ import { getAuthErrorMessage, requestPasswordReset } from "@/lib/api";
 import { type AppLanguage } from "@/store/language-config";
 import { useLanguageStore } from "@/store/language-store";
 
-const showDevelopmentToken = process.env.NEXT_PUBLIC_SHOW_DEV_RESET_TOKEN === "true";
+const showDevelopmentToken =
+  process.env.NODE_ENV !== "production" &&
+  process.env.NEXT_PUBLIC_SHOW_DEV_RESET_TOKEN === "true";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;

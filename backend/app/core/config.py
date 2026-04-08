@@ -156,6 +156,15 @@ class Settings(BaseSettings):
             return v
         return v.strip().lower()
 
+    @field_validator("auth_cookie_samesite", mode="before")
+    @classmethod
+    def normalize_auth_cookie_samesite(cls, v: str) -> str:
+        if not isinstance(v, str):
+            return v
+
+        value = v.strip().lower()
+        return value or "lax"
+
     @field_validator("jwt_secret")
     @classmethod
     def validate_jwt_secret(cls, v: str) -> str:

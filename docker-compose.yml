@@ -8,7 +8,7 @@ x-backend-common-env: &backend-common-env
   INVITE_EXPIRES_IN_HOURS: "${INVITE_EXPIRES_IN_HOURS:-24}"
   CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://localhost:8080}"
 
-  DEVICE_API_SECRET: "${DEVICE_API_SECRET:-change_this_device_secret_for_local_dev_only_32_chars_minimum}"
+  DEVICE_API_SECRET: "${DEVICE_API_SECRET:?DEVICE_API_SECRET is required}"
   DEVICE_API_SECRETS: "${DEVICE_API_SECRETS:-}"
   DEVICE_API_ALLOW_JWT_SECRET_FALLBACK: "${DEVICE_API_ALLOW_JWT_SECRET_FALLBACK:-false}"
   DEVICE_API_REQUIRE_REGISTERED_DEVICE: "${DEVICE_API_REQUIRE_REGISTERED_DEVICE:-false}"
@@ -25,7 +25,7 @@ x-backend-common-env: &backend-common-env
   ADMIN_OIDC_PROVIDER_NAME: "${ADMIN_OIDC_PROVIDER_NAME:-authentik}"
   ADMIN_OIDC_ISSUER_URL: "${ADMIN_OIDC_ISSUER_URL:-http://localhost:9000/application/o/telemed-admin}"
   ADMIN_OIDC_CLIENT_ID: "${ADMIN_OIDC_CLIENT_ID:-telemed-admin}"
-  ADMIN_OIDC_CLIENT_SECRET: "${ADMIN_OIDC_CLIENT_SECRET:-replace_with_local_authentik_client_secret}"
+  ADMIN_OIDC_CLIENT_SECRET: "${ADMIN_OIDC_CLIENT_SECRET:?ADMIN_OIDC_CLIENT_SECRET is required}"
   ADMIN_OIDC_REDIRECT_URI: "${ADMIN_OIDC_REDIRECT_URI:-http://localhost:3000/api/auth/admin/sso/callback}"
   ADMIN_OIDC_POST_LOGOUT_REDIRECT_URI: "${ADMIN_OIDC_POST_LOGOUT_REDIRECT_URI:-http://localhost:3000/login}"
   ADMIN_OIDC_SCOPES: "${ADMIN_OIDC_SCOPES:-openid,profile,email}"
@@ -70,6 +70,7 @@ x-backend-common-env: &backend-common-env
 
 services:
   frontend:
+    init: true
     build:
       context: ./frontend
       args:
@@ -78,7 +79,7 @@ services:
         NEXT_SERVER_API_BASE_URL: "${NEXT_SERVER_API_BASE_URL:-http://localhost:8000}"
     container_name: patient-frontend
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       NEXT_PUBLIC_API_BASE_URL: "${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}"
       NEXT_SERVER_API_PROXY_TARGET: "${NEXT_SERVER_API_PROXY_TARGET:-http://localhost:8000}"
@@ -109,13 +110,21 @@ services:
     networks:
       - frontend-net
       - backend-net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: always
 
   backend:
+    init: true
     build: ./backend
     container_name: patient-backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       <<: *backend-common-env
       RUN_MIGRATIONS_ON_STARTUP: "${RUN_MIGRATIONS_ON_STARTUP:-true}"
@@ -146,14 +155,22 @@ services:
     networks:
       - backend-net
       - db-net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: always
 
   db:
+    init: true
     image: postgres:15-alpine
     container_name: patient-db
     environment:
-      POSTGRES_USER: "${POSTGRES_USER:-user}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-password}"
+      POSTGRES_USER: "${POSTGRES_USER:?POSTGRES_USER is required}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
       POSTGRES_DB: "${POSTGRES_DB:-patient_db}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -180,11 +197,12 @@ services:
 
   authentik-postgresql:
     profiles: ["identity"]
+    init: true
     image: postgres:15-alpine
     container_name: telemed-authentik-db
     environment:
       POSTGRES_USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
-      POSTGRES_PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-authentik}"
+      POSTGRES_PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:?AUTHENTIK_POSTGRES_PASSWORD is required}"
       POSTGRES_DB: "${AUTHENTIK_POSTGRES_DB:-authentik}"
     volumes:
       - authentik_postgres_data:/var/lib/postgresql/data
@@ -201,9 +219,17 @@ services:
 
   authentik-redis:
     profiles: ["identity"]
+    init: true
     image: redis:7-alpine
     container_name: telemed-authentik-redis
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    environment:
+      AUTHENTIK_REDIS_PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:?AUTHENTIK_REDIS_PASSWORD is required}"
+    command:
+      [
+        "sh",
+        "-c",
+        "exec redis-server --save '' --appendonly no --requirepass \"$${AUTHENTIK_REDIS_PASSWORD}\"",
+      ]
     deploy:
       resources:
         limits:
@@ -217,19 +243,21 @@ services:
 
   authentik-server:
     profiles: ["identity"]
+    init: true
     image: "${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server:latest}"
     container_name: telemed-authentik-server
     command: server
     environment:
-      AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY:-replace_with_local_authentik_secret_key}"
+      AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY:?AUTHENTIK_SECRET_KEY is required}"
       AUTHENTIK_POSTGRESQL__HOST: authentik-postgresql
       AUTHENTIK_POSTGRESQL__USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
-      AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-authentik}"
+      AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:?AUTHENTIK_POSTGRES_PASSWORD is required}"
       AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB:-authentik}"
       AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_REDIS__PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:?AUTHENTIK_REDIS_PASSWORD is required}"
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"
     depends_on:
       - authentik-postgresql
       - authentik-redis
@@ -259,19 +287,28 @@ services:
     networks:
       - backend-net
       - db-net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
 
   authentik-worker:
     profiles: ["identity"]
+    init: true
     image: "${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server:latest}"
     container_name: telemed-authentik-worker
     command: worker
     environment:
-      AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY:-replace_with_local_authentik_secret_key}"
+      AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY:?AUTHENTIK_SECRET_KEY is required}"
       AUTHENTIK_POSTGRESQL__HOST: authentik-postgresql
       AUTHENTIK_POSTGRESQL__USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
-      AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-authentik}"
+      AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:?AUTHENTIK_POSTGRES_PASSWORD is required}"
       AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB:-authentik}"
       AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_REDIS__PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:?AUTHENTIK_REDIS_PASSWORD is required}"
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
     depends_on:
       - authentik-postgresql
@@ -290,6 +327,13 @@ services:
     networks:
       - backend-net
       - db-net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
 
 volumes:
   postgres_data:

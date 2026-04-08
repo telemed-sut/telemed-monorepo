@@ -136,6 +136,14 @@ def test_settings_enable_secure_auth_cookies_by_default(monkeypatch):
     assert settings.auth_cookie_secure is True
 
 
+def test_settings_normalize_auth_cookie_samesite(monkeypatch):
+    _apply_env(monkeypatch, AUTH_COOKIE_SAMESITE="Lax")
+
+    settings = Settings()
+
+    assert settings.auth_cookie_samesite == "lax"
+
+
 def test_settings_default_db_pool_tuning(monkeypatch):
     _apply_env(
         monkeypatch,

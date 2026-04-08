@@ -142,6 +142,35 @@ describe("patient heart sound page", () => {
     expect(screen.getAllByText(/DE:MO:PO:14:30:01/).length).toBeGreaterThan(0);
   });
 
+  it("rejects oversized upload files on the client before queueing", async () => {
+    const { PatientHeartSoundContent } = await import("@/components/dashboard/patient-heart-sound");
+    render(<PatientHeartSoundContent patientId="patient-1" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Heart Sound", level: 1 })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload heart sound files" }));
+
+    const validFile = new File(["ok"], "valid.wav", { type: "audio/wav" });
+    const oversizedFile = new File(["too-large"], "oversized.wav", { type: "audio/wav" });
+    Object.defineProperty(validFile, "size", { value: 1024 });
+    Object.defineProperty(oversizedFile, "size", { value: 11 * 1024 * 1024 });
+
+    const input = document.getElementById("heart-sound-files") as HTMLInputElement;
+    fireEvent.change(input, {
+      target: {
+        files: [validFile, oversizedFile],
+      },
+    });
+
+    expect(
+      screen.getByText("oversized.wav exceeds the 10.0 MB limit and was not added.")
+    ).toBeInTheDocument();
+    expect(screen.getByText("valid.wav")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Remove file" })).toHaveLength(1);
+  });
+
   it("filters the recording table to the selected position only", async () => {
     mockFetchPatientHeartSounds.mockResolvedValue({
       items: [

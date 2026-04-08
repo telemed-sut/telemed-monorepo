@@ -19,6 +19,7 @@ const languageStore = {
 describe("ForgotPasswordClientPage", () => {
   beforeEach(() => {
     requestPasswordResetMock.mockReset();
+    vi.unstubAllEnvs();
   });
 
   afterEach(() => {
@@ -53,6 +54,31 @@ describe("ForgotPasswordClientPage", () => {
   });
 
   it("hides the development token by default", async () => {
+    requestPasswordResetMock.mockResolvedValue({
+      message: "User exists and reset email has been sent.",
+      reset_token: "dev-token-123",
+    });
+
+    const ForgotPasswordClientPage = (await import("@/app/forgot-password/forgot-password-client")).default;
+
+    render(<ForgotPasswordClientPage />);
+
+    fireEvent.change(screen.getByLabelText("Email address"), {
+      target: { value: "doctor@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send reset link" }));
+
+    await waitFor(() => {
+      expect(requestPasswordResetMock).toHaveBeenCalledWith("doctor@example.com");
+    });
+
+    expect(screen.queryByText("Development token")).not.toBeInTheDocument();
+    expect(screen.queryByText("dev-token-123")).not.toBeInTheDocument();
+  });
+
+  it("keeps the development token hidden in production even when the feature flag is enabled", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_SHOW_DEV_RESET_TOKEN", "true");
     requestPasswordResetMock.mockResolvedValue({
       message: "User exists and reset email has been sent.",
       reset_token: "dev-token-123",

@@ -194,6 +194,7 @@ const AUTH_ERROR_RULES: Array<{
 
 let refreshPromise: Promise<string | null> | null = null;
 const CACHE_TTL_MS = 30_000;
+export const TOKEN_REFRESH_TIMEOUT_MS = 10_000;
 const requestCache = new Map<string, { promise: Promise<RawFetchResult<unknown>>; timestamp: number }>();
 
 export function isProbablyJwt(token: string): boolean {
@@ -623,8 +624,17 @@ async function tryRefreshToken(currentToken?: string): Promise<string | null> {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timeoutId = controller
+      ? globalThis.setTimeout(() => controller.abort(), TOKEN_REFRESH_TIMEOUT_MS)
+      : null;
+
     try {
-      const res = await rawFetch<LoginResponse>("/auth/refresh", { method: "POST" }, currentToken);
+      const res = await rawFetch<LoginResponse>(
+        "/auth/refresh",
+        { method: "POST", signal: controller?.signal },
+        currentToken
+      );
       if (res.ok && res.data?.user) {
         if (typeof window !== "undefined") {
           try {
@@ -640,6 +650,9 @@ async function tryRefreshToken(currentToken?: string): Promise<string | null> {
     } catch {
       return null;
     } finally {
+      if (timeoutId !== null) {
+        globalThis.clearTimeout(timeoutId);
+      }
       refreshPromise = null;
     }
   })();

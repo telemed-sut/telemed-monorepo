@@ -83,6 +83,7 @@ const PANEL_POSITIONS: Record<PanelKind, number[]> = {
   anterior: [1, 2, 3, 4, 5, 6],
   posterior: [7, 8, 9, 10, 11, 12, 13, 14],
 };
+const MAX_HEART_SOUND_UPLOAD_BYTES = 10 * 1024 * 1024;
 
 function getDemoRecordsBanner(language: AppLanguage): RecordsBanner {
   return {
@@ -183,6 +184,27 @@ function formatFileSize(bytes?: number) {
     return `${Math.round(bytes / 1024)} KB`;
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getUploadSizeError(language: AppLanguage, rejectedFiles: File[]) {
+  if (rejectedFiles.length === 0) {
+    return null;
+  }
+
+  const maxSize = formatFileSize(MAX_HEART_SOUND_UPLOAD_BYTES);
+  if (rejectedFiles.length === 1) {
+    return tr(
+      language,
+      `${rejectedFiles[0].name} exceeds the ${maxSize} limit and was not added.`,
+      `${rejectedFiles[0].name} มีขนาดเกิน ${maxSize} จึงไม่ได้ถูกเพิ่มเข้าคิว`
+    );
+  }
+
+  return tr(
+    language,
+    `${rejectedFiles.length} files exceed the ${maxSize} limit and were not added.`,
+    `${rejectedFiles.length} ไฟล์มีขนาดเกิน ${maxSize} จึงไม่ได้ถูกเพิ่มเข้าคิว`
+  );
 }
 
 function getPanelByPosition(position: number): PanelKind {
@@ -535,6 +557,7 @@ export function PatientHeartSoundContent({
   const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>("auto");
   const [manualPosition, setManualPosition] = useState<number>(1);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [playingRecordId, setPlayingRecordId] = useState<string | null>(null);
 
@@ -771,6 +794,7 @@ export function PatientHeartSoundContent({
 
   const removeSelectedFile = (targetName: string) => {
     setSelectedFiles((current) => current.filter((file) => `${file.name}-${file.size}` !== targetName));
+    setUploadError(null);
   };
 
   const queueSelectedFiles = () => {
@@ -789,6 +813,7 @@ export function PatientHeartSoundContent({
 
     setDraftRecords((current) => [...nextDrafts, ...current]);
     setSelectedFiles([]);
+    setUploadError(null);
     setUploadOpen(false);
     setActivePosition(assignedPositions[0] ?? null);
     setManualPosition(assignedPositions[0] ?? manualPosition);
@@ -1104,9 +1129,18 @@ export function PatientHeartSoundContent({
                       className="hidden"
                       onChange={(event) => {
                         const files = Array.from(event.target.files ?? []);
-                        setSelectedFiles(files);
+                        const acceptedFiles = files.filter((file) => file.size <= MAX_HEART_SOUND_UPLOAD_BYTES);
+                        const rejectedFiles = files.filter((file) => file.size > MAX_HEART_SOUND_UPLOAD_BYTES);
+
+                        setSelectedFiles(acceptedFiles);
+                        setUploadError(getUploadSizeError(language, rejectedFiles));
                       }}
                     />
+                    {uploadError ? (
+                      <p className="mt-3 text-sm font-medium text-destructive" role="alert">
+                        {uploadError}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-2">
