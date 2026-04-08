@@ -17,6 +17,7 @@ import {
     fetchUsers,
     deleteUser,
     restoreUser,
+    purgeDeletedUser,
     bulkDeleteUsers,
     bulkRestoreUsers,
     purgeDeletedUsers,
@@ -60,6 +61,7 @@ import {
     Users,
     RotateCcw,
     RefreshCw,
+    Check,
 } from "lucide-react";
 
 
@@ -334,6 +336,7 @@ export function UsersTable({
     initialTotal = 0,
     initialSeedKey = 0,
     initialSeedReady = false,
+    onUsersMutated,
 }: {
     refreshKey?: number;
     inviteRequestKey?: number;
@@ -341,6 +344,7 @@ export function UsersTable({
     initialTotal?: number;
     initialSeedKey?: number;
     initialSeedReady?: boolean;
+    onUsersMutated?: () => void;
 }) {
     const { role: currentUserRole, token } = useAuthStore();
     const language = useLanguageStore((state) => state.language);
@@ -388,6 +392,9 @@ export function UsersTable({
     const [purgeOlderThanDays, setPurgeOlderThanDays] = useState(90);
     const [isPurging, setIsPurging] = useState(false);
     const [hasExportedForPurge, setHasExportedForPurge] = useState(false);
+    const [locallyPurgedUserIds, setLocallyPurgedUserIds] = useState<Set<string>>(
+        () => new Set()
+    );
     const lastAppliedSeedKeyRef = useRef<number | null>(null);
 
     // Form Data State
@@ -430,8 +437,11 @@ export function UsersTable({
             accountView === "active";
 
         if (shouldUseInitialSeed) {
-            setUsers(initialUsers);
-            setTotal(initialTotal);
+            const visibleSeedUsers = initialUsers.filter(
+                (user) => !locallyPurgedUserIds.has(user.id)
+            );
+            setUsers(visibleSeedUsers);
+            setTotal(Math.max(initialTotal - (initialUsers.length - visibleSeedUsers.length), 0));
             setLoading(false);
             lastAppliedSeedKeyRef.current = initialSeedKey;
             return;
@@ -455,11 +465,15 @@ export function UsersTable({
                 verification_status: statusFilterLocal !== "all" ? statusFilterLocal : undefined,
                 include_deleted: accountView !== "active",
                 deleted_only: accountView === "deleted",
+                skipCache: true,
             }, token);
 
             // Ensure type compatibility by handling nulls if necessary, though User from API should match User in state
-            setUsers(res.items || []);
-            setTotal(res.total || 0);
+            const nextUsers = (res.items || []).filter(
+                (user) => !locallyPurgedUserIds.has(user.id)
+            );
+            setUsers(nextUsers);
+            setTotal(Math.max((res.total || 0) - ((res.items || []).length - nextUsers.length), 0));
         } catch {
             toast.error(tr(language, "Error", "ข้อผิดพลาด"), {
                 description: tr(language, "Failed to load users.", "โหลดข้อมูลผู้ใช้ไม่สำเร็จ"),
@@ -481,6 +495,7 @@ export function UsersTable({
         initialTotal,
         initialSeedKey,
         initialSeedReady,
+        locallyPurgedUserIds,
     ]);
 
     const loadInviteItems = useCallback(async () => {
@@ -492,6 +507,7 @@ export function UsersTable({
                     page: 1,
                     limit: 50,
                     status_filter: inviteStatusFilter,
+                    skipCache: true,
                 },
                 token
             );
@@ -565,6 +581,105 @@ export function UsersTable({
         [language]
     );
 
+    const syncParentUsers = useCallback(() => {
+        onUsersMutated?.();
+    }, [onUsersMutated]);
+
+    const removeRowSelection = useCallback((userId: string) => {
+        setRowSelection((prev) => {
+            const next = { ...prev };
+            delete next[userId as keyof typeof next];
+            return next;
+        });
+    }, []);
+
+    const applyVerifiedUserLocally = useCallback((user: User) => {
+        setUsers((prev) => {
+            const shouldRemoveFromCurrentView =
+                statusFilterLocal !== "all" && statusFilterLocal !== "verified";
+
+            if (shouldRemoveFromCurrentView) {
+                return prev.filter((candidate) => candidate.id !== user.id);
+            }
+
+            return prev.map((candidate) =>
+                candidate.id === user.id
+                    ? { ...candidate, verification_status: "verified" as const }
+                    : candidate
+            );
+        });
+        if (statusFilterLocal !== "all" && statusFilterLocal !== "verified") {
+            setTotal((prev) => Math.max(prev - 1, 0));
+        }
+    }, [statusFilterLocal]);
+
+    const applyDeletedUserLocally = useCallback((user: User) => {
+        removeRowSelection(user.id);
+        setUsers((prev) => {
+            if (accountView === "active") {
+                return prev.filter((candidate) => candidate.id !== user.id);
+            }
+
+            if (accountView === "all") {
+                const deletedAt = new Date().toISOString();
+                return prev.map((candidate) =>
+                    candidate.id === user.id
+                        ? {
+                            ...candidate,
+                            is_active: false,
+                            deleted_at: deletedAt,
+                        }
+                        : candidate
+                );
+            }
+
+            return prev;
+        });
+        if (accountView === "active") {
+            setTotal((prev) => Math.max(prev - 1, 0));
+        }
+    }, [accountView, removeRowSelection]);
+
+    const applyRestoredUserLocally = useCallback((user: User, restoredEmail?: string) => {
+        removeRowSelection(user.id);
+        setUsers((prev) => {
+            if (accountView === "deleted") {
+                return prev.filter((candidate) => candidate.id !== user.id);
+            }
+
+            if (accountView === "all") {
+                return prev.map((candidate) =>
+                    candidate.id === user.id
+                        ? {
+                            ...candidate,
+                            email: restoredEmail ?? candidate.email,
+                            is_active: true,
+                            deleted_at: null,
+                            deleted_by: null,
+                            restored_at: new Date().toISOString(),
+                        }
+                        : candidate
+                );
+            }
+
+            return prev;
+        });
+        if (accountView === "deleted") {
+            setTotal((prev) => Math.max(prev - 1, 0));
+        }
+    }, [accountView, removeRowSelection]);
+
+    const applyPurgedUserLocally = useCallback((user: User) => {
+        setLocallyPurgedUserIds((prev) => {
+            const next = new Set(prev);
+            next.add(user.id);
+            return next;
+        });
+        removeRowSelection(user.id);
+        setUsers((prev) => prev.filter((candidate) => candidate.id !== user.id));
+        setTotal((prev) => Math.max(prev - 1, 0));
+    }, [removeRowSelection]);
+
     // --- Handlers from Original ---
 
     const handleOpenEdit = useCallback((user: User) => {
@@ -583,10 +698,11 @@ export function UsersTable({
 
         try {
             await deleteUser(user.id, token);
+            applyDeletedUserLocally(user);
             toast.success(tr(language, "Success", "สำเร็จ"), {
                 description: tr(language, "User deleted successfully", "ลบผู้ใช้สำเร็จ"),
             });
-            loadUsers();
+            syncParentUsers();
         } catch (error) {
             toast.error(tr(language, "Delete failed", "ลบไม่สำเร็จ"), {
                 description: getLocalizedErrorMessage(
@@ -596,7 +712,7 @@ export function UsersTable({
                 ),
             });
         }
-    }, [token, language, loadUsers, getLocalizedErrorMessage]);
+    }, [token, language, applyDeletedUserLocally, syncParentUsers, getLocalizedErrorMessage]);
 
     const handleDelete = useCallback((user: User) => {
         const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
@@ -626,14 +742,14 @@ export function UsersTable({
 
         try {
             const restored = await restoreUser(user.id, token);
+            applyRestoredUserLocally(user, restored.email);
             const usingRetiredEmail = restored.email.startsWith("deleted+");
             toast.success(tr(language, "User restored", "กู้คืนผู้ใช้แล้ว"), {
                 description: usingRetiredEmail
                     ? tr(language, "Account restored. Please edit email before giving access to this user.", "กู้คืนบัญชีแล้ว กรุณาแก้ไขอีเมลก่อนให้สิทธิ์ผู้ใช้นี้")
                     : tr(language, "User restored successfully.", "กู้คืนผู้ใช้สำเร็จ"),
             });
-            setRowSelection({});
-            loadUsers();
+            syncParentUsers();
         } catch (error) {
             toast.error(tr(language, "Restore failed", "กู้คืนไม่สำเร็จ"), {
                 description: getLocalizedErrorMessage(
@@ -643,7 +759,7 @@ export function UsersTable({
                 ),
             });
         }
-    }, [token, language, loadUsers, getLocalizedErrorMessage]);
+    }, [token, language, applyRestoredUserLocally, syncParentUsers, getLocalizedErrorMessage]);
 
     const requestRestore = useCallback((user: User) => {
         const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
@@ -663,6 +779,66 @@ export function UsersTable({
         });
     }, [language, confirmRestore]);
 
+    const confirmPurgeDeletedUser = useCallback(async (user: User) => {
+        if (!token) {
+            toast.error(tr(language, "Purge failed", "ลบถาวรไม่สำเร็จ"), {
+                description: tr(language, "Not authenticated. Please sign in again.", "ยังไม่ได้ยืนยันตัวตน กรุณาเข้าสู่ระบบอีกครั้ง"),
+            });
+            return;
+        }
+
+        try {
+            await purgeDeletedUser(user.id, token);
+            applyPurgedUserLocally(user);
+            toast.success(tr(language, "Deleted permanently", "ลบถาวรแล้ว"), {
+                description: tr(language, "Medical student account removed permanently.", "ลบบัญชีนักศึกษาแพทย์ถาวรแล้ว"),
+            });
+            syncParentUsers();
+        } catch (error) {
+            const status =
+                typeof error === "object" && error !== null && "status" in error
+                    ? (error as { status?: number }).status
+                    : undefined;
+            if (status === 404) {
+                applyPurgedUserLocally(user);
+                syncParentUsers();
+                toast.info(tr(language, "Already removed", "รายการนี้ถูกลบไปแล้ว"), {
+                    description: tr(
+                        language,
+                        "This user no longer exists in the backend, so the stale row was removed from the table.",
+                        "ผู้ใช้นี้ไม่มีอยู่ในระบบแล้ว จึงลบแถวที่ค้างอยู่ในตารางออกให้เรียบร้อย"
+                    ),
+                });
+                return;
+            }
+            toast.error(tr(language, "Purge failed", "ลบถาวรไม่สำเร็จ"), {
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to permanently delete this user",
+                    "ไม่สามารถลบผู้ใช้นี้แบบถาวรได้"
+                ),
+            });
+        }
+    }, [token, language, applyPurgedUserLocally, syncParentUsers, getLocalizedErrorMessage]);
+
+    const requestPurgeDeletedUser = useCallback((user: User) => {
+        const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
+        toast.destructiveAction(tr(language, "Delete permanently?", "ลบถาวรถูกไหม?"), {
+            description: tr(
+                language,
+                `This will permanently remove ${fullName}. This cannot be undone.`,
+                `การดำเนินการนี้จะลบ ${fullName} แบบถาวร และไม่สามารถย้อนกลับได้`
+            ),
+            button: {
+                title: tr(language, "Delete Permanently", "ลบถาวร"),
+                onClick: () => {
+                    void confirmPurgeDeletedUser(user);
+                },
+            },
+            duration: 9000,
+        });
+    }, [language, confirmPurgeDeletedUser]);
+
     const handleVerifyUser = useCallback(async (user: User) => {
         if (!token) {
             toast.error(tr(language, "Verification failed", "ยืนยันไม่สำเร็จ"), {
@@ -673,16 +849,7 @@ export function UsersTable({
 
         try {
             await verifyUser(user.id, token);
-
-            // Optimistic update: update local state immediately so the UI
-            // reflects the change even if loadUsers() hits the seed cache.
-            setUsers((prev) =>
-                prev.map((u) =>
-                    u.id === user.id
-                        ? { ...u, verification_status: "verified" as const }
-                        : u
-                )
-            );
+            applyVerifiedUserLocally(user);
 
             const displayName = getDisplayName(
                 user.first_name,
@@ -699,7 +866,7 @@ export function UsersTable({
                     `${displayName} ได้รับการยืนยันแล้วและพร้อมสำหรับการมอบหมายงาน`
                 ),
             });
-            loadUsers();
+            syncParentUsers();
         } catch (err) {
             toast.error(tr(language, "Verification failed", "ยืนยันไม่สำเร็จ"), {
                 description: getLocalizedErrorMessage(
@@ -709,7 +876,7 @@ export function UsersTable({
                 ),
             });
         }
-    }, [token, language, loadUsers, getLocalizedErrorMessage]);
+    }, [token, language, applyVerifiedUserLocally, syncParentUsers, getLocalizedErrorMessage]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -781,7 +948,8 @@ export function UsersTable({
                 });
             }
             setSheetOpen(false);
-            loadUsers();
+            syncParentUsers();
+            await loadUsers();
         } catch (error: unknown) {
             const message = getLocalizedErrorMessage(
                 error,
@@ -963,7 +1131,8 @@ export function UsersTable({
             setBulkDeleteDialogOpen(false);
             setBulkDeleteConfirmText("");
             setPendingBulkDeleteUsers([]);
-            loadUsers();
+            syncParentUsers();
+            await loadUsers();
         } catch (error) {
             toast.error(tr(language, "Delete failed", "ลบไม่สำเร็จ"), {
                 description: getLocalizedErrorMessage(
@@ -1052,7 +1221,8 @@ export function UsersTable({
                 });
             }
             setRowSelection({});
-            loadUsers();
+            syncParentUsers();
+            await loadUsers();
         } catch (error) {
             toast.error(tr(language, "Restore failed", "กู้คืนไม่สำเร็จ"), {
                 description: getLocalizedErrorMessage(
@@ -1117,6 +1287,7 @@ export function UsersTable({
                         limit,
                         include_deleted: true,
                         deleted_only: true,
+                        skipCache: true,
                     },
                     token
                 );
@@ -1192,7 +1363,8 @@ export function UsersTable({
             setPurgeReason("");
             setPurgeOlderThanDays(90);
             setHasExportedForPurge(false);
-            loadUsers();
+            syncParentUsers();
+            await loadUsers();
         } catch (error) {
             toast.error(tr(language, "Purge failed", "ลบถาวรไม่สำเร็จ"), {
                 description: getLocalizedErrorMessage(
@@ -1417,12 +1589,25 @@ export function UsersTable({
                             <DropdownMenuGroup>
                                 <DropdownMenuLabel>{tr(language, "Actions", "การทำงาน")}</DropdownMenuLabel>
                                 {user.deleted_at ? (
-                                    <DropdownMenuItem
-                                        onClick={() => requestRestore(user)}
-                                        className="text-emerald-600 focus:text-emerald-600 focus:bg-emerald-50"
-                                    >
-                                        <RotateCcw className="mr-2 h-4 w-4" /> {tr(language, "Restore", "กู้คืน")}
-                                    </DropdownMenuItem>
+                                    <>
+                                        <DropdownMenuItem
+                                            onClick={() => requestRestore(user)}
+                                            className="text-emerald-600 focus:text-emerald-600 focus:bg-emerald-50"
+                                        >
+                                            <RotateCcw className="mr-2 h-4 w-4" /> {tr(language, "Restore", "กู้คืน")}
+                                        </DropdownMenuItem>
+                                        {user.role === "medical_student" && (
+                                            <>
+                                                <DropdownMenuSeparator />
+                                                <DropdownMenuItem
+                                                    onClick={() => requestPurgeDeletedUser(user)}
+                                                    className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                                                >
+                                                    <Trash2 className="mr-2 h-4 w-4" /> {tr(language, "Delete Permanently", "ลบถาวร")}
+                                                </DropdownMenuItem>
+                                            </>
+                                        )}
+                                    </>
                                 ) : (
                                     <>
                                         <DropdownMenuItem onClick={() => handleOpenEdit(user)}>
@@ -1454,6 +1639,7 @@ export function UsersTable({
         handleDelete,
         handleVerifyUser,
         requestRestore,
+        requestPurgeDeletedUser,
         isBulkDeleting,
         isBulkRestoring,
         language,
@@ -1500,6 +1686,13 @@ export function UsersTable({
     const selectedActiveUsers = selectedUsers.filter((user) => !user.deleted_at);
     const selectedDeletedUsers = selectedUsers.filter((user) => Boolean(user.deleted_at));
     const selectedIds = selectedUsers.map((user) => user.id);
+    const isPurgeReasonValid = purgeReason.trim().length >= 8;
+    const isPurgeConfirmValid = purgeConfirmText === "PURGE";
+    const canPurgeDeletedUsers =
+        !isPurging &&
+        hasExportedForPurge &&
+        isPurgeConfirmValid &&
+        isPurgeReasonValid;
 
     const hasActiveFilters =
         roleFilter !== "all" || statusFilterLocal !== "all" || accountView !== "active";
@@ -1986,13 +2179,27 @@ export function UsersTable({
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="purge_reason">{tr(language, "Reason", "เหตุผล")}</Label>
+                            <Label htmlFor="purge_reason">
+                                {tr(language, "Reason", "เหตุผล")}{" "}
+                                <span className="text-muted-foreground">
+                                    {tr(language, "(at least 8 characters)", "(อย่างน้อย 8 ตัวอักษร)")}
+                                </span>
+                            </Label>
                             <Input
                                 id="purge_reason"
                                 value={purgeReason}
                                 onChange={(event) => setPurgeReason(event.target.value)}
                                 placeholder={tr(language, "e.g. quarterly retention policy", "เช่น retention policy รอบไตรมาส")}
                             />
+                            {!isPurgeReasonValid && (
+                                <p className="text-sm text-amber-600">
+                                    {tr(
+                                        language,
+                                        `Enter at least 8 characters. ${Math.max(8 - purgeReason.trim().length, 0)} more to go.`,
+                                        `กรอกเหตุผลอย่างน้อย 8 ตัวอักษร ตอนนี้ยังขาดอีก ${Math.max(8 - purgeReason.trim().length, 0)} ตัวอักษร`
+                                    )}
+                                </p>
+                            )}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="purge_confirm_text">{tr(language, "Confirm text", "ข้อความยืนยัน")}</Label>
@@ -2003,17 +2210,54 @@ export function UsersTable({
                                 placeholder={tr(language, 'Type "PURGE"', 'พิมพ์ "PURGE"')}
                             />
                         </div>
-                        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-muted-foreground">
-                            ระบบบังคับให้ export รายการบัญชีที่ถูกลบก่อน purge ทุกครั้ง
+                        <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-muted-foreground">
+                            <p>ระบบบังคับให้ export รายการบัญชีที่ถูกลบก่อน purge ทุกครั้ง</p>
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                    {hasExportedForPurge ? (
+                                        <Check className="h-4 w-4 text-emerald-600" />
+                                    ) : (
+                                        <XCircle className="h-4 w-4 text-amber-600" />
+                                    )}
+                                    <span>
+                                        {tr(language, "Export snapshot completed", "ส่งออก snapshot แล้ว")}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {isPurgeReasonValid ? (
+                                        <Check className="h-4 w-4 text-emerald-600" />
+                                    ) : (
+                                        <XCircle className="h-4 w-4 text-amber-600" />
+                                    )}
+                                    <span>
+                                        {tr(language, "Reason is at least 8 characters", "เหตุผลครบอย่างน้อย 8 ตัวอักษร")}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {isPurgeConfirmValid ? (
+                                        <Check className="h-4 w-4 text-emerald-600" />
+                                    ) : (
+                                        <XCircle className="h-4 w-4 text-amber-600" />
+                                    )}
+                                    <span>
+                                        {tr(language, 'Typed "PURGE" correctly', 'พิมพ์ "PURGE" ถูกต้อง')}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                         <Button
                             type="button"
                             variant="outline"
-                            className="w-full"
+                            className={cn(
+                                "w-full",
+                                hasExportedForPurge && "border-emerald-300/50 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15"
+                            )}
                             onClick={() => void handleExportDeletedSnapshot()}
                         >
                             <FileDown className="mr-2 h-4 w-4" />
-                            {tr(language, "Export deleted users snapshot", "ส่งออก snapshot ผู้ใช้ที่ถูกลบ")}
+                            {hasExportedForPurge
+                                ? tr(language, "Snapshot exported", "ส่งออก snapshot แล้ว")
+                                : tr(language, "Export deleted users snapshot", "ส่งออก snapshot ผู้ใช้ที่ถูกลบ")}
                         </Button>
                     </div>
                     <DialogFooter>
@@ -2028,12 +2272,7 @@ export function UsersTable({
                         </Button>
                         <Button
                             variant="destructive"
-                            disabled={
-                                isPurging ||
-                                !hasExportedForPurge ||
-                                purgeConfirmText !== "PURGE" ||
-                                purgeReason.trim().length < 8
-                            }
+                            disabled={!canPurgeDeletedUsers}
                             onClick={() => {
                                 void handlePurgeDeletedUsers();
                             }}

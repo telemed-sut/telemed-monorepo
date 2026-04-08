@@ -863,6 +863,11 @@ class PurgeDeletedUsersResponse(BaseModel):
     purged: int
 
 
+class PurgeDeletedUserResponse(BaseModel):
+    message: str
+    purged_user_id: UUID
+
+
 class UserInviteOut(BaseModel):
     id: UUID
     email: str
@@ -1194,6 +1199,77 @@ def bulk_delete_users(
     )
 
     return BulkDeleteResponse(deleted=deleted, skipped=skipped)
+
+
+@router.post("/{user_id:uuid}/purge", response_model=PurgeDeletedUserResponse)
+def purge_deleted_user(
+    *,
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    user_id: UUID,
+    current_user: User = Depends(get_admin_user),
+) -> Any:
+    """Hard-delete a single soft-deleted medical student. Admin only."""
+    user = db.scalar(select(User).where(User.id == user_id).with_for_update())
+    if not user:
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_purge_single_denied",
+            resource_type="user",
+            details={"target_id": str(user_id), "reason": "not_found"},
+            ip_address=_client_ip(request),
+        )
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.deleted_at is None:
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_purge_single_denied",
+            resource_type="user",
+            resource_id=user.id,
+            details={"reason": "not_deleted"},
+            ip_address=_client_ip(request),
+        )
+        raise HTTPException(status_code=400, detail="Only deleted users can be purged individually.")
+
+    if user.role != UserRole.medical_student:
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_purge_single_denied",
+            resource_type="user",
+            resource_id=user.id,
+            details={
+                "reason": "unsupported_role",
+                "role": user.role.value if user.role else None,
+            },
+            ip_address=_client_ip(request),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Individual purge is limited to deleted medical students.",
+        )
+
+    before = _user_snapshot(user)
+    db.delete(user)
+    db.commit()
+
+    log_action(
+        db,
+        user_id=current_user.id,
+        action="user_purge_single",
+        resource_type="user",
+        resource_id=user_id,
+        details={"before": before, "mode": "single"},
+        ip_address=_client_ip(request),
+    )
+
+    return PurgeDeletedUserResponse(
+        message="Deleted medical student permanently.",
+        purged_user_id=user_id,
+    )
 
 
 @router.post("/bulk-restore", response_model=BulkRestoreResponse)

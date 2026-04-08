@@ -2,6 +2,7 @@ import {
   API_BASE_URL,
   apiFetch,
   appendPagination,
+  invalidateCache,
   isProbablyJwt,
   parseApiErrorDetail,
   toUserFacingMessage,
@@ -38,6 +39,14 @@ import type {
   UserUpdate,
 } from "./api-types";
 
+function invalidateUsersListCache() {
+  invalidateCache("/users?");
+}
+
+function invalidateUserInvitesCache() {
+  invalidateCache("/users/invites");
+}
+
 export async function fetchUsers(
   params: {
     page?: number;
@@ -50,6 +59,7 @@ export async function fetchUsers(
     clinical_only?: boolean;
     include_deleted?: boolean;
     deleted_only?: boolean;
+    skipCache?: boolean;
   },
   token: string
 ) {
@@ -64,11 +74,15 @@ export async function fetchUsers(
   if (params.include_deleted !== undefined) query.append("include_deleted", String(params.include_deleted));
   if (params.deleted_only !== undefined) query.append("deleted_only", String(params.deleted_only));
 
-  return apiFetch<UserListResponse>(`/users?${query.toString()}`, {}, token);
+  return apiFetch<UserListResponse>(
+    `/users?${query.toString()}`,
+    { skipCache: params.skipCache ?? false },
+    token
+  );
 }
 
 export async function createUser(data: UserCreate, token: string) {
-  return apiFetch<User>(
+  const response = await apiFetch<User>(
     "/users",
     {
       method: "POST",
@@ -76,13 +90,15 @@ export async function createUser(data: UserCreate, token: string) {
     },
     token
   );
+  invalidateUsersListCache();
+  return response;
 }
 
 export async function createUserInvite(
   data: { email: string; role: string; reason?: string },
   token: string
 ) {
-  return apiFetch<UserInviteCreateResponse>(
+  const response = await apiFetch<UserInviteCreateResponse>(
     "/users/invites",
     {
       method: "POST",
@@ -90,6 +106,8 @@ export async function createUserInvite(
     },
     token
   );
+  invalidateUserInvitesCache();
+  return response;
 }
 
 export async function fetchUserInvites(
@@ -98,6 +116,7 @@ export async function fetchUserInvites(
     limit?: number;
     q?: string;
     status_filter?: UserInviteStatus | "all";
+    skipCache?: boolean;
   },
   token: string
 ) {
@@ -106,27 +125,35 @@ export async function fetchUserInvites(
   if (params.q) query.append("q", params.q);
   if (params.status_filter) query.append("status_filter", params.status_filter);
 
-  return apiFetch<UserInviteListResponse>(`/users/invites?${query.toString()}`, {}, token);
+  return apiFetch<UserInviteListResponse>(
+    `/users/invites?${query.toString()}`,
+    { skipCache: params.skipCache ?? false },
+    token
+  );
 }
 
 export async function resendUserInvite(inviteId: string, token: string) {
-  return apiFetch<UserInviteCreateResponse>(
+  const response = await apiFetch<UserInviteCreateResponse>(
     `/users/invites/${inviteId}/resend`,
     { method: "POST" },
     token
   );
+  invalidateUserInvitesCache();
+  return response;
 }
 
 export async function revokeUserInvite(inviteId: string, token: string) {
-  return apiFetch<{ message: string }>(
+  const response = await apiFetch<{ message: string }>(
     `/users/invites/${inviteId}/revoke`,
     { method: "POST" },
     token
   );
+  invalidateUserInvitesCache();
+  return response;
 }
 
 export async function updateUser(id: string, data: UserUpdate, token: string) {
-  return apiFetch<User>(
+  const response = await apiFetch<User>(
     `/users/${id}`,
     {
       method: "PUT",
@@ -134,36 +161,56 @@ export async function updateUser(id: string, data: UserUpdate, token: string) {
     },
     token
   );
+  invalidateUsersListCache();
+  return response;
 }
 
 export async function deleteUser(id: string, token: string) {
-  return apiFetch<void>(
+  const response = await apiFetch<void>(
     `/users/${id}`,
     {
       method: "DELETE",
     },
     token
   );
+  invalidateUsersListCache();
+  return response;
 }
 
 export async function restoreUser(id: string, token: string) {
-  return apiFetch<User>(
+  const response = await apiFetch<User>(
     `/users/${id}/restore`,
     {
       method: "POST",
     },
     token
   );
+  invalidateUsersListCache();
+  return response;
+}
+
+export async function purgeDeletedUser(id: string, token: string) {
+  const response = await apiFetch<{ message: string; purged_user_id: string }>(
+    `/users/${id}/purge`,
+    {
+      method: "POST",
+    },
+    token
+  );
+  invalidateUsersListCache();
+  return response;
 }
 
 export async function verifyUser(id: string, token: string) {
-  return apiFetch<User>(
+  const response = await apiFetch<User>(
     `/users/${id}/verify`,
     {
       method: "POST",
     },
     token
   );
+  invalidateUsersListCache();
+  return response;
 }
 
 export async function fetchOverviewStats(token: string, year?: number) {
@@ -389,7 +436,7 @@ export async function bulkDeleteUsers(
   token: string,
   confirmText?: string
 ) {
-  return apiFetch<BulkDeleteUsersResponse>(
+  const response = await apiFetch<BulkDeleteUsersResponse>(
     "/users/bulk-delete",
     {
       method: "POST",
@@ -399,23 +446,29 @@ export async function bulkDeleteUsers(
     },
     token,
   );
+  invalidateUsersListCache();
+  return response;
 }
 
 export async function bulkRestoreUsers(ids: string[], token: string) {
-  return apiFetch<BulkRestoreUsersResponse>(
+  const response = await apiFetch<BulkRestoreUsersResponse>(
     "/users/bulk-restore",
     { method: "POST", body: JSON.stringify({ ids }) },
     token,
   );
+  invalidateUsersListCache();
+  return response;
 }
 
 export async function purgeDeletedUsers(
   payload: { older_than_days?: number; confirm_text: string; reason: string },
   token: string
 ) {
-  return apiFetch<PurgeDeletedUsersResponse>(
+  const response = await apiFetch<PurgeDeletedUsersResponse>(
     "/users/purge-deleted",
     { method: "POST", body: JSON.stringify(payload) },
     token,
   );
+  invalidateUsersListCache();
+  return response;
 }

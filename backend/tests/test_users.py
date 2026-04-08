@@ -585,6 +585,44 @@ class TestSoftDelete:
         still_exists = db.query(User).filter(User.id == target_id).first()
         assert still_exists is None
 
+    def test_purge_deleted_user_hard_deletes_soft_deleted_medical_student(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-single-purge@example.com", role=UserRole.admin)
+        target = _make_user(
+            db,
+            email="single-purge-target@example.com",
+            role=UserRole.medical_student,
+        )
+        target_id = target.id
+        client.headers.update({"host": "localhost"})
+        token = _login(client, "admin-single-purge@example.com")
+
+        delete_resp = client.delete(f"/users/{target_id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        purge_resp = client.post(f"/users/{target_id}/purge", headers=_auth(token))
+        assert purge_resp.status_code == 200
+        assert purge_resp.json()["purged_user_id"] == str(target_id)
+
+        still_exists = db.query(User).filter(User.id == target_id).first()
+        assert still_exists is None
+
+    def test_purge_deleted_user_rejects_deleted_non_medical_student(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-single-purge-guard@example.com", role=UserRole.admin)
+        target = _make_user(
+            db,
+            email="single-purge-doctor@example.com",
+            role=UserRole.doctor,
+        )
+        client.headers.update({"host": "localhost"})
+        token = _login(client, "admin-single-purge-guard@example.com")
+
+        delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        purge_resp = client.post(f"/users/{target.id}/purge", headers=_auth(token))
+        assert purge_resp.status_code == 403
+        assert "medical students" in purge_resp.json()["detail"].lower()
+
 
 # ──────────────────────────────────────────────────────────
 # Validation – clinical roles
@@ -1063,3 +1101,29 @@ class TestAuditLog:
         detail = _parse_details(logs[-1].details)
         assert detail["older_than_days"] == 90
         assert "retention window" in detail["reason"]
+
+    def test_single_purge_logs_audit(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-audsinglepurge@example.com", role=UserRole.admin)
+        target = _make_user(
+            db,
+            email="audsinglepurge-target@example.com",
+            role=UserRole.medical_student,
+        )
+        target_id = target.id
+        client.headers.update({"host": "localhost"})
+        token = _login(client, "admin-audsinglepurge@example.com")
+
+        delete_resp = client.delete(f"/users/{target_id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        purge_resp = client.post(f"/users/{target_id}/purge", headers=_auth(token))
+        assert purge_resp.status_code == 200
+
+        logs = db.query(AuditLog).filter(
+            AuditLog.action == "user_purge_single",
+            AuditLog.resource_id == PyUUID(str(target_id)),
+        ).all()
+        assert len(logs) >= 1
+        detail = _parse_details(logs[-1].details)
+        assert detail["mode"] == "single"
+        assert detail["before"]["role"] == "medical_student"

@@ -925,7 +925,7 @@ export function UsersContent() {
       const allUsers: User[] = [];
 
       do {
-        const res = await fetchUsers({ page, limit: pageSize }, token);
+        const res = await fetchUsers({ page, limit: pageSize, skipCache: true }, token);
         allUsers.push(...res.items);
         total = res.total;
         page += 1;
@@ -1073,6 +1073,7 @@ export function UsersContent() {
           initialTotal={initialTableTotal}
           initialSeedKey={tableSeedVersion}
           initialSeedReady={usersLoaded}
+          onUsersMutated={triggerRefresh}
         />
       )}
     </main>
