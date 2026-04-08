@@ -142,6 +142,32 @@ function readPatientWorkspaceCacheRegistry(options?: { preferStorage?: boolean }
   }
 }
 
+function readPatientWorkspaceCacheRegistryFromStorage(storage: Storage) {
+  try {
+    const raw = storage.getItem(PATIENT_WORKSPACE_CACHE_REGISTRY_KEY);
+    if (!raw) {
+      return new Set<string>();
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return new Set<string>();
+    }
+
+    return new Set(
+      parsed.filter((value): value is string => {
+        return (
+          typeof value === "string" &&
+          value.startsWith(PATIENT_WORKSPACE_CACHE_KEY_PREFIX) &&
+          value !== PATIENT_WORKSPACE_CACHE_REGISTRY_KEY
+        );
+      })
+    );
+  } catch {
+    return new Set<string>();
+  }
+}
+
 function writePatientWorkspaceCacheRegistry(keys: Set<string>) {
   patientWorkspaceCacheRegistry = new Set(keys);
 
@@ -292,12 +318,17 @@ export function clearPatientWorkspaceCache() {
     return;
   }
 
-  const registryKeys = readPatientWorkspaceCacheRegistry({ preferStorage: true });
+  const registryKeys = new Set<string>([
+    ...readPatientWorkspaceCacheRegistry({ preferStorage: true }),
+    ...readPatientWorkspaceCacheRegistryFromStorage(window.localStorage),
+  ]);
   if (registryKeys.size > 0) {
     for (const key of registryKeys) {
       window.sessionStorage.removeItem(key);
+      window.localStorage.removeItem(key);
     }
     writePatientWorkspaceCacheRegistry(new Set());
+    window.localStorage.removeItem(PATIENT_WORKSPACE_CACHE_REGISTRY_KEY);
     return;
   }
 
@@ -305,6 +336,13 @@ export function clearPatientWorkspaceCache() {
     const key = window.sessionStorage.key(index);
     if (key?.startsWith(PATIENT_WORKSPACE_CACHE_KEY_PREFIX)) {
       window.sessionStorage.removeItem(key);
+    }
+  }
+
+  for (let index = window.localStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.localStorage.key(index);
+    if (key?.startsWith(PATIENT_WORKSPACE_CACHE_KEY_PREFIX)) {
+      window.localStorage.removeItem(key);
     }
   }
 }

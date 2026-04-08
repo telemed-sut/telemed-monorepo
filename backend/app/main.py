@@ -109,6 +109,30 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
     return await request_validation_exception_handler(request, exc)
 
+
+def backfill_bootstrap_privileged_roles_on_startup():
+    try:
+        with SessionLocal() as db:
+            bind = db.get_bind()
+            if bind is None or not inspect(bind).has_table("users"):
+                logger.info("Skipping bootstrap privileged-role backfill because the users table is not available yet.")
+                return
+            if not inspect(bind).has_table("user_privileged_role_assignments"):
+                logger.info(
+                    "Skipping bootstrap privileged-role backfill because the user_privileged_role_assignments table is not available yet."
+                )
+                return
+            created = auth_service.backfill_bootstrap_privileged_roles(db)
+            if created:
+                db.commit()
+                logger.info("Backfilled %s bootstrap privileged role assignment(s) from SUPER_ADMIN_EMAILS.", created)
+            else:
+                db.rollback()
+    except Exception:
+        logger.exception("Bootstrap privileged role backfill failed during startup.")
+        raise
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.app_env)
@@ -145,28 +169,7 @@ def create_app() -> FastAPI:
     if allowed_hosts:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
-    @app.on_event("startup")
-    def backfill_bootstrap_privileged_roles_on_startup():
-        try:
-            with SessionLocal() as db:
-                bind = db.get_bind()
-                if bind is None or not inspect(bind).has_table("users"):
-                    logger.info("Skipping bootstrap privileged-role backfill because the users table is not available yet.")
-                    return
-                if not inspect(bind).has_table("user_privileged_role_assignments"):
-                    logger.info(
-                        "Skipping bootstrap privileged-role backfill because the user_privileged_role_assignments table is not available yet."
-                    )
-                    return
-                created = auth_service.backfill_bootstrap_privileged_roles(db)
-                if created:
-                    db.commit()
-                    logger.info("Backfilled %s bootstrap privileged role assignment(s) from SUPER_ADMIN_EMAILS.", created)
-                else:
-                    db.rollback()
-        except Exception:
-            logger.exception("Bootstrap privileged role backfill failed during startup.")
-            raise
+    app.add_event_handler("startup", backfill_bootstrap_privileged_roles_on_startup)
 
     @app.on_event("startup")
     def start_meeting_presence_reconcile_worker():
