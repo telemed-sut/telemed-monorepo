@@ -541,6 +541,19 @@ export function UsersTable({
         setInviteSheetOpen(true);
     }, []);
 
+    const handleCloseInvite = useCallback((open: boolean) => {
+        if (!open) {
+            // Reset form and generated link when closing the sheet
+            setInviteFormData({
+                email: "",
+                role: "doctor",
+                reason: "",
+            });
+            setGeneratedInviteUrl("");
+        }
+        setInviteSheetOpen(open);
+    }, []);
+
     useEffect(() => {
         if (inviteRequestKey === 0) return;
         handleOpenInvite();
@@ -2202,7 +2215,7 @@ export function UsersTable({
             </Sheet>
 
             {/* Invite Sheet */}
-            <Sheet open={isInviteSheetOpen} onOpenChange={setInviteSheetOpen}>
+            <Sheet open={isInviteSheetOpen} onOpenChange={handleCloseInvite}>
                 <SheetContent side="center" className="w-[min(94vw,620px)] max-h-[84vh] p-0 overflow-hidden rounded-2xl border border-border/60 bg-background/95">
                     <SheetHeader className="px-6 pt-6 pb-3 border-b bg-muted/20">
                         <SheetTitle className="flex items-center gap-2"><Link2 className="w-5 h-5 text-primary" /> {tr(language, "Create Invite Link", "สร้างลิงก์เชิญ")}</SheetTitle>
