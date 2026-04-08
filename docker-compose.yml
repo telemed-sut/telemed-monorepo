@@ -335,6 +335,19 @@ services:
     tmpfs:
       - /tmp
 
+
+  redis:
+    image: redis:7-alpine
+    container_name: telemed-redis
+    restart: unless-stopped
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 volumes:
   postgres_data:
   authentik_postgres_data:

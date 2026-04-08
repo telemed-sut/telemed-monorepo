@@ -484,6 +484,8 @@ class Settings(BaseSettings):
         return self.app_env in {"development", "test"}
 
     model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
         "env_prefix": "",
         "case_sensitive": False,
     }

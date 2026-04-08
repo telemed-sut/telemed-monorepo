@@ -660,6 +660,17 @@ export function UsersTable({
 
         try {
             await verifyUser(user.id, token);
+
+            // Optimistic update: update local state immediately so the UI
+            // reflects the change even if loadUsers() hits the seed cache.
+            setUsers((prev) =>
+                prev.map((u) =>
+                    u.id === user.id
+                        ? { ...u, verification_status: "verified" as const }
+                        : u
+                )
+            );
+
             const displayName = getDisplayName(
                 user.first_name,
                 user.last_name,
