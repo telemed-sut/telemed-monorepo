@@ -167,6 +167,19 @@ def _configure_sentry(settings) -> None:
     _SENTRY_INITIALIZED = True
 
 
+def _log_startup_metadata(settings) -> None:
+    version = (os.getenv("APP_VERSION") or os.getenv("SENTRY_RELEASE") or "unknown").strip() or "unknown"
+    logger.info(
+        "Application startup",
+        extra={
+            "app_name": settings.app_name,
+            "environment": settings.app_env,
+            "version": version,
+            "pid": os.getpid(),
+        },
+    )
+
+
 def _run_database_healthcheck() -> str:
     with SessionLocal() as db:
         db.execute(text("SELECT 1"))
@@ -237,6 +250,10 @@ def create_app() -> FastAPI:
         return response
 
     app.add_event_handler("startup", backfill_bootstrap_privileged_roles_on_startup)
+
+    @app.on_event("startup")
+    def log_application_startup():
+        _log_startup_metadata(settings)
 
     @app.on_event("startup")
     def start_meeting_presence_reconcile_worker():

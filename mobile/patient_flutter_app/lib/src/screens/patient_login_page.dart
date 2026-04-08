@@ -1,30 +1,50 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../config/app_config.dart';
+import '../models/patient_auth.dart';
 import '../services/patient_auth_api_client.dart';
 import '../services/auth_storage.dart';
 import 'patient_meetings_page.dart';
 import 'patient_register_page.dart';
 
+typedef PatientLoginRequest = Future<PatientLoginResponse> Function({
+  required String phone,
+  required String pin,
+});
+
 /// PIN login screen for returning patients.
 class PatientLoginPage extends StatefulWidget {
-  const PatientLoginPage({super.key});
+  const PatientLoginPage({
+    super.key,
+    this.loginRequest,
+    this.nowProvider,
+  });
+
+  final PatientLoginRequest? loginRequest;
+  final DateTime Function()? nowProvider;
 
   @override
   State<PatientLoginPage> createState() => _PatientLoginPageState();
 }
 
 class _PatientLoginPageState extends State<PatientLoginPage> {
+  static const _loginCooldown = Duration(seconds: 2);
+
   final _phoneController = TextEditingController();
   final _pinController = TextEditingController();
 
   bool _isLoading = false;
   String? _errorMessage;
   bool _obscurePin = true;
+  DateTime? _nextLoginAllowedAt;
+  Timer? _cooldownTimer;
 
   @override
   void dispose() {
+    _cooldownTimer?.cancel();
     _phoneController.dispose();
     _pinController.dispose();
     super.dispose();
@@ -33,6 +53,7 @@ class _PatientLoginPageState extends State<PatientLoginPage> {
   Future<void> _handleLogin() async {
     final phone = _phoneController.text.trim();
     final pin = _pinController.text.trim();
+    final now = _now();
 
     if (phone.isEmpty) {
       setState(() => _errorMessage = 'กรุณากรอกเบอร์โทรศัพท์');
@@ -42,17 +63,24 @@ class _PatientLoginPageState extends State<PatientLoginPage> {
       setState(() => _errorMessage = 'กรุณากรอก PIN');
       return;
     }
+    if (_nextLoginAllowedAt != null && now.isBefore(_nextLoginAllowedAt!)) {
+      final remainingSeconds =
+          _nextLoginAllowedAt!.difference(now).inSeconds.clamp(1, 2);
+      setState(
+        () => _errorMessage =
+            'กรุณารอ $remainingSeconds วินาทีก่อนลองเข้าสู่ระบบอีกครั้ง',
+      );
+      return;
+    }
 
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
+    _startLoginCooldown(now);
 
     try {
-      final client = PatientAuthApiClient(
-        baseUrl: AppConfig.telemedApiBaseUrl,
-      );
-      final result = await client.login(phone: phone, pin: pin);
+      final result = await _loginRequest(phone: phone, pin: pin);
 
       await AuthStorage.saveSession(
         token: result.accessToken,
@@ -67,11 +95,44 @@ class _PatientLoginPageState extends State<PatientLoginPage> {
       );
     } on PatientAuthApiException catch (e) {
       setState(() => _errorMessage = e.message);
-    } catch (e) {
-      setState(() => _errorMessage = 'เกิดข้อผิดพลาด: $e');
+    } catch (_) {
+      setState(
+        () => _errorMessage =
+            'ไม่สามารถเข้าสู่ระบบได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง',
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<PatientLoginResponse> _loginRequest({
+    required String phone,
+    required String pin,
+  }) async {
+    final loginRequest = widget.loginRequest;
+    if (loginRequest != null) {
+      return loginRequest(phone: phone, pin: pin);
+    }
+
+    final client = PatientAuthApiClient(
+      baseUrl: AppConfig.telemedApiBaseUrl,
+    );
+    try {
+      return await client.login(phone: phone, pin: pin);
+    } finally {
+      client.close();
+    }
+  }
+
+  DateTime _now() => widget.nowProvider?.call() ?? DateTime.now();
+
+  void _startLoginCooldown(DateTime now) {
+    _cooldownTimer?.cancel();
+    _nextLoginAllowedAt = now.add(_loginCooldown);
+    _cooldownTimer = Timer(_loginCooldown, () {
+      if (!mounted) return;
+      setState(() => _nextLoginAllowedAt = null);
+    });
   }
 
   @override
