@@ -1,10 +1,10 @@
 import { create } from "zustand";
 
 import {
+  APP_LANGUAGE_COOKIE_KEY,
   APP_LANGUAGE_STORAGE_KEY,
   applyDocumentLanguage,
-  detectDefaultLanguage,
-  isAppLanguage,
+  resolveAppLanguage,
   type AppLanguage,
 } from "@/store/language-config";
 
@@ -16,17 +16,30 @@ interface LanguageState {
 }
 
 function getInitialLanguage(): AppLanguage {
-  if (typeof window === "undefined") return "en";
+  if (typeof window === "undefined") return "th";
   const saved = window.localStorage.getItem(APP_LANGUAGE_STORAGE_KEY);
-  if (isAppLanguage(saved)) return saved;
-
-  const detected = detectDefaultLanguage(window.navigator.language);
-  window.localStorage.setItem(APP_LANGUAGE_STORAGE_KEY, detected);
+  const cookieLanguage = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${APP_LANGUAGE_COOKIE_KEY}=`))
+    ?.split("=")[1];
+  const detected = resolveAppLanguage(
+    saved || cookieLanguage,
+    window.navigator.language
+  );
+  persistLanguagePreference(detected);
   return detected;
 }
 
+function persistLanguagePreference(language: AppLanguage) {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(APP_LANGUAGE_STORAGE_KEY, language);
+    document.cookie = `${APP_LANGUAGE_COOKIE_KEY}=${language}; path=/; max-age=31536000; samesite=lax`;
+  }
+}
+
 export const useLanguageStore = create<LanguageState>((set, get) => ({
-  language: "en",
+  language: "th",
   hydrated: false,
   hydrate: () => {
     if (get().hydrated) return;
@@ -35,9 +48,7 @@ export const useLanguageStore = create<LanguageState>((set, get) => ({
     set({ language, hydrated: true });
   },
   setLanguage: (language) => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(APP_LANGUAGE_STORAGE_KEY, language);
-    }
+    persistLanguagePreference(language);
     applyDocumentLanguage(language);
     set({ language, hydrated: true });
   },

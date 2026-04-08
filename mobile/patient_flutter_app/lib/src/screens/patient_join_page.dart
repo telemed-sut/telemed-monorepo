@@ -121,7 +121,7 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
 
       if (session.provider != 'zego') {
         setState(() {
-          _errorMessage = 'นัดหมายนี้ยังไม่ได้ตั้งค่า ZEGO provider';
+          _errorMessage = 'นัดหมายนี้ยังไม่ได้ตั้งค่า ZEGO สำหรับวิดีโอคอล';
         });
         return;
       }
@@ -215,7 +215,7 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                 mismatch
                     ? 'พบความไม่ตรงกันของลิงก์เชิญ'
                     : (invite.hasShortCode
-                        ? 'ยืนยัน short invite แล้ว'
+                        ? 'ยืนยันรหัสเชิญแบบสั้นแล้ว'
                         : 'ยืนยันลิงก์เชิญแล้ว'),
                 style: theme.textTheme.bodySmall?.copyWith(
                   fontWeight: FontWeight.w700,
@@ -240,7 +240,7 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
             const SizedBox(height: 4),
           ],
           Text(
-            'Meeting ID: ${effectiveMeetingId ?? 'ไม่ทราบ'}',
+            'รหัสนัดหมาย: ${effectiveMeetingId ?? 'ไม่ทราบ'}',
             style: theme.textTheme.bodySmall?.copyWith(
               color:
                   mismatch ? const Color(0xFF7F1D1D) : const Color(0xFF14532D),
@@ -362,7 +362,7 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                               controller: _apiBaseUrlController,
                               keyboardType: TextInputType.url,
                               decoration: const InputDecoration(
-                                labelText: 'URL ของ Backend API',
+                                labelText: 'URL ของระบบหลังบ้าน',
                                 hintText: 'https://api.example.com',
                                 prefixIcon: Icon(Icons.cloud_outlined),
                               ),

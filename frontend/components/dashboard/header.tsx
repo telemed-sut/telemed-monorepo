@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { getDashboardPageTitle } from "@/components/dashboard/dashboard-route-utils";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { type AppLanguage } from "@/store/language-config";
+import { APP_LANGUAGE_OPTIONS, type AppLanguage } from "@/store/language-config";
 import { useLanguageStore } from "@/store/language-store";
 
 const labels: Record<
@@ -29,6 +29,8 @@ const labels: Record<
     charts: string;
     usersTable: string;
     language: string;
+    languageThai: string;
+    languageEnglish: string;
   }
 > = {
   en: {
@@ -42,6 +44,8 @@ const labels: Record<
     charts: "Charts",
     usersTable: "Users Table",
     language: "Language",
+    languageThai: "Switch language to Thai",
+    languageEnglish: "Switch language to English",
   },
   th: {
     dashboard: "แดชบอร์ด",
@@ -54,12 +58,15 @@ const labels: Record<
     charts: "กราฟ",
     usersTable: "ตารางผู้ใช้",
     language: "ภาษา",
+    languageThai: "เปลี่ยนภาษาเป็นไทย",
+    languageEnglish: "เปลี่ยนภาษาเป็นอังกฤษ",
   },
 };
 
 export function DashboardHeader() {
   const pathname = usePathname();
   const language = useLanguageStore((state) => state.language);
+  const setLanguage = useLanguageStore((state) => state.setLanguage);
   const t = labels[language];
 
   // Overview layout
@@ -107,6 +114,35 @@ export function DashboardHeader() {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        <div
+          aria-label={t.language}
+          className="inline-flex h-10 items-center rounded-xl border border-slate-200/80 bg-white p-1 shadow-[0_1px_2px_rgba(15,23,42,0.06)]"
+          role="group"
+        >
+          {APP_LANGUAGE_OPTIONS.map((option) => {
+            const isActive = option.value === language;
+            const optionLabel =
+              option.value === "th" ? t.languageThai : t.languageEnglish;
+
+            return (
+              <button
+                key={option.value}
+                type="button"
+                aria-label={optionLabel}
+                aria-pressed={isActive}
+                className={
+                  isActive
+                    ? "inline-flex h-8 items-center rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white"
+                    : "inline-flex h-8 items-center rounded-lg px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                }
+                onClick={() => setLanguage(option.value)}
+              >
+                {option.value.toUpperCase()}
+              </button>
+            );
+          })}
+        </div>
+
         {hasEditLayout && (
           <DropdownMenu>
             <DropdownMenuTrigger

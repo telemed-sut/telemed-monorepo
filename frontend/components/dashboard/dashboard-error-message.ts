@@ -34,7 +34,7 @@ export function getLocalizedDashboardErrorMessage(
   const rawMessage = getRawErrorMessage(error);
 
   if (language === "th") {
-    return getErrorMessage(error, fallbackTh);
+    return getErrorMessage(error, fallbackTh, language);
   }
 
   if (status === 403 || ACCESS_DENIED_PATTERN.test(rawMessage)) {

@@ -1,3 +1,5 @@
+import { APP_LANGUAGE_STORAGE_KEY, resolveAppLanguage, type AppLanguage } from "@/store/language-config";
+import { useLanguageStore } from "@/store/language-store";
 import type { LoginResponse } from "./api-types";
 
 // Browser requests should always use the Next.js same-origin proxy to avoid
@@ -13,7 +15,7 @@ export const API_BASE_URL =
     );
 
 export type ApiError = Error & { status?: number; detail?: unknown; code?: string };
-export type ApiLanguage = "en" | "th";
+export type ApiLanguage = AppLanguage;
 export type AuthErrorContext = "login" | "step-up" | "forgot-password" | "reset-password";
 export type LoginRedirectReason = "token_expired" | "refresh_failed" | "session_missing";
 type RawFetchResult<T> = { ok: boolean; status: number; data: T | null; error?: ApiError };
@@ -23,46 +25,186 @@ const DEFAULT_PAGE = 1;
 const DEFAULT_LIMIT = 20;
 export const MAX_QUERY_LIMIT = 200;
 const DEFAULT_ERROR_MESSAGE_TH = "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง";
+const DEFAULT_ERROR_MESSAGE_EN = "Something went wrong. Please try again.";
+const THAI_CHARACTER_PATTERN = /[\u0E00-\u0E7F]/;
 
 const INTERNAL_ERROR_PATTERN =
   /(traceback|pydantic|validationerror|sqlalchemy|stack trace|line \d+|value_error|type_error)/i;
 
-const TRANSLATED_MESSAGE_RULES: Array<{ pattern: RegExp; message: string }> = [
-  { pattern: /access denied|permission denied|forbidden/i, message: "คุณไม่มีสิทธิ์ทำรายการนี้" },
+const TRANSLATED_MESSAGE_RULES: Array<{
+  pattern: RegExp;
+  messages: Record<ApiLanguage, string>;
+}> = [
+  {
+    pattern: /access denied|permission denied|forbidden|คุณไม่มีสิทธิ์ทำรายการนี้/i,
+    messages: {
+      en: "Access denied",
+      th: "คุณไม่มีสิทธิ์ทำรายการนี้",
+    },
+  },
   {
     pattern: /temporarily blocked due to too many failed login attempts|your ip has been temporarily blocked|access denied\.\s*your ip has been temporarily blocked/i,
-    message: "IP ของคุณถูกบล็อกชั่วคราวจากการพยายามเข้าสู่ระบบผิดหลายครั้ง กรุณารอสักครู่แล้วลองใหม่",
+    messages: {
+      en: "Too many failed attempts. Please wait and try again.",
+      th: "IP ของคุณถูกบล็อกชั่วคราวจากการพยายามเข้าสู่ระบบผิดหลายครั้ง กรุณารอสักครู่แล้วลองใหม่",
+    },
   },
   {
     pattern: /doctors?\s+can\s+only\s+create\s+meetings?\s+for\s+assigned\s+patients?\.?/i,
-    message: "แพทย์สามารถสร้างนัดหมายได้เฉพาะผู้ป่วยที่ได้รับมอบหมายเท่านั้น",
+    messages: {
+      en: "Doctors can only create meetings for assigned patients.",
+      th: "แพทย์สามารถสร้างนัดหมายได้เฉพาะผู้ป่วยที่ได้รับมอบหมายเท่านั้น",
+    },
   },
-  { pattern: /super admin only/i, message: "รายการนี้ทำได้เฉพาะผู้ดูแลระดับสูงเท่านั้น" },
-  { pattern: /security admin only/i, message: "รายการนี้ทำได้เฉพาะผู้ดูแลด้านความปลอดภัยเท่านั้น" },
-  { pattern: /recent multi-factor verification required/i, message: "ต้องยืนยันตัวตนแบบหลายปัจจัยใหม่อีกครั้งก่อนทำรายการนี้" },
-  { pattern: /user not found|not found/i, message: "ไม่พบข้อมูลผู้ใช้ที่ต้องการ" },
-  { pattern: /already exists|already in use|already assigned/i, message: "ข้อมูลนี้มีอยู่แล้วในระบบ" },
-  { pattern: /confirm_text=\"?purge\"?/i, message: "ต้องพิมพ์คำยืนยัน PURGE ก่อนดำเนินการ" },
-  { pattern: /confirm_text=\"?delete\"?/i, message: "ต้องพิมพ์คำยืนยัน DELETE ก่อนดำเนินการ" },
-  { pattern: /reason must be at least|purge reason must be at least/i, message: "เหตุผลต้องมีอย่างน้อย 8 ตัวอักษร" },
-  { pattern: /temporary password must be at least/i, message: "รหัสผ่านชั่วคราวต้องมีอย่างน้อย 8 ตัวอักษร" },
-  { pattern: /invite onboarding is restricted to supported roles in this phase|supported invite roles/i, message: "ขณะนี้ระบบอนุญาตส่งคำเชิญเฉพาะบทบาทที่รองรับเท่านั้น" },
-  { pattern: /invite.*expired|expired invite|link.*expired/i, message: "คำเชิญนี้หมดอายุแล้ว กรุณาสร้างลิงก์คำเชิญใหม่" },
-  { pattern: /invite.*closed|invite.*revoked|already revoked/i, message: "คำเชิญนี้ไม่อยู่ในสถานะใช้งานแล้ว" },
-  { pattern: /too many requests|rate limit/i, message: "คุณทำรายการถี่เกินไป กรุณาลองใหม่อีกครั้ง" },
-  { pattern: /network error|failed to fetch|network request failed/i, message: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่" },
-  { pattern: /invalid credentials|incorrect password/i, message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" },
-  { pattern: /invalid two-factor authentication code/i, message: "รหัส 2FA หรือ Backup Code ไม่ถูกต้อง" },
-  { pattern: /organization sso|admin account must continue with organization sso/i, message: "บัญชีผู้ดูแลต้องเข้าสู่ระบบผ่าน Organization SSO" },
+  {
+    pattern: /super admin only/i,
+    messages: {
+      en: "This action is limited to super admins.",
+      th: "รายการนี้ทำได้เฉพาะผู้ดูแลระดับสูงเท่านั้น",
+    },
+  },
+  {
+    pattern: /security admin only/i,
+    messages: {
+      en: "This action is limited to security admins.",
+      th: "รายการนี้ทำได้เฉพาะผู้ดูแลด้านความปลอดภัยเท่านั้น",
+    },
+  },
+  {
+    pattern: /recent multi-factor verification required/i,
+    messages: {
+      en: "Recent multi-factor verification is required for this action.",
+      th: "ต้องยืนยันตัวตนแบบหลายปัจจัยใหม่อีกครั้งก่อนทำรายการนี้",
+    },
+  },
+  {
+    pattern: /user not found|not found|ไม่พบข้อมูลผู้ใช้ที่ต้องการ/i,
+    messages: {
+      en: "Requested record was not found.",
+      th: "ไม่พบข้อมูลผู้ใช้ที่ต้องการ",
+    },
+  },
+  {
+    pattern: /already exists|already in use|already assigned/i,
+    messages: {
+      en: "This record already exists.",
+      th: "ข้อมูลนี้มีอยู่แล้วในระบบ",
+    },
+  },
+  {
+    pattern: /confirm_text=\"?purge\"?/i,
+    messages: {
+      en: "Type PURGE to confirm this action.",
+      th: "ต้องพิมพ์คำยืนยัน PURGE ก่อนดำเนินการ",
+    },
+  },
+  {
+    pattern: /confirm_text=\"?delete\"?/i,
+    messages: {
+      en: "Type DELETE to confirm this action.",
+      th: "ต้องพิมพ์คำยืนยัน DELETE ก่อนดำเนินการ",
+    },
+  },
+  {
+    pattern: /reason must be at least|purge reason must be at least/i,
+    messages: {
+      en: "Reason must be at least 8 characters.",
+      th: "เหตุผลต้องมีอย่างน้อย 8 ตัวอักษร",
+    },
+  },
+  {
+    pattern: /temporary password must be at least/i,
+    messages: {
+      en: "Temporary password must be at least 8 characters.",
+      th: "รหัสผ่านชั่วคราวต้องมีอย่างน้อย 8 ตัวอักษร",
+    },
+  },
+  {
+    pattern: /invite onboarding is restricted to supported roles in this phase|supported invite roles/i,
+    messages: {
+      en: "Invites are currently limited to supported roles.",
+      th: "ขณะนี้ระบบอนุญาตส่งคำเชิญเฉพาะบทบาทที่รองรับเท่านั้น",
+    },
+  },
+  {
+    pattern: /invite.*expired|expired invite|link.*expired/i,
+    messages: {
+      en: "This invite has expired. Please request a new link.",
+      th: "คำเชิญนี้หมดอายุแล้ว กรุณาสร้างลิงก์คำเชิญใหม่",
+    },
+  },
+  {
+    pattern: /invite.*closed|invite.*revoked|already revoked/i,
+    messages: {
+      en: "This invite is no longer active.",
+      th: "คำเชิญนี้ไม่อยู่ในสถานะใช้งานแล้ว",
+    },
+  },
+  {
+    pattern: /too many requests|rate limit/i,
+    messages: {
+      en: "Too many requests. Please try again later.",
+      th: "คุณทำรายการถี่เกินไป กรุณาลองใหม่อีกครั้ง",
+    },
+  },
+  {
+    pattern: /network error|failed to fetch|network request failed|ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้/i,
+    messages: {
+      en: "Unable to reach the server. Please check your connection and try again.",
+      th: "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่",
+    },
+  },
+  {
+    pattern: /invalid credentials|incorrect password|อีเมลหรือรหัสผ่านไม่ถูกต้อง/i,
+    messages: {
+      en: "Email or password is incorrect.",
+      th: "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
+    },
+  },
+  {
+    pattern: /invalid two-factor authentication code/i,
+    messages: {
+      en: "Authenticator code or backup code is incorrect.",
+      th: "รหัส 2FA หรือ Backup Code ไม่ถูกต้อง",
+    },
+  },
+  {
+    pattern: /organization sso|admin account must continue with organization sso/i,
+    messages: {
+      en: "Please continue with Organization SSO.",
+      th: "บัญชีผู้ดูแลต้องเข้าสู่ระบบผ่าน Organization SSO",
+    },
+  },
 ];
 
-const TRANSLATED_CODE_MESSAGES: Record<string, string> = {
-  account_locked: "บัญชีถูกล็อกชั่วคราวจากการพยายามเข้าสู่ระบบผิดหลายครั้ง กรุณาลองใหม่ภายหลัง",
-  invalid_credentials: "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
-  mfa_required: "ต้องยืนยันตัวตนแบบหลายปัจจัยก่อนดำเนินการต่อ",
-  mfa_verification_failed: "รหัสยืนยันตัวตนแบบหลายปัจจัยไม่ถูกต้อง",
-  token_expired: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่",
-  rate_limited: "คุณทำรายการถี่เกินไป กรุณาลองใหม่อีกครั้ง",
+const TRANSLATED_CODE_MESSAGES: Record<
+  string,
+  Record<ApiLanguage, string>
+> = {
+  account_locked: {
+    en: "Your account is temporarily locked. Please try again later.",
+    th: "บัญชีถูกล็อกชั่วคราวจากการพยายามเข้าสู่ระบบผิดหลายครั้ง กรุณาลองใหม่ภายหลัง",
+  },
+  invalid_credentials: {
+    en: "Email or password is incorrect.",
+    th: "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
+  },
+  mfa_required: {
+    en: "Two-factor verification is required.",
+    th: "ต้องยืนยันตัวตนแบบหลายปัจจัยก่อนดำเนินการต่อ",
+  },
+  mfa_verification_failed: {
+    en: "Multi-factor verification failed.",
+    th: "รหัสยืนยันตัวตนแบบหลายปัจจัยไม่ถูกต้อง",
+  },
+  token_expired: {
+    en: "Session expired. Please sign in again.",
+    th: "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่",
+  },
+  rate_limited: {
+    en: "Too many requests. Please try again later.",
+    th: "คุณทำรายการถี่เกินไป กรุณาลองใหม่อีกครั้ง",
+  },
 };
 
 const AUTH_ERROR_FALLBACKS: Record<AuthErrorContext, Record<ApiLanguage, string>> = {
@@ -268,12 +410,58 @@ function extractApiErrorCode(detail: unknown): string | undefined {
   return undefined;
 }
 
-function translateKnownCode(code?: string): string | null {
-  if (!code) return null;
-  return TRANSLATED_CODE_MESSAGES[code.toLowerCase()] ?? null;
+function resolveApiLanguage(language?: ApiLanguage): ApiLanguage {
+  if (language) return language;
+
+  if (typeof window !== "undefined") {
+    const saved = window.localStorage.getItem(APP_LANGUAGE_STORAGE_KEY);
+    if (saved) {
+      return resolveAppLanguage(saved, window.navigator.language);
+    }
+
+    try {
+      return resolveAppLanguage(
+        useLanguageStore.getState().language,
+        document.documentElement.lang
+      );
+    } catch {
+      return resolveAppLanguage(
+        document.documentElement.lang,
+        window.navigator.language
+      );
+    }
+  }
+
+  return "th";
 }
 
-function statusFallbackMessage(status?: number, fallback: string = DEFAULT_ERROR_MESSAGE_TH): string {
+function translateKnownCode(
+  code: string | undefined,
+  language: ApiLanguage
+): string | null {
+  if (!code) return null;
+  return TRANSLATED_CODE_MESSAGES[code.toLowerCase()]?.[language] ?? null;
+}
+
+function statusFallbackMessage(
+  status: number | undefined,
+  language: ApiLanguage,
+  fallback: string
+): string {
+  if (language === "en") {
+    if (status === 0) return "Unable to reach the server. Please check your connection and try again.";
+    if (status === 400) return "The request is invalid. Please review the data and try again.";
+    if (status === 401) return "Session expired. Please sign in again.";
+    if (status === 403) return "Access denied";
+    if (status === 404) return "The requested record was not found.";
+    if (status === 409) return "The request conflicts with the current state. Please refresh and try again.";
+    if (status === 422) return "The submitted data is invalid. Please review it and try again.";
+    if (status === 423) return "Your account is temporarily locked. Please try again later.";
+    if (status === 429) return "Too many requests. Please try again later.";
+    if (typeof status === "number" && status >= 500) return "The server is temporarily unavailable. Please try again.";
+    return fallback;
+  }
+
   if (status === 0) return "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่";
   if (status === 400) return "ข้อมูลที่ส่งมาไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง";
   if (status === 401) return "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่";
@@ -287,13 +475,16 @@ function statusFallbackMessage(status?: number, fallback: string = DEFAULT_ERROR
   return fallback;
 }
 
-function translateKnownMessage(message: string): string | null {
+function translateKnownMessage(
+  message: string,
+  language: ApiLanguage
+): string | null {
   const normalized = message.trim();
   if (!normalized) return null;
 
   for (const rule of TRANSLATED_MESSAGE_RULES) {
     if (rule.pattern.test(normalized)) {
-      return rule.message;
+      return rule.messages[language];
     }
   }
   return null;
@@ -311,28 +502,62 @@ function sanitizeMessage(rawMessage: string | null | undefined): string | null {
 export function toUserFacingMessage(
   status: number | undefined,
   rawMessage: string | null | undefined,
-  fallback: string = DEFAULT_ERROR_MESSAGE_TH,
+  fallback?: string,
+  language?: ApiLanguage,
 ): string {
+  const resolvedLanguage = resolveApiLanguage(language);
+  const defaultFallback =
+    fallback ??
+    (resolvedLanguage === "en"
+      ? DEFAULT_ERROR_MESSAGE_EN
+      : DEFAULT_ERROR_MESSAGE_TH);
   const sanitized = sanitizeMessage(rawMessage);
   if (sanitized) {
-    const translated = translateKnownMessage(sanitized);
+    const translated = translateKnownMessage(sanitized, resolvedLanguage);
     if (translated) return translated;
+    if (resolvedLanguage === "en" && THAI_CHARACTER_PATTERN.test(sanitized)) {
+      return statusFallbackMessage(status, resolvedLanguage, defaultFallback);
+    }
     return sanitized;
   }
-  return statusFallbackMessage(status, fallback);
+  return statusFallbackMessage(status, resolvedLanguage, defaultFallback);
 }
 
-export function getErrorMessage(error: unknown, fallback: string = DEFAULT_ERROR_MESSAGE_TH): string {
+export function getErrorMessage(
+  error: unknown,
+  fallback?: string,
+  language?: ApiLanguage
+): string {
+  const resolvedLanguage = resolveApiLanguage(language);
+  const defaultFallback =
+    fallback ??
+    (resolvedLanguage === "en"
+      ? DEFAULT_ERROR_MESSAGE_EN
+      : DEFAULT_ERROR_MESSAGE_TH);
+
   if (error instanceof Error) {
     const apiError = error as ApiError;
-    const translatedCode = translateKnownCode(apiError.code || extractApiErrorCode(apiError.detail));
+    const translatedCode = translateKnownCode(
+      apiError.code || extractApiErrorCode(apiError.detail),
+      resolvedLanguage
+    );
     if (translatedCode) return translatedCode;
-    return toUserFacingMessage(apiError.status, apiError.message, fallback);
+    return toUserFacingMessage(
+      apiError.status,
+      apiError.message,
+      defaultFallback,
+      resolvedLanguage
+    );
   }
   if (typeof error === "string") {
-    return toUserFacingMessage(undefined, error, fallback);
+    return toUserFacingMessage(
+      undefined,
+      error,
+      defaultFallback,
+      resolvedLanguage
+    );
   }
-  return fallback;
+  return defaultFallback;
 }
 
 export function getAuthErrorMessage(
