@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { cookies } from "next/headers";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -15,6 +15,39 @@ import { APP_LANGUAGE_COOKIE_KEY, resolveAppLanguage } from "@/store/language-co
 export const metadata: Metadata = {
   title: "E Med Help SUT — Telemedicine Dashboard",
   description: "ระบบจัดการผู้ป่วยและนัดหมายแพทย์ทางไกล — E Med Help SUT",
+  openGraph: {
+    title: "E Med Help SUT — Telemedicine Dashboard",
+    description: "ระบบจัดการผู้ป่วยและนัดหมายแพทย์ทางไกล — E Med Help SUT",
+    type: "website",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "E Med Help SUT dashboard preview",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "E Med Help SUT — Telemedicine Dashboard",
+    description: "ระบบจัดการผู้ป่วยและนัดหมายแพทย์ทางไกล — E Med Help SUT",
+    images: ["/og-image.png"],
+  },
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/brand-icon.ico" },
+    ],
+    shortcut: ["/favicon.ico"],
+    apple: ["/favicon.ico"],
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#0f172a",
 };
 
 export default async function RootLayout({
