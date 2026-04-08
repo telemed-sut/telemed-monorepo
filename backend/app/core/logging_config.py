@@ -1,6 +1,7 @@
 import json
 import logging
 import sys
+from contextvars import ContextVar, Token
 from datetime import UTC, datetime
 from typing import Any
 
@@ -16,9 +17,22 @@ SENSITIVE_FIELD_MARKERS = (
     "password",
     "secret",
     "token",
+    "phone",
+    "email",
+    "pin",
+    "cookie",
+    "session",
+    "api_key",
+    "apikey",
 )
 _CONFIGURED_ENV: str | None = None
 _RESERVED_LOG_RECORD_FIELDS = frozenset(logging.makeLogRecord({}).__dict__.keys())
+_REQUEST_ID_CONTEXT: ContextVar[str | None] = ContextVar(
+    "request_id",
+    default=None,
+)
+_ORIGINAL_LOG_RECORD_FACTORY = logging.getLogRecordFactory()
+_REQUEST_ID_FACTORY_CONFIGURED = False
 
 
 def _is_sensitive_field(field_name: str) -> bool:
@@ -43,6 +57,33 @@ def redact_sensitive_data(value: Any, field_name: str | None = None) -> Any:
         return tuple(redact_sensitive_data(item, field_name) for item in value)
 
     return value
+
+
+def set_request_id(request_id: str | None) -> Token[str | None]:
+    return _REQUEST_ID_CONTEXT.set(request_id)
+
+
+def reset_request_id(token: Token[str | None]) -> None:
+    _REQUEST_ID_CONTEXT.reset(token)
+
+
+def get_request_id() -> str | None:
+    return _REQUEST_ID_CONTEXT.get()
+
+
+def _configure_request_id_log_record_factory() -> None:
+    global _REQUEST_ID_FACTORY_CONFIGURED
+    if _REQUEST_ID_FACTORY_CONFIGURED:
+        return
+
+    def record_factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
+        record = _ORIGINAL_LOG_RECORD_FACTORY(*args, **kwargs)
+        if not getattr(record, "request_id", None):
+            record.request_id = get_request_id()
+        return record
+
+    logging.setLogRecordFactory(record_factory)
+    _REQUEST_ID_FACTORY_CONFIGURED = True
 
 
 class RedactingJsonFormatter(BaseJsonFormatter):
@@ -80,6 +121,8 @@ class RedactingJsonFormatter(BaseJsonFormatter):
 
 
 def configure_logging(app_env: str) -> None:
+    _configure_request_id_log_record_factory()
+
     global _CONFIGURED_ENV
     normalized_env = (app_env or "").strip().lower()
     if normalized_env != "production":
@@ -101,3 +144,6 @@ def configure_logging(app_env: str) -> None:
         app_logger.propagate = False
 
     _CONFIGURED_ENV = normalized_env
+
+
+_configure_request_id_log_record_factory()

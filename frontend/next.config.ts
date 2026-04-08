@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 function getApiProxyTarget(): string {
   const rawTarget =
@@ -92,11 +93,27 @@ const CALL_SURFACE_HEADERS = [
   },
 ];
 
+const PUBLIC_SENTRY_DSN =
+  process.env.NEXT_PUBLIC_SENTRY_DSN ?? process.env.SENTRY_DSN ?? "";
+const PUBLIC_SENTRY_ENVIRONMENT =
+  process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT ??
+  process.env.SENTRY_ENVIRONMENT ??
+  process.env.NODE_ENV ??
+  "";
+const PUBLIC_SENTRY_RELEASE =
+  process.env.NEXT_PUBLIC_SENTRY_RELEASE ?? process.env.SENTRY_RELEASE ?? "";
+
 const nextConfig: NextConfig = {
   // Keep Strict Mode on in production builds while avoiding double-invoke noise during local development.
   reactStrictMode: process.env.NODE_ENV === "production",
+  productionBrowserSourceMaps: true,
   devIndicators: false,
   output: "standalone", // Required for Docker containerization
+  env: {
+    NEXT_PUBLIC_SENTRY_DSN: PUBLIC_SENTRY_DSN,
+    NEXT_PUBLIC_SENTRY_ENVIRONMENT: PUBLIC_SENTRY_ENVIRONMENT,
+    NEXT_PUBLIC_SENTRY_RELEASE: PUBLIC_SENTRY_RELEASE,
+  },
   images: {
     remotePatterns: [
       {
@@ -129,10 +146,10 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [
       {
-        source: '/api/:path*',
+        source: "/api/:path*",
         destination: `${API_PROXY_TARGET}/:path*`,
       },
-    ]
+    ];
   },
   async headers() {
     return [
@@ -152,4 +169,11 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  disableLogger: true,
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  silent: !process.env.CI,
+  widenClientFileUpload: true,
+});

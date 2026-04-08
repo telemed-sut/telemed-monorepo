@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -8,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api import alerts, audit, auth, dense_mode, meetings, patients, stats, users, pressure, device_monitor, events, heart_sound
@@ -16,8 +18,8 @@ from app.api import patient_app as patient_app_api
 from app.api import security as security_api
 from app.core.config import get_settings
 from app.core.limiter import limiter
-from app.core.logging_config import configure_logging
-from app.db.session import SessionLocal
+from app.core.logging_config import configure_logging, reset_request_id, set_request_id
+from app.db.session import SessionLocal, get_redis_client
 from app.middleware import IPBanMiddleware, SecurityAuditMiddleware, SecurityHeadersMiddleware
 from app.models.device_error_log import DeviceErrorLog
 from app.services import auth as auth_service
@@ -25,8 +27,16 @@ from app.services import meeting_presence as meeting_presence_service
 from app.services.security import record_login_attempt
 from app.core.request_utils import get_client_ip
 
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+except ImportError:  # pragma: no cover - optional until dependency is installed
+    sentry_sdk = None
+    FastApiIntegration = None
+
 logger = logging.getLogger(__name__)
 DEVICE_INGEST_PATHS = {"/add_pressure", "/device/v1/pressure", "/device/v1/heart-sounds"}
+_SENTRY_INITIALIZED = False
 
 
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
@@ -133,9 +143,52 @@ def backfill_bootstrap_privileged_roles_on_startup():
         raise
 
 
+def _configure_sentry(settings) -> None:
+    global _SENTRY_INITIALIZED
+    if _SENTRY_INITIALIZED:
+        return
+
+    sentry_dsn = (os.getenv("SENTRY_DSN") or "").strip()
+    if not sentry_dsn:
+        return
+
+    if sentry_sdk is None or FastApiIntegration is None:
+        logger.warning(
+            "SENTRY_DSN is configured but sentry-sdk is not installed. Skipping Sentry initialization."
+        )
+        return
+
+    sentry_sdk.init(
+        dsn=sentry_dsn,
+        environment=(os.getenv("SENTRY_ENVIRONMENT") or settings.app_env).strip(),
+        release=(os.getenv("SENTRY_RELEASE") or "").strip() or None,
+        integrations=[FastApiIntegration()],
+    )
+    _SENTRY_INITIALIZED = True
+
+
+def _run_database_healthcheck() -> str:
+    with SessionLocal() as db:
+        db.execute(text("SELECT 1"))
+    return "ok"
+
+
+def _run_redis_healthcheck(settings) -> str:
+    if not (settings.redis_url or "").strip():
+        return "disabled"
+
+    redis_client = get_redis_client()
+    if redis_client is None:
+        return "error"
+
+    redis_client.ping()
+    return "ok"
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.app_env)
+    _configure_sentry(settings)
     docs_enabled = settings.should_enable_api_docs
     app = FastAPI(
         title=settings.app_name,
@@ -169,6 +222,20 @@ def create_app() -> FastAPI:
     if allowed_hosts:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
+    @app.middleware("http")
+    async def request_id_middleware(request: Request, call_next):
+        request_id = str(uuid4())
+        request.state.request_id = request_id
+        request_id_token = set_request_id(request_id)
+
+        try:
+            response = await call_next(request)
+        finally:
+            reset_request_id(request_id_token)
+
+        response.headers["X-Request-Id"] = request_id
+        return response
+
     app.add_event_handler("startup", backfill_bootstrap_privileged_roles_on_startup)
 
     @app.on_event("startup")
@@ -197,6 +264,30 @@ def create_app() -> FastAPI:
     @app.get("/health")
     @limiter.limit("200/minute")
     def health_check(request: Request):
+        checks = {"status": "ok", "db": "ok", "redis": "disabled"}
+        status_code = 200
+
+        try:
+            checks["db"] = _run_database_healthcheck()
+        except Exception:
+            checks["db"] = "error"
+            checks["status"] = "degraded"
+            status_code = 503
+            logger.exception("Database health check failed")
+
+        try:
+            checks["redis"] = _run_redis_healthcheck(settings)
+        except Exception:
+            checks["redis"] = "error"
+            checks["status"] = "degraded"
+            status_code = 503
+            logger.exception("Redis health check failed")
+
+        return JSONResponse(status_code=status_code, content=checks)
+
+    @app.get("/health/live")
+    @limiter.limit("200/minute")
+    def live_health_check(request: Request):
         return {"status": "ok"}
 
     @app.get("/")

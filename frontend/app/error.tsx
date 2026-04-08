@@ -1,11 +1,9 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
-
-// TODO: Integrate error monitoring service (e.g., @sentry/nextjs)
-// import * as Sentry from "@sentry/nextjs";
 
 export default function Error({
   error,
@@ -15,15 +13,7 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    if (process.env.NODE_ENV === "production") {
-      // Redact sensitive details in production — forward to monitoring instead
-      // TODO: Replace with actual error monitoring service (e.g., @sentry/nextjs)
-      console.error("[error-boundary]", {
-        message: error?.message ?? "Unknown error",
-        digest: error?.digest,
-        timestamp: Date.now(),
-      });
-    }
+    Sentry.captureException(error);
   }, [error]);
 
   return (
