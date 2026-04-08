@@ -208,6 +208,7 @@ export function PatientsTable({
   const [contactDetailsError, setContactDetailsError] = useState<string | null>(null);
   const canManagePatients = canWriteClinicalData(role);
   const canDeletePatients = canManageUsers(role);
+  const isAssignmentScopedRole = role === "doctor" || role === "medical_student";
 
   const isInitialLoading = loading && patients.length === 0;
   const isRefetching = loading && patients.length > 0;
@@ -794,20 +795,67 @@ export function PatientsTable({
     return value;
   };
 
+  const emptyStateTitle = search
+    ? tr(language, "No patients found", "ไม่พบผู้ป่วย")
+    : isAssignmentScopedRole
+      ? tr(language, "No assigned patients yet", "ยังไม่มีผู้ป่วยในความดูแล")
+      : tr(language, "No patients found", "ไม่พบผู้ป่วย");
+
+  const directoryDescription = role === "doctor"
+    ? tr(
+        language,
+        "This list shows only patients assigned to your account. Open this page to reveal contact details, or open a workspace for the full record.",
+        "รายการนี้จะแสดงเฉพาะผู้ป่วยที่มอบหมายให้บัญชีของคุณ เปิดดูหน้านี้เพื่อแสดงข้อมูลติดต่อ หรือเข้า workspace เพื่อดูข้อมูลเต็ม",
+      )
+    : role === "medical_student"
+      ? tr(
+          language,
+          "This list shows only patients assigned to your account. Open a workspace to review the full record you are allowed to access.",
+          "รายการนี้จะแสดงเฉพาะผู้ป่วยที่มอบหมายให้บัญชีของคุณ เข้า workspace เพื่อดูข้อมูลผู้ป่วยตามสิทธิ์ที่ได้รับ",
+        )
+      : tr(
+          language,
+          "Patient directory shows masked contact details by default. Use this page to reveal contact details, or open a workspace for the full record.",
+          "รายชื่อผู้ป่วยจะแสดงข้อมูลติดต่อแบบปกปิดเป็นค่าเริ่มต้น เปิดดูหน้านี้เพื่อแสดงข้อมูลติดต่อ หรือเข้า workspace เพื่อดูข้อมูลเต็ม",
+        );
+
+  const emptyStateDescription = search
+    ? tr(
+        language,
+        "We couldn't find any patients matching your search query. Try adjusting your filters.",
+        "ไม่พบผู้ป่วยที่ตรงกับคำค้นหา ลองปรับตัวกรองแล้วค้นหาอีกครั้ง",
+      )
+    : role === "doctor"
+      ? tr(
+          language,
+          "This doctor account only shows assigned patients. Ask an admin to grant access, or add a new patient here to assign one automatically.",
+          "บัญชีแพทย์นี้จะแสดงเฉพาะผู้ป่วยที่ได้รับมอบหมายให้ดูแล หากยังไม่พบข้อมูล โปรดให้ผู้ดูแลระบบมอบหมายสิทธิ์ หรือเพิ่มผู้ป่วยใหม่เพื่อผูกเข้าบัญชีนี้อัตโนมัติ",
+        )
+      : role === "medical_student"
+        ? tr(
+            language,
+            "This medical student account can view only assigned patients. Ask an admin to assign access before reviewing records.",
+            "บัญชีนักศึกษาแพทย์นี้จะเห็นได้เฉพาะผู้ป่วยที่มอบหมายให้เท่านั้น ขอให้ผู้ดูแลระบบมอบหมายสิทธิ์ก่อนจึงจะเริ่มดูข้อมูลผู้ป่วยได้",
+          )
+        : tr(
+            language,
+            "Get started by adding your first patient to the system.",
+            "เริ่มต้นโดยเพิ่มผู้ป่วยคนแรกเข้าสู่ระบบ",
+          );
+
   const emptyStateContent = (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="relative mb-6 group">
+    <div className="flex flex-col items-center justify-center px-6 py-24 text-center">
+      <div className="flex w-full max-w-xl flex-col items-center">
+      <div className="relative mb-7 group">
         <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl scale-150 animate-pulse opacity-50 group-hover:opacity-100 transition-opacity"></div>
         <div className="relative p-6 bg-background rounded-full border border-border shadow-lg group-hover:scale-110 transition-transform duration-300">
           <HugeiconsIcon icon={UserGroupIcon} className="size-10 text-primary/80" />
         </div>
       </div>
-      <div className="space-y-2 max-w-sm mx-auto">
-        <h3 className="font-bold text-xl tracking-tight text-foreground">{tr(language, "No patients found", "ไม่พบผู้ป่วย")}</h3>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          {search
-            ? tr(language, "We couldn't find any patients matching your search query. Try adjusting your filters.", "ไม่พบผู้ป่วยที่ตรงกับคำค้นหา ลองปรับตัวกรองแล้วค้นหาอีกครั้ง")
-            : tr(language, "Get started by adding your first patient to the system.", "เริ่มต้นโดยเพิ่มผู้ป่วยคนแรกเข้าสู่ระบบ")}
+      <div className="space-y-3">
+        <h3 className="font-bold text-xl tracking-tight text-foreground">{emptyStateTitle}</h3>
+        <p className="mx-auto max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          {emptyStateDescription}
         </p>
       </div>
       {search && (
@@ -826,6 +874,7 @@ export function PatientsTable({
           {tr(language, "Add first patient", "เพิ่มผู้ป่วยคนแรก")}
         </Button>
       )}
+      </div>
     </div>
   );
 
@@ -904,11 +953,7 @@ export function PatientsTable({
                 {tr(language, "Patient Directory", "รายชื่อผู้ป่วย")}
               </CardTitle>
               <CardDescription className="ml-9 text-sm">
-                {tr(
-                  language,
-                  "Patient directory shows masked contact details by default. Use this page to reveal contact details, or open a workspace for the full record.",
-                  "รายชื่อผู้ป่วยจะแสดงข้อมูลติดต่อแบบปกปิดเป็นค่าเริ่มต้น กดเปิดดูหน้านี้เพื่อแสดงข้อมูลติดต่อ หรือเปิด workspace เพื่อดูข้อมูลเต็ม",
-                )}
+                {directoryDescription}
               </CardDescription>
               {contactDetailsError ? (
                 <p className="ml-9 text-sm text-amber-700 dark:text-amber-300">

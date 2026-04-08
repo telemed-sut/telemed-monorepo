@@ -209,7 +209,7 @@ describe("patients table workspace entry", () => {
 
     expect(await screen.findByText("รายชื่อผู้ป่วย")).toBeInTheDocument();
     expect(
-      screen.getByText("รายชื่อผู้ป่วยจะแสดงข้อมูลติดต่อแบบปกปิดเป็นค่าเริ่มต้น กดเปิดดูหน้านี้เพื่อแสดงข้อมูลติดต่อ หรือเปิด workspace เพื่อดูข้อมูลเต็ม")
+      screen.getByText("รายชื่อผู้ป่วยจะแสดงข้อมูลติดต่อแบบปกปิดเป็นค่าเริ่มต้น เปิดดูหน้านี้เพื่อแสดงข้อมูลติดต่อ หรือเข้า workspace เพื่อดูข้อมูลเต็ม")
     ).toBeInTheDocument();
     expect(screen.getByPlaceholderText("ค้นหาผู้ป่วย...")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "เปิดดูหน้านี้" })).toBeInTheDocument();
@@ -229,5 +229,30 @@ describe("patients table workspace entry", () => {
     expect(screen.getByText("วันเกิด")).toBeInTheDocument();
     expect(screen.getByText("โทรศัพท์")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "สร้างผู้ป่วย" })).toBeInTheDocument();
+  });
+
+  it("explains assignment-based empty state for doctor accounts", async () => {
+    mockAuthState.role = "doctor";
+    mockLanguageState.language = "en";
+    mockFetchPatients.mockResolvedValue({
+      items: [],
+      total: 0,
+      page: 1,
+      limit: 10,
+    });
+
+    const { PatientsTable } = await import("@/components/dashboard/patients-table");
+    render(<PatientsTable />);
+
+    expect(await screen.findByText("No assigned patients yet")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This doctor account only shows assigned patients. Ask an admin to grant access, or add a new patient here to assign one automatically."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Get started by adding your first patient to the system.")
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add first patient" })).toBeInTheDocument();
   });
 });
