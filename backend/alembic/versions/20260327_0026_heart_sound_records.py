@@ -32,7 +32,7 @@ def upgrade() -> None:
         sa.Column("duration_seconds", sa.Integer(), nullable=True),
         sa.Column("recorded_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.ForeignKeyConstraint(["patient_id"], ["patients.id"]),
+        sa.ForeignKeyConstraint(["patient_id"], ["patients.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_heart_sound_records_patient_id", "heart_sound_records", ["patient_id"], unique=False)

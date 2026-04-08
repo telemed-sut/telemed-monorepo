@@ -29,6 +29,9 @@ def _require_seed_password(env_name: str) -> str:
 
 
 def upgrade() -> None:
+    if os.environ.get("APP_ENV") == "production":
+        raise ValueError("Seed migration is blocked in production")
+
     user_role_enum = postgresql.ENUM(name="user_role", create_type=False)
     verification_status_enum = postgresql.ENUM(name="verification_status", create_type=False)
     users_table = sa.table(

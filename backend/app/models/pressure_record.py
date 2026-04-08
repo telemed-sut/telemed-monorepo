@@ -13,7 +13,11 @@ class PressureRecord(Base):
     __tablename__ = "pressure_records"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    patient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
+    patient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("patients.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     device_id: Mapped[str] = mapped_column(String, nullable=False)
     
     heart_rate: Mapped[int] = mapped_column(Integer, nullable=False)

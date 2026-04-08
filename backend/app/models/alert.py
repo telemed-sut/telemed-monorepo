@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -10,6 +10,9 @@ from app.models.enums import AlertCategory, AlertSeverity
 
 class Alert(Base):
     __tablename__ = "alerts"
+    __table_args__ = (
+        Index("ix_alerts_patient_id_is_acknowledged", "patient_id", "is_acknowledged"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id", ondelete="CASCADE"), nullable=False, index=True)

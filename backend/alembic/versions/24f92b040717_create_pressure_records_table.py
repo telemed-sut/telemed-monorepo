@@ -31,7 +31,7 @@ def upgrade() -> None:
     sa.Column('wave_b', postgresql.ARRAY(sa.Integer()), nullable=True),
     sa.Column('measured_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.ForeignKeyConstraint(['patient_id'], ['patients.id'], ),
+    sa.ForeignKeyConstraint(['patient_id'], ['patients.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('device_id', 'measured_at', name='uq_pressure_records_device_measured_at')
     )

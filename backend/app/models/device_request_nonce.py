@@ -9,7 +9,7 @@ from app.db.base import Base
 class DeviceRequestNonce(Base):
     __tablename__ = "device_request_nonces"
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     device_id: Mapped[str] = mapped_column(String(128), nullable=False)
     nonce_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

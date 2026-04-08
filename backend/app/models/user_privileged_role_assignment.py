@@ -10,16 +10,6 @@ from app.models.enums import PrivilegedRole
 
 class UserPrivilegedRoleAssignment(Base):
     __tablename__ = "user_privileged_role_assignments"
-    __table_args__ = (
-        Index(
-            "uq_active_user_privileged_role_assignment",
-            "user_id",
-            "role",
-            unique=True,
-            postgresql_where=text("revoked_at IS NULL"),
-            sqlite_where=text("revoked_at IS NULL"),
-        ),
-    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -38,4 +28,17 @@ class UserPrivilegedRoleAssignment(Base):
         "User",
         foreign_keys=[user_id],
         back_populates="privileged_role_assignments",
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_active_user_privileged_role_assignment",
+            "user_id",
+            "role",
+            unique=True,
+            postgresql_where=text("revoked_at IS NULL"),
+            sqlite_where=text("revoked_at IS NULL"),
+        ),
+        Index("ix_user_privileged_role_assignments_created_by", "created_by"),
+        Index("ix_user_privileged_role_assignments_revoked_by", "revoked_by"),
     )

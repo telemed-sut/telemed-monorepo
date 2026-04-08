@@ -13,7 +13,11 @@ class HeartSoundRecord(Base):
     __tablename__ = "heart_sound_records"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    patient_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False)
+    patient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("patients.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     device_id: Mapped[str] = mapped_column(String(128), nullable=False)
     mac_address: Mapped[str] = mapped_column(String(64), nullable=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -32,4 +36,5 @@ class HeartSoundRecord(Base):
         Index("ix_heart_sound_records_mac_address", "mac_address"),
         Index("ix_heart_sound_records_position", "position"),
         Index("ix_heart_sound_records_recorded_at", "recorded_at"),
+        Index("ix_heart_sound_records_blob_url", "blob_url", unique=True),
     )
