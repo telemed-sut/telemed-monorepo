@@ -1,7 +1,7 @@
 import json
 from uuid import UUID
 
-from sqlalchemy import and_, cast, func, literal, select, union_all
+from sqlalchemy import and_, cast, func, literal, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session, joinedload
 
@@ -14,6 +14,8 @@ from app.models.lab import Lab
 from app.models.medication import Medication
 from app.models.patient import Patient
 from app.models.treatment import Treatment
+
+SUMMARY_SECTION_LIMIT = 50
 
 
 def _jsonb_payload(*, dialect_name: str, **fields: object):
@@ -33,6 +35,22 @@ def _summary_section_stmt(section: str, sort_key, payload):
         sort_key.label("sort_key"),
         payload.label("payload"),
     )
+
+
+def _fetch_summary_section(
+    db: Session,
+    *,
+    section: str,
+    sort_key,
+    payload,
+    where_clause,
+):
+    return db.execute(
+        _summary_section_stmt(section, sort_key, payload)
+        .where(where_clause)
+        .order_by(sort_key.desc())
+        .limit(SUMMARY_SECTION_LIMIT)
+    ).all()
 
 
 def get_patient_summary(db: Session, patient_id: UUID) -> dict | None:
@@ -55,87 +73,121 @@ def get_patient_summary(db: Session, patient_id: UUID) -> dict | None:
         .where(DoctorPatientAssignment.patient_id == patient_id)
     ).unique().all()
 
-    related_rows = db.execute(
-        union_all(
-            _summary_section_stmt(
-                "active_encounter",
-                Encounter.admitted_at,
-                _jsonb_payload(
-                    dialect_name=dialect_name,
-                    id=Encounter.id,
-                    encounter_type=Encounter.encounter_type,
-                    status=Encounter.status,
-                    admitted_at=Encounter.admitted_at,
-                    ward=Encounter.ward,
-                    bed_number=Encounter.bed_number,
-                    chief_complaint=Encounter.chief_complaint,
-                ),
-            ).where(and_(Encounter.patient_id == patient_id, Encounter.status == EncounterStatus.active)),
-            _summary_section_stmt(
-                "active_medications",
-                Medication.created_at,
-                _jsonb_payload(
-                    dialect_name=dialect_name,
-                    id=Medication.id,
-                    name=Medication.name,
-                    dosage=Medication.dosage,
-                    frequency=Medication.frequency,
-                    route=Medication.route,
-                    status=Medication.status,
-                ),
-            ).where(and_(Medication.patient_id == patient_id, Medication.status == OrderStatus.active)),
-            _summary_section_stmt(
-                "pending_labs",
-                Lab.ordered_at,
-                _jsonb_payload(
-                    dialect_name=dialect_name,
-                    id=Lab.id,
-                    test_name=Lab.test_name,
-                    category=Lab.category,
-                    status=Lab.status,
-                    ordered_at=Lab.ordered_at,
-                ),
-            ).where(
-                and_(
-                    Lab.patient_id == patient_id,
-                    Lab.status.in_([OrderStatus.pending, OrderStatus.active]),
-                )
+    related_rows = []
+    related_rows.extend(
+        _fetch_summary_section(
+            db,
+            section="active_encounter",
+            sort_key=Encounter.admitted_at,
+            payload=_jsonb_payload(
+                dialect_name=dialect_name,
+                id=Encounter.id,
+                encounter_type=Encounter.encounter_type,
+                status=Encounter.status,
+                admitted_at=Encounter.admitted_at,
+                ward=Encounter.ward,
+                bed_number=Encounter.bed_number,
+                chief_complaint=Encounter.chief_complaint,
             ),
-            _summary_section_stmt(
-                "active_alerts",
-                Alert.created_at,
-                _jsonb_payload(
-                    dialect_name=dialect_name,
-                    id=Alert.id,
-                    severity=Alert.severity,
-                    category=Alert.category,
-                    title=Alert.title,
-                    message=Alert.message,
-                    created_at=Alert.created_at,
-                ),
-            ).where(and_(Alert.patient_id == patient_id, Alert.is_acknowledged == False)),  # noqa: E712
-            _summary_section_stmt(
-                "current_conditions",
-                CurrentCondition.created_at,
-                _jsonb_payload(
-                    dialect_name=dialect_name,
-                    id=CurrentCondition.id,
-                    condition=CurrentCondition.condition,
-                    severity=CurrentCondition.severity,
-                ),
-            ).where(and_(CurrentCondition.patient_id == patient_id, CurrentCondition.is_active == True)),  # noqa: E712
-            _summary_section_stmt(
-                "active_treatments",
-                Treatment.created_at,
-                _jsonb_payload(
-                    dialect_name=dialect_name,
-                    id=Treatment.id,
-                    name=Treatment.name,
-                    is_active=Treatment.is_active,
-                ),
-            ).where(and_(Treatment.patient_id == patient_id, Treatment.is_active == True)),  # noqa: E712
+            where_clause=and_(
+                Encounter.patient_id == patient_id,
+                Encounter.status == EncounterStatus.active,
+            ),
         )
-    ).all()
+    )
+    related_rows.extend(
+        _fetch_summary_section(
+            db,
+            section="active_medications",
+            sort_key=Medication.created_at,
+            payload=_jsonb_payload(
+                dialect_name=dialect_name,
+                id=Medication.id,
+                name=Medication.name,
+                dosage=Medication.dosage,
+                frequency=Medication.frequency,
+                route=Medication.route,
+                status=Medication.status,
+            ),
+            where_clause=and_(
+                Medication.patient_id == patient_id,
+                Medication.status == OrderStatus.active,
+            ),
+        )
+    )
+    related_rows.extend(
+        _fetch_summary_section(
+            db,
+            section="pending_labs",
+            sort_key=Lab.ordered_at,
+            payload=_jsonb_payload(
+                dialect_name=dialect_name,
+                id=Lab.id,
+                test_name=Lab.test_name,
+                category=Lab.category,
+                status=Lab.status,
+                ordered_at=Lab.ordered_at,
+            ),
+            where_clause=and_(
+                Lab.patient_id == patient_id,
+                Lab.status.in_([OrderStatus.pending, OrderStatus.active]),
+            ),
+        )
+    )
+    related_rows.extend(
+        _fetch_summary_section(
+            db,
+            section="active_alerts",
+            sort_key=Alert.created_at,
+            payload=_jsonb_payload(
+                dialect_name=dialect_name,
+                id=Alert.id,
+                severity=Alert.severity,
+                category=Alert.category,
+                title=Alert.title,
+                message=Alert.message,
+                created_at=Alert.created_at,
+            ),
+            where_clause=and_(
+                Alert.patient_id == patient_id,
+                Alert.is_acknowledged == False,  # noqa: E712
+            ),
+        )
+    )
+    related_rows.extend(
+        _fetch_summary_section(
+            db,
+            section="current_conditions",
+            sort_key=CurrentCondition.created_at,
+            payload=_jsonb_payload(
+                dialect_name=dialect_name,
+                id=CurrentCondition.id,
+                condition=CurrentCondition.condition,
+                severity=CurrentCondition.severity,
+            ),
+            where_clause=and_(
+                CurrentCondition.patient_id == patient_id,
+                CurrentCondition.is_active == True,  # noqa: E712
+            ),
+        )
+    )
+    related_rows.extend(
+        _fetch_summary_section(
+            db,
+            section="active_treatments",
+            sort_key=Treatment.created_at,
+            payload=_jsonb_payload(
+                dialect_name=dialect_name,
+                id=Treatment.id,
+                name=Treatment.name,
+                is_active=Treatment.is_active,
+            ),
+            where_clause=and_(
+                Treatment.patient_id == patient_id,
+                Treatment.is_active == True,  # noqa: E712
+            ),
+        )
+    )
 
     sections: dict[str, list[tuple[object, dict]]] = {
         "active_encounter": [],

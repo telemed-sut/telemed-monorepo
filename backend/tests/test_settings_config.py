@@ -154,9 +154,9 @@ def test_settings_default_db_pool_tuning(monkeypatch):
 
     settings = Settings()
 
-    assert settings.db_pool_size == 5
-    assert settings.db_max_overflow == 10
-    assert settings.db_pool_recycle_seconds == 1800
+    assert settings.db_pool_size == 20
+    assert settings.db_max_overflow == 20
+    assert settings.db_pool_recycle_seconds == 300
 
 
 def test_settings_require_redis_url_in_production(monkeypatch):
