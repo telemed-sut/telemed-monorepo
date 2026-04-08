@@ -10,8 +10,8 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  flutter_secure_storage: ^9.2.2
   http: ^1.2.2
-  shared_preferences: ^2.3.4
   zego_uikit_prebuilt_video_conference: ^2.11.0
 
 dev_dependencies:

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -23,6 +24,7 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
   bool _startWithMicrophone = true;
   bool _isLoading = false;
   String? _errorMessage;
+  bool get _showApiBaseUrlField => kDebugMode;
 
   @override
   void initState() {
@@ -62,7 +64,10 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
   }
 
   Future<void> _handleJoinPressed() async {
-    final configError = AppConfig.validate();
+    final configError = AppConfig.validateJoinConfig(
+      debugBaseUrlOverride:
+          _showApiBaseUrlField ? _apiBaseUrlController.text : null,
+    );
     if (configError != null) {
       setState(() {
         _errorMessage = configError;
@@ -95,13 +100,10 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
       return;
     }
 
-    final baseUrl = _apiBaseUrlController.text.trim();
-    if (baseUrl.isEmpty) {
-      setState(() {
-        _errorMessage = 'กรุณากรอก Backend API base URL';
-      });
-      return;
-    }
+    final baseUrl = AppConfig.requireTelemedApiBaseUrl(
+      debugBaseUrlOverride:
+          _showApiBaseUrlField ? _apiBaseUrlController.text : null,
+    );
 
     setState(() {
       _isLoading = true;
@@ -355,16 +357,18 @@ class _PatientJoinPageState extends State<PatientJoinPage> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          TextField(
-                            controller: _apiBaseUrlController,
-                            keyboardType: TextInputType.url,
-                            decoration: const InputDecoration(
-                              labelText: 'Backend API base URL',
-                              hintText: 'https://xxxx.trycloudflare.com',
-                              prefixIcon: Icon(Icons.cloud_outlined),
+                          if (_showApiBaseUrlField) ...[
+                            TextField(
+                              controller: _apiBaseUrlController,
+                              keyboardType: TextInputType.url,
+                              decoration: const InputDecoration(
+                                labelText: 'URL ของ Backend API',
+                                hintText: 'https://api.example.com',
+                                prefixIcon: Icon(Icons.cloud_outlined),
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 12),
+                            const SizedBox(height: 12),
+                          ],
                           TextField(
                             controller: _inviteUrlController,
                             keyboardType: TextInputType.url,

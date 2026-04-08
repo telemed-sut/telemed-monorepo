@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
+import 'config/app_config.dart';
 import 'screens/patient_login_page.dart';
 import 'screens/patient_meetings_page.dart';
 import 'services/auth_storage.dart';
 
 class PatientFlutterApp extends StatelessWidget {
-  const PatientFlutterApp({super.key});
+  const PatientFlutterApp({super.key, this.configuredApiBaseUrl});
+
+  final String? configuredApiBaseUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -83,7 +86,66 @@ class PatientFlutterApp extends StatelessWidget {
           shadowColor: Color(0x160F172A),
         ),
       ),
-      home: const _AuthGate(),
+      home: _ConfigGate(configuredApiBaseUrl: configuredApiBaseUrl),
+    );
+  }
+}
+
+class _ConfigGate extends StatelessWidget {
+  const _ConfigGate({required this.configuredApiBaseUrl});
+
+  final String? configuredApiBaseUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final configError = AppConfig.validateApiBaseUrl(
+      configuredBaseUrl: configuredApiBaseUrl,
+      allowDebugOverride: false,
+    );
+    if (configError == null) {
+      return const _AuthGate();
+    }
+
+    return Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.settings_rounded,
+                      size: 42,
+                      color: Color(0xFFB45309),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'ตั้งค่าแอปไม่ครบ',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      configError,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF475569),
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
