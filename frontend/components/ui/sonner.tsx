@@ -1,19 +1,25 @@
 "use client";
 
-import { Toaster as SileoToaster } from "sileo";
+import { GooeyToaster } from "goey-toast";
+import "goey-toast/styles.css";
+import type { ComponentProps } from "react";
 
-type ToasterProps = React.ComponentProps<typeof SileoToaster>;
+import { TOAST_DEFAULTS } from "@/components/ui/toast";
+
+type ToasterProps = ComponentProps<typeof GooeyToaster>;
 
 const Toaster = ({ ...props }: ToasterProps) => {
   return (
-    <SileoToaster
-      position="bottom-center"
-      offset={{ bottom: 20 }}
-      options={{
-        fill: "#111214",
-        roundness: 18,
-        autopilot: { expand: 180, collapse: 4800 },
-      }}
+    <GooeyToaster
+      position="bottom-right"
+      offset="24px"
+      theme="light"
+      closeButton="top-left"
+      closeOnEscape
+      showProgress
+      spring={TOAST_DEFAULTS.spring}
+      bounce={TOAST_DEFAULTS.bounce}
+      duration={TOAST_DEFAULTS.duration}
       {...props}
     />
   );

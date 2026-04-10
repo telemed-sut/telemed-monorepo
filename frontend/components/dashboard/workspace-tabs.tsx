@@ -21,17 +21,6 @@ import {
   getDashboardPageTitle,
   normalizeDashboardHref,
 } from "@/components/dashboard/dashboard-route-utils";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogMedia,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -51,6 +40,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
 import { APP_LANGUAGE_OPTIONS, APP_LOCALE_MAP } from "@/store/language-config";
@@ -466,12 +456,10 @@ export function WorkspaceTabs() {
   const [renameTarget, setRenameTarget] = useState<WorkspaceTab | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [configOpen, setConfigOpen] = useState(false);
-  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [visibleTabLimit, setVisibleTabLimit] = useState(MAX_VISIBLE_WORKSPACE_TABS);
   const renameReturnFocusRef = useRef<HTMLElement | null>(null);
   const configReturnFocusRef = useRef<HTMLElement | null>(null);
   const configReturnTabIdRef = useRef<string | null>(null);
-  const restoreClearFocusRef = useRef(true);
   const prefetchedTabHrefsRef = useRef<Set<string>>(new Set());
   const selectedLanguageLabel =
     APP_LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ||
@@ -709,27 +697,18 @@ export function WorkspaceTabs() {
   };
 
   const handleClearWorkspaceTabs = () => {
-    restoreClearFocusRef.current = false;
     clearAllTabsForUser(userId);
-    setClearConfirmOpen(false);
     setConfigOpen(false);
   };
 
-  const handleClearConfirmOpenChange = (open: boolean) => {
-    setClearConfirmOpen(open);
-
-    if (!open && restoreClearFocusRef.current) {
-      window.setTimeout(() => {
-        const clearButton = document.getElementById(CLEAR_WORKSPACE_BUTTON_ID);
-        if (clearButton instanceof HTMLElement) {
-          clearButton.focus();
-        }
-      }, 0);
-    }
-
-    if (!open) {
-      restoreClearFocusRef.current = true;
-    }
+  const requestClearWorkspaceTabs = () => {
+    toast.destructiveAction(t.clearWorkspaceConfirmTitle, {
+      description: t.clearWorkspaceConfirmDescription,
+      button: {
+        title: t.clearWorkspaceConfirmAction,
+        onClick: handleClearWorkspaceTabs,
+      },
+    });
   };
 
   if (ownerUserId !== (userId?.trim() || null) || tabs.length === 0) {
@@ -1107,7 +1086,7 @@ export function WorkspaceTabs() {
                     className="mt-3 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800"
                     type="button"
                     variant="outline"
-                    onClick={() => setClearConfirmOpen(true)}
+                    onClick={requestClearWorkspaceTabs}
                   >
                     {t.clearWorkspaceAction}
                   </Button>
@@ -1126,29 +1105,6 @@ export function WorkspaceTabs() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <AlertDialog
-        open={clearConfirmOpen}
-        onOpenChange={handleClearConfirmOpenChange}
-      >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogMedia className="bg-rose-100 text-rose-600">
-              <TriangleAlert className="size-8" />
-            </AlertDialogMedia>
-            <AlertDialogTitle>{t.clearWorkspaceConfirmTitle}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t.clearWorkspaceConfirmDescription}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t.cancel}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleClearWorkspaceTabs}>
-              {t.clearWorkspaceConfirmAction}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

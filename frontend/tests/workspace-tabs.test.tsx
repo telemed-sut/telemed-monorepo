@@ -12,6 +12,9 @@ import {
 
 const pushMock = vi.fn();
 const prefetchMock = vi.fn();
+const { mockToastDestructiveAction } = vi.hoisted(() => ({
+  mockToastDestructiveAction: vi.fn(),
+}));
 let pathnameValue = "/patients/patient-1";
 
 vi.mock("next/navigation", () => ({
@@ -20,6 +23,12 @@ vi.mock("next/navigation", () => ({
     push: pushMock,
     prefetch: prefetchMock,
   }),
+}));
+
+vi.mock("@/components/ui/toast", () => ({
+  toast: {
+    destructiveAction: mockToastDestructiveAction,
+  },
 }));
 
 function createTab(
@@ -58,6 +67,7 @@ describe("WorkspaceTabs", () => {
   beforeEach(() => {
     pushMock.mockReset();
     prefetchMock.mockReset();
+    mockToastDestructiveAction.mockReset();
     pathnameValue = "/patients/patient-1";
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
@@ -288,7 +298,15 @@ describe("WorkspaceTabs", () => {
     fireEvent.contextMenu(screen.getByRole("tab", { name: /Ward round/i }));
     fireEvent.click(await screen.findByText("Configure tabs & home"));
     fireEvent.click(screen.getByRole("button", { name: "Clear my tabs" }));
-    fireEvent.click(screen.getByRole("button", { name: "Clear workspace" }));
+
+    const clearOptions = mockToastDestructiveAction.mock.calls.at(-1)?.[1] as
+      | {
+          button?: {
+            onClick?: () => void;
+          };
+        }
+      | undefined;
+    clearOptions?.button?.onClick?.();
 
     await waitFor(() => {
       expect(useWorkspaceTabsStore.getState().tabs).toEqual([]);
@@ -337,7 +355,7 @@ describe("WorkspaceTabs", () => {
     });
   });
 
-  it("returns focus to the clear action when the confirmation dialog is cancelled", async () => {
+  it("opens the clear-workspace confirmation toast from the clear action", async () => {
     pathnameValue = "/patients/patient-2";
     const tabs = [
       createTab("tab-1", "Pinned home", "/patients/patient-1", {
@@ -371,10 +389,17 @@ describe("WorkspaceTabs", () => {
     fireEvent.click(await screen.findByText("Configure tabs & home"));
 
     const clearButton = screen.getByRole("button", { name: "Clear my tabs" });
+    clearButton.focus();
     fireEvent.click(clearButton);
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     await waitFor(() => {
+      expect(mockToastDestructiveAction).toHaveBeenCalledWith(
+        "Clear your workspace tabs?",
+        expect.objectContaining({
+          description:
+            "This will remove your open tabs and recent workspaces for this account on this browser.",
+        })
+      );
       expect(clearButton).toHaveFocus();
     });
   });

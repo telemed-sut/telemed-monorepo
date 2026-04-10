@@ -27,7 +27,6 @@ import {
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
 import { toast } from "@/components/ui/toast";
-import { sileo } from "sileo";
 
 type ChartType = "bar" | "line" | "area";
 type TimePreset = "today" | "yesterday" | "7d" | "30d" | "custom";
@@ -436,23 +435,7 @@ export function DeviceMonitorContent() {
 
   const openSaveViewToast = useCallback(() => {
     const inputId = `save-view-name-${Date.now()}`;
-    let composerToastId = "";
     let isSubmitting = false;
-    let removeOutsidePointerListener: (() => void) | null = null;
-
-    const detachOutsidePointerListener = () => {
-      if (removeOutsidePointerListener) {
-        removeOutsidePointerListener();
-        removeOutsidePointerListener = null;
-      }
-    };
-
-    const cancelSaveToast = () => {
-      detachOutsidePointerListener();
-      if (composerToastId) {
-        sileo.dismiss(composerToastId);
-      }
-    };
 
     const confirmSaveToast = () => {
       if (isSubmitting) return;
@@ -462,7 +445,6 @@ export function DeviceMonitorContent() {
         toast.warning(
           tr(language, "View name is required", "กรุณาตั้งชื่อมุมมอง"),
           {
-            position: "top-center",
             description: tr(
               language,
               "Please enter a name before saving.",
@@ -476,28 +458,17 @@ export function DeviceMonitorContent() {
 
       isSubmitting = true;
       saveCurrentViewByName(name);
-      detachOutsidePointerListener();
-      if (composerToastId) {
-        sileo.dismiss(composerToastId);
-      }
-      sileo.success({
-        title: tr(language, "View Saved", "บันทึกมุมมองแล้ว"),
-        position: "top-center",
-        duration: 1200,
-        fill: "#f7fff8",
-        roundness: 999,
-        styles: {
-          title: "!text-emerald-600 !font-medium",
-        },
+      toast.dismiss(composerToastId);
+      toast.success(tr(language, "View Saved", "บันทึกมุมมองแล้ว"), {
+        description: tr(
+          language,
+          "Your device monitor layout is ready to reuse.",
+          "บันทึกมุมมองอุปกรณ์ไว้เรียบร้อยแล้ว"
+        ),
       });
     };
 
-    composerToastId = sileo.action({
-      title: tr(language, "Save View", "บันทึกมุมมอง"),
-      position: "top-center",
-      duration: null,
-      fill: "#f8f9fc",
-      roundness: 18,
+    const composerToastId = toast.action(tr(language, "Save View", "บันทึกมุมมอง"), {
       styles: {
         title: "!text-[#2563eb] !font-medium",
         description: "!text-slate-600",
@@ -515,40 +486,18 @@ export function DeviceMonitorContent() {
               }
             }}
           />
-          <div>
-            <a
-              href="#"
-              data-sileo-button
-              className="!w-full !justify-center !text-blue-700 !bg-blue-100 hover:!bg-blue-200"
-              onClick={(event) => {
-                event.preventDefault();
-                confirmSaveToast();
-              }}
-            >
-              {tr(language, "OK", "ตกลง")}
-            </a>
-          </div>
         </div>
       ),
+      button: {
+        title: tr(language, "Save", "บันทึก"),
+        onClick: confirmSaveToast,
+        successLabel: tr(language, "Saved", "บันทึกแล้ว"),
+      },
     });
 
     window.setTimeout(() => {
       const input = document.getElementById(inputId) as HTMLInputElement | null;
       input?.focus();
-
-      const toastElement = input?.closest("[data-sileo-toast]");
-      if (!toastElement) return;
-
-      const handleOutsidePointerDown = (event: PointerEvent) => {
-        const targetNode = event.target as Node | null;
-        if (!targetNode || toastElement.contains(targetNode)) return;
-        cancelSaveToast();
-      };
-
-      document.addEventListener("pointerdown", handleOutsidePointerDown, true);
-      removeOutsidePointerListener = () => {
-        document.removeEventListener("pointerdown", handleOutsidePointerDown, true);
-      };
     }, 50);
   }, [language, saveCurrentViewByName]);
 

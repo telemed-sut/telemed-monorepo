@@ -6,6 +6,7 @@ import type { DeviceRegistration } from "@/lib/api";
 const {
   mockPush,
   mockReplace,
+  mockToastDismiss,
   mockToastError,
   mockToastSuccess,
   mockToastWarning,
@@ -21,6 +22,7 @@ const {
     mockPush: vi.fn(),
     mockReplace: vi.fn(),
     mockClearToken: clearToken,
+    mockToastDismiss: vi.fn(),
     mockToastError: vi.fn(),
     mockToastSuccess: vi.fn(),
     mockToastWarning: vi.fn(),
@@ -56,6 +58,7 @@ vi.mock("@/store/language-store", () => ({
 
 vi.mock("@/components/ui/toast", () => ({
   toast: {
+    dismiss: mockToastDismiss,
     error: mockToastError,
     success: mockToastSuccess,
     warning: mockToastWarning,

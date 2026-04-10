@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -27,37 +27,25 @@ import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
+import { cn } from "@/lib/utils";
 import { getLocalizedDashboardErrorMessage } from "./dashboard-error-message";
 
 const tr = (language: AppLanguage, en: string, th: string) => (language === "th" ? th : en);
 const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
 const DEVICE_REGISTRY_AUTO_REFRESH_MS = 15_000;
+const DEVICE_REGISTRY_VALIDATION_TOAST_ID = "device-registry-required-fields";
 
 type DeviceFilter = "all" | "active" | "inactive";
-
-type PendingAction =
-  | {
-      kind: "toggle" | "delete";
-      device: DeviceRegistration;
-    }
-  | null;
+type CreateDeviceFormErrors = {
+  deviceId?: string;
+  displayName?: string;
+};
 
 function formatDateTime(dateTime: string, language: AppLanguage): string {
   return new Date(dateTime).toLocaleString(localeOf(language), {
@@ -95,9 +83,10 @@ export function DeviceRegistryContent() {
   const [deviceId, setDeviceId] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [notes, setNotes] = useState("");
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [formErrors, setFormErrors] = useState<CreateDeviceFormErrors>({});
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const deviceIdInputRef = useRef<HTMLInputElement | null>(null);
+  const displayNameInputRef = useRef<HTMLInputElement | null>(null);
 
   const pageSize = 20;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -179,17 +168,19 @@ export function DeviceRegistryContent() {
     if (!token || !autoRefreshEnabled) return;
 
     const intervalId = window.setInterval(() => {
-      if (loading || refreshing || submitting || Boolean(savingId) || confirmOpen) return;
+      if (loading || refreshing || submitting || Boolean(savingId)) return;
       void loadDevices({ silent: true, showErrorToast: false });
     }, DEVICE_REGISTRY_AUTO_REFRESH_MS);
 
     return () => window.clearInterval(intervalId);
-  }, [token, autoRefreshEnabled, loading, refreshing, submitting, savingId, confirmOpen, loadDevices]);
+  }, [token, autoRefreshEnabled, loading, refreshing, submitting, savingId, loadDevices]);
 
   const resetForm = () => {
     setDeviceId("");
     setDisplayName("");
     setNotes("");
+    setFormErrors({});
+    toast.dismiss(DEVICE_REGISTRY_VALIDATION_TOAST_ID);
   };
 
   const handleCreate = async () => {
@@ -197,10 +188,36 @@ export function DeviceRegistryContent() {
     const normalizedDeviceId = deviceId.trim();
     const normalizedName = displayName.trim();
 
-    if (!normalizedDeviceId || !normalizedName) {
-      toast.warning(tr(language, "Please fill Device ID and Device Name", "กรุณากรอก Device ID และชื่ออุปกรณ์"));
+    const nextErrors: CreateDeviceFormErrors = {};
+    if (!normalizedDeviceId) {
+      nextErrors.deviceId = tr(language, "Please enter Device ID", "กรุณากรอก Device ID");
+    }
+    if (!normalizedName) {
+      nextErrors.displayName = tr(language, "Please enter Device Name", "กรุณากรอกชื่ออุปกรณ์");
+    }
+
+    if (nextErrors.deviceId || nextErrors.displayName) {
+      setFormErrors(nextErrors);
+      toast.warning(tr(language, "Please fill Device ID and Device Name", "กรุณากรอก Device ID และชื่ออุปกรณ์"), {
+        id: DEVICE_REGISTRY_VALIDATION_TOAST_ID,
+        description: tr(
+          language,
+          "Complete the required fields before registering a device.",
+          "กรอกข้อมูลที่จำเป็นให้ครบก่อนลงทะเบียนอุปกรณ์"
+        ),
+      });
+
+      if (nextErrors.deviceId) {
+        deviceIdInputRef.current?.focus();
+        return;
+      }
+
+      displayNameInputRef.current?.focus();
       return;
     }
+
+    setFormErrors({});
+    toast.dismiss(DEVICE_REGISTRY_VALIDATION_TOAST_ID);
 
     setSubmitting(true);
     try {
@@ -261,31 +278,50 @@ export function DeviceRegistryContent() {
   };
 
   const requestToggleActive = (device: DeviceRegistration) => {
-    setPendingAction({ kind: "toggle", device });
-    setConfirmOpen(true);
+    const isDeactivating = device.is_active;
+    const title = isDeactivating
+      ? tr(language, "Deactivate device?", "ปิดการใช้งานอุปกรณ์นี้ใช่ไหม?")
+      : tr(language, "Activate device?", "เปิดการใช้งานอุปกรณ์นี้ใช่ไหม?");
+    const description = isDeactivating
+      ? tr(
+          language,
+          `${device.display_name} will stop accepting new device activity until it is activated again.`,
+          `${device.display_name} จะหยุดรับการทำงานใหม่จนกว่าจะถูกเปิดใช้งานอีกครั้ง`
+        )
+      : tr(
+          language,
+          `${device.display_name} will be available for monitoring again immediately.`,
+          `${device.display_name} จะกลับมาใช้งานสำหรับการมอนิเตอร์ได้ทันที`
+        );
+
+    const notify = isDeactivating ? toast.warningAction : toast.action;
+    notify(title, {
+      description,
+      button: {
+        title: isDeactivating
+          ? tr(language, "Deactivate", "ปิดใช้งาน")
+          : tr(language, "Activate", "เปิดใช้งาน"),
+        onClick: () => {
+          void handleToggleActive(device);
+        },
+      },
+    });
   };
 
   const requestDeleteDevice = (device: DeviceRegistration) => {
-    setPendingAction({ kind: "delete", device });
-    setConfirmOpen(true);
-  };
-
-  const executeConfirmedAction = async () => {
-    if (!pendingAction) return;
-    if (pendingAction.kind === "delete") {
-      await handleDeleteDevice(pendingAction.device);
-    } else {
-      await handleToggleActive(pendingAction.device);
-    }
-    setConfirmOpen(false);
-    setPendingAction(null);
-  };
-
-  const closeConfirmDialog = (open: boolean) => {
-    setConfirmOpen(open);
-    if (!open) {
-      setPendingAction(null);
-    }
+    toast.destructiveAction(tr(language, "Delete device?", "ลบอุปกรณ์นี้ใช่ไหม?"), {
+      description: tr(
+        language,
+        `${device.display_name} (${device.device_id}) will be removed permanently from the registry.`,
+        `${device.display_name} (${device.device_id}) จะถูกลบออกจากทะเบียนอุปกรณ์อย่างถาวร`
+      ),
+      button: {
+        title: tr(language, "Delete device", "ลบอุปกรณ์"),
+        onClick: () => {
+          void handleDeleteDevice(device);
+        },
+      },
+    });
   };
 
   const handleDeleteDevice = async (device: DeviceRegistration) => {
@@ -370,20 +406,48 @@ export function DeviceRegistryContent() {
               <label className="grid gap-2">
                 <span className="text-base font-medium">{tr(language, "Device ID", "รหัสอุปกรณ์")}</span>
                 <Input
+                  ref={deviceIdInputRef}
                   value={deviceId}
-                  onChange={(event) => setDeviceId(event.target.value)}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setDeviceId(nextValue);
+                    if (nextValue.trim()) {
+                      setFormErrors((prev) => ({ ...prev, deviceId: undefined }));
+                    }
+                  }}
                   placeholder={tr(language, "e.g. ward-bp-001", "เช่น ward-bp-001")}
-                  className="h-12 text-base"
+                  aria-invalid={Boolean(formErrors.deviceId)}
+                  className={cn(
+                    "h-12 text-base",
+                    formErrors.deviceId && "border-amber-400 ring-amber-200 focus-visible:border-amber-500"
+                  )}
                 />
+                {formErrors.deviceId ? (
+                  <p className="text-sm font-medium text-amber-700">{formErrors.deviceId}</p>
+                ) : null}
               </label>
               <label className="grid gap-2">
                 <span className="text-base font-medium">{tr(language, "Device Name", "ชื่ออุปกรณ์")}</span>
                 <Input
+                  ref={displayNameInputRef}
                   value={displayName}
-                  onChange={(event) => setDisplayName(event.target.value)}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setDisplayName(nextValue);
+                    if (nextValue.trim()) {
+                      setFormErrors((prev) => ({ ...prev, displayName: undefined }));
+                    }
+                  }}
                   placeholder={tr(language, "e.g. Ward Bed 1 monitor", "เช่น เครื่องวัดเตียง 1")}
-                  className="h-12 text-base"
+                  aria-invalid={Boolean(formErrors.displayName)}
+                  className={cn(
+                    "h-12 text-base",
+                    formErrors.displayName && "border-amber-400 ring-amber-200 focus-visible:border-amber-500"
+                  )}
                 />
+                {formErrors.displayName ? (
+                  <p className="text-sm font-medium text-amber-700">{formErrors.displayName}</p>
+                ) : null}
               </label>
             </div>
             <label className="grid gap-2">
@@ -671,63 +735,6 @@ export function DeviceRegistryContent() {
             </div>
           </CardContent>
         </Card>
-
-        <AlertDialog open={confirmOpen} onOpenChange={closeConfirmDialog}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                {pendingAction?.kind === "delete"
-                  ? tr(language, "Delete this device?", "ยืนยันลบอุปกรณ์นี้?")
-                  : tr(language, "Change device status?", "ยืนยันเปลี่ยนสถานะอุปกรณ์?")}
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {pendingAction?.device ? (
-                  <>
-                    <span className="font-medium text-foreground">{pendingAction.device.display_name}</span>
-                    {" ("}
-                    <span className="font-mono">{pendingAction.device.device_id}</span>
-                    {")"}
-                  </>
-                ) : null}
-                {" — "}
-                {pendingAction?.kind === "delete"
-                  ? tr(
-                      language,
-                      "This action will permanently remove the device registration from this list.",
-                      "การกระทำนี้จะลบการลงทะเบียนอุปกรณ์ออกจากรายการถาวร",
-                    )
-                  : pendingAction?.device?.is_active
-                    ? tr(language, "This device will stop sending data until re-enabled.", "อุปกรณ์นี้จะหยุดส่งข้อมูลจนกว่าจะเปิดใช้งานอีกครั้ง")
-                    : tr(language, "This device will be allowed to send data again.", "อุปกรณ์นี้จะกลับมาส่งข้อมูลได้อีกครั้ง")}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={Boolean(pendingAction?.device && savingId === pendingAction.device.id)}>
-                {tr(language, "Cancel", "ยกเลิก")}
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => {
-                  void executeConfirmedAction();
-                }}
-                disabled={Boolean(pendingAction?.device && savingId === pendingAction.device.id)}
-                className={cn(
-                  pendingAction?.kind === "delete" || pendingAction?.device?.is_active
-                    ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    : "",
-                )}
-              >
-                {pendingAction?.device && savingId === pendingAction.device.id ? (
-                  <RefreshCw className="mr-2 size-4 animate-spin" />
-                ) : null}
-                {pendingAction?.kind === "delete"
-                  ? tr(language, "Delete", "ลบ")
-                  : pendingAction?.device?.is_active
-                    ? tr(language, "Disable", "ปิดใช้งาน")
-                    : tr(language, "Enable", "เปิดใช้งาน")}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </div>
     </main>
   );

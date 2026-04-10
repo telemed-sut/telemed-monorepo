@@ -6,6 +6,7 @@ import type { DeviceRegistration } from "@/lib/api";
 const {
   mockPush,
   mockReplace,
+  mockToastDismiss,
   mockToastError,
   mockToastSuccess,
   mockToastWarning,
@@ -20,6 +21,7 @@ const {
     mockPush: vi.fn(),
     mockReplace: vi.fn(),
     mockClearToken: clearToken,
+    mockToastDismiss: vi.fn(),
     mockToastError: vi.fn(),
     mockToastSuccess: vi.fn(),
     mockToastWarning: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock("@/store/language-store", () => ({
 
 vi.mock("@/components/ui/toast", () => ({
   toast: {
+    dismiss: mockToastDismiss,
     error: mockToastError,
     success: mockToastSuccess,
     warning: mockToastWarning,
@@ -161,5 +164,21 @@ describe("DeviceRegistryContent", () => {
       });
     });
   }, 10000);
+
+  it("shows one validation toast payload and inline field errors when required fields are missing", async () => {
+    await renderDeviceRegistry();
+    await screen.findByText("Ward BP Device 01");
+
+    fireEvent.click(screen.getByRole("button", { name: /register device/i }));
+    fireEvent.click(screen.getByRole("button", { name: /register device/i }));
+
+    expect(mockToastWarning).toHaveBeenCalledWith("Please fill Device ID and Device Name", {
+      id: "device-registry-required-fields",
+      description: "Complete the required fields before registering a device.",
+    });
+    expect(screen.getByText("Please enter Device ID")).toBeInTheDocument();
+    expect(screen.getByText("Please enter Device Name")).toBeInTheDocument();
+    expect(mockCreateDeviceRegistration).not.toHaveBeenCalled();
+  });
 
 });

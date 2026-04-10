@@ -7,6 +7,7 @@ import { Camera, CameraOff, Mic, MicOff, ShieldCheck, Video } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Maximize2Icon } from "@/components/ui/maximize-2";
+import { toast } from "@/components/ui/toast";
 import {
   heartbeatPatientMeetingPresence,
   issuePatientMeetingVideoToken,
@@ -893,18 +894,29 @@ function PatientJoinPageContent() {
                       if (activeVideo) {
                         await activeVideo.requestPictureInPicture();
                       } else {
-                        alert("ยังไม่มีวิดีโอที่พร้อมใช้งานสำหรับ PiP กรุณารอให้อีกฝ่ายเปิดกล้องก่อนครับ");
+                        toast.warning("ยังไม่มีวิดีโอสำหรับ PiP", {
+                          description:
+                            "กรุณารอให้อีกฝ่ายเปิดกล้องก่อน แล้วลองเปิดจอย่ออีกครั้ง",
+                        });
                       }
                     }
                   } catch (err: unknown) {
                     const errorName =
                       err instanceof Error ? err.name : "";
                     if (errorName === "InvalidStateError") {
-                      alert("ไม่สามารถเปิดจอย่อได้ กรุณารอให้อีกฝ่ายเปิดกล้องและรอให้วิดีโอโหลดก่อนครับ");
+                      toast.error("ยังเปิดจอย่อไม่ได้", {
+                        description:
+                          "กรุณารอให้อีกฝ่ายเปิดกล้องและรอให้วิดีโอโหลดก่อน แล้วลองใหม่อีกครั้ง",
+                      });
                     } else if (errorName === "NotSupportedError") {
-                      alert("อุปกรณ์หรือเบราว์เซอร์นี้ไม่รองรับการทำจอย่อ (PiP)");
+                      toast.info("อุปกรณ์นี้ไม่รองรับ PiP", {
+                        description:
+                          "เบราว์เซอร์หรืออุปกรณ์นี้ยังไม่รองรับการแสดงภาพซ้อนภาพ",
+                      });
                     } else {
-                      alert("ไม่สามารถเปิดจอย่อได้ โปรดลองอีกครั้ง");
+                      toast.error("ไม่สามารถเปิดจอย่อได้", {
+                        description: "โปรดลองอีกครั้งในอีกสักครู่",
+                      });
                     }
                   }
                 }}
