@@ -197,6 +197,51 @@ describe("WorkspaceTabs", () => {
     expect(screen.queryByRole("tab", { name: /Patient five/i })).not.toBeInTheDocument();
   });
 
+  it("renders the language control in the workspace tabs row and updates the preference", async () => {
+    const tabs = [
+      createTab("tab-1", "Pinned home", "/patients/patient-1", {
+        pinned: true,
+        closable: false,
+        customTitle: null,
+        order: 0,
+        lastVisitedAt: 100,
+      }),
+      createTab("tab-2", "Ward round", "/patients/patient-2", {
+        order: 1,
+        lastVisitedAt: 700,
+      }),
+    ];
+
+    useWorkspaceTabsStore.setState({
+      hydrated: true,
+      tabs,
+      recentWorkspaces: tabs.map((tab) =>
+        createRecentWorkspace(
+          tab.href,
+          tab.customTitle ?? tab.title,
+          tab.lastVisitedAt
+        )
+      ),
+      activeTabId: "tab-2",
+      homeHref: "/patients/patient-1",
+      ownerUserId: "user-a",
+    });
+
+    render(<WorkspaceTabs />);
+
+    const languageButton = document.getElementById("header-language-button");
+
+    expect(languageButton).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /english/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /english/i }));
+    fireEvent.click(screen.getByText("ไทย"));
+
+    await waitFor(() => {
+      expect(useLanguageStore.getState().language).toBe("th");
+    });
+  });
+
   it("shows recent workspaces in configure dialog and clears the current user's workspace", async () => {
     pathnameValue = "/patients/patient-2";
     const tabs = [

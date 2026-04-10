@@ -1,7 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const mockSetLanguage = vi.fn();
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/meetings",
@@ -44,7 +42,7 @@ vi.mock("@/store/dashboard-store", () => ({
 
 const languageState = {
   language: "en" as const,
-  setLanguage: mockSetLanguage,
+  setLanguage: vi.fn(),
 };
 
 vi.mock("@/store/language-store", () => ({
@@ -56,19 +54,16 @@ vi.mock("@/store/language-store", () => ({
 describe("DashboardHeader", () => {
   beforeEach(() => {
     languageState.language = "en";
-    mockSetLanguage.mockReset();
+    languageState.setLanguage.mockReset();
   });
 
-  it("renders TH/EN controls and updates the language preference", async () => {
+  it("renders the page title without a duplicate language switcher", async () => {
     const { DashboardHeader } = await import("@/components/dashboard/header");
 
     render(<DashboardHeader />);
 
-    expect(screen.getByRole("button", { name: "Switch language to Thai" })).toHaveTextContent("TH");
-    expect(screen.getByRole("button", { name: "Switch language to English" })).toHaveTextContent("EN");
-
-    fireEvent.click(screen.getByRole("button", { name: "Switch language to Thai" }));
-
-    expect(mockSetLanguage).toHaveBeenCalledWith("th");
+    expect(screen.getByRole("heading", { name: "Meetings" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Switch language to Thai" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Switch language to English" })).not.toBeInTheDocument();
   });
 });

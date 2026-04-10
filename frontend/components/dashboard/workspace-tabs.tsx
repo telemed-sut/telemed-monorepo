@@ -44,7 +44,6 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -474,7 +473,6 @@ export function WorkspaceTabs() {
   const configReturnTabIdRef = useRef<string | null>(null);
   const restoreClearFocusRef = useRef(true);
   const prefetchedTabHrefsRef = useRef<Set<string>>(new Set());
-
   const selectedLanguageLabel =
     APP_LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ||
     APP_LANGUAGE_OPTIONS.find((option) => option.value === "en")?.label;
@@ -865,34 +863,31 @@ export function WorkspaceTabs() {
           )}
 
           <div className="shrink-0 pb-2">
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  id={HEADER_LANGUAGE_BUTTON_ID}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-white/88 px-3 text-[0.92rem] font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] outline-none transition-[background-color,color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white hover:text-slate-900 focus-visible:ring-[3px] focus-visible:ring-sky-200 focus-visible:ring-offset-2"
-                >
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                id={HEADER_LANGUAGE_BUTTON_ID}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-white/88 px-3 text-[0.92rem] font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] outline-none transition-[background-color,color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white hover:text-slate-900 focus-visible:ring-[3px] focus-visible:ring-sky-200 focus-visible:ring-offset-2"
+                type="button"
+              >
                 <Languages className="size-4" />
                 <span className="hidden md:inline">{selectedLanguageLabel}</span>
                 <span className="md:hidden">{language.toUpperCase()}</span>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44 rounded-xl p-1.5">
-                <DropdownMenuGroup>
-                  <DropdownMenuLabel>{t.language}</DropdownMenuLabel>
-                </DropdownMenuGroup>
+                <DropdownMenuLabel>{t.language}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuGroup>
-                  {APP_LANGUAGE_OPTIONS.map((option) => (
-                    <DropdownMenuItem
-                      key={option.value}
-                      className="flex items-center justify-between"
-                      onClick={() => setLanguage(option.value)}
-                    >
-                      <span>{option.label}</span>
-                      {option.value === language && (
-                        <Check className="size-4 text-primary" />
-                      )}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
+                {APP_LANGUAGE_OPTIONS.map((option) => (
+                  <DropdownMenuItem
+                    key={option.value}
+                    className="flex items-center justify-between"
+                    onClick={() => setLanguage(option.value)}
+                  >
+                    <span>{option.label}</span>
+                    {option.value === language && (
+                      <Check className="size-4 text-primary" />
+                    )}
+                  </DropdownMenuItem>
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
