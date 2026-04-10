@@ -43,6 +43,7 @@ interface PatientHeartSoundContentProps {
   patientId: string;
 }
 
+type PatientHeartSoundPatient = Pick<Patient, "id" | "first_name" | "last_name">;
 type PanelKind = "anterior" | "posterior";
 type AssignmentMode = "auto" | "manual";
 
@@ -533,7 +534,7 @@ export function PatientHeartSoundContent({
   const hasCachedRecords = Boolean(cachedSnapshot);
   const cachedUsesDemo = hasCachedRecords && cachedRecords.length === 0;
 
-  const [patient, setPatient] = useState<Patient | null>(
+  const [patient, setPatient] = useState<PatientHeartSoundPatient | null>(
     () => cachedSnapshot?.patient ?? null
   );
   const [records, setRecords] = useState<HeartSoundRecord[]>(

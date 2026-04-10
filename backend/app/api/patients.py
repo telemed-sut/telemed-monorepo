@@ -25,6 +25,7 @@ from app.schemas.patient import (
     PatientCreate,
     PatientListResponse,
     PatientProfileOut,
+    PatientWardListResponse,
     PatientUpdate,
 )
 from app.services import auth as auth_service
@@ -160,6 +161,27 @@ def list_patients(
         order=order,
     )
     return PatientListResponse(items=items, page=page, limit=min(limit, settings.max_limit), total=total)
+
+
+@router.get("/wards", response_model=PatientWardListResponse)
+@limiter.limit("120/minute")
+def list_patient_wards(
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_admin_user),
+):
+    """List distinct active wards for admin onboarding flows."""
+    wards = db.scalars(
+        select(Patient.ward)
+        .where(
+            Patient.deleted_at.is_(None),
+            Patient.is_active == True,  # noqa: E712
+            Patient.ward.is_not(None),
+        )
+        .distinct()
+        .order_by(Patient.ward.asc())
+    ).all()
+    return PatientWardListResponse(wards=list(wards))
 
 
 @router.get("/{patient_id}", response_model=PatientProfileOut)
@@ -321,6 +343,7 @@ def create_patient_assignment(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
     except IntegrityError:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Assignment violates uniqueness constraints.")
 
     audit_service.log_action(
@@ -358,6 +381,7 @@ def update_patient_assignment(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
     except IntegrityError:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Assignment violates uniqueness constraints.")
 
     audit_service.log_action(

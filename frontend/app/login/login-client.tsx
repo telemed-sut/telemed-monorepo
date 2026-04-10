@@ -17,6 +17,8 @@ import {
   getAdminSsoLoginPath,
   login as loginRequest,
   type AdminSsoStatus,
+  type LoginChallengeDetail,
+  type LockedRecoveryOption,
 } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { AuthMessage } from "@/components/auth/auth-message";
@@ -24,16 +26,6 @@ import { SecretDisclosure } from "@/components/auth/secret-disclosure";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { type AppLanguage } from "@/store/language-config";
 import { useLanguageStore } from "@/store/language-store";
-
-interface Admin2FAErrorDetail {
-  code?: string;
-  message?: string;
-  required?: boolean;
-  setup_required?: boolean;
-  issuer?: string;
-  trusted_device_days?: number;
-  provisioning_uri?: string;
-}
 
 type LoginStep = "credentials" | "twoFactor";
 
@@ -50,6 +42,53 @@ function extractSetupKey(uri: string | null): string | null {
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
 
+function formatRetryAfterDuration(language: AppLanguage, totalSeconds: number): string {
+  const safeSeconds = Math.max(0, totalSeconds);
+  const minutes = Math.floor(safeSeconds / 60);
+  const seconds = safeSeconds % 60;
+
+  if (language === "th") {
+    if (minutes > 0 && seconds > 0) {
+      return `${minutes} นาที ${seconds} วินาที`;
+    }
+    if (minutes > 0) {
+      return `${minutes} นาที`;
+    }
+    return `${seconds} วินาที`;
+  }
+
+  if (minutes > 0 && seconds > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m`;
+  }
+  return `${seconds}s`;
+}
+
+function buildLockoutMessage(language: AppLanguage, retryAfterSeconds: number): string {
+  const duration = formatRetryAfterDuration(language, retryAfterSeconds);
+  return tr(
+    language,
+    `Too many sign-in attempts. Please try again in ${duration}.`,
+    `พยายามเข้าสู่ระบบหลายครั้งเกินไป กรุณาลองใหม่อีกครั้งใน ${duration}`,
+  );
+}
+
+function getRecoveryOptionLabel(language: AppLanguage, option: LockedRecoveryOption): string {
+  switch (option) {
+    case "forgot_password":
+      return tr(language, "Reset your password", "รีเซ็ตรหัสผ่าน");
+    case "contact_admin":
+      return tr(language, "Contact an admin for help unlocking this account.", "ติดต่อแอดมินเพื่อช่วยปลดล็อกบัญชีนี้");
+    case "contact_security_admin":
+      return tr(language, "Contact a security admin for an emergency unlock.", "ติดต่อผู้ดูแลด้านความปลอดภัยเพื่อปลดล็อกฉุกเฉิน");
+    case "wait":
+    default:
+      return tr(language, "Wait for the timer to finish.", "รอให้เวลานับถอยหลังหมดก่อน");
+  }
+}
+
 export default function LoginClientPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -63,6 +102,8 @@ export default function LoginClientPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lockoutDetail, setLockoutDetail] = useState<LoginChallengeDetail | null>(null);
+  const [lockoutRetryAfterSeconds, setLockoutRetryAfterSeconds] = useState<number | null>(null);
   const [isPasswordVisible, setIsPasswordVisible] = useState<boolean>(false);
   const [loginStep, setLoginStep] = useState<LoginStep>("credentials");
   const [otpCode, setOtpCode] = useState("");
@@ -213,6 +254,10 @@ export default function LoginClientPage() {
         en: "This account has been deactivated.",
         th: "บัญชีนี้ถูกปิดการใช้งานแล้ว",
       },
+      deprecated_logout_method: {
+        en: "Organization SSO logout now requires an active in-app session. Please sign in again if you still need to end that session.",
+        th: "การออกจากระบบผ่าน Organization SSO ต้องเริ่มจากเซสชันในแอปที่ยังใช้งานอยู่ หากยังต้องการปิดเซสชันนั้น กรุณาเข้าสู่ระบบอีกครั้ง",
+      },
       mfa_required: {
         en: "Admin SSO requires a passkey or MFA-verified organization session.",
         th: "Admin SSO ต้องใช้ passkey หรือเซสชันองค์กรที่ยืนยัน MFA แล้ว",
@@ -227,8 +272,27 @@ export default function LoginClientPage() {
     );
   }, [language, searchParams]);
 
+  useEffect(() => {
+    if (lockoutRetryAfterSeconds === null || lockoutRetryAfterSeconds <= 0) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setLockoutRetryAfterSeconds((current) => {
+        if (current === null || current <= 1) {
+          return null;
+        }
+        return current - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [lockoutRetryAfterSeconds]);
+
   const resetTwoFactorChallenge = () => {
     setLoginStep("credentials");
+    setLockoutDetail(null);
+    setLockoutRetryAfterSeconds(null);
     setOtpCode("");
     setProvisioningUri(null);
     setTrustedDays(null);
@@ -237,6 +301,15 @@ export default function LoginClientPage() {
   };
 
   const isTwoFactorStep = loginStep === "twoFactor";
+  const isPlainLocked = lockoutDetail?.code === "account_locked";
+  const countdownMessage =
+    lockoutRetryAfterSeconds !== null
+      ? buildLockoutMessage(language, lockoutRetryAfterSeconds)
+      : null;
+  const recoveryOptions = lockoutDetail?.recovery_options ?? [];
+  const showForgotPassword = recoveryOptions.includes("forgot_password");
+  const showContactAdmin = recoveryOptions.includes("contact_admin");
+  const showContactSecurityAdmin = recoveryOptions.includes("contact_security_admin");
   const title = isTwoFactorStep
     ? tr(language, "Confirm sign-in", "ยืนยันการเข้าสู่ระบบ")
     : tr(language, "Welcome Back", "ยินดีต้อนรับกลับ");
@@ -259,19 +332,42 @@ export default function LoginClientPage() {
           tr(language, "Unable to establish session. Please try again.", "ไม่สามารถเริ่มต้นเซสชันได้ โปรดลองอีกครั้ง")
         );
       }
+      setLockoutDetail(null);
+      setLockoutRetryAfterSeconds(null);
       setSession(res);
       router.replace("/patients");
     } catch (err) {
       const apiError = err as ApiError;
-      const detail = apiError.detail as Admin2FAErrorDetail | undefined;
-      if (detail && (detail.code === "two_factor_required" || detail.code === "admin_2fa_required")) {
+      const detail = apiError.detail as LoginChallengeDetail | undefined;
+      const detailCode = detail?.code?.toLowerCase();
+      if (detail && (detailCode === "two_factor_required" || detailCode === "admin_2fa_required")) {
+        setLockoutDetail(null);
+        setLockoutRetryAfterSeconds(null);
         setLoginStep("twoFactor");
         setProvisioningUri(detail.provisioning_uri ?? null);
         setTrustedDays(typeof detail.trusted_device_days === "number" ? detail.trusted_device_days : null);
         setError(tr(language, "Enter your code to continue.", "กรอกรหัสเพื่อดำเนินการต่อ"));
+      } else if (detail && detailCode === "account_locked") {
+        setLoginStep("credentials");
+        setLockoutDetail(detail);
+        setProvisioningUri(null);
+        setTrustedDays(null);
+        const retryAfterSeconds =
+          typeof detail.retry_after_seconds === "number" && detail.retry_after_seconds > 0
+            ? detail.retry_after_seconds
+            : null;
+        setError(null);
+        setLockoutRetryAfterSeconds(retryAfterSeconds);
+        if (retryAfterSeconds === null) {
+          setError(getAuthErrorMessage(language, apiError, "login"));
+        }
       } else if (apiError instanceof Error) {
+        setLockoutDetail(null);
+        setLockoutRetryAfterSeconds(null);
         setError(getAuthErrorMessage(language, apiError, "login"));
       } else {
+        setLockoutDetail(null);
+        setLockoutRetryAfterSeconds(null);
         setError(tr(language, "Unable to sign in. Please try again.", "ไม่สามารถเข้าสู่ระบบได้ โปรดลองอีกครั้ง"));
       }
     } finally {
@@ -343,7 +439,13 @@ export default function LoginClientPage() {
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
+                  setLockoutDetail(null);
+                  setLoginStep("credentials");
+                  setOtpCode("");
+                  setProvisioningUri(null);
+                  setTrustedDays(null);
                   setError(null);
+                  setLockoutRetryAfterSeconds(null);
                 }}
                 required
               />
@@ -362,7 +464,13 @@ export default function LoginClientPage() {
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value);
+                    setLockoutDetail(null);
+                    setLoginStep("credentials");
+                    setOtpCode("");
+                    setProvisioningUri(null);
+                    setTrustedDays(null);
                     setError(null);
+                    setLockoutRetryAfterSeconds(null);
                   }}
                   required
                 />
@@ -419,28 +527,59 @@ export default function LoginClientPage() {
           </div>
         )}
 
+        {isPlainLocked && !isTwoFactorStep ? (
+          <div className="space-y-3 rounded-xl border border-amber-200/80 bg-amber-50/80 p-4">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-amber-950">
+                {tr(language, "Account temporarily locked", "บัญชีถูกล็อกชั่วคราว")}
+              </p>
+              <p className="text-sm text-amber-900/80">
+                {countdownMessage ?? lockoutDetail?.message ?? tr(language, "Please try again later.", "กรุณาลองใหม่อีกครั้งภายหลัง")}
+              </p>
+            </div>
+
+            <div className="space-y-2 text-sm text-amber-950">
+              {showForgotPassword ? (
+                <Link href="/forgot-password" className="inline-flex text-primary hover:underline">
+                  {getRecoveryOptionLabel(language, "forgot_password")}
+                </Link>
+              ) : null}
+              {showContactAdmin ? (
+                <p>{getRecoveryOptionLabel(language, "contact_admin")}</p>
+              ) : null}
+              {showContactSecurityAdmin ? (
+                <p>{getRecoveryOptionLabel(language, "contact_security_admin")}</p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
         {isTwoFactorStep && (
           <div className="space-y-3 rounded-lg border border-border p-3">
             <div className="space-y-2">
-              <Label htmlFor="otpCode">
-                {tr(language, "Verification code", "รหัสยืนยัน")}
-              </Label>
-              <Input
-                id="otpCode"
-                inputMode="numeric"
-                maxLength={12}
-                placeholder={tr(language, "Enter code", "กรอกรหัส")}
-                autoFocus={isTwoFactorStep}
-                value={otpCode}
-                onChange={(e) => {
-                  setOtpCode(e.target.value);
-                  setError(null);
-                }}
-                required={isTwoFactorStep}
-              />
+              {isTwoFactorStep ? (
+                <>
+                  <Label htmlFor="otpCode">
+                    {tr(language, "Verification code", "รหัสยืนยัน")}
+                  </Label>
+                  <Input
+                    id="otpCode"
+                    inputMode="numeric"
+                    maxLength={12}
+                    placeholder={tr(language, "Enter code", "กรอกรหัส")}
+                    autoFocus={isTwoFactorStep}
+                    value={otpCode}
+                    onChange={(e) => {
+                      setOtpCode(e.target.value);
+                      setError(null);
+                    }}
+                    required={isTwoFactorStep}
+                  />
+                </>
+              ) : null}
             </div>
 
-            {provisioningUri ? (
+            {isTwoFactorStep && provisioningUri ? (
               <div className="space-y-2">
                 <p className="text-[0.88rem] text-muted-foreground">
                   {tr(
@@ -475,25 +614,27 @@ export default function LoginClientPage() {
               </div>
             ) : null}
 
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="remember_device"
-                checked={rememberDevice}
-                onCheckedChange={(value) => setRememberDevice(Boolean(value))}
-              />
-              <Label htmlFor="remember_device" className="text-[0.95rem] font-normal">
-                {tr(language, "Trust this device", "เชื่อถืออุปกรณ์นี้")}
-                {trustedDays
-                  ? language === "th"
-                    ? ` (${trustedDays} วัน)`
-                    : ` (${trustedDays} days)`
-                  : ""}
-              </Label>
-            </div>
+            {isTwoFactorStep ? (
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="remember_device"
+                  checked={rememberDevice}
+                  onCheckedChange={(value) => setRememberDevice(Boolean(value))}
+                />
+                <Label htmlFor="remember_device" className="text-[0.95rem] font-normal">
+                  {tr(language, "Trust this device", "เชื่อถืออุปกรณ์นี้")}
+                  {trustedDays
+                    ? language === "th"
+                      ? ` (${trustedDays} วัน)`
+                      : ` (${trustedDays} days)`
+                    : ""}
+                </Label>
+              </div>
+            ) : null}
           </div>
         )}
 
-        {error && (
+        {error && !isPlainLocked && (
           <AuthMessage>
             {error}
           </AuthMessage>

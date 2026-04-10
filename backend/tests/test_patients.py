@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
@@ -32,8 +32,10 @@ def create_test_user(db: Session, role: UserRole = UserRole.medical_student) -> 
     return user
 
 
-def get_auth_headers(user: User) -> dict:
-    token_response = create_login_response(user)
+def get_auth_headers(user: User, db: Session | None = None) -> dict:
+    session = db or object_session(user)
+    token_response = create_login_response(user, db=session)
+    session.commit()
     return {"Authorization": f"Bearer {token_response['access_token']}"}
 
 
@@ -187,8 +189,8 @@ def test_list_patients_does_not_match_email_or_phone_queries(db: Session):
 def test_patient_api_endpoints(client: TestClient, db: Session):
     doctor = create_test_user(db, UserRole.doctor)
     admin = create_test_user(db, UserRole.admin)
-    headers = get_auth_headers(doctor)
-    admin_headers = get_auth_headers(admin)
+    headers = get_auth_headers(doctor, db)
+    admin_headers = get_auth_headers(admin, db)
 
     patient_data = {
         "first_name": "API",
@@ -352,6 +354,7 @@ def test_patient_contact_endpoint_allows_stale_session(client: TestClient, db: S
         mfa_verified=True,
         mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
     )
+    db.commit()
     response = client.get(
         f"/patients/{patient.id}/contact",
         headers={"Authorization": f"Bearer {stale_response['access_token']}"},
@@ -379,6 +382,7 @@ def test_patient_contact_endpoint_accepts_recent_session_within_four_hours(clien
         mfa_verified=True,
         mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=3),
     )
+    db.commit()
     response = client.get(
         f"/patients/{patient.id}/contact",
         headers={"Authorization": f"Bearer {recent_response['access_token']}"},
@@ -396,6 +400,7 @@ def test_create_patient_with_contact_allows_stale_session(client: TestClient, db
         mfa_verified=True,
         mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
     )
+    db.commit()
 
     response = client.post(
         "/patients",
@@ -428,6 +433,7 @@ def test_update_patient_contact_allows_stale_session(client: TestClient, db: Ses
         mfa_verified=True,
         mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
     )
+    db.commit()
     response = client.put(
         f"/patients/{patient_id}",
         json={"phone": "+66123456789"},
@@ -774,6 +780,10 @@ def test_admin_manage_assignments_and_primary_rules(client: TestClient, db: Sess
         headers=admin_headers,
     )
     assert duplicate.status_code == 409
+
+    list_after_conflict = client.get(f"/patients/{patient_id}/assignments", headers=admin_headers)
+    assert list_after_conflict.status_code == 200
+    assert list_after_conflict.json()["total"] == 1
 
 
 def test_non_admin_cannot_manage_assignments(client: TestClient, db: Session):

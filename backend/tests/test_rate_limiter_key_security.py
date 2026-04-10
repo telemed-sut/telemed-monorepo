@@ -8,6 +8,7 @@ Run with: PYTHONPATH=. .venv/bin/pytest tests/test_rate_limiter_key_security.py
 """
 
 import pytest
+from starlette.requests import Request
 
 from app.core.config import get_settings
 
@@ -17,6 +18,9 @@ BASELINE_ENV = {
     "JWT_EXPIRES_IN": "3600",
     "DEVICE_API_SECRET": "device_secret_1234567890abcdef1234567890",
     "DEVICE_API_REQUIRE_REGISTERED_DEVICE": "false",
+    "DEVICE_SECRET_ENCRYPTION_KEY": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+    "TWO_FACTOR_SECRET_ENCRYPTION_KEY": "ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=",
+    "ALLOW_INSECURE_SECRET_STORAGE": "false",
     "APP_ENV": "test",
     "REDIS_URL": None,
 }
@@ -102,3 +106,34 @@ class TestBearerRateLimitKeySecurity:
         from app.core.limiter import _get_bearer_rate_limit_key
         key = _get_bearer_rate_limit_key("", "1.2.3.4")
         assert key == "ip:1.2.3.4"
+
+
+def _make_request(*, client_ip: str, headers: dict[str, str] | None = None) -> Request:
+    encoded_headers = [
+        (key.lower().encode("latin-1"), value.encode("latin-1"))
+        for key, value in (headers or {}).items()
+    ]
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/device/v1/pressure",
+        "headers": encoded_headers,
+        "client": (client_ip, 443),
+    }
+    return Request(scope)
+
+
+def test_device_ingest_rate_limit_key_ignores_untrusted_x_device_id_rotation(monkeypatch):
+    from app.core.limiter import get_device_ingest_rate_limit_key
+
+    request_a = _make_request(
+        client_ip="198.51.100.10",
+        headers={"X-Device-Id": "device-a"},
+    )
+    request_b = _make_request(
+        client_ip="198.51.100.10",
+        headers={"X-Device-Id": "device-b"},
+    )
+
+    assert get_device_ingest_rate_limit_key(request_a) == "device-ingest:198.51.100.10"
+    assert get_device_ingest_rate_limit_key(request_b) == "device-ingest:198.51.100.10"

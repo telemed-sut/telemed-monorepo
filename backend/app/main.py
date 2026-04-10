@@ -22,6 +22,7 @@ from app.core.logging_config import configure_logging, reset_request_id, set_req
 from app.db.session import SessionLocal, get_redis_client
 from app.middleware import IPBanMiddleware, SecurityAuditMiddleware, SecurityHeadersMiddleware
 from app.models.device_error_log import DeviceErrorLog
+from app.schemas.health import HealthCheckResponse, LiveHealthCheckResponse, RootResponse
 from app.services import auth as auth_service
 from app.services import meeting_presence as meeting_presence_service
 from app.services.security import record_login_attempt
@@ -278,8 +279,8 @@ def create_app() -> FastAPI:
     app.include_router(patient_app_api.router)
     app.include_router(events.router)
 
-    @app.get("/health")
-    @limiter.limit("200/minute")
+    @app.get("/health", response_model=HealthCheckResponse)
+    @limiter.limit("60/minute")
     def health_check(request: Request):
         checks = {"status": "ok", "db": "ok", "redis": "disabled"}
         status_code = 200
@@ -302,12 +303,12 @@ def create_app() -> FastAPI:
 
         return JSONResponse(status_code=status_code, content=checks)
 
-    @app.get("/health/live")
-    @limiter.limit("200/minute")
+    @app.get("/health/live", response_model=LiveHealthCheckResponse)
+    @limiter.limit("60/minute")
     def live_health_check(request: Request):
         return {"status": "ok"}
 
-    @app.get("/")
+    @app.get("/", response_model=RootResponse)
     @limiter.limit("100/minute")
     def root(request: Request):
         return {"message": "Patient Management API", "status": "running"}

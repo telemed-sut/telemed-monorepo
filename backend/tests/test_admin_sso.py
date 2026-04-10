@@ -41,7 +41,14 @@ def test_admin_sso_status_disabled_by_default(client: TestClient):
     }
 
 
-def test_admin_sso_health_reports_disabled_by_default(client: TestClient):
+def test_admin_sso_health_reports_disabled_by_default(client: TestClient, monkeypatch):
+    monkeypatch.delenv("ADMIN_OIDC_ENABLED", raising=False)
+    monkeypatch.delenv("ADMIN_OIDC_ISSUER_URL", raising=False)
+    monkeypatch.delenv("ADMIN_OIDC_CLIENT_ID", raising=False)
+    monkeypatch.delenv("ADMIN_OIDC_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("ADMIN_OIDC_REDIRECT_URI", raising=False)
+    get_settings.cache_clear()
+
     response = client.get("/auth/admin/sso/health")
 
     assert response.status_code == 200
@@ -52,6 +59,7 @@ def test_admin_sso_health_reports_disabled_by_default(client: TestClient):
         "details": None,
         "metadata_endpoint": None,
     }
+    get_settings.cache_clear()
 
 
 def test_admin_sso_health_reports_healthy_when_metadata_is_reachable(client: TestClient, monkeypatch):
@@ -424,7 +432,7 @@ def test_admin_sso_callback_denies_when_state_artifact_has_expired(
     get_settings.cache_clear()
 
 
-def test_admin_sso_logout_uses_server_side_logout_hint(
+def test_admin_sso_logout_post_uses_server_side_logout_hint(
     client: TestClient,
     db: Session,
     monkeypatch,
@@ -444,6 +452,7 @@ def test_admin_sso_logout_uses_server_side_logout_hint(
         auth_source="sso",
         sso_provider="authentik",
     )
+    db.commit()
     token = login_response["access_token"]
     session_id = auth_api.decode_token(token)["session_id"]
     admin_sso_store.store_logout_hint(
@@ -452,18 +461,64 @@ def test_admin_sso_logout_uses_server_side_logout_hint(
         ttl_seconds=3600,
     )
     client.cookies.set(auth_api.settings.auth_cookie_name, token)
+    client.cookies.set(auth_api.settings.trusted_device_cookie_name, "trusted-cookie")
     monkeypatch.setattr(
         "app.services.admin_sso.build_logout_redirect_url",
         lambda *, id_token_hint: f"https://auth.example.com/logout?id_token_hint={id_token_hint}",
     )
 
+    csrf_token = "csrf-test-token"
+    client.cookies.set(auth_api.CSRF_COOKIE_NAME, csrf_token)
+    response = client.post(
+        "/auth/admin/sso/logout",
+        headers={"X-CSRF-Token": csrf_token},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "redirect_url": "https://auth.example.com/logout?id_token_hint=server-side-id-token"
+    }
+    cookie_header = response.headers.get("set-cookie", "")
+    assert f"{auth_api.settings.auth_cookie_name}=" in cookie_header
+    assert f"{auth_api.CSRF_COOKIE_NAME}=" in cookie_header
+    assert f"{auth_api.settings.trusted_device_cookie_name}=" in cookie_header
+    assert admin_sso_store.pop_logout_hint(session_id) is None
+    me_response = client.get(
+        "/auth/me",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert me_response.status_code == 401
+
+    get_settings.cache_clear()
+
+
+def test_admin_sso_logout_get_is_deprecated_noop_redirect(
+    client: TestClient,
+    db: Session,
+):
+    user = _make_user(db, email="admin-logout-compat@example.com", role=UserRole.admin)
+    token = auth_api.auth_service.create_login_response(
+        user,
+        db=db,
+        auth_source="sso",
+        sso_provider="authentik",
+    )["access_token"]
+    db.commit()
+    client.cookies.set(auth_api.settings.auth_cookie_name, token)
+
     response = client.get("/auth/admin/sso/logout", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "https://auth.example.com/logout?id_token_hint=server-side-id-token"
-    assert admin_sso_store.pop_logout_hint(session_id) is None
+    assert response.headers["location"] == "http://localhost:3000/login?error=admin_sso_failed&reason=deprecated_logout_method"
+    assert response.headers.get("set-cookie", "") == ""
 
-    get_settings.cache_clear()
+    audit = db.scalar(
+        select(AuditLog)
+        .where(AuditLog.action == "admin_sso_logout_deprecated_get")
+        .order_by(AuditLog.created_at.desc())
+    )
+    assert audit is not None
+    assert audit.status == "failure"
 
 
 def test_oidc_metadata_and_jwks_are_cached(monkeypatch):

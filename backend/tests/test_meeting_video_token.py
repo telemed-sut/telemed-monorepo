@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core.config import get_settings
 from app.core.security import get_password_hash
@@ -39,8 +39,10 @@ def _create_user(db: Session, email: str, role: UserRole) -> User:
     return user
 
 
-def _auth_headers(user: User) -> dict[str, str]:
-    token = create_login_response(user)["access_token"]
+def _auth_headers(user: User, db: Session | None = None) -> dict[str, str]:
+    session = db or object_session(user)
+    token = create_login_response(user, db=session)["access_token"]
+    session.commit()
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -54,6 +56,49 @@ def _create_patient(db: Session, first_name: str, last_name: str) -> Patient:
     db.commit()
     db.refresh(patient)
     return patient
+
+
+def test_meeting_signing_uses_dedicated_secret(monkeypatch: pytest.MonkeyPatch):
+    settings = get_settings()
+    payload = "meeting-payload"
+
+    monkeypatch.setattr(settings, "jwt_secret", "jwt_secret_primary_1234567890abcdef")
+    monkeypatch.setattr(
+        settings,
+        "meeting_signing_secret",
+        "meeting_signing_secret_primary_1234567890abcdef",
+    )
+    monkeypatch.setattr(settings, "meeting_signing_allow_jwt_secret_fallback", False)
+
+    first_signature = meeting_video_service._sign_compact_payload(payload)
+
+    monkeypatch.setattr(settings, "jwt_secret", "jwt_secret_secondary_1234567890abcdef")
+    second_signature = meeting_video_service._sign_compact_payload(payload)
+    assert second_signature == first_signature
+
+    monkeypatch.setattr(
+        settings,
+        "meeting_signing_secret",
+        "meeting_signing_secret_secondary_1234567890abcdef",
+    )
+    rotated_signature = meeting_video_service._sign_compact_payload(payload)
+    assert rotated_signature != first_signature
+
+
+def test_meeting_signing_can_explicitly_fallback_to_jwt_secret_outside_production(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings = get_settings()
+    payload = "meeting-payload"
+
+    monkeypatch.setattr(settings, "app_env", "test")
+    monkeypatch.setattr(settings, "meeting_signing_secret", None)
+    monkeypatch.setattr(settings, "meeting_signing_allow_jwt_secret_fallback", True)
+    monkeypatch.setattr(settings, "jwt_secret", "jwt_secret_fallback_1234567890abcdef")
+
+    signature = meeting_video_service._sign_compact_payload(payload)
+
+    assert signature
 
 
 def _create_meeting(

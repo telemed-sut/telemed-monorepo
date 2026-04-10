@@ -265,4 +265,102 @@ describe("patient workspace cache registry", () => {
     expect(window.localStorage.getItem(crossTabKey)).toBeNull();
     expect(window.localStorage.getItem("telemed.patient-workspace._keys")).toBeNull();
   });
+
+  it("sanitizes cached patient workspace data before persisting it to session storage", async () => {
+    const {
+      readPatientDetailCache,
+      writePatientDetailCache,
+      readPatientHeartSoundCache,
+      writePatientHeartSoundCache,
+    } = await import("@/lib/patient-workspace-cache");
+
+    writePatientDetailCache("user-a", "patient-1", {
+      patient: {
+        id: "patient-1",
+        first_name: "Cached",
+        last_name: "Patient",
+        date_of_birth: "1990-01-01",
+        gender: "male",
+        phone: "0812345678",
+        email: "cached@example.com",
+        address: "Bangkok",
+        ward: "ICU",
+        created_at: "2026-04-10T00:00:00Z",
+        updated_at: "2026-04-10T01:00:00Z",
+      },
+      patientCachedAt: Date.now(),
+      meetings: [
+        {
+          id: "meeting-1",
+          date_time: "2026-04-10T09:00:00Z",
+          description: "Follow-up",
+          note: "Bring results",
+          room: "A-12",
+          status: "scheduled",
+          patient_invite_url: "https://example.com/private-invite",
+          doctor: {
+            id: "doctor-1",
+            email: "doctor@example.com",
+            first_name: "Dana",
+            last_name: "Sato",
+          },
+        },
+      ],
+      meetingsTotal: 1,
+      meetingsCachedAt: Date.now(),
+    });
+
+    writePatientHeartSoundCache("user-a", "patient-1", {
+      patient: {
+        id: "patient-1",
+        first_name: "Cached",
+        last_name: "Patient",
+        date_of_birth: "1990-01-01",
+        email: "cached@example.com",
+      },
+      patientCachedAt: Date.now(),
+      records: [
+        {
+          id: "record-1",
+          patient_id: "patient-1",
+          device_id: "device-1",
+          mac_address: "AA:BB:CC:DD:EE:FF",
+          position: 4,
+          blob_url: "blob:https://example.com/audio",
+          storage_key: "heart-sounds/record-1.wav",
+          mime_type: "audio/wav",
+          duration_seconds: 3.2,
+          recorded_at: "2026-04-10T09:05:00Z",
+          created_at: "2026-04-10T09:05:00Z",
+        },
+      ],
+      recordsCachedAt: Date.now(),
+    });
+
+    const detailRaw = window.sessionStorage.getItem("telemed.patient-workspace.detail.v2:user-a:patient-1");
+    const heartSoundRaw = window.sessionStorage.getItem("telemed.patient-workspace.heart-sound.v2:user-a:patient-1");
+
+    expect(detailRaw).toBeTruthy();
+    expect(heartSoundRaw).toBeTruthy();
+    expect(detailRaw).not.toContain("0812345678");
+    expect(detailRaw).not.toContain("cached@example.com");
+    expect(detailRaw).not.toContain("Bangkok");
+    expect(detailRaw).not.toContain("ICU");
+    expect(detailRaw).not.toContain("private-invite");
+    expect(heartSoundRaw).not.toContain("cached@example.com");
+    expect(heartSoundRaw).not.toContain("1990-01-01");
+
+    const detailSnapshot = readPatientDetailCache("user-a", "patient-1");
+    const heartSoundSnapshot = readPatientHeartSoundCache("user-a", "patient-1");
+
+    expect(detailSnapshot?.patient?.first_name).toBe("Cached");
+    expect(detailSnapshot?.patient).not.toHaveProperty("phone");
+    expect(detailSnapshot?.meetings[0]).not.toHaveProperty("patient_invite_url");
+    expect(heartSoundSnapshot?.patient).toEqual({
+      id: "patient-1",
+      first_name: "Cached",
+      last_name: "Patient",
+    });
+    expect(heartSoundSnapshot?.records[0].mac_address).toBe("AA:BB:CC:DD:EE:FF");
+  });
 });

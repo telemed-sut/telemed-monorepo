@@ -2,11 +2,12 @@ x-backend-common-env: &backend-common-env
   DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required. Run backend/scripts/bootstrap_backend_env.sh or use Infisical before running docker compose.}"
   JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required. Run backend/scripts/bootstrap_backend_env.sh or use Infisical before running docker compose.}"
   JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-3600}"
+  ADMIN_JWT_EXPIRES_IN: "${ADMIN_JWT_EXPIRES_IN:-14400}"
   PASSWORD_RESET_EXPIRES_IN: "${PASSWORD_RESET_EXPIRES_IN:-900}"
   PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE: "${PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE:-false}"
   FRONTEND_BASE_URL: "${FRONTEND_BASE_URL:-http://localhost:3000}"
   INVITE_EXPIRES_IN_HOURS: "${INVITE_EXPIRES_IN_HOURS:-24}"
-  CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://localhost:8080}"
+  CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080}"
 
   DEVICE_API_SECRET: "${DEVICE_API_SECRET:?DEVICE_API_SECRET is required}"
   DEVICE_API_SECRETS: "${DEVICE_API_SECRETS:-}"
@@ -46,10 +47,11 @@ x-backend-common-env: &backend-common-env
   RATE_LIMIT_WHITELIST: "${RATE_LIMIT_WHITELIST:-127.0.0.1,::1}"
 
   ADMIN_2FA_REQUIRED: "${ADMIN_2FA_REQUIRED:-true}"
+  PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS: "${PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS:-900}"
   ADMIN_2FA_ISSUER: "${ADMIN_2FA_ISSUER:-Telemed Admin}"
   TRUSTED_DEVICE_COOKIE_NAME: "${TRUSTED_DEVICE_COOKIE_NAME:-trusted_device_token}"
-  ADMIN_TRUSTED_DEVICE_DAYS: "${ADMIN_TRUSTED_DEVICE_DAYS:-7}"
-  USER_TRUSTED_DEVICE_DAYS: "${USER_TRUSTED_DEVICE_DAYS:-30}"
+  ADMIN_TRUSTED_DEVICE_DAYS: "${ADMIN_TRUSTED_DEVICE_DAYS:-1}"
+  USER_TRUSTED_DEVICE_DAYS: "${USER_TRUSTED_DEVICE_DAYS:-7}"
   BACKUP_CODE_COUNT: "${BACKUP_CODE_COUNT:-10}"
   BACKUP_CODE_EXPIRES_DAYS: "${BACKUP_CODE_EXPIRES_DAYS:-365}"
 
@@ -75,15 +77,15 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_BASE_URL: "${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}"
-        NEXT_SERVER_API_PROXY_TARGET: "${NEXT_SERVER_API_PROXY_TARGET:-http://localhost:8000}"
-        NEXT_SERVER_API_BASE_URL: "${NEXT_SERVER_API_BASE_URL:-http://localhost:8000}"
+        NEXT_SERVER_API_PROXY_TARGET: "${NEXT_SERVER_API_PROXY_TARGET:-http://backend:8000}"
+        NEXT_SERVER_API_BASE_URL: "${NEXT_SERVER_API_BASE_URL:-http://backend:8000}"
     container_name: patient-frontend
     ports:
       - "127.0.0.1:3000:3000"
     environment:
       NEXT_PUBLIC_API_BASE_URL: "${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}"
-      NEXT_SERVER_API_PROXY_TARGET: "${NEXT_SERVER_API_PROXY_TARGET:-http://localhost:8000}"
-      NEXT_SERVER_API_BASE_URL: "${NEXT_SERVER_API_BASE_URL:-http://localhost:8000}"
+      NEXT_SERVER_API_PROXY_TARGET: "${NEXT_SERVER_API_PROXY_TARGET:-http://backend:8000}"
+      NEXT_SERVER_API_BASE_URL: "${NEXT_SERVER_API_BASE_URL:-http://backend:8000}"
     depends_on:
       backend:
         condition: service_healthy
@@ -340,10 +342,18 @@ services:
     image: redis:7-alpine
     container_name: telemed-redis
     restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-telemed-dev-redis-password}"
+    command:
+      [
+        "sh",
+        "-c",
+        "exec redis-server --save '' --appendonly no --requirepass \"$${REDIS_PASSWORD}\"",
+      ]
     networks:
       - backend-net
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"]
       interval: 10s
       timeout: 5s
       retries: 3

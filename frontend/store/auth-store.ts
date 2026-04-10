@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import type { LoginResponse, UserMe } from "@/lib/api";
 import { clearPatientWorkspaceCache } from "@/lib/patient-workspace-cache";
+import { clearProtectedClientStorage } from "@/lib/protected-client-state";
 import { clearWorkspaceTabsState } from "@/store/workspace-tabs-store";
 
 /** Refresh token 5 minutes before expiry */
@@ -30,6 +31,7 @@ interface AuthState {
   token: string | null;
   role: string | null;
   userId: string | null;
+  currentUser: UserMe | null;
   mfaVerified: boolean;
   mfaRecentForPrivilegedActions: boolean;
   mfaAuthenticatedAt: string | null;
@@ -39,6 +41,7 @@ interface AuthState {
   sessionExpiresAt: number | null;
   lastVerifiedAt: number | null;
   setSession: (response: LoginResponse) => void;
+  setCurrentUser: (user: UserMe | null) => void;
   clearToken: () => void;
   clearSessionState: () => void;
   hydrate: () => Promise<void>;
@@ -55,6 +58,7 @@ function getEmptyAuthState() {
     token: null,
     role: null,
     userId: null,
+    currentUser: null,
     mfaVerified: false,
     mfaRecentForPrivilegedActions: false,
     mfaAuthenticatedAt: null,
@@ -76,6 +80,7 @@ function getSessionState(response: LoginResponse) {
     token: COOKIE_SESSION_TOKEN,
     role: response.user?.role ?? null,
     userId: response.user?.id ?? null,
+    currentUser: response.user ?? null,
     mfaVerified: Boolean(response.user?.mfa_verified),
     mfaRecentForPrivilegedActions: Boolean(response.user?.mfa_recent_for_privileged_actions),
     mfaAuthenticatedAt: response.user?.mfa_authenticated_at ?? null,
@@ -91,6 +96,7 @@ function getCookieSessionState(user: UserMe) {
     token: COOKIE_SESSION_TOKEN,
     role: user.role ?? null,
     userId: user.id ?? null,
+    currentUser: user,
     mfaVerified: Boolean(user.mfa_verified),
     mfaRecentForPrivilegedActions: Boolean(user.mfa_recent_for_privileged_actions),
     mfaAuthenticatedAt: user.mfa_authenticated_at ?? null,
@@ -98,6 +104,36 @@ function getCookieSessionState(user: UserMe) {
     ssoProvider: user.sso_provider ?? null,
     sessionExpiresAt: null,
     lastVerifiedAt: Date.now(),
+  };
+}
+
+function createPersistedSnapshot(state: {
+  token: string | null;
+  role: string | null;
+  userId: string | null;
+  mfaVerified: boolean;
+  mfaRecentForPrivilegedActions: boolean;
+  mfaAuthenticatedAt: string | null;
+  authSource: string | null;
+  ssoProvider: string | null;
+  sessionExpiresAt: number | null;
+  lastVerifiedAt: number | null;
+}): PersistedAuthSnapshot | null {
+  if (!state.token) {
+    return null;
+  }
+
+  return {
+    token: state.token,
+    role: state.role,
+    userId: state.userId,
+    mfaVerified: state.mfaVerified,
+    mfaRecentForPrivilegedActions: state.mfaRecentForPrivilegedActions,
+    mfaAuthenticatedAt: state.mfaAuthenticatedAt,
+    authSource: state.authSource,
+    ssoProvider: state.ssoProvider,
+    sessionExpiresAt: state.sessionExpiresAt,
+    lastVerifiedAt: state.lastVerifiedAt,
   };
 }
 
@@ -174,12 +210,21 @@ function clearProtectedClientState() {
   persistAuthSnapshot(null);
   clearWorkspaceTabsState();
   clearPatientWorkspaceCache();
+  clearProtectedClientStorage();
+}
+
+function shouldClearProtectedStateForUserSwitch(
+  previousUserId: string | null,
+  nextUserId: string | null
+) {
+  return Boolean(previousUserId && nextUserId && previousUserId !== nextUserId);
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   role: null,
   userId: null,
+  currentUser: null,
   mfaVerified: false,
   mfaRecentForPrivilegedActions: false,
   mfaAuthenticatedAt: null,
@@ -190,16 +235,40 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   lastVerifiedAt: null,
   setSession: (response) => {
     const nextState = { ...getSessionState(response), hydrated: true };
-    persistAuthSnapshot(nextState);
+    if (shouldClearProtectedStateForUserSwitch(get().userId, nextState.userId)) {
+      clearProtectedClientState();
+    }
+    persistAuthSnapshot(createPersistedSnapshot(nextState));
     set(nextState);
   },
+  setCurrentUser: (user) => {
+    set((state) => {
+      const nextState = user
+        ? {
+            ...state,
+            currentUser: user,
+            role: user.role ?? state.role,
+            userId: user.id ?? state.userId,
+            mfaVerified: Boolean(user.mfa_verified),
+            mfaRecentForPrivilegedActions: Boolean(user.mfa_recent_for_privileged_actions),
+            mfaAuthenticatedAt: user.mfa_authenticated_at ?? null,
+            authSource: user.auth_source ?? state.authSource ?? "local",
+            ssoProvider: user.sso_provider ?? null,
+            lastVerifiedAt: Date.now(),
+          }
+        : {
+            ...state,
+            currentUser: null,
+          };
+
+      if (shouldClearProtectedStateForUserSwitch(state.userId, nextState.userId)) {
+        clearProtectedClientState();
+      }
+      persistAuthSnapshot(createPersistedSnapshot(nextState));
+      return nextState;
+    });
+  },
   clearToken: () => {
-    const activeToken = get().token ?? undefined;
-    if (typeof window !== "undefined") {
-      void import("@/lib/api")
-        .then(({ logout }) => logout(activeToken))
-        .catch(() => undefined);
-    }
     clearProtectedClientState();
     set({
       ...getEmptyAuthState(),
@@ -246,7 +315,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           const currentUser = await fetchCurrentUser();
           if (currentUser) {
             const nextState = { ...getCookieSessionState(currentUser), hydrated: true };
-            persistAuthSnapshot(nextState);
+            if (shouldClearProtectedStateForUserSwitch(get().userId, nextState.userId)) {
+              clearProtectedClientState();
+            }
+            persistAuthSnapshot(createPersistedSnapshot(nextState));
             set(nextState);
             return;
           }
@@ -257,7 +329,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         const refreshed = await refreshToken();
         if (refreshed?.user) {
           const nextState = { ...getSessionState(refreshed), hydrated: true };
-          persistAuthSnapshot(nextState);
+          if (shouldClearProtectedStateForUserSwitch(get().userId, nextState.userId)) {
+            clearProtectedClientState();
+          }
+          persistAuthSnapshot(createPersistedSnapshot(nextState));
           set(nextState);
           return;
         }

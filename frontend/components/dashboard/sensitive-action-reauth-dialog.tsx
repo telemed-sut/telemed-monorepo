@@ -55,9 +55,12 @@ export function SensitiveActionReauthDialog({
   actionLabel,
 }: SensitiveActionReauthDialogProps) {
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.userId);
+  const currentUser = useAuthStore((state) => state.currentUser);
   const authSource = useAuthStore((state) => state.authSource);
   const ssoProvider = useAuthStore((state) => state.ssoProvider);
   const setSession = useAuthStore((state) => state.setSession);
+  const setCurrentUser = useAuthStore((state) => state.setCurrentUser);
   const clearToken = useAuthStore((state) => state.clearToken);
   const language = useLanguageStore((state) => state.language);
   const router = useRouter();
@@ -121,16 +124,26 @@ export function SensitiveActionReauthDialog({
       return;
     }
 
+    if (currentUser && (!userId || currentUser.id === userId)) {
+      setEmail(currentUser.email ?? "");
+      setResolvedAuthSource(currentUser.auth_source ?? authSource ?? "local");
+      setResolvedSsoProvider(currentUser.sso_provider ?? null);
+    }
+
     let cancelled = false;
 
     const loadIdentity = async () => {
       setLoadingIdentity(true);
       try {
-        const currentUser = await fetchCurrentUser(token);
+        const nextCurrentUser = await fetchCurrentUser(token);
         if (!cancelled) {
-          setEmail(currentUser.email ?? "");
-          setResolvedAuthSource(currentUser.auth_source ?? authSource ?? "local");
-          setResolvedSsoProvider(currentUser.sso_provider ?? null);
+          if (userId && nextCurrentUser.id !== userId) {
+            return;
+          }
+          setCurrentUser(nextCurrentUser);
+          setEmail(nextCurrentUser.email ?? "");
+          setResolvedAuthSource(nextCurrentUser.auth_source ?? authSource ?? "local");
+          setResolvedSsoProvider(nextCurrentUser.sso_provider ?? null);
         }
       } catch (err) {
         if (cancelled) {
@@ -159,7 +172,7 @@ export function SensitiveActionReauthDialog({
     return () => {
       cancelled = true;
     };
-  }, [authSource, clearToken, language, open, router, token]);
+  }, [authSource, clearToken, currentUser, language, open, router, token, userId, setCurrentUser]);
 
   useEffect(() => {
     if (!requiresOtp) {

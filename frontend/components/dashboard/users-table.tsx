@@ -29,9 +29,11 @@ import {
     getErrorMessage,
     createUser,
     updateUser,
+    fetchPatientWards,
     UserCreate,
     UserUpdate,
     User,
+    UserCreateResponse,
     UserInviteItem,
     getPrivilegedRoleLabel,
 } from "@/lib/api";
@@ -145,6 +147,24 @@ const ROLE_LABEL_MAP_TH: Record<string, string> = {
     doctor: "แพทย์",
     medical_student: "นักศึกษาแพทย์",
 };
+
+const USER_FORM_DEFAULTS = {
+    email: "",
+    first_name: "",
+    last_name: "",
+    password: "",
+    role: "doctor",
+    is_active: true,
+    specialty: "",
+    department: "",
+    license_no: "",
+    license_expiry: "",
+    verification_status: "unverified",
+    patient_assignment_scope: "none" as const,
+    target_ward: "",
+};
+
+const buildDefaultUserFormData = () => ({ ...USER_FORM_DEFAULTS });
 
 const STATUS_LABEL_MAP_TH: Record<string, string> = {
     verified: "ยืนยันแล้ว",
@@ -398,23 +418,25 @@ export function UsersTable({
     const lastAppliedSeedKeyRef = useRef<number | null>(null);
 
     // Form Data State
-    interface UserFormData extends Partial<User> {
-        password?: string;
+    interface UserFormData {
+        email: string;
+        first_name: string;
+        last_name: string;
+        password: string;
+        role: string;
+        is_active: boolean;
+        specialty: string;
+        department: string;
+        license_no: string;
+        license_expiry: string;
+        verification_status: string;
+        patient_assignment_scope: NonNullable<UserCreate["patient_assignment_scope"]>;
+        target_ward: string;
     }
 
-    const [formData, setFormData] = useState<UserFormData>({
-        email: "",
-        first_name: "",
-        last_name: "",
-        password: "",
-        role: "doctor",
-        is_active: true,
-        specialty: "",
-        department: "",
-        license_no: "",
-        license_expiry: "",
-        verification_status: "unverified",
-    });
+    const [formData, setFormData] = useState<UserFormData>(() => buildDefaultUserFormData());
+    const [availableWards, setAvailableWards] = useState<string[]>([]);
+    const [isWardListLoading, setIsWardListLoading] = useState(false);
 
     const [inviteFormData, setInviteFormData] = useState({
         email: "",
@@ -581,6 +603,32 @@ export function UsersTable({
         [language]
     );
 
+    const loadWardOptions = useCallback(async () => {
+        if (!token || isWardListLoading) return;
+
+        setIsWardListLoading(true);
+        try {
+            const response = await fetchPatientWards(token);
+            setAvailableWards(response.wards);
+        } catch (error) {
+            toast.error(tr(language, "Unable to load wards", "ไม่สามารถโหลดรายชื่อวอร์ดได้"), {
+                description: getLocalizedErrorMessage(
+                    error,
+                    "We couldn't load the current ward list for patient assignment.",
+                    "ไม่สามารถโหลดรายชื่อวอร์ดสำหรับการมอบหมายผู้ป่วยได้"
+                ),
+            });
+        } finally {
+            setIsWardListLoading(false);
+        }
+    }, [getLocalizedErrorMessage, isWardListLoading, language, token]);
+
+    useEffect(() => {
+        if (!isSheetOpen || editingUser || formData.role !== "doctor") return;
+        if (availableWards.length > 0 || isWardListLoading) return;
+        void loadWardOptions();
+    }, [availableWards.length, editingUser, formData.role, isSheetOpen, isWardListLoading, loadWardOptions]);
+
     const syncParentUsers = useCallback(() => {
         onUsersMutated?.();
     }, [onUsersMutated]);
@@ -684,8 +732,28 @@ export function UsersTable({
 
     const handleOpenEdit = useCallback((user: User) => {
         setEditingUser(user);
-        setFormData({ ...user, password: "" }); // Clear password for security
+        setFormData({
+            email: user.email,
+            first_name: user.first_name ?? "",
+            last_name: user.last_name ?? "",
+            password: "",
+            role: user.role,
+            is_active: user.is_active,
+            specialty: user.specialty ?? "",
+            department: user.department ?? "",
+            license_no: user.license_no ?? "",
+            license_expiry: user.license_expiry ?? "",
+            verification_status: user.verification_status ?? "unverified",
+            patient_assignment_scope: "none",
+            target_ward: "",
+        });
         setSheetOpen(true);
+    }, []);
+
+    const closeUserSheet = useCallback(() => {
+        setSheetOpen(false);
+        setEditingUser(null);
+        setFormData(buildDefaultUserFormData());
     }, []);
 
     const confirmDelete = useCallback(async (user: User) => {
@@ -915,6 +983,8 @@ export function UsersTable({
                 verification_status: formData.verification_status || undefined,
             };
 
+            let createdUserResponse: UserCreateResponse | null = null;
+
             if (editingUser) {
                 const updatePayload: UserUpdate = { ...basePayload };
                 if (normalizedPassword) {
@@ -922,11 +992,30 @@ export function UsersTable({
                 }
                 await updateUser(editingUser.id, updatePayload, token);
             } else {
+                const normalizedAssignmentScope = formData.role === "doctor"
+                    ? (formData.patient_assignment_scope ?? "none")
+                    : "none";
+                const normalizedTargetWard = normalizedAssignmentScope === "ward"
+                    ? formData.target_ward?.trim()
+                    : undefined;
+
+                if (normalizedAssignmentScope === "ward" && !normalizedTargetWard) {
+                    throw new Error(
+                        tr(
+                            language,
+                            "Please select a ward for patient assignment.",
+                            "กรุณาเลือกวอร์ดสำหรับการมอบหมายผู้ป่วย"
+                        )
+                    );
+                }
+
                 const createPayload: UserCreate = {
                     ...basePayload,
                     password: normalizedPassword!,
+                    patient_assignment_scope: normalizedAssignmentScope,
+                    target_ward: normalizedTargetWard,
                 };
-                await createUser(createPayload, token);
+                createdUserResponse = await createUser(createPayload, token);
             }
 
             const roleLabel = ROLE_LABEL_MAP[String(basePayload.role ?? "doctor")] ?? "Doctor";
@@ -941,13 +1030,26 @@ export function UsersTable({
                     description: tr(language, `${displayName} details were saved successfully.`, `บันทึกข้อมูลของ ${displayName} สำเร็จ`),
                 });
             } else {
-                showTeamUpdateToast({
-                    title: tr(language, "Team Update", "อัปเดตทีม"),
-                    members: [displayName],
-                    message: tr(language, `${displayName} joined as ${roleLabel}.`, `${displayName} เข้าร่วมในบทบาท ${getRoleLabelByLanguage(String(basePayload.role ?? "doctor"), language)}`),
-                });
+                if ((basePayload.role ?? "doctor") === "doctor") {
+                    toast.success(
+                        tr(language, "Doctor created successfully!", "สร้างบัญชีแพทย์สำเร็จ!"),
+                        {
+                            description: tr(
+                                language,
+                                `Assigned ${createdUserResponse?.assigned_patient_count ?? 0} patients automatically.`,
+                                `มอบหมายผู้ป่วยให้อัตโนมัติ ${createdUserResponse?.assigned_patient_count ?? 0} ราย`
+                            ),
+                        }
+                    );
+                } else {
+                    showTeamUpdateToast({
+                        title: tr(language, "Team Update", "อัปเดตทีม"),
+                        members: [displayName],
+                        message: tr(language, `${displayName} joined as ${roleLabel}.`, `${displayName} เข้าร่วมในบทบาท ${getRoleLabelByLanguage(String(basePayload.role ?? "doctor"), language)}`),
+                    });
+                }
             }
-            setSheetOpen(false);
+            closeUserSheet();
             syncParentUsers();
             await loadUsers();
         } catch (error: unknown) {
@@ -2286,7 +2388,16 @@ export function UsersTable({
             </Dialog>
 
             {/* Create/Edit Sheet */}
-            <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
+            <Sheet
+                open={isSheetOpen}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        closeUserSheet();
+                        return;
+                    }
+                    setSheetOpen(true);
+                }}
+            >
                 <SheetContent
                     side="center"
                     className="w-[min(94vw,680px)] max-h-[88vh] p-0 overflow-hidden rounded-2xl border border-border/60 bg-background/95"
@@ -2374,7 +2485,18 @@ export function UsersTable({
                                 <Label htmlFor="role">{tr(language, "Role", "บทบาท")}</Label>
                                 <Select
                                     value={formData.role}
-                                    onValueChange={(val) => setFormData({ ...formData, role: val || "doctor" })}
+                                    onValueChange={(val) =>
+                                        setFormData({
+                                            ...formData,
+                                            role: val || "doctor",
+                                            patient_assignment_scope: (val || "doctor") === "doctor"
+                                                ? (formData.patient_assignment_scope ?? "none")
+                                                : "none",
+                                            target_ward: (val || "doctor") === "doctor"
+                                                ? (formData.target_ward ?? "")
+                                                : "",
+                                        })
+                                    }
                                 >
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
@@ -2427,7 +2549,7 @@ export function UsersTable({
                                     {editingUser && (
                                         <div className="space-y-2">
                                             <Label htmlFor="verification_status">{tr(language, "Verification Status", "สถานะการยืนยัน")}</Label>
-                                            <Select value={formData.verification_status || "unverified"} onValueChange={val => setFormData({ ...formData, verification_status: val })}>
+                                            <Select value={formData.verification_status || "unverified"} onValueChange={val => setFormData({ ...formData, verification_status: val ?? "unverified" })}>
                                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="unverified">{tr(language, "Unverified", "ยังไม่ยืนยัน")}</SelectItem>
@@ -2439,9 +2561,98 @@ export function UsersTable({
                                     )}
                                 </div>
                             )}
+
+                            {!editingUser && formData.role === "doctor" && (
+                                <div className="space-y-4 rounded-lg border border-border/60 bg-muted/10 p-4">
+                                    <div className="space-y-1">
+                                        <p className="text-sm font-medium text-muted-foreground">
+                                            {tr(language, "Assign Patients Immediately", "มอบหมายผู้ป่วยทันที")}
+                                        </p>
+                                        <p className="text-sm text-muted-foreground/80">
+                                            {tr(
+                                                language,
+                                                "Choose whether this doctor should start with no patients, all active patients, or one ward.",
+                                                "เลือกว่าบัญชีแพทย์ใหม่นี้ควรเริ่มต้นโดยไม่มีผู้ป่วย รับผู้ป่วยทั้งหมด หรือเฉพาะหนึ่งวอร์ด"
+                                            )}
+                                        </p>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="patient_assignment_scope">
+                                            {tr(language, "Patient Assignment Scope", "ขอบเขตการมอบหมายผู้ป่วย")}
+                                        </Label>
+                                        <Select
+                                            value={formData.patient_assignment_scope || "none"}
+                                            onValueChange={(value) =>
+                                                setFormData({
+                                                    ...formData,
+                                                    patient_assignment_scope: value ?? "none",
+                                                    target_ward: value === "ward" ? formData.target_ward || "" : "",
+                                                })
+                                            }
+                                        >
+                                            <SelectTrigger id="patient_assignment_scope">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="none">
+                                                    {tr(language, "No patients", "ไม่มีผู้ป่วย")}
+                                                </SelectItem>
+                                                <SelectItem value="all">
+                                                    {tr(language, "All available patients", "ผู้ป่วยที่พร้อมทั้งหมด")}
+                                                </SelectItem>
+                                                <SelectItem value="ward">
+                                                    {tr(language, "Specific Ward", "เฉพาะวอร์ด")}
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    {formData.patient_assignment_scope === "ward" && (
+                                        <div className="space-y-2">
+                                            <Label htmlFor="target_ward">
+                                                {tr(language, "Target Ward", "วอร์ดเป้าหมาย")}
+                                            </Label>
+                                            <Select
+                                                value={formData.target_ward || undefined}
+                                                onValueChange={(value) =>
+                                                    setFormData({ ...formData, target_ward: value ?? "" })
+                                                }
+                                                disabled={isWardListLoading || availableWards.length === 0}
+                                            >
+                                                <SelectTrigger id="target_ward">
+                                                    <SelectValue
+                                                        placeholder={tr(
+                                                            language,
+                                                            isWardListLoading ? "Loading wards..." : "Select a ward",
+                                                            isWardListLoading ? "กำลังโหลดวอร์ด..." : "เลือกวอร์ด"
+                                                        )}
+                                                    />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {availableWards.map((ward) => (
+                                                        <SelectItem key={ward} value={ward}>
+                                                            {ward}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            {availableWards.length === 0 && !isWardListLoading && (
+                                                <p className="text-xs text-muted-foreground">
+                                                    {tr(
+                                                        language,
+                                                        "No active wards were found from current patient records.",
+                                                        "ไม่พบวอร์ดที่ใช้งานอยู่จากข้อมูลผู้ป่วยปัจจุบัน"
+                                                    )}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                         <SheetFooter className="px-0 pt-2 pb-0 sm:justify-end sm:flex-row">
-                            <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>{tr(language, "Cancel", "ยกเลิก")}</Button>
+                            <Button type="button" variant="outline" onClick={closeUserSheet}>{tr(language, "Cancel", "ยกเลิก")}</Button>
                             <Button type="submit" disabled={isSubmitting}>
                                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 {editingUser

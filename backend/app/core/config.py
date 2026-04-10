@@ -11,6 +11,11 @@ from pydantic_settings import (
     EnvSettingsSource,
     PydanticBaseSettingsSource,
 )
+from app.core.secret_crypto import (
+    SecretEncryptionConfigurationError,
+    has_secret_crypto_backend,
+    validate_secret_encryption_key,
+)
 
 
 class RawDeviceSecretsEnvSettingsSource(EnvSettingsSource):
@@ -27,6 +32,32 @@ class RawDeviceSecretsDotEnvSettingsSource(DotEnvSettingsSource):
         return super().prepare_field_value(field_name, field, value, value_is_complex)
 
 
+LOCAL_DEV_CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+]
+
+LOCAL_DEV_ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "testserver",
+    "backend",
+    "patient-backend",
+    "frontend",
+    "patient-frontend",
+]
+
+LOOPBACK_ORIGIN_ALIASES = {
+    "http://localhost:3000": ["http://127.0.0.1:3000"],
+    "http://127.0.0.1:3000": ["http://localhost:3000"],
+    "http://localhost:8080": ["http://127.0.0.1:8080"],
+    "http://127.0.0.1:8080": ["http://localhost:8080"],
+}
+
+
 class Settings(BaseSettings):
     app_name: str = "Patient Management API"
     app_env: Literal["development", "test", "production"] = "development"
@@ -38,7 +69,7 @@ class Settings(BaseSettings):
     frontend_base_url: str = "http://localhost:3000"
     api_docs_enabled: bool | None = None
     invite_expires_in_hours: int = 24
-    cors_origins: Union[List[str], str] = ["http://localhost:3000", "http://localhost:8080"]
+    cors_origins: Union[List[str], str] = LOCAL_DEV_CORS_ORIGINS.copy()
     allowed_hosts: Union[List[str], str] = []
     default_page: int = 1
     default_limit: int = 20
@@ -51,16 +82,25 @@ class Settings(BaseSettings):
     account_lockout_minutes: int = 15
     admin_max_login_attempts: int = 15
     admin_account_lockout_minutes: int = 3
+    clinical_lockout_attempts_step_one: int = 5
+    clinical_lockout_seconds_step_one: int = 30
+    clinical_lockout_attempts_step_two: int = 8
+    clinical_lockout_seconds_step_two: int = 120
+    clinical_lockout_attempts_step_three: int = 10
+    clinical_lockout_seconds_step_three: int = 300
+    patient_pin_max_login_attempts: int = 5
+    patient_pin_lockout_minutes: int = 15
+    patient_app_token_ttl_seconds: int = 86_400 * 7
     min_active_admin_accounts: int = 2
     super_admin_emails: Union[List[str], str] = ["admin@example.com"]
     admin_unlock_whitelisted_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
     admin_2fa_required: bool = True
-    admin_jwt_expires_in: int = 43200
+    admin_jwt_expires_in: int = 14400
     admin_2fa_issuer: str = "Telemed Admin"
-    privileged_action_mfa_max_age_seconds: int = 14400
+    privileged_action_mfa_max_age_seconds: int = 900
     trusted_device_cookie_name: str = "trusted_device_token"
-    admin_trusted_device_days: int = 7
-    user_trusted_device_days: int = 30
+    admin_trusted_device_days: int = 1
+    user_trusted_device_days: int = 7
     backup_code_count: int = 10
     backup_code_expires_days: int = 365
     # Phase policy toggles
@@ -73,6 +113,9 @@ class Settings(BaseSettings):
     security_whitelisted_ips: str = "127.0.0.1,::1"
     trusted_proxy_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
     security_403_spike_threshold_1h: int = 25
+    device_secret_encryption_key: str | None = None
+    two_factor_secret_encryption_key: str | None = None
+    allow_insecure_secret_storage: bool = False
 
     # Device API Security
     device_api_secret: str | None = None
@@ -115,6 +158,8 @@ class Settings(BaseSettings):
     meeting_video_token_ttl_seconds: int = 900
     meeting_patient_invite_ttl_seconds: int = 86_400
     meeting_patient_join_base_url: str | None = None
+    meeting_signing_secret: str | None = None
+    meeting_signing_allow_jwt_secret_fallback: bool = False
     meeting_video_room_prefix: str = "telemed"
     meeting_presence_reconcile_interval_seconds: int = 30
 
@@ -180,6 +225,28 @@ class Settings(BaseSettings):
             return None
         value = cls._validate_device_secret_value(v, "DEVICE_API_SECRET")
         return value
+
+    @field_validator("meeting_signing_secret")
+    @classmethod
+    def validate_meeting_signing_secret(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return cls._validate_device_secret_value(v, "MEETING_SIGNING_SECRET")
+
+    @field_validator(
+        "device_secret_encryption_key",
+        "two_factor_secret_encryption_key",
+    )
+    @classmethod
+    def validate_at_rest_secret_encryption_key(
+        cls,
+        v: str | None,
+        info,
+    ) -> str | None:
+        try:
+            return validate_secret_encryption_key(v, config_name=info.field_name.upper())
+        except SecretEncryptionConfigurationError as exc:
+            raise ValueError(str(exc)) from exc
 
     @classmethod
     def _validate_device_secret_value(cls, v: str, source_name: str) -> str:
@@ -407,6 +474,33 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def expand_local_dev_cors_origins(self):
+        normalized_origins: List[str] = []
+
+        for origin in self.cors_origins:
+            value = (origin or "").strip().rstrip("/")
+            if not value:
+                continue
+
+            if value not in normalized_origins:
+                normalized_origins.append(value)
+
+            if self.app_env not in {"development", "test"}:
+                continue
+
+            for alias in LOOPBACK_ORIGIN_ALIASES.get(value, []):
+                if alias not in normalized_origins:
+                    normalized_origins.append(alias)
+
+        if self.app_env in {"development", "test"}:
+            for origin in LOCAL_DEV_CORS_ORIGINS:
+                if origin not in normalized_origins:
+                    normalized_origins.append(origin)
+
+        self.cors_origins = normalized_origins
+        return self
+
+    @model_validator(mode="after")
     def apply_device_api_secret_fallback(self):
         if self.device_api_allow_jwt_secret_fallback:
             raise ValueError("DEVICE_API_ALLOW_JWT_SECRET_FALLBACK is not allowed for security reasons.")
@@ -461,6 +555,83 @@ class Settings(BaseSettings):
 
         return self
 
+    @model_validator(mode="after")
+    def validate_phase_one_security_requirements(self):
+        if self.meeting_signing_secret is not None:
+            value = self.meeting_signing_secret.strip()
+            self.meeting_signing_secret = value or None
+
+        if self.app_env == "production":
+            missing_device_hardening_flags = []
+            if not self.device_api_require_registered_device:
+                missing_device_hardening_flags.append(
+                    "DEVICE_API_REQUIRE_REGISTERED_DEVICE=true"
+                )
+            if not self.device_api_require_body_hash_signature:
+                missing_device_hardening_flags.append(
+                    "DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE=true"
+                )
+            if not self.device_api_require_nonce:
+                missing_device_hardening_flags.append("DEVICE_API_REQUIRE_NONCE=true")
+            if missing_device_hardening_flags:
+                raise ValueError(
+                    "Production device ingest hardening requires "
+                    + ", ".join(missing_device_hardening_flags)
+                    + "."
+                )
+
+            if self.meeting_signing_allow_jwt_secret_fallback:
+                raise ValueError(
+                    "MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK must be false when APP_ENV=production."
+                )
+
+            if not self.meeting_signing_secret:
+                raise ValueError(
+                    "MEETING_SIGNING_SECRET is required when APP_ENV=production."
+                )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_at_rest_secret_encryption_requirements(self):
+        missing_keys = [
+            env_name
+            for env_name, value in (
+                ("DEVICE_SECRET_ENCRYPTION_KEY", self.device_secret_encryption_key),
+                ("TWO_FACTOR_SECRET_ENCRYPTION_KEY", self.two_factor_secret_encryption_key),
+            )
+            if not value
+        ]
+
+        if self.app_env == "production":
+            if self.allow_insecure_secret_storage:
+                raise ValueError(
+                    "ALLOW_INSECURE_SECRET_STORAGE must be false when APP_ENV=production."
+                )
+            if missing_keys:
+                raise ValueError(
+                    "Production secret-at-rest hardening requires "
+                    + ", ".join(missing_keys)
+                    + "."
+                )
+            return self
+
+        if missing_keys and not self.allow_insecure_secret_storage:
+            raise ValueError(
+                "Secret-at-rest encryption keys are required unless "
+                "ALLOW_INSECURE_SECRET_STORAGE=true is set explicitly for non-production compatibility mode."
+            )
+
+        encrypted_secret_storage_enabled = bool(
+            self.device_secret_encryption_key or self.two_factor_secret_encryption_key
+        )
+        if encrypted_secret_storage_enabled and not has_secret_crypto_backend():
+            raise ValueError(
+                "Missing dependency 'pycryptodomex'. Install it to enable secrets-at-rest encryption."
+            )
+
+        return self
+
     @property
     def resolved_allowed_hosts(self) -> List[str]:
         normalized_hosts: List[str] = []
@@ -469,11 +640,13 @@ class Settings(BaseSettings):
             if value and value not in normalized_hosts:
                 normalized_hosts.append(value)
 
+        if self.app_env in {"development", "test"}:
+            for host in LOCAL_DEV_ALLOWED_HOSTS:
+                if host not in normalized_hosts:
+                    normalized_hosts.append(host)
+
         if normalized_hosts:
             return normalized_hosts
-
-        if self.app_env in {"development", "test"}:
-            return ["localhost", "127.0.0.1", "::1", "testserver"]
 
         return []
 
@@ -501,8 +674,26 @@ class Settings(BaseSettings):
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         return (
             init_settings,
-            RawDeviceSecretsEnvSettingsSource(settings_cls),
-            RawDeviceSecretsDotEnvSettingsSource(settings_cls),
+            RawDeviceSecretsEnvSettingsSource(
+                settings_cls,
+                case_sensitive=getattr(env_settings, "case_sensitive", None),
+                env_prefix=getattr(env_settings, "env_prefix", None),
+                env_nested_delimiter=getattr(env_settings, "env_nested_delimiter", None),
+                env_ignore_empty=getattr(env_settings, "env_ignore_empty", None),
+                env_parse_none_str=getattr(env_settings, "env_parse_none_str", None),
+                env_parse_enums=getattr(env_settings, "env_parse_enums", None),
+            ),
+            RawDeviceSecretsDotEnvSettingsSource(
+                settings_cls,
+                env_file=getattr(dotenv_settings, "env_file", None),
+                env_file_encoding=getattr(dotenv_settings, "env_file_encoding", None),
+                case_sensitive=getattr(dotenv_settings, "case_sensitive", None),
+                env_prefix=getattr(dotenv_settings, "env_prefix", None),
+                env_nested_delimiter=getattr(dotenv_settings, "env_nested_delimiter", None),
+                env_ignore_empty=getattr(dotenv_settings, "env_ignore_empty", None),
+                env_parse_none_str=getattr(dotenv_settings, "env_parse_none_str", None),
+                env_parse_enums=getattr(dotenv_settings, "env_parse_enums", None),
+            ),
             file_secret_settings,
         )
 
@@ -512,14 +703,34 @@ def get_settings() -> Settings:
     try:
         settings = Settings()
     except ValidationError as exc:
-        security_fields = {"jwt_secret", "device_api_secret"}
+        security_fields = {
+            "jwt_secret",
+            "device_api_secret",
+            "meeting_signing_secret",
+            "device_secret_encryption_key",
+            "two_factor_secret_encryption_key",
+        }
+        security_markers = (
+            "MEETING_SIGNING_SECRET",
+            "DEVICE_API_REQUIRE_REGISTERED_DEVICE",
+            "DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE",
+            "DEVICE_API_REQUIRE_NONCE",
+            "Production device ingest hardening requires",
+            "DEVICE_SECRET_ENCRYPTION_KEY",
+            "TWO_FACTOR_SECRET_ENCRYPTION_KEY",
+            "ALLOW_INSECURE_SECRET_STORAGE",
+            "Secret-at-rest encryption keys are required unless",
+            "Production secret-at-rest hardening requires",
+            "pycryptodomex",
+        )
         security_messages: List[str] = []
 
         for error in exc.errors():
             loc = error.get("loc") or ()
             field_name = loc[-1] if loc else None
-            if field_name in security_fields:
-                security_messages.append(error.get("msg", "Invalid security configuration."))
+            message = error.get("msg", "Invalid security configuration.")
+            if field_name in security_fields or any(marker in message for marker in security_markers):
+                security_messages.append(message)
 
         if security_messages:
             raise RuntimeError(

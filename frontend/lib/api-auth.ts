@@ -5,6 +5,7 @@ import type {
   AdminEmergencyUnlockPayload,
   AdminEmergencyUnlockResponse,
   AdminPasswordResetResponse,
+  AdminSsoLogoutResponse,
   AdminSecurityUserLookup,
   AdminSsoStatus,
   BackupCodesResponse,
@@ -36,8 +37,8 @@ export function getAdminSsoLoginPath(nextPath: string = "/patients"): string {
   return `/api/auth/admin/sso/login?${query.toString()}`;
 }
 
-export function getAdminSsoLogoutPath(): string {
-  return "/api/auth/admin/sso/logout";
+export async function logoutAdminSso(): Promise<AdminSsoLogoutResponse> {
+  return apiFetch<AdminSsoLogoutResponse>("/auth/admin/sso/logout", { method: "POST" });
 }
 
 export async function login(

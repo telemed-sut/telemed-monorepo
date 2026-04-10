@@ -33,12 +33,38 @@ from app.services.auth_privileges import (
     can_manage_privileged_admins,
     can_manage_security_recovery,
     is_admin_sso_enforced_for_user,
+    requires_token_mfa,
 )
+from app.services import auth_sessions
 from app.services import patient as patient_service
-from .auth_2fa import *  # noqa: F401,F403
-from .auth_login import *  # noqa: F401,F403
-from .auth_tokens import *  # noqa: F401,F403
-from .auth_tokens import _coerce_timestamp, _now_utc, _validate_token_session
+from .auth_2fa import (
+    get_request_auth_payload,
+    require_recent_privileged_session,
+    require_recent_sensitive_session,
+)
+from .auth_login import (
+    authenticate_user,
+    consume_invite,
+    create_user_invite,
+    get_active_invite_by_token,
+    hash_invite_token,
+    reset_user_password,
+)
+from .auth_tokens import (
+    PasswordResetTokenClaims,
+    _coerce_timestamp,
+    _get_password_changed_marker,
+    _normalize_dt,
+    _now_utc,
+    _validate_token_session,
+    create_login_response,
+    create_password_reset_token,
+    get_access_token_ttl_seconds,
+    is_password_reset_token_stale,
+    is_recent_mfa_authenticated,
+    parse_password_reset_token,
+    verify_password_reset_token,
+)
 
 settings = get_settings()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
@@ -100,6 +126,12 @@ def get_current_user(
             detail="Account is deactivated",
         )
     _validate_token_session(user, payload, credentials_exception)
+    auth_sessions.require_active_session(
+        db,
+        user_id=user.id,
+        session_id=payload.get("session_id") if isinstance(payload, dict) else None,
+        credentials_exception=credentials_exception,
+    )
     return user
 
 
@@ -139,6 +171,12 @@ def get_optional_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
         _validate_token_session(user, payload, credentials_exception)
+        auth_sessions.require_active_session(
+            db,
+            user_id=user.id,
+            session_id=payload.get("session_id") if isinstance(payload, dict) else None,
+            credentials_exception=credentials_exception,
+        )
     except HTTPException:
         return None
     return user

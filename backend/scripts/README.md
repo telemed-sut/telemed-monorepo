@@ -1,6 +1,39 @@
 # Production Readiness Scripts
 
-Scripts for load testing and backup verification.
+Scripts for load testing, maintenance, and backup verification.
+
+## Maintenance cleanup
+
+Use the cleanup scripts to enforce retention policies without changing
+application behavior.
+
+### Session cleanup (`cleanup_sessions.py`)
+
+Run this script from the backend root to delete revoked or expired session
+records after the retention window passes.
+
+```bash
+cd backend
+venv/bin/python scripts/cleanup_sessions.py
+```
+
+The current defaults are:
+
+- revoked sessions retained for 7 days,
+- expired sessions retained for 7 days, and
+- batch deletion size of 1000 rows.
+
+You can override these values with:
+
+- `SESSION_REVOKED_RETENTION_DAYS`,
+- `SESSION_EXPIRED_RETENTION_DAYS`, and
+- `SESSION_CLEANUP_BATCH_SIZE`.
+
+## Security sign-off evidence
+
+Use the repository workflow `.github/workflows/security-signoff-evidence.yml`
+to capture backend `pip-audit` and frontend `bun audit` results as release
+artifacts before production sign-off.
 
 ---
 

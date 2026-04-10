@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.models.audit_log import AuditLog
 from app.models.enums import UserRole
@@ -27,8 +27,10 @@ def _create_user(db: Session, *, email: str, role: UserRole) -> User:
     return user
 
 
-def _auth_headers(user: User) -> dict[str, str]:
-    token = create_login_response(user)["access_token"]
+def _auth_headers(user: User, db: Session | None = None) -> dict[str, str]:
+    session = db or object_session(user)
+    token = create_login_response(user, db=session)["access_token"]
+    session.commit()
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -53,7 +55,7 @@ def test_admin_can_list_active_ip_bans(client: TestClient, db: Session):
     )
     db.commit()
 
-    response = client.get("/security/ip-bans", headers=_auth_headers(admin))
+    response = client.get("/security/ip-bans", headers=_auth_headers(admin, db))
 
     assert response.status_code == 200, response.text
     payload = response.json()
@@ -72,7 +74,7 @@ def test_admin_can_create_and_update_ip_ban(client: TestClient, db: Session):
             "reason": "Manual block",
             "duration_minutes": 90,
         },
-        headers=_auth_headers(admin),
+        headers=_auth_headers(admin, db),
     )
     assert create_response.status_code == 200, create_response.text
     create_payload = create_response.json()
@@ -212,7 +214,8 @@ def test_admin_security_endpoints_require_mfa_verified_token(
 ):
     monkeypatch.setattr(auth_service.settings, "admin_2fa_required", True)
     admin = _create_user(db, email="security-mfa-admin@example.com", role=UserRole.admin)
-    token = create_login_response(admin, mfa_verified=False)["access_token"]
+    token = create_login_response(admin, db=db, mfa_verified=False)["access_token"]
+    db.commit()
 
     response = client.get(
         "/security/ip-bans",

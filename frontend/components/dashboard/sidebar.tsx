@@ -32,12 +32,12 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState, startTransition } from "react";
 import { Logo } from "@/components/ui/logo";
+import { useSessionLogout } from "@/hooks/use-session-logout";
 import { useAuthStore } from "@/store/auth-store";
 import {
   canManageUsers,
   canViewClinicalData,
   fetchCurrentUser,
-  logout,
   UserMe,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -54,9 +54,6 @@ interface NavItem {
   icon: React.ElementType;
   link: string;
 }
-
-const sidebarCurrentUserCache = new Map<string, UserMe>();
-
 const baseRoutes: NavItem[] = [
   { id: "overview", icon: Home, link: "/overview" },
   { id: "patients", icon: Users, link: "/patients" },
@@ -348,15 +345,12 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const t = SIDEBAR_LABELS[language];
   const token = useAuthStore((state) => state.token);
   const userId = useAuthStore((state) => state.userId);
+  const currentUser = useAuthStore((state) => state.currentUser);
   const userRole = useAuthStore((state) => state.role);
-  const clearToken = useAuthStore((state) => state.clearToken);
-  const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
+  const setCurrentUser = useAuthStore((state) => state.setCurrentUser);
+  const logoutSession = useSessionLogout();
   const resolvedCurrentUser =
-    userId && currentUser?.id === userId
-      ? currentUser
-      : userId
-        ? sidebarCurrentUserCache.get(userId) ?? null
-        : null;
+    userId && currentUser?.id === userId ? currentUser : null;
 
   useEffect(() => {
     if (!token || !userId) {
@@ -364,19 +358,10 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
     }
 
     let cancelled = false;
-
-    const loadCurrentUser = (forceRefresh = false) => {
-      const cachedUser = sidebarCurrentUserCache.get(userId);
-      if (cachedUser && !forceRefresh) {
-        setCurrentUser(cachedUser);
-        return;
-      }
-
+    const loadCurrentUser = () => {
       fetchCurrentUser(token)
         .then((user) => {
-          sidebarCurrentUserCache.set(userId, user);
-
-          if (!cancelled) {
+          if (!cancelled && user.id === userId) {
             setCurrentUser(user);
           }
         })
@@ -387,7 +372,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
 
     loadCurrentUser();
     const handleProfileUpdated = () => {
-      loadCurrentUser(true);
+      loadCurrentUser();
     };
 
     window.addEventListener("telemed-profile-updated", handleProfileUpdated);
@@ -440,10 +425,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
 
   const handleLogout = () => {
     closeMobileSidebar();
-    void logout(token || undefined).catch(() => undefined).finally(() => {
-      clearToken();
-      router.replace("/login");
-    });
+    logoutSession();
   };
   const isCollapsed = state === "collapsed";
   const activeProfileMenuItem: ProfileMenuItem | null =

@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/venv}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 UPGRADE_PIP="${UPGRADE_PIP:-0}"
+REQUIREMENTS_FILE="${REQUIREMENTS_FILE:-}"
 
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   echo "Python interpreter not found: $PYTHON_BIN" >&2
@@ -34,7 +35,14 @@ echo "==> Syncing dependencies into $VENV_DIR"
 if [ "$UPGRADE_PIP" = "1" ]; then
   "$VENV_DIR/bin/python" -m pip install --disable-pip-version-check --upgrade pip
 fi
-"$VENV_DIR/bin/python" -m pip install --disable-pip-version-check -r "$ROOT_DIR/requirements.txt"
+if [ -z "$REQUIREMENTS_FILE" ]; then
+  if [ -f "$ROOT_DIR/requirements.lock" ]; then
+    REQUIREMENTS_FILE="$ROOT_DIR/requirements.lock"
+  else
+    REQUIREMENTS_FILE="$ROOT_DIR/requirements.txt"
+  fi
+fi
+"$VENV_DIR/bin/python" -m pip install --disable-pip-version-check -r "$REQUIREMENTS_FILE"
 
 echo "==> Verifying installed packages"
 "$VENV_DIR/bin/python" -m pip check

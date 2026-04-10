@@ -8,9 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
-from app.models.enums import UserRole
+from app.models.enums import PrivilegedRole, UserRole
 from app.models.user import User
+from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
 from app.services import audit as audit_service
+from app.services.auth import create_login_response
 
 
 def _make_user(
@@ -40,6 +42,12 @@ def _login(client: TestClient, email: str, password: str = "TestPass123") -> str
     response = client.post("/auth/login", json={"email": email, "password": password})
     assert response.status_code == 200, response.text
     return response.json()["access_token"]
+
+
+def _mint_token(db: Session, user: User, **kwargs) -> str:
+    token = create_login_response(user, db=db, **kwargs)["access_token"]
+    db.commit()
+    return token
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -74,8 +82,27 @@ def _write_audit_log(
     return log
 
 
+def _grant_privileged_role(
+    db: Session,
+    *,
+    user: User,
+    role: PrivilegedRole,
+    created_by: User | None = None,
+) -> UserPrivilegedRoleAssignment:
+    assignment = UserPrivilegedRoleAssignment(
+        user_id=user.id,
+        role=role,
+        created_by=created_by.id if created_by else None,
+        reason="audit test privilege grant",
+    )
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+    return assignment
+
+
 def test_audit_logs_filter_by_user_result_and_date(client: TestClient, db: Session):
-    admin = _make_user(db, email="admin-audit-filter@example.com", role=UserRole.admin)
+    admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
     doctor = _make_user(
         db,
         email="doctor-audit-filter@example.com",
@@ -88,7 +115,7 @@ def test_audit_logs_filter_by_user_result_and_date(client: TestClient, db: Sessi
         email="medical-student-audit-filter@example.com",
         role=UserRole.medical_student,
     )
-    token = _login(client, admin.email)
+    token = _mint_token(db, admin)
 
     now = datetime.now(timezone.utc)
     yesterday = now - timedelta(days=1)
@@ -139,9 +166,9 @@ def test_audit_logs_filter_by_user_result_and_date(client: TestClient, db: Sessi
 
 
 def test_audit_export_honors_user_and_result_filters(client: TestClient, db: Session):
-    admin = _make_user(db, email="admin-audit-export@example.com", role=UserRole.admin)
+    admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
     doctor = _make_user(db, email="doctor-audit-export@example.com", role=UserRole.doctor)
-    token = _login(client, admin.email)
+    token = _mint_token(db, admin)
 
     _write_audit_log(
         db,
@@ -175,9 +202,9 @@ def test_audit_export_honors_user_and_result_filters(client: TestClient, db: Ses
 
 
 def test_audit_logs_infers_failure_status_when_omitted(client: TestClient, db: Session):
-    admin = _make_user(db, email="admin-audit-infer@example.com", role=UserRole.admin)
+    admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
     doctor = _make_user(db, email="doctor-audit-infer@example.com", role=UserRole.doctor)
-    token = _login(client, admin.email)
+    token = _mint_token(db, admin)
 
     # Intentionally omit status to verify model-level inference for "failed" actions.
     _write_audit_log(
@@ -200,9 +227,9 @@ def test_audit_logs_infers_failure_status_when_omitted(client: TestClient, db: S
 
 
 def test_audit_logs_query_returns_dict_details_for_jsonb_rows(client: TestClient, db: Session):
-    admin = _make_user(db, email="admin-audit-dict-query@example.com", role=UserRole.admin)
+    admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
     target = _make_user(db, email="doctor-audit-dict-query@example.com", role=UserRole.doctor)
-    token = _login(client, admin.email)
+    token = _mint_token(db, admin)
 
     _write_audit_log(
         db,
@@ -221,9 +248,9 @@ def test_audit_logs_query_returns_dict_details_for_jsonb_rows(client: TestClient
 
 
 def test_audit_export_serializes_dict_details_for_csv_reports(client: TestClient, db: Session):
-    admin = _make_user(db, email="admin-audit-dict-export@example.com", role=UserRole.admin)
+    admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
     target = _make_user(db, email="doctor-audit-dict-export@example.com", role=UserRole.doctor)
-    token = _login(client, admin.email)
+    token = _mint_token(db, admin)
 
     _write_audit_log(
         db,
@@ -242,6 +269,74 @@ def test_audit_export_serializes_dict_details_for_csv_reports(client: TestClient
     assert len(rows) == 1
     assert rows[0]["Details"].startswith("{")
     assert '"reason": "export dict payload"' in rows[0]["Details"]
+
+
+def test_audit_logs_deny_ordinary_admin_without_security_recovery_access(client: TestClient, db: Session):
+    admin = _make_user(db, email="regular-audit-admin@example.com", role=UserRole.admin)
+    token = _mint_token(db, admin)
+
+    response = client.get("/audit/logs", headers=_auth(token))
+    export_response = client.get("/audit/export", headers=_auth(token))
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Security admin only."
+    assert export_response.status_code == 403
+    assert export_response.json()["detail"] == "Security admin only."
+
+
+def test_audit_logs_require_recent_mfa_for_security_recovery_admin(client: TestClient, db: Session):
+    bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+    security_admin = _make_user(db, email="security-audit-admin@example.com", role=UserRole.admin)
+    _grant_privileged_role(
+        db,
+        user=security_admin,
+        role=PrivilegedRole.security_admin,
+        created_by=bootstrap_admin,
+    )
+    stale_token = _mint_token(
+        db,
+        security_admin,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+
+    response = client.get("/audit/logs", headers=_auth(stale_token))
+
+    assert response.status_code == 401
+    assert "Recent multi-factor verification required" in response.json()["detail"]
+
+
+def test_audit_reads_redact_nested_sensitive_fields_in_json_and_csv(client: TestClient, db: Session):
+    admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+    target = _make_user(db, email="audit-redacted-target@example.com", role=UserRole.doctor)
+    token = _mint_token(db, admin)
+
+    _write_audit_log(
+        db,
+        action="user_update",
+        user=target,
+        details={
+            "email": "patient@example.com",
+            "nested": {"phone": "+6600000000", "note": "keep-me"},
+            "items": [{"session_id": "session-123"}],
+        },
+        status="success",
+    )
+
+    logs_response = client.get("/audit/logs", headers=_auth(token))
+    assert logs_response.status_code == 200, logs_response.text
+    log_item = logs_response.json()["items"][0]
+    assert log_item["details"]["email"] == "[REDACTED]"
+    assert log_item["details"]["nested"]["phone"] == "[REDACTED]"
+    assert log_item["details"]["nested"]["note"] == "keep-me"
+    assert log_item["details"]["items"][0]["session_id"] == "[REDACTED]"
+
+    export_response = client.get("/audit/export", headers=_auth(token))
+    assert export_response.status_code == 200, export_response.text
+    rows = list(csv.DictReader(io.StringIO(export_response.content.decode("utf-8"))))
+    export_response.close()
+    assert "[REDACTED]" in rows[0]["Details"]
+    assert "patient@example.com" not in rows[0]["Details"]
 
 
 def test_log_action_emits_structured_audit_log_without_sensitive_details(db: Session, monkeypatch):

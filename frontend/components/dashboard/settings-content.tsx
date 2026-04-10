@@ -298,7 +298,10 @@ export function SettingsContent({
   const searchParams = useSearchParams();
   const language = useLanguageStore((state) => state.language);
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.userId);
   const role = useAuthStore((state) => state.role);
+  const authCurrentUser = useAuthStore((state) => state.currentUser);
+  const setAuthCurrentUser = useAuthStore((state) => state.setCurrentUser);
   const clearToken = useAuthStore((state) => state.clearToken);
   const ssoProvider = useAuthStore((state) => state.ssoProvider);
   const mfaVerified = useAuthStore((state) => state.mfaVerified);
@@ -377,8 +380,29 @@ export function SettingsContent({
   }, [hydrated, token, router]);
 
   useEffect(() => {
+    if (!hydrated) return;
+    if (!token || !userId) {
+      setCurrentUser(null);
+      setFirstName("");
+      setLastName("");
+      return;
+    }
+
+    if (!authCurrentUser || authCurrentUser.id !== userId) {
+      setCurrentUser(null);
+      setFirstName("");
+      setLastName("");
+      return;
+    }
+
+    setCurrentUser(authCurrentUser);
+    setFirstName(authCurrentUser.first_name || "");
+    setLastName(authCurrentUser.last_name || "");
+  }, [authCurrentUser, hydrated, token, userId]);
+
+  useEffect(() => {
     const authToken = token ?? undefined;
-    if (!hydrated || !authToken) return;
+    if (!hydrated || !authToken || !userId) return;
 
     let cancelled = false;
 
@@ -389,7 +413,8 @@ export function SettingsContent({
           fetchCurrentUser(authToken),
           loadAccessProfile(),
         ]);
-        if (cancelled) return;
+        if (cancelled || me.id !== userId) return;
+        setAuthCurrentUser(me);
         setCurrentUser(me);
         setFirstName(me.first_name || "");
         setLastName(me.last_name || "");
@@ -409,7 +434,7 @@ export function SettingsContent({
     return () => {
       cancelled = true;
     };
-  }, [hydrated, token, clearToken, loadAccessProfile, router]);
+  }, [hydrated, token, userId, clearToken, loadAccessProfile, router, setAuthCurrentUser]);
 
   useEffect(() => {
     if (isModalPresentation) return;
@@ -573,7 +598,7 @@ export function SettingsContent({
     const requirement = twoFA.required
       ? tr(language, "Required", "บังคับ")
       : tr(language, "Optional", "ไม่บังคับ");
-    const trustedDays = twoFA.trusted_device_days ?? (isAdmin ? 7 : 30);
+    const trustedDays = twoFA.trusted_device_days ?? (isAdmin ? 1 : 7);
 
     return `${
       twoFA.enabled
@@ -711,6 +736,7 @@ export function SettingsContent({
           sso_provider: currentUser.sso_provider,
         };
 
+        setAuthCurrentUser(nextUser);
         setCurrentUser(nextUser);
         setFirstName(nextUser.first_name || "");
         setLastName(nextUser.last_name || "");
@@ -733,7 +759,15 @@ export function SettingsContent({
         setProfileSaving(false);
       }
     },
-    [currentUser, firstName, hasProfileChanges, language, lastName, token],
+    [
+      currentUser,
+      firstName,
+      hasProfileChanges,
+      language,
+      lastName,
+      setAuthCurrentUser,
+      token,
+    ],
   );
 
   const handleVerify2FA = async () => {

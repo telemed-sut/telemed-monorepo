@@ -23,7 +23,7 @@ def _create_user(db: Session, *, email: str, role: UserRole) -> User:
 def _assert_security_headers(response) -> None:
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "DENY"
-    assert response.headers["X-XSS-Protection"] == "1; mode=block"
+    assert response.headers["X-XSS-Protection"] == "0"
     assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
     assert response.headers["Permissions-Policy"] == "camera=(), microphone=(), geolocation=()"
     assert response.headers["Cache-Control"] == "no-store"
@@ -41,7 +41,8 @@ def test_security_headers_are_applied_to_authenticated_auth_response(
     db: Session,
 ):
     admin = _create_user(db, email="headers-admin@example.com", role=UserRole.admin)
-    token = create_login_response(admin)["access_token"]
+    token = create_login_response(admin, db=db)["access_token"]
+    db.commit()
 
     response = client.get(
         "/auth/me",

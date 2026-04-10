@@ -14,6 +14,34 @@ import { useLanguageStore } from "@/store/language-store";
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
 
+const USER_REGISTRATION_SIGNAL_KEY = "telemed:user-registered";
+const USER_REGISTRATION_CHANNEL = "telemed-user-events";
+
+function notifyUserRegistered(): void {
+  if (typeof window === "undefined") return;
+
+  const signal = {
+    type: "user.registered",
+    occurredAt: new Date().toISOString(),
+  };
+
+  try {
+    window.localStorage.setItem(USER_REGISTRATION_SIGNAL_KEY, JSON.stringify(signal));
+  } catch {
+    // Best-effort cross-tab refresh signal.
+  }
+
+  if (typeof window.BroadcastChannel !== "undefined") {
+    try {
+      const channel = new window.BroadcastChannel(USER_REGISTRATION_CHANNEL);
+      channel.postMessage(signal);
+      channel.close();
+    } catch {
+      // Ignore broadcast failures and rely on focus/storage fallback.
+    }
+  }
+}
+
 function timingSafeEqualStrings(left: string, right: string): boolean {
   const encoder = new TextEncoder();
   const leftBytes = encoder.encode(left.normalize("NFKC"));
@@ -131,6 +159,7 @@ export default function InviteRegisterClientPage() {
         password,
         license_no: licenseNo || undefined,
       });
+      notifyUserRegistered();
       router.replace("/login");
     } catch (err) {
       const message = err instanceof Error

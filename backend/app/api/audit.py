@@ -5,16 +5,19 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.logging_config import redact_sensitive_data
 from app.core.limiter import limiter
 from app.models.audit_log import AuditLog
+from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.audit import AuditLogListResponse, AuditLogResponse
-from app.services.auth import get_admin_user, get_db
+from app.services import auth as auth_service
+from app.services.auth import get_db
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
@@ -108,6 +111,30 @@ def _derive_result(log: AuditLog) -> str:
     # Use the status column directly now that it's part of the DB schema
     return log.status or "success"
 
+
+def _require_audit_reader(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+) -> User:
+    if current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Required roles: ['admin']",
+        )
+    auth_service.require_recent_privileged_session(request, current_user)
+    if not auth_service.can_manage_security_recovery(current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Security admin only.",
+        )
+    return current_user
+
+
+def _sanitize_audit_payload(value: Any) -> Any:
+    return redact_sensitive_data(value)
+
+
 def _sanitize_csv_field(value: Any) -> str:
     """Prevent CSV Injection (Formula Injection) by escaping formula characters."""
     if value is None:
@@ -143,9 +170,9 @@ def get_audit_logs(
     search: Optional[str] = None,
     result: Optional[str] = Query(default=None, pattern="^(success|failure)$"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_admin_user),
+    current_user: User = Depends(_require_audit_reader),
 ):
-    """View audit logs with filters (admin only)."""
+    """View audit logs with filters (security-recovery admin only)."""
     normalized_limit = max(1, min(int(limit), 200))
 
     stmt = _apply_filters(
@@ -210,12 +237,12 @@ def get_audit_logs(
                 status=_derive_result(log),
                 resource_type=log.resource_type,
                 resource_id=str(log.resource_id) if log.resource_id else None,
-                details=log.details,
+                details=_sanitize_audit_payload(log.details),
                 ip_address=log.ip_address,
                 is_break_glass=log.is_break_glass,
                 break_glass_reason=log.break_glass_reason,
-                old_values=log.old_values,
-                new_values=log.new_values,
+                old_values=_sanitize_audit_payload(log.old_values),
+                new_values=_sanitize_audit_payload(log.new_values),
                 created_at=log.created_at,
             )
         )
@@ -247,9 +274,9 @@ def export_audit_logs(
     search: Optional[str] = None,
     result: Optional[str] = Query(default=None, pattern="^(success|failure)$"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_admin_user),
+    current_user: User = Depends(_require_audit_reader),
 ):
-    """Export audit logs to CSV (admin only)."""
+    """Export audit logs to CSV (security-recovery admin only)."""
     stmt = _apply_filters(
         _build_query(),
         user_id=user_id,
@@ -310,7 +337,7 @@ def export_audit_logs(
                     _sanitize_csv_field(log.ip_address),
                     "Yes" if log.is_break_glass else "No",
                     _sanitize_csv_field(log.break_glass_reason),
-                    _sanitize_csv_field(log.details),
+                    _sanitize_csv_field(_sanitize_audit_payload(log.details)),
                 ]
             )
             val = output.getvalue()

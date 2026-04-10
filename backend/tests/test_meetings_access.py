@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core.config import get_settings
 from app.core.security import get_password_hash
@@ -27,8 +27,10 @@ def _create_user(db: Session, email: str, role: UserRole) -> User:
     return user
 
 
-def _auth_headers(user: User) -> dict[str, str]:
-    token = create_login_response(user)["access_token"]
+def _auth_headers(user: User, db: Session | None = None) -> dict[str, str]:
+    session = db or object_session(user)
+    token = create_login_response(user, db=session)["access_token"]
+    session.commit()
     return {"Authorization": f"Bearer {token}"}
 
 

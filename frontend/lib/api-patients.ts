@@ -16,6 +16,7 @@ import type {
   PatientDenseSummary,
   PatientListResponse,
   PatientRegistrationCodeResponse,
+  PatientWardListResponse,
   PendingLab,
   TimelineEvent,
   TimelineResponse,
@@ -46,6 +47,14 @@ export async function fetchAllPatients(
   return fetchAllPages<Patient>(
     ({ page, limit }) => fetchPatients({ ...params, page, limit }, token),
     options,
+  );
+}
+
+export async function fetchPatientWards(token: string) {
+  return apiFetch<PatientWardListResponse>(
+    "/patients/wards",
+    { method: "GET" },
+    token
   );
 }
 

@@ -59,6 +59,10 @@ class AdminSSOHealthResponse(BaseModel):
     metadata_endpoint: str | None = None
 
 
+class AdminSSOLogoutResponse(BaseModel):
+    redirect_url: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

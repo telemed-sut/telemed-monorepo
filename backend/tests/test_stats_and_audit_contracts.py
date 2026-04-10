@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
@@ -25,8 +25,10 @@ def _create_user(db: Session, *, email: str, role: UserRole) -> User:
     return user
 
 
-def _auth_headers(user: User) -> dict[str, str]:
-    token = create_login_response(user)["access_token"]
+def _auth_headers(user: User, db: Session | None = None) -> dict[str, str]:
+    session = db or object_session(user)
+    token = create_login_response(user, db=session)["access_token"]
+    session.commit()
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -70,7 +72,7 @@ def test_stats_overview_returns_expected_contract(
     )
     db.commit()
 
-    response = client.get("/stats/overview", headers=_auth_headers(admin))
+    response = client.get("/stats/overview", headers=_auth_headers(admin, db))
 
     assert response.status_code == 200, response.text
     payload = response.json()
@@ -86,7 +88,7 @@ def test_stats_overview_returns_expected_contract(
 
 def test_audit_endpoints_require_admin_role(client: TestClient, db: Session):
     medical_student = _create_user(db, email="audit-medical-student@example.com", role=UserRole.medical_student)
-    headers = _auth_headers(medical_student)
+    headers = _auth_headers(medical_student, db)
 
     logs_response = client.get("/audit/logs", headers=headers)
     export_response = client.get("/audit/export", headers=headers)
@@ -96,7 +98,7 @@ def test_audit_endpoints_require_admin_role(client: TestClient, db: Session):
 
 
 def test_audit_logs_cursor_contract_for_admin(client: TestClient, db: Session):
-    admin = _create_user(db, email="audit-admin-contract@example.com", role=UserRole.admin)
+    admin = _create_user(db, email="admin@example.com", role=UserRole.admin)
     db.add(
         AuditLog(
             user_id=admin.id,
@@ -110,7 +112,7 @@ def test_audit_logs_cursor_contract_for_admin(client: TestClient, db: Session):
     )
     db.commit()
 
-    response = client.get("/audit/logs?limit=1", headers=_auth_headers(admin))
+    response = client.get("/audit/logs?limit=1", headers=_auth_headers(admin, db))
 
     assert response.status_code == 200, response.text
     payload = response.json()

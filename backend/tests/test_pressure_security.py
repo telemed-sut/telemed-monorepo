@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.api import pressure as pressure_api
+from app.core.secret_crypto import SECRET_VALUE_PREFIX
 from app.models.device_registration import DeviceRegistration
 from app.models.patient import Patient
 
@@ -419,6 +420,54 @@ def test_add_pressure_rejects_inactive_registered_device(client: TestClient, db:
         device_secret=device_secret,
         is_active=False,
     )
+    db.add(device)
+    db.commit()
+
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": device_id,
+        "heart_rate": 80,
+        "sys_rate": 124,
+        "dia_rate": 81,
+        "a": None,
+        "b": None,
+    }
+    headers = _sign_headers(
+        device_id=device_id,
+        timestamp=str(int(time.time())),
+        secret=device_secret,
+    )
+
+    original_secret_map = dict(pressure_api.settings.device_api_secrets)
+    original_require_registered = pressure_api.settings.device_api_require_registered_device
+    original_global_secret = pressure_api.settings.device_api_secret
+
+    pressure_api.settings.device_api_secrets = {}
+    pressure_api.settings.device_api_require_registered_device = True
+    pressure_api.settings.device_api_secret = None
+    try:
+        response = client.post("/add_pressure", json=payload, headers=headers)
+        assert response.status_code == 403
+        assert "Invalid signature" in response.text
+    finally:
+        pressure_api.settings.device_api_secrets = original_secret_map
+        pressure_api.settings.device_api_require_registered_device = original_require_registered
+        pressure_api.settings.device_api_secret = original_global_secret
+
+
+def test_add_pressure_rejects_malformed_encrypted_registered_device_secret(client: TestClient, db: Session):
+    patient = _create_patient(db)
+    device_id = "db-malformed-secret-001"
+    device_secret = "db_malformed_secret_001_1234567890abcdef123456789"
+    device = DeviceRegistration(
+        device_id=device_id,
+        display_name="Ward Device Malformed Secret",
+        device_secret=device_secret,
+        is_active=True,
+    )
+    db.add(device)
+    db.commit()
+    device._device_secret_encrypted = f"{SECRET_VALUE_PREFIX}not-valid"
     db.add(device)
     db.commit()
 

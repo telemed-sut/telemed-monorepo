@@ -190,8 +190,11 @@ def start_reconcile_worker() -> None:
 def stop_reconcile_worker() -> None:
     global _reconcile_worker_thread
     with _reconcile_worker_lock:
+        thread = _reconcile_worker_thread
         _reconcile_worker_stop.set()
         _reconcile_worker_thread = None
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=max(1, min(settings.meeting_presence_reconcile_interval_seconds, 5)))
 
 
 def build_reliability_snapshot(

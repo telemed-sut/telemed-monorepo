@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
@@ -25,8 +25,10 @@ def _create_user(db: Session, *, email: str, role: UserRole) -> User:
     return user
 
 
-def _auth_headers(user: User) -> dict[str, str]:
-    token = create_login_response(user)["access_token"]
+def _auth_headers(user: User, db: Session | None = None) -> dict[str, str]:
+    session = db or object_session(user)
+    token = create_login_response(user, db=session)["access_token"]
+    session.commit()
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -43,7 +45,7 @@ def _create_patient(db: Session, *, first_name: str, last_name: str) -> Patient:
 
 
 def test_audit_logs_contract_returns_status_field(client: TestClient, db: Session):
-    admin = _create_user(db, email="audit-status-contract@example.com", role=UserRole.admin)
+    admin = _create_user(db, email="admin@example.com", role=UserRole.admin)
     db.add(
         AuditLog(
             user_id=admin.id,
@@ -57,7 +59,7 @@ def test_audit_logs_contract_returns_status_field(client: TestClient, db: Sessio
     )
     db.commit()
 
-    response = client.get("/audit/logs?limit=1", headers=_auth_headers(admin))
+    response = client.get("/audit/logs?limit=1", headers=_auth_headers(admin, db))
 
     assert response.status_code == 200, response.text
     payload = response.json()
@@ -83,7 +85,7 @@ def test_patient_presence_contract_returns_patient_joined_at(
     invite_response = client.post(
         f"/meetings/{meeting.id}/video/patient-invite",
         json={},
-        headers=_auth_headers(doctor),
+        headers=_auth_headers(doctor, db),
     )
     assert invite_response.status_code == 200, invite_response.text
 

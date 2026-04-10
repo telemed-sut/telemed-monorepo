@@ -1,5 +1,5 @@
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core.security import get_password_hash
 from app.models.user import User, UserRole
@@ -18,8 +18,10 @@ def create_test_user(db: Session, email: str, role: UserRole = UserRole.medical_
     return user
 
 
-def get_auth_headers(user: User) -> dict:
-    token_response = create_login_response(user)
+def get_auth_headers(user: User, db: Session | None = None) -> dict:
+    session = db or object_session(user)
+    token_response = create_login_response(user, db=session)
+    session.commit()
     return {"Authorization": f"Bearer {token_response['access_token']}"}
 
 
@@ -39,7 +41,7 @@ def _create_patient_as_admin(client: TestClient, headers: dict) -> str:
 
 def test_admin_can_delete_patient(client: TestClient, db: Session):
     admin_user = create_test_user(db, "admin@test.com", UserRole.admin)
-    admin_headers = get_auth_headers(admin_user)
+    admin_headers = get_auth_headers(admin_user, db)
 
     patient_id = _create_patient_as_admin(client, admin_headers)
 
@@ -51,8 +53,8 @@ def test_medical_student_has_read_only_patient_access(client: TestClient, db: Se
     admin_user = create_test_user(db, "admin2@test.com", UserRole.admin)
     medical_student_user = create_test_user(db, "medical-student@test.com", UserRole.medical_student)
 
-    admin_headers = get_auth_headers(admin_user)
-    medical_student_headers = get_auth_headers(medical_student_user)
+    admin_headers = get_auth_headers(admin_user, db)
+    medical_student_headers = get_auth_headers(medical_student_user, db)
 
     patient_id = _create_patient_as_admin(client, admin_headers)
 
@@ -114,9 +116,9 @@ def test_admin_only_endpoints_block_doctor_and_medical_student(client: TestClien
     doctor_user = create_test_user(db, "doctor-guard@test.com", UserRole.doctor)
     medical_student_user = create_test_user(db, "medical-student-guard@test.com", UserRole.medical_student)
 
-    admin_headers = get_auth_headers(admin_user)
-    doctor_headers = get_auth_headers(doctor_user)
-    medical_student_headers = get_auth_headers(medical_student_user)
+    admin_headers = get_auth_headers(admin_user, db)
+    doctor_headers = get_auth_headers(doctor_user, db)
+    medical_student_headers = get_auth_headers(medical_student_user, db)
 
     invite_resp = client.post(
         "/users/invites",

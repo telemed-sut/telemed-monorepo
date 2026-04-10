@@ -135,6 +135,7 @@ def test_refresh_endpoint_preserves_recent_mfa_and_session_metadata(client: Test
         mfa_authenticated_at=authenticated_at,
         session_id="refresh-session-id",
     )["access_token"]
+    db.commit()
 
     response = client.post(
         "/auth/refresh",
@@ -279,6 +280,45 @@ def test_logout_endpoint(client: TestClient, db: Session):
     
     assert response.status_code == 200
     assert response.json()["message"] == "Successfully logged out"
+    me_response = client.get("/auth/me", headers=headers)
+    assert me_response.status_code == 401
+    refresh_response = client.post("/auth/refresh", headers=headers)
+    assert refresh_response.status_code == 401
+
+
+def test_logout_clears_trusted_device_cookie(client: TestClient, db: Session):
+    user = User(
+        email="logout-trusted@example.com",
+        password_hash=get_password_hash("TestPassword123"),
+        role=UserRole.admin,
+    )
+    user.two_factor_secret = generate_totp_secret()
+    user.two_factor_enabled = True
+    user.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+
+    login_response = client.post(
+        "/auth/login",
+        json={
+            "email": "logout-trusted@example.com",
+            "password": "TestPassword123",
+            "otp_code": generate_totp_code(user.two_factor_secret),
+            "remember_device": True,
+        },
+    )
+    assert login_response.status_code == 200, login_response.text
+    token = login_response.json()["access_token"]
+    assert auth_api.settings.trusted_device_cookie_name in login_response.headers.get("set-cookie", "")
+
+    response = client.post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    cookie_header = response.headers.get("set-cookie", "")
+    assert f"{auth_api.settings.trusted_device_cookie_name}=" in cookie_header
 
 
 def test_protected_endpoint_without_token(client: TestClient):
@@ -287,7 +327,7 @@ def test_protected_endpoint_without_token(client: TestClient):
     assert response.status_code == 401
     
     response = client.post("/auth/logout")
-    assert response.status_code == 200
+    assert response.status_code == 401
 
 
 def test_forgot_password_endpoint(client: TestClient, db: Session):
@@ -404,6 +444,11 @@ def test_reset_password_invalidates_existing_access_token(client: TestClient, db
         headers={"Authorization": f"Bearer {old_token}"},
     )
     assert stale_token_response.status_code == 401
+    stale_refresh_response = client.post(
+        "/auth/refresh",
+        headers={"Authorization": f"Bearer {old_token}"},
+    )
+    assert stale_refresh_response.status_code == 401
 
     get_settings.cache_clear()
 

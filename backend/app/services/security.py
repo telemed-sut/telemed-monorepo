@@ -13,6 +13,7 @@ from app.core.security import (
     hash_security_token,
     normalize_backup_code,
 )
+from app.core.request_utils import is_local_development_ip
 from app.models.ip_ban import IPBan
 from app.models.login_attempt import LoginAttempt
 from app.models.enums import UserRole
@@ -29,6 +30,9 @@ def _now_utc() -> datetime:
 
 
 def is_ip_whitelisted(ip: str) -> bool:
+    if is_local_development_ip(ip):
+        return True
+
     whitelist = [s.strip() for s in settings.security_whitelisted_ips.split(",") if s.strip()]
     return ip in whitelist
 
@@ -88,24 +92,56 @@ def _lock_policy_for_user(user: Optional[User]) -> tuple[int, int]:
     return settings.max_login_attempts, settings.account_lockout_minutes
 
 
+def _is_clinical_user(user: Optional[User]) -> bool:
+    return bool(user and user.role in {UserRole.doctor, UserRole.medical_student})
+
+
+def _clinical_lockout_seconds(failed_attempts: int) -> int | None:
+    if failed_attempts >= settings.clinical_lockout_attempts_step_three:
+        return settings.clinical_lockout_seconds_step_three
+    if failed_attempts >= settings.clinical_lockout_attempts_step_two:
+        return settings.clinical_lockout_seconds_step_two
+    if failed_attempts >= settings.clinical_lockout_attempts_step_one:
+        return settings.clinical_lockout_seconds_step_one
+    return None
+
+
 def handle_failed_login(db: Session, ip: str, email: str, user: Optional[User], details: str = None) -> None:
     record_login_attempt(db, ip, email, success=False, details=details)
 
     # Increment user failed attempts if user exists
     if user:
-        max_attempts, lockout_minutes = _lock_policy_for_user(user)
+        now = _now_utc()
         user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
-        user.last_failed_login_at = _now_utc()
+        user.last_failed_login_at = now
 
-        if user.failed_login_attempts >= max_attempts:
-            user.account_locked_until = _now_utc() + timedelta(minutes=lockout_minutes)
-            logger.warning(
-                "Account locked for email=%s after %d failed attempts (policy=%d/%dmin)",
-                email,
-                user.failed_login_attempts,
-                max_attempts,
-                lockout_minutes,
-            )
+        if _is_clinical_user(user):
+            cooldown_seconds = _clinical_lockout_seconds(user.failed_login_attempts)
+            if cooldown_seconds is not None:
+                user.account_locked_until = now + timedelta(seconds=cooldown_seconds)
+                logger.warning(
+                    "Clinical account temporarily locked",
+                    extra={
+                        "event": "clinical_account_locked",
+                        "email": email,
+                        "failed_attempts": user.failed_login_attempts,
+                        "cooldown_seconds": cooldown_seconds,
+                    },
+                )
+        else:
+            max_attempts, lockout_minutes = _lock_policy_for_user(user)
+            if user.failed_login_attempts >= max_attempts:
+                user.account_locked_until = now + timedelta(minutes=lockout_minutes)
+                logger.warning(
+                    "Account locked after repeated failed attempts",
+                    extra={
+                        "event": "account_locked",
+                        "email": email,
+                        "failed_attempts": user.failed_login_attempts,
+                        "max_attempts": max_attempts,
+                        "lockout_minutes": lockout_minutes,
+                    },
+                )
 
         db.add(user)
 

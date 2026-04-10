@@ -29,6 +29,7 @@ from app.core.security import (
     verify_password,
     verify_totp_code,
 )
+from app.core.secret_crypto import SecretDecryptionError
 from app.models.audit_log import AuditLog
 from app.models.enums import UserRole
 from app.models.user_trusted_device import UserTrustedDevice
@@ -39,6 +40,7 @@ from app.schemas.auth import (
     ForgotPasswordRequest,
     ForgotPasswordResponse,
     AdminSSOHealthResponse,
+    AdminSSOLogoutResponse,
     Admin2FAResetRequest,
     Admin2FAStatusResponse,
     Admin2FAVerifyRequest,
@@ -62,6 +64,7 @@ from app.schemas.auth import (
 )
 from app.schemas.user import CLINICAL_ROLES
 from app.services import auth as auth_service
+from app.services import auth_sessions
 from app.services import admin_sso
 from app.services import admin_sso_store
 from app.services import security as security_service
@@ -235,6 +238,23 @@ def _account_locked_detail(locked_until: datetime) -> dict[str, object]:
     }
 
 
+def _lock_recovery_options_for_user(user: User | None) -> list[str]:
+    if user and user.role == UserRole.admin:
+        return ["wait", "contact_security_admin"]
+    return ["wait", "forgot_password", "contact_admin"]
+
+
+def _build_account_locked_detail(
+    locked_until: datetime,
+    *,
+    user: User | None,
+) -> dict[str, object]:
+    detail = _account_locked_detail(locked_until)
+    detail["code"] = str(detail["code"]).lower()
+    detail["recovery_options"] = _lock_recovery_options_for_user(user)
+    return detail
+
+
 def _two_factor_required_for_user(user: User) -> bool:
     return (settings.admin_2fa_required and user.role == UserRole.admin) or bool(user.two_factor_enabled)
 
@@ -243,8 +263,18 @@ def _two_factor_setup_required(user: User) -> bool:
     return not bool(user.two_factor_enabled)
 
 
+def _get_two_factor_secret_or_raise(user: User) -> str | None:
+    try:
+        return user.two_factor_secret
+    except SecretDecryptionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Two-factor secret is unavailable. Contact support.",
+        ) from exc
+
+
 def _ensure_two_factor_secret(db: Session, user: User) -> None:
-    if user.two_factor_secret:
+    if _get_two_factor_secret_or_raise(user):
         return
     user.two_factor_secret = generate_totp_secret()
     if user.two_factor_enabled:
@@ -261,10 +291,11 @@ def _trusted_device_days_for_user(user: User) -> int:
 def _build_two_factor_status(user: User) -> TwoFactorStatusResponse:
     required = _two_factor_required_for_user(user)
     setup_required = _two_factor_setup_required(user)
+    two_factor_secret = _get_two_factor_secret_or_raise(user)
     provisioning_uri = None
-    if setup_required and user.two_factor_secret:
+    if setup_required and two_factor_secret:
         provisioning_uri = build_totp_uri(
-            user.two_factor_secret,
+            two_factor_secret,
             user.email,
             settings.admin_2fa_issuer,
         )
@@ -282,6 +313,7 @@ def _build_two_factor_status(user: User) -> TwoFactorStatusResponse:
 
 def _build_two_factor_challenge_detail(user: User) -> dict[str, str | bool | int]:
     setup_required = _two_factor_setup_required(user)
+    two_factor_secret = _get_two_factor_secret_or_raise(user)
     detail: dict[str, str | bool | int] = {
         "code": "two_factor_required",
         "message": "Two-factor verification code is required.",
@@ -290,9 +322,9 @@ def _build_two_factor_challenge_detail(user: User) -> dict[str, str | bool | int
         "issuer": settings.admin_2fa_issuer,
         "trusted_device_days": _trusted_device_days_for_user(user),
     }
-    if setup_required and user.two_factor_secret:
+    if setup_required and two_factor_secret:
         detail["provisioning_uri"] = build_totp_uri(
-            user.two_factor_secret,
+            two_factor_secret,
             user.email,
             settings.admin_2fa_issuer,
         )
@@ -353,7 +385,8 @@ def _resolve_second_factor_outcome(
 
     verified = False
     used_backup = False
-    if otp_code and verify_totp_code(user.two_factor_secret, otp_code):
+    two_factor_secret = _get_two_factor_secret_or_raise(user)
+    if otp_code and two_factor_secret and verify_totp_code(two_factor_secret, otp_code):
         verified = True
     elif backup_code and user.two_factor_enabled:
         verified = security_service.use_backup_code(
@@ -422,6 +455,79 @@ def _write_auth_audit(
             status=status_value,
         )
     )
+
+
+def _complete_local_login(
+    response: Response,
+    *,
+    db: Session,
+    user: User,
+    ip_address: str,
+    second_factor: "_SecondFactorOutcome",
+):
+    if second_factor.used_backup_code:
+        db.add(
+            AuditLog(
+                user_id=user.id,
+                action="login_with_backup_code",
+                resource_type="user",
+                resource_id=user.id,
+                details={"event": "backup_code_login"},
+                ip_address=ip_address,
+                is_break_glass=False,
+                status="success",
+            )
+        )
+
+    if second_factor.trusted_device is not None:
+        db.add(
+            AuditLog(
+                user_id=user.id,
+                action="trusted_device_created",
+                resource_type="user_trusted_device",
+                resource_id=second_factor.trusted_device.id,
+                details={"trusted_device_id": str(second_factor.trusted_device.id)},
+                ip_address=ip_address,
+                is_break_glass=False,
+                status="success",
+            )
+        )
+
+    security_service.handle_successful_login(db, ip_address, user)
+
+    _write_auth_audit(
+        db,
+        action="login_success",
+        ip_address=ip_address,
+        status_value="success",
+        user=user,
+        details={
+            "auth_source": "local",
+            "mfa_verified": second_factor.mfa_verified,
+            "used_backup_code": second_factor.used_backup_code,
+            "used_trusted_device": second_factor.used_trusted_device,
+        },
+    )
+    login_response = auth_service.create_login_response(
+        user,
+        db=db,
+        mfa_verified=second_factor.mfa_verified,
+        mfa_authenticated_at=second_factor.mfa_authenticated_at,
+    )
+    db.commit()
+    _set_auth_cookie(
+        response,
+        login_response["access_token"],
+        max_age_seconds=login_response["expires_in"],
+    )
+    _set_csrf_cookie(response, max_age_seconds=login_response["expires_in"])
+    if second_factor.trusted_device_raw_token:
+        _set_trusted_device_cookie(
+            response,
+            second_factor.trusted_device_raw_token,
+            max_age_seconds=_trusted_device_days_for_user(user) * 24 * 60 * 60,
+        )
+    return login_response
 
 
 def _build_admin_sso_state_token(*, nonce: str, next_path: str) -> str:
@@ -555,6 +661,7 @@ def get_two_factor_status(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):
+    auth_service.require_recent_sensitive_session(request)
     _ensure_two_factor_secret(db, current_user)
     db.commit()
     db.refresh(current_user)
@@ -569,10 +676,12 @@ def verify_two_factor(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):
+    auth_service.require_recent_sensitive_session(request)
     _ensure_two_factor_secret(db, current_user)
 
     otp_code = normalize_totp_code(payload.otp_code)
-    if not otp_code or not verify_totp_code(current_user.two_factor_secret, otp_code):
+    two_factor_secret = _get_two_factor_secret_or_raise(current_user)
+    if not otp_code or not two_factor_secret or not verify_totp_code(two_factor_secret, otp_code):
         _write_auth_audit(
             db,
             action="two_factor_verify_failed",
@@ -618,11 +727,12 @@ def disable_two_factor(
         )
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Admin 2FA cannot be disabled by policy.")
-    if not current_user.two_factor_enabled or not current_user.two_factor_secret:
+    two_factor_secret = _get_two_factor_secret_or_raise(current_user)
+    if not current_user.two_factor_enabled or not two_factor_secret:
         return MessageResponse(message="Two-factor authentication is already disabled.")
 
     otp_code = normalize_totp_code(payload.current_otp_code)
-    if not otp_code or not verify_totp_code(current_user.two_factor_secret, otp_code):
+    if not otp_code or not verify_totp_code(two_factor_secret, otp_code):
         _write_auth_audit(
             db,
             action="two_factor_disable_denied",
@@ -659,9 +769,10 @@ def reset_two_factor(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):
-    if current_user.two_factor_enabled and current_user.two_factor_secret:
+    two_factor_secret = _get_two_factor_secret_or_raise(current_user)
+    if current_user.two_factor_enabled and two_factor_secret:
         current_code = normalize_totp_code(payload.current_otp_code)
-        if not current_code or not verify_totp_code(current_user.two_factor_secret, current_code):
+        if not current_code or not verify_totp_code(two_factor_secret, current_code):
             _write_auth_audit(
                 db,
                 action="two_factor_reset_denied",
@@ -702,6 +813,7 @@ def regenerate_backup_codes(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):
+    auth_service.require_recent_sensitive_session(request)
     if not current_user.two_factor_enabled:
         _write_auth_audit(
             db,
@@ -951,8 +1063,8 @@ def get_admin_sso_health():
         return AdminSSOHealthResponse(
             status="disabled",
             provider=None,
-            issuer=issuer,
-            metadata_endpoint=metadata_endpoint,
+            issuer=None,
+            metadata_endpoint=None,
         )
 
     try:
@@ -1374,12 +1486,7 @@ def complete_admin_sso_login(
     )
     _set_csrf_cookie(success_response, max_age_seconds=login_response["expires_in"])
     _clear_admin_sso_state_cookie(success_response)
-    session_id = auth_service.get_request_auth_payload(request).get("session_id")
-    if not isinstance(session_id, str) or not session_id:
-        try:
-            session_id = decode_token(login_response["access_token"]).get("session_id")
-        except Exception:
-            session_id = None
+    session_id = login_response.get("session_id")
     if identity.id_token and isinstance(session_id, str) and session_id:
         admin_sso_store.store_logout_hint(
             session_id=session_id,
@@ -1413,21 +1520,57 @@ def complete_admin_sso_login(
 
 
 @router.get("/admin/sso/logout")
-def logout_admin_sso(
+def logout_admin_sso_compat(
     request: Request,
     db: Session = Depends(auth_service.get_db),
     current_user: User | None = Depends(auth_service.get_optional_current_user),
 ):
+    response = _admin_sso_login_redirect(
+        "/login",
+        error="admin_sso_failed",
+        reason="deprecated_logout_method",
+    )
+
+    _write_auth_audit(
+        db,
+        action="admin_sso_logout_deprecated_get",
+        ip_address=_client_ip(request),
+        status_value="failure",
+        user=current_user,
+        details={"provider": get_settings().admin_oidc_provider_name, "reason": "deprecated_logout_method"},
+    )
+    _log_admin_sso_event(
+        "Deprecated Admin SSO logout GET endpoint invoked",
+        level=logging.WARNING,
+        event="admin_sso_logout_deprecated_get",
+        reason="deprecated_logout_method",
+        provider=get_settings().admin_oidc_provider_name,
+        email=current_user.email if current_user else None,
+    )
+    db.commit()
+    return response
+
+
+@router.post("/admin/sso/logout", response_model=AdminSSOLogoutResponse)
+@limiter.limit("30/minute")
+def logout_admin_sso(
+    request: Request,
+    response: Response,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
     session_id = _get_session_id_from_request(request)
     logout_hint = admin_sso_store.pop_logout_hint(session_id)
+    auth_sessions.revoke_session(db, session_id=session_id)
     try:
         redirect_url = admin_sso.build_logout_redirect_url(id_token_hint=logout_hint) or _frontend_url_for("/login")
     except admin_sso.AdminSsoConfigurationError:
         redirect_url = _frontend_url_for("/login")
-    response = RedirectResponse(url=redirect_url, status_code=status.HTTP_303_SEE_OTHER)
+
     _clear_auth_cookie(response)
     _clear_csrf_cookie(response)
     _clear_admin_sso_state_cookie(response)
+    _clear_trusted_device_cookie(response)
 
     _write_auth_audit(
         db,
@@ -1442,10 +1585,10 @@ def logout_admin_sso(
         event="admin_sso_logout",
         reason="success",
         provider=get_settings().admin_oidc_provider_name,
-        email=current_user.email if current_user else None,
+        email=current_user.email,
     )
     db.commit()
-    return response
+    return AdminSSOLogoutResponse(redirect_url=redirect_url)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -1472,16 +1615,16 @@ def login(
     stmt = select(User).where(User.email == payload.email, User.deleted_at.is_(None))
     user = db.scalar(stmt)
 
+    # Attempt authentication
+    authenticated_user = auth_service.authenticate_user(db, payload.email, payload.password)
+
     # Check if account is locked
     locked_until = security_service.check_account_locked(user)
     if locked_until:
         raise HTTPException(
             status_code=423,
-            detail=_account_locked_detail(locked_until),
+            detail=_build_account_locked_detail(locked_until, user=user),
         )
-
-    # Attempt authentication
-    authenticated_user = auth_service.authenticate_user(db, payload.email, payload.password)
 
     if not authenticated_user:
         # Record failed attempt
@@ -1526,9 +1669,6 @@ def login(
             },
         )
 
-    trusted_device_raw_token: str | None = None
-    used_backup = False
-    used_trusted_device = False
     try:
         second_factor = _resolve_second_factor_outcome(
             request,
@@ -1580,77 +1720,13 @@ def login(
             content={"detail": challenge_detail},
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    mfa_verified = second_factor.mfa_verified
-    mfa_authenticated_at = second_factor.mfa_authenticated_at
-    used_backup = second_factor.used_backup_code
-    used_trusted_device = second_factor.used_trusted_device
-    trusted_device_raw_token = second_factor.trusted_device_raw_token
-
-    if used_backup:
-        db.add(
-            AuditLog(
-                user_id=authenticated_user.id,
-                action="login_with_backup_code",
-                resource_type="user",
-                resource_id=authenticated_user.id,
-                details={"event": "backup_code_login"},
-                ip_address=ip,
-                is_break_glass=False,
-                status="success",
-            )
-        )
-
-    if second_factor.trusted_device is not None:
-        db.add(
-            AuditLog(
-                user_id=authenticated_user.id,
-                action="trusted_device_created",
-                resource_type="user_trusted_device",
-                resource_id=second_factor.trusted_device.id,
-                details={"trusted_device_id": str(second_factor.trusted_device.id)},
-                ip_address=ip,
-                is_break_glass=False,
-                status="success",
-            )
-        )
-
-    # Successful login
-    security_service.handle_successful_login(db, ip, authenticated_user)
-    _write_auth_audit(
-        db,
-        action="login_success",
-        ip_address=ip,
-        status_value="success",
-        user=authenticated_user,
-        details={
-            "auth_source": "local",
-            "mfa_verified": mfa_verified,
-            "used_backup_code": used_backup,
-            "used_trusted_device": used_trusted_device,
-        },
-    )
-    db.commit()
-
-    login_response = auth_service.create_login_response(
-        authenticated_user,
-        db=db,
-        mfa_verified=mfa_verified,
-        mfa_authenticated_at=mfa_authenticated_at,
-    )
-    _set_auth_cookie(
+    return _complete_local_login(
         response,
-        login_response["access_token"],
-        max_age_seconds=login_response["expires_in"],
+        db=db,
+        user=authenticated_user,
+        ip_address=ip,
+        second_factor=second_factor,
     )
-    _set_csrf_cookie(response, max_age_seconds=login_response["expires_in"])
-    if trusted_device_raw_token:
-        _set_trusted_device_cookie(
-            response,
-            trusted_device_raw_token,
-            max_age_seconds=_trusted_device_days_for_user(authenticated_user) * 24 * 60 * 60,
-        )
-    return login_response
 
 
 @router.post("/step-up", response_model=TokenResponse)
@@ -1760,8 +1836,6 @@ def step_up_auth(
             "used_trusted_device": second_factor.used_trusted_device,
         },
     )
-    db.commit()
-
     login_response = auth_service.create_login_response(
         current_user,
         db=db,
@@ -1771,6 +1845,7 @@ def step_up_auth(
         sso_provider=sso_provider if isinstance(sso_provider, str) else None,
         session_id=session_id,
     )
+    db.commit()
     _set_auth_cookie(
         response,
         login_response["access_token"],
@@ -1806,6 +1881,7 @@ def refresh_token(
         sso_provider=payload.get("sso_provider"),
         session_id=str(payload.get("session_id") or ""),
     )
+    db.commit()
     _set_auth_cookie(
         response,
         refreshed["access_token"],
@@ -1824,12 +1900,26 @@ def refresh_token(
 def logout(
     request: Request,
     response: Response,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
 ):
     """Logout endpoint (clears auth cookie)."""
-    admin_sso_store.clear_logout_hint(_get_session_id_from_request(request))
+    session_id = _get_session_id_from_request(request)
+    admin_sso_store.clear_logout_hint(session_id)
+    auth_sessions.revoke_session(db, session_id=session_id)
+    _write_auth_audit(
+        db,
+        action="logout",
+        ip_address=_client_ip(request),
+        status_value="success",
+        user=current_user,
+        details={"session_revoked": bool(session_id)},
+    )
+    db.commit()
     _clear_auth_cookie(response)
     _clear_csrf_cookie(response)
     _clear_admin_sso_state_cookie(response)
+    _clear_trusted_device_cookie(response)
     return {"message": "Successfully logged out"}
 
 
@@ -1942,6 +2032,7 @@ def reset_password(request: Request, payload: ResetPasswordRequest, db: Session 
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset token")
 
     auth_service.reset_user_password(db, user, payload.new_password)
+    revoked_sessions = auth_sessions.revoke_user_sessions(db, user_id=user.id)
     revoked_devices, revoked_codes = _revoke_user_two_factor_artifacts(db, user)
     _write_auth_audit(
         db,
@@ -1949,7 +2040,11 @@ def reset_password(request: Request, payload: ResetPasswordRequest, db: Session 
         ip_address=ip,
         status_value="success",
         user=user,
-        details={"revoked_devices": revoked_devices, "revoked_backup_codes": revoked_codes},
+        details={
+            "revoked_sessions": revoked_sessions,
+            "revoked_devices": revoked_devices,
+            "revoked_backup_codes": revoked_codes,
+        },
     )
     db.commit()
     return MessageResponse(message="Password reset successful")

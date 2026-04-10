@@ -25,7 +25,51 @@ type CacheEnvelope<T> = {
   data: T;
 };
 
+type PatientDetailCachePatient = Pick<
+  Patient,
+  "id" | "first_name" | "last_name" | "date_of_birth" | "gender" | "created_at" | "updated_at"
+>;
+
+type PatientHeartSoundCachePatient = Pick<
+  Patient,
+  "id" | "first_name" | "last_name"
+>;
+
+type PatientDetailCacheMeeting = Pick<Meeting, "id" | "date_time" | "description" | "room" | "note" | "status"> & {
+  doctor?: Meeting["doctor"];
+};
+
+type PatientHeartSoundCacheRecord = Pick<
+  HeartSoundRecord,
+  | "id"
+  | "patient_id"
+  | "device_id"
+  | "mac_address"
+  | "position"
+  | "blob_url"
+  | "storage_key"
+  | "mime_type"
+  | "duration_seconds"
+  | "recorded_at"
+  | "created_at"
+>;
+
 type PatientDetailCacheEntry = {
+  patient: PatientDetailCachePatient | null;
+  patientCachedAt: number | null;
+  meetings: PatientDetailCacheMeeting[];
+  meetingsTotal: number;
+  meetingsCachedAt: number | null;
+};
+
+type PatientHeartSoundCacheEntry = {
+  patient: PatientHeartSoundCachePatient | null;
+  patientCachedAt: number | null;
+  records: PatientHeartSoundCacheRecord[];
+  recordsCachedAt: number | null;
+};
+
+type PatientDetailCacheWriteEntry = {
   patient: Patient | null;
   patientCachedAt: number | null;
   meetings: Meeting[];
@@ -33,7 +77,7 @@ type PatientDetailCacheEntry = {
   meetingsCachedAt: number | null;
 };
 
-type PatientHeartSoundCacheEntry = {
+type PatientHeartSoundCacheWriteEntry = {
   patient: Patient | null;
   patientCachedAt: number | null;
   records: HeartSoundRecord[];
@@ -47,9 +91,94 @@ export type PatientDetailCacheSnapshot = {
 };
 
 export type PatientHeartSoundCacheSnapshot = {
-  patient: Patient | null;
-  records: HeartSoundRecord[];
+  patient: PatientHeartSoundCachePatient | null;
+  records: PatientHeartSoundCacheRecord[];
 };
+
+function sanitizePatientDetailCachePatient(patient: Patient | null): PatientDetailCachePatient | null {
+  if (!patient) {
+    return null;
+  }
+
+  return {
+    id: patient.id,
+    first_name: patient.first_name,
+    last_name: patient.last_name,
+    date_of_birth: patient.date_of_birth,
+    gender: patient.gender ?? null,
+    created_at: patient.created_at,
+    updated_at: patient.updated_at,
+  };
+}
+
+function sanitizePatientHeartSoundCachePatient(
+  patient: Patient | PatientHeartSoundCachePatient | null
+): PatientHeartSoundCachePatient | null {
+  if (!patient) {
+    return null;
+  }
+
+  return {
+    id: patient.id,
+    first_name: patient.first_name,
+    last_name: patient.last_name,
+  };
+}
+
+function sanitizePatientDetailCacheMeetings(meetings: Meeting[]): PatientDetailCacheMeeting[] {
+  return meetings.map((meeting) => ({
+    id: meeting.id,
+    date_time: meeting.date_time,
+    description: meeting.description ?? null,
+    room: meeting.room ?? null,
+    note: meeting.note ?? null,
+    status: meeting.status,
+    doctor: meeting.doctor
+      ? {
+          id: meeting.doctor.id,
+          email: meeting.doctor.email,
+          first_name: meeting.doctor.first_name ?? null,
+          last_name: meeting.doctor.last_name ?? null,
+        }
+      : null,
+  }));
+}
+
+function sanitizePatientHeartSoundCacheRecords(
+  records: HeartSoundRecord[]
+): PatientHeartSoundCacheRecord[] {
+  return records.map((record) => ({
+    id: record.id,
+    patient_id: record.patient_id,
+    device_id: record.device_id,
+    mac_address: record.mac_address,
+    position: record.position,
+    blob_url: record.blob_url,
+    storage_key: record.storage_key ?? null,
+    mime_type: record.mime_type ?? null,
+    duration_seconds: record.duration_seconds ?? null,
+    recorded_at: record.recorded_at,
+    created_at: record.created_at,
+  }));
+}
+
+function sanitizePatientDetailCacheEntry(entry: PatientDetailCacheEntry): PatientDetailCacheEntry {
+  return {
+    ...entry,
+    patient: sanitizePatientDetailCachePatient(entry.patient),
+    meetings: sanitizePatientDetailCacheMeetings(entry.meetings),
+  };
+}
+
+function sanitizePatientHeartSoundCacheEntry(
+  entry: PatientHeartSoundCacheEntry
+): PatientHeartSoundCacheEntry {
+  return {
+    ...entry,
+    patient: sanitizePatientHeartSoundCachePatient(entry.patient),
+    records: sanitizePatientHeartSoundCacheRecords(entry.records),
+  };
+}
 
 function getStorageKey(
   scope: "detail" | "heart-sound",
@@ -209,18 +338,30 @@ function readDetailEntry(
   userId: string | null | undefined,
   patientId: string
 ): PatientDetailCacheEntry | null {
-  return readEnvelope<PatientDetailCacheEntry>(
-    getStorageKey("detail", userId, patientId)
-  );
+  const storageKey = getStorageKey("detail", userId, patientId);
+  const entry = readEnvelope<PatientDetailCacheEntry>(storageKey);
+  if (!entry) {
+    return null;
+  }
+
+  const sanitized = sanitizePatientDetailCacheEntry(entry);
+  writeEnvelope(storageKey, sanitized);
+  return sanitized;
 }
 
 function readHeartSoundEntry(
   userId: string | null | undefined,
   patientId: string
 ): PatientHeartSoundCacheEntry | null {
-  return readEnvelope<PatientHeartSoundCacheEntry>(
-    getStorageKey("heart-sound", userId, patientId)
-  );
+  const storageKey = getStorageKey("heart-sound", userId, patientId);
+  const entry = readEnvelope<PatientHeartSoundCacheEntry>(storageKey);
+  if (!entry) {
+    return null;
+  }
+
+  const sanitized = sanitizePatientHeartSoundCacheEntry(entry);
+  writeEnvelope(storageKey, sanitized);
+  return sanitized;
 }
 
 export function readPatientDetailCache(
@@ -251,7 +392,7 @@ export function readPatientDetailCache(
 export function writePatientDetailCache(
   userId: string | null | undefined,
   patientId: string,
-  patch: Partial<PatientDetailCacheEntry>
+  patch: Partial<PatientDetailCacheWriteEntry>
 ) {
   const existing =
     readDetailEntry(userId, patientId) ??
@@ -263,10 +404,13 @@ export function writePatientDetailCache(
       meetingsCachedAt: null,
     } satisfies PatientDetailCacheEntry);
 
-  writeEnvelope(getStorageKey("detail", userId, patientId), {
-    ...existing,
-    ...patch,
-  } satisfies PatientDetailCacheEntry);
+  writeEnvelope(
+    getStorageKey("detail", userId, patientId),
+    sanitizePatientDetailCacheEntry({
+      ...existing,
+      ...patch,
+    } satisfies PatientDetailCacheEntry)
+  );
 }
 
 export function readPatientHeartSoundCache(
@@ -296,7 +440,7 @@ export function readPatientHeartSoundCache(
 export function writePatientHeartSoundCache(
   userId: string | null | undefined,
   patientId: string,
-  patch: Partial<PatientHeartSoundCacheEntry>
+  patch: Partial<PatientHeartSoundCacheWriteEntry>
 ) {
   const existing =
     readHeartSoundEntry(userId, patientId) ??
@@ -307,10 +451,13 @@ export function writePatientHeartSoundCache(
       recordsCachedAt: null,
     } satisfies PatientHeartSoundCacheEntry);
 
-  writeEnvelope(getStorageKey("heart-sound", userId, patientId), {
-    ...existing,
-    ...patch,
-  } satisfies PatientHeartSoundCacheEntry);
+  writeEnvelope(
+    getStorageKey("heart-sound", userId, patientId),
+    sanitizePatientHeartSoundCacheEntry({
+      ...existing,
+      ...patch,
+    } satisfies PatientHeartSoundCacheEntry)
+  );
 }
 
 export function clearPatientWorkspaceCache() {

@@ -3,9 +3,10 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.api import auth as auth_api
+from app.core.secret_crypto import SECRET_VALUE_PREFIX
 from app.core.security import (
     decode_token,
     generate_totp_code,
@@ -40,9 +41,17 @@ def _create_user(
     return user
 
 
-def _auth_headers(user: User) -> dict[str, str]:
-    token = create_login_response(user)["access_token"]
+def _auth_headers(user: User, db: Session | None = None) -> dict[str, str]:
+    session = db or object_session(user)
+    token = create_login_response(user, db=session)["access_token"]
+    session.commit()
     return {"Authorization": f"Bearer {token}"}
+
+
+def _issue_access_token(user: User, db: Session, **kwargs) -> str:
+    token = create_login_response(user, db=db, **kwargs)["access_token"]
+    db.commit()
+    return token
 
 
 def _login(
@@ -71,7 +80,7 @@ def _login(
 def test_get_me_returns_current_user_profile(client: TestClient, db: Session):
     user = _create_user(db, email="me@example.com", role=UserRole.doctor)
 
-    response = client.get("/auth/me", headers=_auth_headers(user))
+    response = client.get("/auth/me", headers=_auth_headers(user, db))
 
     assert response.status_code == 200
     payload = response.json()
@@ -85,7 +94,7 @@ def test_get_me_returns_current_user_profile(client: TestClient, db: Session):
 def test_access_profile_marks_bootstrap_super_admin_accounts(client: TestClient, db: Session):
     user = _create_user(db, email="admin@example.com", role=UserRole.admin)
 
-    response = client.get("/auth/access-profile", headers=_auth_headers(user))
+    response = client.get("/auth/access-profile", headers=_auth_headers(user, db))
 
     assert response.status_code == 200
     payload = response.json()
@@ -97,7 +106,7 @@ def test_access_profile_marks_bootstrap_super_admin_accounts(client: TestClient,
 def test_get_two_factor_status_provisions_secret(client: TestClient, db: Session):
     user = _create_user(db, email="status@example.com", role=UserRole.medical_student)
 
-    response = client.get("/auth/2fa/status", headers=_auth_headers(user))
+    response = client.get("/auth/2fa/status", headers=_auth_headers(user, db))
 
     assert response.status_code == 200, response.text
     payload = response.json()
@@ -110,6 +119,8 @@ def test_get_two_factor_status_provisions_secret(client: TestClient, db: Session
 
     db.refresh(user)
     assert user.two_factor_secret is not None
+    assert user._two_factor_secret_encrypted.startswith(SECRET_VALUE_PREFIX)
+    assert user._two_factor_secret_encrypted != user.two_factor_secret
 
 
 def test_verify_two_factor_enables_user_two_factor(
@@ -117,7 +128,7 @@ def test_verify_two_factor_enables_user_two_factor(
     db: Session,
 ):
     user = _create_user(db, email="verify-2fa@example.com", role=UserRole.medical_student)
-    status_response = client.get("/auth/2fa/status", headers=_auth_headers(user))
+    status_response = client.get("/auth/2fa/status", headers=_auth_headers(user, db))
     assert status_response.status_code == 200
 
     db.refresh(user)
@@ -125,7 +136,7 @@ def test_verify_two_factor_enables_user_two_factor(
     response = client.post(
         "/auth/2fa/verify",
         json={"otp_code": otp_code},
-        headers=_auth_headers(user),
+        headers=_auth_headers(user, db),
     )
 
     assert response.status_code == 200, response.text
@@ -140,13 +151,13 @@ def test_verify_two_factor_invalid_code_writes_failure_audit(
     db: Session,
 ):
     user = _create_user(db, email="verify-2fa-fail@example.com", role=UserRole.medical_student)
-    status_response = client.get("/auth/2fa/status", headers=_auth_headers(user))
+    status_response = client.get("/auth/2fa/status", headers=_auth_headers(user, db))
     assert status_response.status_code == 200
 
     response = client.post(
         "/auth/2fa/verify",
         json={"otp_code": "000000"},
-        headers=_auth_headers(user),
+        headers=_auth_headers(user, db),
     )
 
     assert response.status_code == 400
@@ -215,6 +226,28 @@ def test_disable_two_factor_invalid_code_writes_failure_audit(
     assert audit.status == "failure"
 
 
+def test_legacy_plaintext_two_factor_secret_still_allows_verification(
+    client: TestClient,
+    db: Session,
+):
+    secret = generate_totp_secret()
+    user = _create_user(db, email="legacy-2fa-verify@example.com", role=UserRole.medical_student)
+    user._two_factor_secret_encrypted = secret
+    user.two_factor_enabled = False
+    db.add(user)
+    db.commit()
+
+    response = client.post(
+        "/auth/2fa/verify",
+        json={"otp_code": generate_totp_code(secret)},
+        headers=_auth_headers(user),
+    )
+
+    assert response.status_code == 200, response.text
+    db.refresh(user)
+    assert user.two_factor_enabled is True
+
+
 def test_reset_two_factor_rotates_secret_and_revokes_backup_codes(
     client: TestClient,
     db: Session,
@@ -252,6 +285,7 @@ def test_reset_two_factor_rotates_secret_and_revokes_backup_codes(
     db.refresh(user)
     assert user.two_factor_secret is not None
     assert user.two_factor_secret != secret
+    assert user._two_factor_secret_encrypted.startswith(SECRET_VALUE_PREFIX)
     backup_codes = db.scalars(
         select(UserBackupCode).where(UserBackupCode.user_id == user.id)
     ).all()
@@ -269,13 +303,13 @@ def test_step_up_auth_refreshes_current_session_for_local_user(client: TestClien
     db.commit()
 
     stale_authenticated_at = datetime.now(timezone.utc) - timedelta(hours=1)
-    stale_token = create_login_response(
+    stale_token = _issue_access_token(
         user,
-        db=db,
         mfa_verified=True,
         mfa_authenticated_at=stale_authenticated_at,
         session_id="session-step-up",
-    )["access_token"]
+        db=db,
+    )
 
     response = client.post(
         "/auth/step-up",
@@ -307,6 +341,73 @@ def test_step_up_auth_refreshes_current_session_for_local_user(client: TestClien
     assert audit.status == "success"
 
 
+def test_two_factor_status_requires_recent_mfa_session(client: TestClient, db: Session):
+    user = _create_user(db, email="status-stale@example.com", role=UserRole.medical_student)
+    stale_token = _issue_access_token(
+        user,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
+        db=db,
+    )
+
+    response = client.get(
+        "/auth/2fa/status",
+        headers={"Authorization": f"Bearer {stale_token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Recent multi-factor verification required."
+
+
+def test_two_factor_verify_requires_recent_mfa_session(client: TestClient, db: Session):
+    secret = generate_totp_secret()
+    user = _create_user(db, email="verify-stale@example.com", role=UserRole.medical_student)
+    user.two_factor_secret = secret
+    db.add(user)
+    db.commit()
+
+    stale_token = _issue_access_token(
+        user,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
+        db=db,
+    )
+
+    response = client.post(
+        "/auth/2fa/verify",
+        json={"otp_code": generate_totp_code(secret)},
+        headers={"Authorization": f"Bearer {stale_token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Recent multi-factor verification required."
+
+
+def test_backup_code_regeneration_requires_recent_mfa_session(client: TestClient, db: Session):
+    secret = generate_totp_secret()
+    user = _create_user(db, email="backup-stale@example.com", role=UserRole.medical_student)
+    user.two_factor_secret = secret
+    user.two_factor_enabled = True
+    user.two_factor_enabled_at = datetime.now(timezone.utc)
+    db.add(user)
+    db.commit()
+
+    stale_token = _issue_access_token(
+        user,
+        mfa_verified=True,
+        mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
+        db=db,
+    )
+
+    response = client.post(
+        "/auth/2fa/backup-codes/regenerate",
+        headers={"Authorization": f"Bearer {stale_token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Recent multi-factor verification required."
+
+
 def test_step_up_auth_requires_two_factor_challenge_when_needed(client: TestClient, db: Session):
     user = _create_user(db, email="step-up-challenge@example.com", role=UserRole.admin)
     user.two_factor_secret = generate_totp_secret()
@@ -315,12 +416,12 @@ def test_step_up_auth_requires_two_factor_challenge_when_needed(client: TestClie
     db.add(user)
     db.commit()
     client.cookies.clear()
-    stale_token = create_login_response(
+    stale_token = _issue_access_token(
         user,
-        db=db,
         mfa_verified=True,
         mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
-    )["access_token"]
+        db=db,
+    )
 
     response = client.post(
         "/auth/step-up",
@@ -334,12 +435,12 @@ def test_step_up_auth_requires_two_factor_challenge_when_needed(client: TestClie
 
 def test_step_up_auth_rejects_invalid_password_and_writes_failure_audit(client: TestClient, db: Session):
     user = _create_user(db, email="step-up-invalid-password@example.com", role=UserRole.doctor)
-    stale_token = create_login_response(
+    stale_token = _issue_access_token(
         user,
-        db=db,
         mfa_verified=True,
         mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
-    )["access_token"]
+        db=db,
+    )
 
     response = client.post(
         "/auth/step-up",
@@ -369,12 +470,12 @@ def test_step_up_auth_rejects_invalid_two_factor_code_and_writes_failure_audit(c
     db.add(user)
     db.commit()
 
-    stale_token = create_login_response(
+    stale_token = _issue_access_token(
         user,
-        db=db,
         mfa_verified=True,
         mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
-    )["access_token"]
+        db=db,
+    )
 
     response = client.post(
         "/auth/step-up",
@@ -397,13 +498,13 @@ def test_step_up_auth_rejects_invalid_two_factor_code_and_writes_failure_audit(c
 
 def test_step_up_auth_rejects_sso_sessions(client: TestClient, db: Session):
     user = _create_user(db, email="step-up-sso@example.com", role=UserRole.admin)
-    sso_token = create_login_response(
+    sso_token = _issue_access_token(
         user,
-        db=db,
         auth_source="sso",
         sso_provider="okta",
         session_id="sso-session",
-    )["access_token"]
+        db=db,
+    )
 
     response = client.post(
         "/auth/step-up",
@@ -424,12 +525,12 @@ def test_step_up_auth_can_create_trusted_device(client: TestClient, db: Session)
     db.add(user)
     db.commit()
 
-    stale_token = create_login_response(
+    stale_token = _issue_access_token(
         user,
-        db=db,
         mfa_verified=True,
         mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
-    )["access_token"]
+        db=db,
+    )
 
     response = client.post(
         "/auth/step-up",
@@ -458,13 +559,13 @@ def test_step_up_auth_trusted_device_satisfies_follow_up_challenge(client: TestC
     db.add(user)
     db.commit()
 
-    first_token = create_login_response(
+    first_token = _issue_access_token(
         user,
-        db=db,
         mfa_verified=True,
         mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
         session_id="step-up-follow-up-session",
-    )["access_token"]
+        db=db,
+    )
 
     first_response = client.post(
         "/auth/step-up",
@@ -482,13 +583,13 @@ def test_step_up_auth_trusted_device_satisfies_follow_up_challenge(client: TestC
 
     client.cookies.set(auth_api.settings.trusted_device_cookie_name, trusted_cookie)
 
-    second_token = create_login_response(
+    second_token = _issue_access_token(
         user,
-        db=db,
         mfa_verified=True,
         mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=5),
         session_id="step-up-follow-up-session-2",
-    )["access_token"]
+        db=db,
+    )
 
     second_response = client.post(
         "/auth/step-up",
@@ -527,6 +628,21 @@ def test_reset_two_factor_invalid_code_writes_failure_audit(
     )
     assert audit is not None
     assert audit.status == "failure"
+
+
+def test_two_factor_status_fails_safely_for_malformed_encrypted_secret(
+    client: TestClient,
+    db: Session,
+):
+    user = _create_user(db, email="malformed-2fa-secret@example.com", role=UserRole.medical_student)
+    user._two_factor_secret_encrypted = f"{SECRET_VALUE_PREFIX}not-valid"
+    db.add(user)
+    db.commit()
+
+    response = client.get("/auth/2fa/status", headers=_auth_headers(user))
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Two-factor secret is unavailable. Contact support."
 
 
 def test_list_and_revoke_trusted_device(

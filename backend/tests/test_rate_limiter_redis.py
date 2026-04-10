@@ -16,6 +16,12 @@ BASELINE_ENV = {
     "JWT_EXPIRES_IN": "3600",
     "DEVICE_API_SECRET": "device_secret_1234567890abcdef1234567890",
     "DEVICE_API_REQUIRE_REGISTERED_DEVICE": "false",
+    "DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE": "false",
+    "DEVICE_API_REQUIRE_NONCE": "false",
+    "DEVICE_SECRET_ENCRYPTION_KEY": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+    "TWO_FACTOR_SECRET_ENCRYPTION_KEY": "ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=",
+    "ALLOW_INSECURE_SECRET_STORAGE": "false",
+    "MEETING_SIGNING_SECRET": "meeting_signing_secret_1234567890abcdef1234567890",
 }
 
 
@@ -31,7 +37,14 @@ def _apply_env(monkeypatch, **overrides) -> None:
 
 
 def test_production_without_redis_fails_rate_limiter_startup(monkeypatch):
-    _apply_env(monkeypatch, APP_ENV="production", REDIS_URL=None)
+    _apply_env(
+        monkeypatch,
+        APP_ENV="production",
+        REDIS_URL="",
+        DEVICE_API_REQUIRE_REGISTERED_DEVICE="true",
+        DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE="true",
+        DEVICE_API_REQUIRE_NONCE="true",
+    )
     get_settings.cache_clear()
 
     import app.core.limiter as limiter_module
@@ -40,7 +53,7 @@ def test_production_without_redis_fails_rate_limiter_startup(monkeypatch):
         with pytest.raises(ValidationError, match="REDIS_URL is required when APP_ENV=production"):
             importlib.reload(limiter_module)
     finally:
-        _apply_env(monkeypatch, APP_ENV="test", REDIS_URL=None)
+        _apply_env(monkeypatch, APP_ENV="test", REDIS_URL="")
         get_settings.cache_clear()
         importlib.reload(limiter_module)
 
@@ -50,6 +63,9 @@ def test_redis_backed_rate_limiter_shares_state_across_instances(monkeypatch, mo
         monkeypatch,
         APP_ENV="production",
         REDIS_URL="redis://rate-limit-cache:6379/0",
+        DEVICE_API_REQUIRE_REGISTERED_DEVICE="true",
+        DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE="true",
+        DEVICE_API_REQUIRE_NONCE="true",
     )
     get_settings.cache_clear()
 

@@ -12,6 +12,15 @@ logger = logging.getLogger(__name__)
 _novu_client = None
 
 
+def _log_novu_error(message: str, exc: Exception) -> None:
+    logger.error(
+        message,
+        extra={
+            "exception_type": type(exc).__name__,
+        },
+    )
+
+
 def get_novu_client():
     """Get or create Novu client instance"""
     global _novu_client
@@ -29,7 +38,7 @@ def get_novu_client():
             )
             logger.info("Novu client initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize Novu client: {e}")
+            _log_novu_error("Failed to initialize Novu client", e)
             return None
     
     return _novu_client
@@ -61,7 +70,7 @@ def send_notification(
         logger.info("Notification sent: workflow=%s", workflow_name)
         return True
     except Exception as e:
-        logger.error("Failed to send notification: %s", e)
+        _log_novu_error("Failed to send notification", e)
         return False
 
 

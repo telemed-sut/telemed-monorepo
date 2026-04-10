@@ -177,14 +177,18 @@ def _build_patient_invite_token(
 
 def _sign_compact_payload(compact_payload: str) -> str:
     settings = get_settings()
-    if not settings.jwt_secret:
+    signing_secret = (settings.meeting_signing_secret or "").strip()
+    if not signing_secret and settings.app_env != "production" and settings.meeting_signing_allow_jwt_secret_fallback:
+        signing_secret = settings.jwt_secret
+
+    if not signing_secret:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="JWT secret is missing; unable to sign patient invite token.",
+            detail="Meeting signing secret is missing; unable to sign meeting token.",
         )
 
     signature = hmac.new(
-        settings.jwt_secret.encode("utf-8"),
+        signing_secret.encode("utf-8"),
         compact_payload.encode("utf-8"),
         hashlib.sha256,
     ).digest()

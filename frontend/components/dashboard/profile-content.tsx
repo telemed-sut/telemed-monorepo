@@ -26,8 +26,11 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 export function ProfileContent() {
   const router = useRouter();
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.userId);
+  const authCurrentUser = useAuthStore((state) => state.currentUser);
   const hydrated = useAuthStore((state) => state.hydrated);
   const clearToken = useAuthStore((state) => state.clearToken);
+  const setAuthCurrentUser = useAuthStore((state) => state.setCurrentUser);
   const language = useLanguageStore((state) => state.language);
 
   const [loading, setLoading] = useState(true);
@@ -38,7 +41,28 @@ export function ProfileContent() {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (!token) {
+    if (!token || !userId) {
+      setCurrentUser(null);
+      setFirstName("");
+      setLastName("");
+      return;
+    }
+
+    if (!authCurrentUser || authCurrentUser.id !== userId) {
+      setCurrentUser(null);
+      setFirstName("");
+      setLastName("");
+      return;
+    }
+
+    setCurrentUser(authCurrentUser);
+    setFirstName(authCurrentUser.first_name || "");
+    setLastName(authCurrentUser.last_name || "");
+  }, [authCurrentUser, hydrated, token, userId]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!token || !userId) {
       router.replace("/login");
       return;
     }
@@ -48,7 +72,8 @@ export function ProfileContent() {
     const load = async () => {
       try {
         const me = await fetchCurrentUser(token);
-        if (cancelled) return;
+        if (cancelled || me.id !== userId) return;
+        setAuthCurrentUser(me);
         setCurrentUser(me);
         setFirstName(me.first_name || "");
         setLastName(me.last_name || "");
@@ -66,7 +91,7 @@ export function ProfileContent() {
     return () => {
       cancelled = true;
     };
-  }, [hydrated, token, clearToken, router]);
+  }, [hydrated, token, userId, clearToken, router, setAuthCurrentUser]);
 
   const hasChanges = useMemo(() => {
     if (!currentUser) return false;
@@ -98,6 +123,7 @@ export function ProfileContent() {
         verification_status: updated.verification_status,
       };
 
+      setAuthCurrentUser(nextUser);
       setCurrentUser(nextUser);
       setFirstName(nextUser.first_name || "");
       setLastName(nextUser.last_name || "");

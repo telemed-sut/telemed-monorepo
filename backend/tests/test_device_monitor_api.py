@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core.security import get_password_hash
 from app.models.device_error_log import DeviceErrorLog
@@ -25,8 +25,10 @@ def _create_user(db: Session, *, email: str, role: UserRole) -> User:
     return user
 
 
-def _auth_headers(user: User) -> dict[str, str]:
-    token = create_login_response(user)["access_token"]
+def _auth_headers(user: User, db: Session | None = None) -> dict[str, str]:
+    session = db or object_session(user)
+    token = create_login_response(user, db=session)["access_token"]
+    session.commit()
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -54,7 +56,7 @@ def test_device_health_endpoint_is_public(client: TestClient):
 def test_device_stats_requires_admin_role(client: TestClient, db: Session):
     medical_student = _create_user(db, email="device-medical-student@example.com", role=UserRole.medical_student)
 
-    response = client.get("/device/v1/stats", headers=_auth_headers(medical_student))
+    response = client.get("/device/v1/stats", headers=_auth_headers(medical_student, db))
 
     assert response.status_code == 403
 
@@ -105,7 +107,7 @@ def test_device_stats_returns_counts_and_top_devices(
 
     response = client.get(
         "/device/v1/stats?hours=24&top_devices=5",
-        headers=_auth_headers(admin),
+        headers=_auth_headers(admin, db),
     )
 
     assert response.status_code == 200, response.text

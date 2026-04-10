@@ -8,10 +8,10 @@ normal work.
 This checklist covers the current model:
 
 - admin accounts require 2FA,
-- routine protected actions use a 4-hour secure verification window,
+- routine protected actions use a 15-minute secure verification window,
 - higher-risk recovery and privileged-management actions require fresher MFA,
   and
-- admin sessions use a longer rolling session TTL than standard users.
+- admin sessions use a 4-hour rolling session TTL.
 
 ## Before you start
 
@@ -19,9 +19,12 @@ Make sure the target environment is configured with the current auth values
 before you begin testing.
 
 - Confirm `JWT_EXPIRES_IN` matches the standard user token lifetime.
-- Confirm `ADMIN_JWT_EXPIRES_IN` matches the intended admin session lifetime.
-- Confirm `PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS=14400` unless your policy
+- Confirm `ADMIN_JWT_EXPIRES_IN=14400` unless your policy intentionally
+  differs.
+- Confirm `PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS=900` unless your policy
   intentionally differs.
+- Confirm `ADMIN_TRUSTED_DEVICE_DAYS=1` and `USER_TRUSTED_DEVICE_DAYS=7`
+  unless your policy intentionally differs.
 - Confirm `AUTH_COOKIE_SECURE=true` on HTTPS environments.
 - Confirm `FRONTEND_BASE_URL`, `CORS_ORIGINS`, and admin SSO redirect URIs
   match the exact deployed origin.

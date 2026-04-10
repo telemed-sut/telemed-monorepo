@@ -59,7 +59,7 @@ def create_heart_sound_record(
         log_device_error(
             db,
             (request.headers.get("x-device-id") or "unknown"),
-            f"HTTP {exc.status_code}: {exc.detail}",
+            f"HTTP {exc.status_code}",
             request,
         )
         raise
@@ -67,7 +67,7 @@ def create_heart_sound_record(
         log_device_error(
             db,
             (request.headers.get("x-device-id") or "unknown"),
-            f"Internal Error: {str(exc)}",
+            f"INTERNAL_ERROR:{exc.__class__.__name__}",
             request,
         )
         raise HTTPException(

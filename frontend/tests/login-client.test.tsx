@@ -6,6 +6,7 @@ const setSessionMock = vi.fn();
 const hydrateMock = vi.fn();
 const loginRequestMock = vi.fn();
 const fetchAdminSsoStatusMock = vi.fn();
+const getAuthErrorMessageMock = vi.fn(() => "Fallback auth error");
 let mockSearchParamsString = "";
 
 vi.mock("next/navigation", () => ({
@@ -18,6 +19,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/api", () => ({
   fetchAdminSsoStatus: fetchAdminSsoStatusMock,
   getAdminSsoLoginPath: vi.fn(() => "/api/auth/admin/sso/login?next=%2Fpatients"),
+  getAuthErrorMessage: getAuthErrorMessageMock,
   login: loginRequestMock,
 }));
 
@@ -48,6 +50,8 @@ describe("LoginClientPage", () => {
     hydrateMock.mockReset();
     loginRequestMock.mockReset();
     fetchAdminSsoStatusMock.mockReset();
+    getAuthErrorMessageMock.mockReset();
+    getAuthErrorMessageMock.mockReturnValue("Fallback auth error");
     mockSearchParamsString = "";
     fetchAdminSsoStatusMock.mockResolvedValue({
       enabled: false,
@@ -185,5 +189,66 @@ describe("LoginClientPage", () => {
         "We couldn't refresh your session securely. Please sign in again."
       )
     ).toBeInTheDocument();
+  });
+
+  it("shows informational guidance when an admin account is locked", async () => {
+    loginRequestMock.mockRejectedValueOnce({
+      status: 423,
+      message: "Account temporarily locked.",
+      detail: {
+        code: "account_locked",
+        message: "Account temporarily locked due to multiple failed login attempts.",
+        retry_after_seconds: 120,
+        recovery_options: ["wait", "contact_security_admin"],
+      },
+    });
+
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    render(<LoginClientPage />);
+
+    fireEvent.change(screen.getByLabelText("Email address"), {
+      target: { value: "admin@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "Password123!" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("Account temporarily locked")).toBeInTheDocument();
+    expect(screen.getByText("Contact a security admin for an emergency unlock.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Authenticator or backup code")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+    expect(screen.queryByText("Confirm sign-in")).not.toBeInTheDocument();
+  });
+
+  it("shows recovery options for a locked clinical account without self-service unlock", async () => {
+    loginRequestMock.mockRejectedValueOnce({
+      status: 423,
+      message: "Account temporarily locked.",
+      detail: {
+        code: "account_locked",
+        message: "Account temporarily locked due to multiple failed login attempts.",
+        retry_after_seconds: 60,
+        recovery_options: ["wait", "forgot_password", "contact_admin"],
+      },
+    });
+
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    render(<LoginClientPage />);
+
+    fireEvent.change(screen.getByLabelText("Email address"), {
+      target: { value: "doctor@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "Password123!" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(await screen.findByText("Account temporarily locked")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Reset your password" })).toHaveAttribute("href", "/forgot-password");
+    expect(screen.getByText("Contact an admin for help unlocking this account.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Authenticator or backup code")).not.toBeInTheDocument();
   });
 });

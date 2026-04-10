@@ -3,23 +3,27 @@
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.config import get_settings
+from app.core.security import create_access_token, get_password_hash, hash_security_token, verify_password
 from app.models.meeting import Meeting
 from app.models.patient import Patient
 from app.models.patient_app_registration import PatientAppRegistration
 from app.services import meeting_video as meeting_video_service
+from app.services import patient_app_sessions as patient_app_session_service
 
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _CODE_LENGTH = 6
 _CODE_MAX_RETRIES = 16
 _REGISTRATION_CODE_TTL_HOURS = 72
-_PATIENT_TOKEN_TTL_SECONDS = 86_400 * 30  # 30 days
+_PATIENT_DEVICE_HEADER_NAMES = ("x-patient-device-id", "x-device-id")
+settings = get_settings()
 
 
 def _generate_code() -> str:
@@ -30,10 +34,114 @@ def _normalize_phone(phone: str) -> str:
     return re.sub(r"[\s\-().]", "", phone.strip())
 
 
+def _phone_digits(phone: str) -> str:
+    return re.sub(r"\D", "", phone or "")
+
+
+def _phone_variants(phone: str) -> set[str]:
+    normalized = _normalize_phone(phone)
+    digits = _phone_digits(phone)
+    variants = {normalized, digits}
+
+    if digits.startswith("66") and len(digits) > 2:
+        local_variant = f"0{digits[2:]}"
+        variants.add(local_variant)
+        variants.add(f"+{digits}")
+
+    if digits.startswith("0") and len(digits) > 1:
+        intl_variant = f"66{digits[1:]}"
+        variants.add(intl_variant)
+        variants.add(f"+{intl_variant}")
+
+    return {variant for variant in variants if variant}
+
+
+def _phones_match(candidate_phone: str, stored_phone: str) -> bool:
+    return bool(_phone_variants(candidate_phone) & _phone_variants(stored_phone))
+
+
 def _as_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def _generate_patient_session_id() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _normalize_device_context_value(value: str | None, *, max_length: int = 512) -> str:
+    return (value or "").strip()[:max_length]
+
+
+def get_patient_device_id_from_headers(headers) -> str | None:
+    for header_name in _PATIENT_DEVICE_HEADER_NAMES:
+        value = _normalize_device_context_value(headers.get(header_name))
+        if value:
+            return value
+    return None
+
+
+def build_patient_device_context(*, user_agent: str | None, device_id: str | None) -> str | None:
+    normalized_user_agent = _normalize_device_context_value(user_agent)
+    normalized_device_id = _normalize_device_context_value(device_id)
+    if not normalized_user_agent and not normalized_device_id:
+        return None
+    return hash_security_token(
+        f"patient-app:{normalized_device_id or 'no-device'}:{normalized_user_agent or 'no-user-agent'}"
+    )
+
+
+def _get_patient_token_ttl_seconds() -> int:
+    return max(int(settings.patient_app_token_ttl_seconds), 300)
+
+
+def _check_patient_account_locked(patient: Patient | None) -> datetime | None:
+    if not patient or not patient.app_account_locked_until:
+        return None
+
+    locked_until = _as_utc(patient.app_account_locked_until)
+    if locked_until <= _now_utc():
+        return None
+
+    return locked_until
+
+
+def _patient_lock_detail(locked_until: datetime) -> str:
+    return (
+        "Patient account temporarily locked due to repeated failed PIN attempts. "
+        f"Try again after {locked_until.astimezone(timezone.utc).isoformat()}."
+    )
+
+
+def _record_failed_patient_login(db: Session, patient: Patient) -> datetime | None:
+    now = _now_utc()
+    patient.failed_app_login_attempts = (patient.failed_app_login_attempts or 0) + 1
+    patient.last_app_failed_login_at = now
+
+    if patient.failed_app_login_attempts >= settings.patient_pin_max_login_attempts:
+        patient.app_account_locked_until = now + timedelta(minutes=settings.patient_pin_lockout_minutes)
+
+    db.add(patient)
+    db.flush()
+    return _check_patient_account_locked(patient)
+
+
+def _reset_patient_login_failures(db: Session, patient: Patient) -> None:
+    if (
+        (patient.failed_app_login_attempts or 0) > 0
+        or patient.app_account_locked_until is not None
+        or patient.last_app_failed_login_at is not None
+    ):
+        patient.failed_app_login_attempts = 0
+        patient.app_account_locked_until = None
+        patient.last_app_failed_login_at = None
+        db.add(patient)
+        db.flush()
 
 
 # ---------- Staff: generate registration code ----------
@@ -118,6 +226,8 @@ def register_patient_app(
     phone: str,
     code: str,
     pin: str,
+    user_agent: str | None = None,
+    device_id: str | None = None,
 ) -> dict:
     """Verify phone + code, set PIN, return access token."""
     normalized_phone = _normalize_phone(phone)
@@ -156,34 +266,31 @@ def register_patient_app(
             detail="Patient record not found.",
         )
 
-    patient_phone = _normalize_phone(patient.phone or "")
-    if not patient_phone or not normalized_phone.endswith(patient_phone[-4:]):
-        # Match on last 4 digits to tolerate country code differences.
-        if patient_phone != normalized_phone:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Phone number does not match our records.",
-            )
+    patient_phone = patient.phone or ""
+    if not patient_phone or not _phones_match(normalized_phone, patient_phone):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Phone number does not match our records.",
+        )
 
     # Set PIN.
     patient.pin_hash = get_password_hash(pin)
     patient.app_registered_at = now
+    _reset_patient_login_failures(db, patient)
 
     # Mark code as used.
     reg.is_used = True
     reg.used_at = now
 
+    response = create_patient_login_response(
+        db=db,
+        patient=patient,
+        user_agent=user_agent,
+        device_id=device_id,
+    )
     db.commit()
     db.refresh(patient)
-
-    token = _create_patient_token(patient)
-    return {
-        "patient_id": str(patient.id),
-        "access_token": token,
-        "token_type": "bearer",
-        "expires_in": _PATIENT_TOKEN_TTL_SECONDS,
-        "patient_name": patient.name or f"{patient.first_name} {patient.last_name}",
-    }
+    return response
 
 
 # ---------- Patient: login with PIN ----------
@@ -193,12 +300,15 @@ def login_patient_app(
     db: Session,
     phone: str,
     pin: str,
+    user_agent: str | None = None,
+    device_id: str | None = None,
 ) -> dict:
     """Authenticate patient by phone + PIN."""
     normalized_phone = _normalize_phone(phone)
 
-    # Query by phone first so we only evaluate a small, indexed candidate set.
-    phone_candidates = [normalized_phone]
+    # Query by canonical local/international variants so 081... and +6681...
+    # both work without weakening verification to a suffix match.
+    phone_candidates = sorted(_phone_variants(normalized_phone))
 
     matched_patient = db.scalar(
         select(Patient).where(
@@ -211,8 +321,23 @@ def login_patient_app(
         ).order_by(Patient.created_at.desc())
     )
 
-    if matched_patient and not verify_password(pin, matched_patient.pin_hash):
-        matched_patient = None
+    if matched_patient:
+        locked_until = _check_patient_account_locked(matched_patient)
+        if locked_until is not None:
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail=_patient_lock_detail(locked_until),
+            )
+
+        if not verify_password(pin, matched_patient.pin_hash):
+            locked_until = _record_failed_patient_login(db, matched_patient)
+            db.commit()
+            if locked_until is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_423_LOCKED,
+                    detail=_patient_lock_detail(locked_until),
+                )
+            matched_patient = None
 
     if not matched_patient:
         raise HTTPException(
@@ -220,15 +345,15 @@ def login_patient_app(
             detail="Invalid phone number or PIN.",
         )
 
-    token = _create_patient_token(matched_patient)
-
-    return {
-        "patient_id": str(matched_patient.id),
-        "access_token": token,
-        "token_type": "bearer",
-        "expires_in": _PATIENT_TOKEN_TTL_SECONDS,
-        "patient_name": matched_patient.name or f"{matched_patient.first_name} {matched_patient.last_name}",
-    }
+    _reset_patient_login_failures(db, matched_patient)
+    response = create_patient_login_response(
+        db=db,
+        patient=matched_patient,
+        user_agent=user_agent,
+        device_id=device_id,
+    )
+    db.commit()
+    return response
 
 
 # ---------- Patient: get my meetings ----------
@@ -367,18 +492,59 @@ def issue_patient_meeting_invite(
 
 # ---------- Helpers ----------
 
-def _create_patient_token(patient: Patient) -> str:
+def _create_patient_token(patient: Patient, *, session_id: str, device_context: str | None) -> str:
     return create_access_token(
         {
             "sub": str(patient.id),
             "type": "patient",
             "role": "patient",
+            "session_id": session_id,
+            "device_ctx": device_context,
         },
-        expires_in=_PATIENT_TOKEN_TTL_SECONDS,
+        expires_in=_get_patient_token_ttl_seconds(),
     )
 
 
-def get_current_patient(token: str, db: Session) -> Patient:
+def create_patient_login_response(
+    *,
+    db: Session,
+    patient: Patient,
+    user_agent: str | None = None,
+    device_id: str | None = None,
+) -> dict:
+    patient_app_session_service.revoke_patient_sessions(
+        db,
+        patient_id=UUID(str(patient.id)),
+    )
+    session_id = _generate_patient_session_id()
+    token_ttl_seconds = _get_patient_token_ttl_seconds()
+    patient_app_session_service.register_patient_session(
+        db,
+        patient_id=UUID(str(patient.id)),
+        session_id=session_id,
+        expires_in_seconds=token_ttl_seconds,
+    )
+    token = _create_patient_token(
+        patient,
+        session_id=session_id,
+        device_context=build_patient_device_context(user_agent=user_agent, device_id=device_id),
+    )
+    return {
+        "patient_id": str(patient.id),
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": token_ttl_seconds,
+        "patient_name": patient.name or f"{patient.first_name} {patient.last_name}",
+    }
+
+
+def get_current_patient(
+    token: str,
+    db: Session,
+    *,
+    user_agent: str | None = None,
+    device_id: str | None = None,
+) -> Patient:
     """Decode a patient JWT and return the Patient row."""
     from app.core.security import decode_token as _decode
 
@@ -411,6 +577,34 @@ def get_current_patient(token: str, db: Session) -> Patient:
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token.") from exc
 
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired token.",
+    )
+    patient_app_session_service.require_active_patient_session(
+        db,
+        patient_id=pid,
+        session_id=payload.get("session_id"),
+        credentials_exception=credentials_exception,
+    )
+
+    expected_device_context = payload.get("device_ctx")
+    if not expected_device_context:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session must be re-authenticated to continue.",
+        )
+
+    current_device_context = build_patient_device_context(
+        user_agent=user_agent,
+        device_id=device_id,
+    )
+    if current_device_context != expected_device_context:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session must be used from the original device context.",
+        )
+
     patient = db.get(Patient, pid)
     if not patient or patient.deleted_at is not None or not patient.is_active:
         raise HTTPException(
@@ -419,3 +613,83 @@ def get_current_patient(token: str, db: Session) -> Patient:
         )
 
     return patient
+
+
+def refresh_patient_app(
+    *,
+    db: Session,
+    token: str,
+    user_agent: str | None = None,
+    device_id: str | None = None,
+) -> dict:
+    patient = get_current_patient(
+        token,
+        db,
+        user_agent=user_agent,
+        device_id=device_id,
+    )
+    response = create_patient_login_response(
+        db=db,
+        patient=patient,
+        user_agent=user_agent,
+        device_id=device_id,
+    )
+    db.commit()
+    return response
+
+
+def logout_patient_app(
+    *,
+    db: Session,
+    token: str,
+    user_agent: str | None = None,
+    device_id: str | None = None,
+) -> None:
+    from app.core.security import decode_token as _decode
+
+    get_current_patient(
+        token,
+        db,
+        user_agent=user_agent,
+        device_id=device_id,
+    )
+
+    try:
+        payload = _decode(token)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token.",
+        ) from exc
+
+    if payload.get("type") != "patient":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token is not a patient token.",
+        )
+
+    patient_app_session_service.revoke_patient_session(
+        db,
+        session_id=payload.get("session_id"),
+    )
+    db.commit()
+
+
+def logout_all_patient_app(
+    *,
+    db: Session,
+    token: str,
+    user_agent: str | None = None,
+    device_id: str | None = None,
+) -> None:
+    patient = get_current_patient(
+        token,
+        db,
+        user_agent=user_agent,
+        device_id=device_id,
+    )
+    patient_app_session_service.revoke_patient_sessions(
+        db,
+        patient_id=UUID(str(patient.id)),
+    )
+    db.commit()

@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.core.security import create_access_token, decode_token
 from app.models.enums import UserRole
 from app.models.user import User
+from app.services import auth_sessions
 from app.services.auth_privileges import requires_token_mfa
 
 settings = get_settings()
@@ -78,8 +79,6 @@ def create_login_response(
     sso_provider: str | None = None,
     session_id: str | None = None,
 ) -> dict:
-    del db
-
     expires_in = get_access_token_ttl_seconds(user)
     effective_mfa_verified = not requires_token_mfa(user) or bool(mfa_verified)
     auth_time = mfa_authenticated_at
@@ -99,10 +98,19 @@ def create_login_response(
         },
         expires_in=expires_in,
     )
+    if db is not None:
+        auth_sessions.register_session(
+            db,
+            user_id=user.id,
+            session_id=effective_session_id,
+            auth_source=auth_source,
+            expires_in_seconds=expires_in,
+        )
     return {
         "access_token": token,
         "token_type": "bearer",
         "expires_in": expires_in,
+        "session_id": effective_session_id,
         "user": {
             "id": str(user.id),
             "email": user.email,

@@ -73,6 +73,10 @@ export interface AdminSsoStatus {
   logout_path?: string | null;
 }
 
+export interface AdminSsoLogoutResponse {
+  redirect_url: string;
+}
+
 export interface Admin2FAStatus {
   role?: string;
   required: boolean;
@@ -82,6 +86,24 @@ export interface Admin2FAStatus {
   account_email?: string | null;
   provisioning_uri?: string | null;
   trusted_device_days?: number | null;
+}
+
+export type LockedRecoveryOption =
+  | "wait"
+  | "forgot_password"
+  | "contact_admin"
+  | "contact_security_admin";
+
+export interface LoginChallengeDetail {
+  code?: string;
+  message?: string;
+  required?: boolean;
+  setup_required?: boolean;
+  issuer?: string | null;
+  trusted_device_days?: number | null;
+  provisioning_uri?: string | null;
+  retry_after_seconds?: number;
+  recovery_options?: LockedRecoveryOption[];
 }
 
 export interface TrustedDevice {
@@ -110,6 +132,7 @@ export interface Patient {
   last_name: string;
   date_of_birth: string;
   gender?: string | null;
+  ward?: string | null;
   phone?: string | null;
   email?: string | null;
   address?: string | null;
@@ -122,6 +145,10 @@ export interface PatientListResponse {
   page: number;
   limit: number;
   total: number;
+}
+
+export interface PatientWardListResponse {
+  wards: string[];
 }
 
 export interface PatientContactDetails {
@@ -422,6 +449,12 @@ export interface UserCreate {
   license_no?: string;
   license_expiry?: string;
   verification_status?: string;
+  patient_assignment_scope?: "all" | "ward" | "none";
+  target_ward?: string;
+}
+
+export interface UserCreateResponse extends User {
+  assigned_patient_count: number;
 }
 
 export interface UserUpdate {

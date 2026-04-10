@@ -10,10 +10,11 @@ from sqlalchemy.orm import Session
 
 from app.api import pressure as pressure_api
 from app.core.security import get_password_hash
-from app.models.enums import UserRole
+from app.models.enums import PrivilegedRole, UserRole
 from app.models.patient import Patient
 from app.models.pressure_record import PressureRecord
 from app.models.user import User
+from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
 
 
 def _create_admin(db: Session, email: str, password: str) -> User:
@@ -27,6 +28,22 @@ def _create_admin(db: Session, email: str, password: str) -> User:
     db.commit()
     db.refresh(admin)
     return admin
+
+
+def _grant_security_admin(
+    db: Session,
+    *,
+    user: User,
+    created_by: User,
+) -> None:
+    assignment = UserPrivilegedRoleAssignment(
+        user_id=user.id,
+        role=PrivilegedRole.security_admin,
+        created_by=created_by.id,
+        reason="device ingest security remediation test",
+    )
+    db.add(assignment)
+    db.commit()
 
 
 def _create_patient(db: Session) -> Patient:
@@ -62,11 +79,14 @@ def test_device_hmac_flow_from_admin_registration_to_ingest(
     db: Session,
     monkeypatch,
 ):
-    admin_email = "device-e2e-admin@example.com"
+    bootstrap_email = "admin@example.com"
+    admin_email = "device-e2e-security-admin@example.com"
     admin_password = "TestPass123"
     device_id = "ward-bp-e2e-001"
 
-    _create_admin(db, admin_email, admin_password)
+    bootstrap_admin = _create_admin(db, bootstrap_email, admin_password)
+    security_admin = _create_admin(db, admin_email, admin_password)
+    _grant_security_admin(db, user=security_admin, created_by=bootstrap_admin)
     patient = _create_patient(db)
 
     login_response = client.post(

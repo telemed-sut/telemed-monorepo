@@ -4,6 +4,7 @@ from fastapi import Request
 from slowapi import Limiter
 
 from app.core.config import get_settings
+from app.core.request_utils import is_local_development_ip
 from app.db.session import get_redis_connection_pool
 from app.core.request_utils import get_client_ip
 
@@ -12,9 +13,12 @@ settings = get_settings()
 
 def _rate_limit_whitelist() -> set[str]:
     configured = settings.rate_limit_whitelist
+    whitelist = set()
     if isinstance(configured, str):
-        return {item.strip() for item in configured.split(",") if item.strip()}
-    return {item.strip() for item in configured if item and item.strip()}
+        whitelist = {item.strip() for item in configured.split(",") if item.strip()}
+    else:
+        whitelist = {item.strip() for item in configured if item and item.strip()}
+    return whitelist
 
 
 def _get_bearer_rate_limit_key(auth_header: str, client_ip: str) -> str:
@@ -51,7 +55,7 @@ def get_real_user_key(request: Request):
     client_ip = get_client_ip(request)
 
     # 1. Check for Whitelisted IP (Internal tools, Monitoring)
-    if client_ip in _rate_limit_whitelist():
+    if client_ip in _rate_limit_whitelist() or is_local_development_ip(client_ip):
         return None  # Returning None bypasses the rate limiter
 
     # 2. Check for Authorization header (User context)
@@ -77,7 +81,7 @@ def get_failed_login_key(request: Request):
     client_ip = get_client_ip(request)
     
     # 1. Check for Whitelisted IP (Internal tools, Monitoring)
-    if client_ip in _rate_limit_whitelist():
+    if client_ip in _rate_limit_whitelist() or is_local_development_ip(client_ip):
         return None  # Returning None bypasses the rate limiter
 
     return f"login:{client_ip}"
@@ -99,7 +103,7 @@ def get_client_ip_rate_limit_key(request: Request):
     """
     client_ip = get_client_ip(request)
 
-    if client_ip in _rate_limit_whitelist():
+    if client_ip in _rate_limit_whitelist() or is_local_development_ip(client_ip):
         return None
 
     return f"ip:{client_ip}"
@@ -112,6 +116,17 @@ def get_strict_client_ip_rate_limit_key(request: Request):
     """
     client_ip = get_client_ip(request)
     return f"ip:{client_ip}"
+
+
+def get_device_ingest_rate_limit_key(request: Request):
+    """
+    Strict pre-auth limiter key for device ingest.
+
+    Never trusts X-Device-Id before authentication, so rotating headers cannot
+    evade the shared bucket for a single source IP.
+    """
+    client_ip = get_client_ip(request)
+    return f"device-ingest:{client_ip}"
 
 
 def _build_limiter_storage_configuration() -> tuple[str, dict[str, object]]:

@@ -90,6 +90,9 @@ function tr(language: AppLanguage, en: string, th: string): string {
   return language === "th" ? th : en;
 }
 
+const USER_REGISTRATION_SIGNAL_KEY = "telemed:user-registered";
+const USER_REGISTRATION_CHANNEL = "telemed-user-events";
+
 type UsersStreamEvent = {
   type?: string;
 };
@@ -884,8 +887,11 @@ function UsersByRoleChart({ users, language }: { users: User[]; language: AppLan
 export function UsersContent() {
   const router = useRouter();
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.userId);
+  const authCurrentUser = useAuthStore((state) => state.currentUser);
   const hydrated = useAuthStore((state) => state.hydrated);
   const clearToken = useAuthStore((state) => state.clearToken);
+  const setAuthCurrentUser = useAuthStore((state) => state.setCurrentUser);
   const language = useLanguageStore((state) => state.language);
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
@@ -906,6 +912,21 @@ export function UsersContent() {
     }
   }, [hydrated, token, router]);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!token || !userId) {
+      setCurrentUser(null);
+      return;
+    }
+
+    if (!authCurrentUser || authCurrentUser.id !== userId) {
+      setCurrentUser(null);
+      return;
+    }
+
+    setCurrentUser(authCurrentUser);
+  }, [authCurrentUser, hydrated, token, userId]);
+
   const triggerRefresh = useCallback(() => {
     setRefreshKey((prev) => prev + 1);
   }, []);
@@ -915,7 +936,44 @@ export function UsersContent() {
   }, []);
 
   useEffect(() => {
-    if (!token) return;
+    if (typeof window === "undefined") return;
+
+    const handleRefreshSignal = () => {
+      triggerRefresh();
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== USER_REGISTRATION_SIGNAL_KEY || !event.newValue) return;
+      handleRefreshSignal();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        handleRefreshSignal();
+      }
+    };
+
+    window.addEventListener("focus", handleRefreshSignal);
+    window.addEventListener("storage", handleStorage);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof window.BroadcastChannel !== "undefined") {
+      channel = new window.BroadcastChannel(USER_REGISTRATION_CHANNEL);
+      channel.addEventListener("message", handleRefreshSignal);
+    }
+
+    return () => {
+      window.removeEventListener("focus", handleRefreshSignal);
+      window.removeEventListener("storage", handleStorage);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      channel?.removeEventListener("message", handleRefreshSignal);
+      channel?.close();
+    };
+  }, [triggerRefresh]);
+
+  useEffect(() => {
+    if (!token || !userId) return;
     let cancelled = false;
 
     const loadUsersForDashboard = async () => {
@@ -950,14 +1008,17 @@ export function UsersContent() {
 
     void fetchCurrentUser(token)
       .then((me) => {
-        if (!cancelled) setCurrentUser(me);
+        if (!cancelled && me.id === userId) {
+          setAuthCurrentUser(me);
+          setCurrentUser(me);
+        }
       })
       .catch(() => {});
 
     return () => {
       cancelled = true;
     };
-  }, [token, clearToken, router, refreshKey]);
+  }, [token, userId, clearToken, router, refreshKey, setAuthCurrentUser]);
 
   useEffect(() => {
     if (!token) return;

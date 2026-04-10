@@ -1,3 +1,5 @@
+import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -5,19 +7,27 @@ from sqlalchemy import extract, func, select
 from sqlalchemy.orm import Session
 
 from app.core.limiter import limiter
+from app.db.session import get_redis_client
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole
 from app.models.meeting import Meeting
 from app.models.patient import Patient
 from app.models.user import User
+from app.schemas.stats import StatsOverviewResponse
 from app.services import auth as auth_service
 from app.services import meeting as meeting_service
 
 router = APIRouter(prefix="/stats", tags=["stats"])
+logger = logging.getLogger(__name__)
+_OVERVIEW_STATS_CACHE_TTL_SECONDS = 30
 
 
-@router.get("/overview")
-@limiter.limit("200/minute")
+def _overview_stats_cache_key(*, user_id: str, role: str, year: int) -> str:
+    return f"stats:overview:v1:{role}:{user_id}:{year}"
+
+
+@router.get("/overview", response_model=StatsOverviewResponse)
+@limiter.limit("60/minute")
 def get_overview_stats(
     request: Request,
     year: int = Query(default=None, description="Year to aggregate (defaults to current year)"),
@@ -39,6 +49,24 @@ def get_overview_stats(
     resolved_year = int(year)
     doctor_id = current_user.id
     is_scoped_clinical_user = current_user.role != UserRole.admin
+    cache_key = _overview_stats_cache_key(
+        user_id=str(current_user.id),
+        role=current_user.role.value,
+        year=resolved_year,
+    )
+
+    redis_client = get_redis_client()
+    if redis_client is not None:
+        try:
+            cached_payload = redis_client.get(cache_key)
+            if isinstance(cached_payload, bytes):
+                cached_payload = cached_payload.decode("utf-8")
+            if isinstance(cached_payload, str) and cached_payload:
+                decoded_payload = json.loads(cached_payload)
+                if isinstance(decoded_payload, dict):
+                    return decoded_payload
+        except Exception:
+            logger.warning("Failed to read overview stats cache.", exc_info=True)
 
     month_labels = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -189,7 +217,7 @@ def get_overview_stats(
             )
         ) or 0
 
-    return {
+    payload = {
         "year": resolved_year,
         "monthly": monthly,
         "totals": {
@@ -202,3 +230,15 @@ def get_overview_stats(
             "this_month_new_patients": this_month_new_patients,
         },
     }
+
+    if redis_client is not None:
+        try:
+            redis_client.setex(
+                cache_key,
+                _OVERVIEW_STATS_CACHE_TTL_SECONDS,
+                json.dumps(payload),
+            )
+        except Exception:
+            logger.warning("Failed to write overview stats cache.", exc_info=True)
+
+    return payload

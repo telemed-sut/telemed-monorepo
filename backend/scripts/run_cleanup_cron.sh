@@ -8,6 +8,7 @@ cd "$ROOT_DIR"
 
 if [ -n "${DATABASE_URL:-}" ] && [ -n "${JWT_SECRET:-}" ]; then
   venv/bin/python scripts/cleanup_audit_logs.py >>"$LOG_FILE" 2>&1
+  venv/bin/python scripts/cleanup_sessions.py >>"$LOG_FILE" 2>&1
   exit 0
 fi
 
@@ -25,6 +26,7 @@ if command -v infisical >/dev/null 2>&1; then
   fi
 
   infisical run "${infisical_args[@]}" -- venv/bin/python scripts/cleanup_audit_logs.py >>"$LOG_FILE" 2>&1
+  infisical run "${infisical_args[@]}" -- venv/bin/python scripts/cleanup_sessions.py >>"$LOG_FILE" 2>&1
   exit 0
 fi
 

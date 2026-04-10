@@ -3,20 +3,31 @@
 import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 
-import { getAdminSsoLogoutPath } from "@/lib/api";
+import { logout, logoutAdminSso } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 
 export function useSessionLogout() {
   const router = useRouter();
 
-  return useCallback(() => {
-    const { authSource, clearSessionState, clearToken } = useAuthStore.getState();
+  return useCallback(async () => {
+    const { authSource, clearSessionState, clearToken, token } = useAuthStore.getState();
     const isSsoSession = authSource === "sso";
 
     if (isSsoSession) {
       clearSessionState();
-      window.location.assign(getAdminSsoLogoutPath());
+      try {
+        const { redirect_url } = await logoutAdminSso();
+        window.location.assign(redirect_url);
+      } catch {
+        router.replace("/login?error=admin_sso_failed&reason=deprecated_logout_method");
+      }
       return;
+    }
+
+    try {
+      await logout(token ?? undefined);
+    } catch {
+      // Best-effort revoke; local cleanup still needs to happen.
     }
 
     clearToken();

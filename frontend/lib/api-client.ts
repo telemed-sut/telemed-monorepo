@@ -648,12 +648,29 @@ function isTokenExpiring(token: string, bufferSeconds = 300): boolean {
   }
 }
 
+function readCookieValue(name: string): string | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const prefix = `${name}=`;
+  for (const part of document.cookie.split(";")) {
+    const trimmed = part.trim();
+    if (trimmed.startsWith(prefix)) {
+      return decodeURIComponent(trimmed.slice(prefix.length));
+    }
+  }
+
+  return null;
+}
+
 export async function rawFetch<T>(
   path: string,
   options: RequestInit = {},
   token?: string,
 ): Promise<RawFetchResult<T>> {
   const url = `${API_BASE_URL}${path}`;
+  const method = (options.method ?? "GET").toUpperCase();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> || {}),
@@ -661,6 +678,18 @@ export async function rawFetch<T>(
 
   if (typeof window === "undefined" && token && isProbablyJwt(token)) {
     headers.Authorization = `Bearer ${token}`;
+  }
+
+  if (typeof window !== "undefined" && !["GET", "HEAD", "OPTIONS", "TRACE"].includes(method)) {
+    const hasCsrfHeader = Object.keys(headers).some(
+      (headerName) => headerName.toLowerCase() === "x-csrf-token",
+    );
+    if (!hasCsrfHeader) {
+      const csrfToken = readCookieValue("csrf_token");
+      if (csrfToken) {
+        headers["X-CSRF-Token"] = csrfToken;
+      }
+    }
   }
 
   let res: Response;

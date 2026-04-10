@@ -32,6 +32,9 @@ class Patient(Base):
     # Patient app authentication
     pin_hash = Column(String(255), nullable=True)
     app_registered_at = Column(DateTime(timezone=True), nullable=True)
+    failed_app_login_attempts = Column(Integer, nullable=False, server_default="0", default=0)
+    app_account_locked_until = Column(DateTime(timezone=True), nullable=True)
+    last_app_failed_login_at = Column(DateTime(timezone=True), nullable=True)
 
     # Dense mode clinical columns
     allergies = Column(Text, nullable=True)

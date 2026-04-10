@@ -1,9 +1,9 @@
 import re
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from app.models.enums import UserRole, VerificationStatus
 
@@ -68,6 +68,21 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str | None = Field(default=None, min_length=8)
+    patient_assignment_scope: Literal["all", "ward", "none"] = "none"
+    target_ward: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_patient_assignment(self) -> "UserCreate":
+        normalized_target_ward = self.target_ward.strip() if isinstance(self.target_ward, str) else None
+        self.target_ward = normalized_target_ward or None
+
+        if self.patient_assignment_scope == "ward" and not self.target_ward:
+            raise ValueError("target_ward is required when patient_assignment_scope is 'ward'.")
+
+        if self.patient_assignment_scope != "ward":
+            self.target_ward = None
+
+        return self
 
 
 class UserUpdate(BaseModel):
@@ -123,6 +138,10 @@ class UserOut(BaseModel):
     privileged_roles: List[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
+
+
+class UserCreateResponse(UserOut):
+    assigned_patient_count: int = 0
 
 
 class UserListResponse(BaseModel):

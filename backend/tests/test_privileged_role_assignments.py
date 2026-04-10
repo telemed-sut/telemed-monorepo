@@ -159,6 +159,7 @@ def test_security_recovery_actions_require_fresh_high_risk_mfa(client: TestClien
         mfa_verified=True,
         mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
     )
+    db.commit()
     response = client.post(
         f"/security/users/{target_admin.id}/2fa/reset",
         json={"reason": "High risk action should require fresher MFA"},
@@ -238,6 +239,7 @@ def test_privileged_actions_require_recent_mfa(client: TestClient, db: Session):
         mfa_verified=True,
         mfa_authenticated_at=datetime.now(timezone.utc) - timedelta(hours=1),
     )
+    db.commit()
     response = client.post(
         "/users/invites",
         json={
@@ -297,6 +299,7 @@ def test_access_profile_hides_sensitive_details_without_recent_mfa(client: TestC
         mfa_verified=True,
         mfa_authenticated_at=stale_auth_time,
     )["access_token"]
+    db.commit()
     response = client.get("/auth/access-profile", headers=_auth(token))
 
     assert response.status_code == 200, response.text

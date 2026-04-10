@@ -4,6 +4,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from typing import Iterator, OrderedDict as OrderedDictType, Tuple
+from urllib.parse import parse_qsl
 from uuid import UUID
 
 from fastapi import Request
@@ -58,6 +59,26 @@ def _clear_ip_ban_cache_entry(ip: str) -> None:
     _ip_ban_cache.pop(ip, None)
 
 
+def _build_sanitized_query_metadata(query: str) -> dict[str, object]:
+    if not query:
+        return {
+            "query_present": False,
+            "query_keys": [],
+        }
+
+    query_keys = sorted(
+        {
+            key.strip()
+            for key, _value in parse_qsl(query, keep_blank_values=True)
+            if key and key.strip()
+        }
+    )
+    return {
+        "query_present": bool(query_keys),
+        "query_keys": query_keys,
+    }
+
+
 @contextmanager
 def _get_middleware_db_session(request: Request) -> Iterator[Session]:
     override = request.app.dependency_overrides.get(get_db)
@@ -85,21 +106,39 @@ def _get_middleware_db_session(request: Request) -> Iterator[Session]:
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
-        csp_policy = (
-            "default-src 'self'; "
-            "base-uri 'self'; "
-            "frame-ancestors 'none'; "
-            "object-src 'none'; "
-            "form-action 'self'; "
-            "img-src 'self' data: https:; "
-            "style-src 'self' 'unsafe-inline'; "
-            "script-src 'self' 'unsafe-inline'; "
-            "connect-src 'self' https: wss:"
-        )
+        path = request.url.path
+        docs_paths = ("/docs", "/redoc", "/openapi")
+        if path.startswith(docs_paths):
+            csp_policy = (
+                "default-src 'self'; "
+                "base-uri 'self'; "
+                "frame-ancestors 'none'; "
+                "object-src 'none'; "
+                "form-action 'self'; "
+                "img-src 'self' data: https:; "
+                "style-src 'self' 'unsafe-inline' https:; "
+                "script-src 'self' 'unsafe-inline' https:; "
+                "font-src 'self' data: https:; "
+                "connect-src 'self' https:"
+            )
+        else:
+            csp_policy = (
+                "default-src 'none'; "
+                "base-uri 'none'; "
+                "frame-ancestors 'none'; "
+                "object-src 'none'; "
+                "form-action 'none'; "
+                "img-src 'none'; "
+                "style-src 'none'; "
+                "script-src 'none'; "
+                "font-src 'none'; "
+                "manifest-src 'none'; "
+                "connect-src 'self'"
+            )
 
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["X-XSS-Protection"] = "0"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Content-Security-Policy"] = csp_policy
@@ -150,7 +189,7 @@ class SecurityAuditMiddleware(BaseHTTPMiddleware):
             "method": request.method,
             "path": path,
             "status_code": response.status_code,
-            "query": request.url.query,
+            **_build_sanitized_query_metadata(request.url.query),
             "user_agent": request.headers.get("user-agent", "")[:300],
         }
 

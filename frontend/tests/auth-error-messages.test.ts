@@ -46,4 +46,14 @@ describe("getAuthErrorMessage", () => {
       "ลิงก์รีเซ็ตนี้ไม่ถูกต้องหรือหมดอายุแล้ว"
     );
   });
+
+  it("maps locked account responses to the standard locked-account message", () => {
+    const error = Object.assign(new Error("Account temporarily locked due to multiple failed login attempts."), {
+      status: 423,
+      detail: { code: "account_locked" },
+    }) as ApiError;
+
+    expect(getAuthErrorMessage("en", error, "login")).toBe("Your account is temporarily locked. Please try again later.");
+    expect(getAuthErrorMessage("th", error, "login")).toBe("บัญชีถูกล็อกชั่วคราว กรุณาลองใหม่อีกครั้งภายหลัง");
+  });
 });

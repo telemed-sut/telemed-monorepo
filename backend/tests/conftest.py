@@ -2,11 +2,67 @@ import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import MutableMapping
 
 # Load .env.test before any app imports
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 _project_root = Path(__file__).resolve().parent.parent
-load_dotenv(_project_root / ".env.test", override=False)
+_TEST_ENV_PATH = _project_root / ".env.test"
+_ENFORCED_TEST_ENV_KEYS = {
+    "ADMIN_2FA_REQUIRED",
+    "ADMIN_JWT_EXPIRES_IN",
+    "ADMIN_UNLOCK_WHITELISTED_IPS",
+    "ALLOW_INSECURE_SECRET_STORAGE",
+    "APP_ENV",
+    "AUTH_COOKIE_SECURE",
+    "DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE",
+    "DEVICE_API_REQUIRE_NONCE",
+    "DEVICE_API_REQUIRE_REGISTERED_DEVICE",
+    "DEVICE_API_SECRET",
+    "DEVICE_SECRET_ENCRYPTION_KEY",
+    "JWT_EXPIRES_IN",
+    "JWT_SECRET",
+    "MEETING_SIGNING_SECRET",
+    "PASSWORD_RESET_EXPIRES_IN",
+    "PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS",
+    "SUPER_ADMIN_EMAILS",
+    "TRUSTED_PROXY_IPS",
+    "TWO_FACTOR_SECRET_ENCRYPTION_KEY",
+}
+
+
+def _load_enforced_test_environment(
+    *,
+    env_path: Path,
+    environ: MutableMapping[str, str] | None = None,
+) -> dict[str, str]:
+    target_env = os.environ if environ is None else environ
+    values = {
+        key: value
+        for key, value in dotenv_values(env_path).items()
+        if value is not None
+    }
+
+    missing_keys = sorted(
+        key
+        for key in _ENFORCED_TEST_ENV_KEYS
+        if key != "APP_ENV" and key not in values
+    )
+    if missing_keys:
+        raise RuntimeError(
+            ".env.test is missing required security test settings: "
+            + ", ".join(missing_keys)
+        )
+
+    target_env["APP_ENV"] = "test"
+    for key in sorted(_ENFORCED_TEST_ENV_KEYS - {"APP_ENV"}):
+        target_env[key] = values[key]
+
+    return values
+
+
+_load_enforced_test_environment(env_path=_TEST_ENV_PATH)
+load_dotenv(_TEST_ENV_PATH, override=False)
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,11 +74,25 @@ from sqlalchemy.pool import StaticPool
 
 # Ensure required secrets are available in test environment.
 os.environ.setdefault("DEVICE_API_SECRET", "test_device_secret_1234567890abcdef1234567890abcdef")
+os.environ.setdefault(
+    "DEVICE_SECRET_ENCRYPTION_KEY",
+    "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+)
+os.environ.setdefault(
+    "TWO_FACTOR_SECRET_ENCRYPTION_KEY",
+    "ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=",
+)
+os.environ.setdefault("ALLOW_INSECURE_SECRET_STORAGE", "false")
+os.environ.setdefault(
+    "MEETING_SIGNING_SECRET",
+    "test_meeting_signing_secret_1234567890abcdef1234567890abcd",
+)
 # Most tests assume plain admin login unless they explicitly opt into MFA.
 os.environ["ADMIN_2FA_REQUIRED"] = "false"
 os.environ.setdefault("DEVICE_API_REQUIRE_REGISTERED_DEVICE", "false")
 os.environ.setdefault("DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE", "false")
 os.environ.setdefault("DEVICE_API_REQUIRE_NONCE", "false")
+os.environ.setdefault("ADMIN_UNLOCK_WHITELISTED_IPS", "127.0.0.1,::1,testclient")
 os.environ.setdefault("AUTH_COOKIE_SECURE", "false")
 
 from app.core.config import get_settings

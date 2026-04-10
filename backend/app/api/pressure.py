@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -15,11 +16,12 @@ from app.services.auth import get_db
 from app.schemas.pressure import PressureCreate, PressureIngestResponse
 from app.services.pressure import pressure_service
 from app.core.config import get_settings
-from app.core.limiter import limiter
+from app.core.limiter import get_device_ingest_rate_limit_key, limiter
 from app.models.device_registration import DeviceRegistration
 from app.models.device_error_log import DeviceErrorLog
 from app.models.device_request_nonce import DeviceRequestNonce
 from app.core.request_utils import get_client_ip
+from app.core.secret_crypto import SecretDecryptionError
 
 router = APIRouter()
 settings = get_settings()
@@ -27,6 +29,38 @@ logger = logging.getLogger(__name__)
 
 MAX_TIMESTAMP_DIFF = 300  # 5 minutes
 GENERIC_AUTH_ERROR = "Invalid signature"
+_SAFE_DEVICE_ERROR_TOKEN_RE = re.compile(r"[^a-z0-9_:-]+")
+_MAX_DEVICE_ERROR_MESSAGE_LENGTH = 256
+
+
+def sanitize_device_error_message(error_msg: str) -> str:
+    normalized = " ".join((error_msg or "").strip().split())
+    if not normalized:
+        return "unknown_error"
+
+    if normalized.startswith("VALIDATION_FAILED:"):
+        return normalized[:_MAX_DEVICE_ERROR_MESSAGE_LENGTH]
+
+    if normalized.startswith("AUTH_FAILED:"):
+        prefix, _, detail = normalized.partition(":")
+        safe_detail = _SAFE_DEVICE_ERROR_TOKEN_RE.sub("_", detail.lower()).strip("_") or "unknown"
+        return f"{prefix}:{safe_detail}"[:_MAX_DEVICE_ERROR_MESSAGE_LENGTH]
+
+    if normalized.startswith("HTTP "):
+        parts = normalized.split(" ", 2)
+        if len(parts) >= 2:
+            status_code = parts[1].rstrip(":")
+            if status_code.isdigit():
+                return f"HTTP_ERROR:{status_code}"[:_MAX_DEVICE_ERROR_MESSAGE_LENGTH]
+        return "HTTP_ERROR:unknown"
+
+    if normalized.startswith("INTERNAL_ERROR:"):
+        prefix, _, detail = normalized.partition(":")
+        safe_detail = _SAFE_DEVICE_ERROR_TOKEN_RE.sub("_", detail.lower()).strip("_") or "unexpected"
+        return f"{prefix}:{safe_detail}"[:_MAX_DEVICE_ERROR_MESSAGE_LENGTH]
+
+    safe_value = _SAFE_DEVICE_ERROR_TOKEN_RE.sub("_", normalized.lower()).strip("_") or "unexpected_error"
+    return safe_value[:_MAX_DEVICE_ERROR_MESSAGE_LENGTH]
 
 
 def log_device_error(db: Session, device_id: str, error_msg: str, request: Request):
@@ -36,7 +70,7 @@ def log_device_error(db: Session, device_id: str, error_msg: str, request: Reque
 
         error_log = DeviceErrorLog(
             device_id=device_id,
-            error_message=error_msg,
+            error_message=sanitize_device_error_message(error_msg),
             ip_address=ip,
             endpoint=endpoint,
         )
@@ -53,7 +87,10 @@ def _resolve_device_secret(db: Session, device_id: str) -> tuple[str, DeviceRegi
     if registered_device:
         if not registered_device.is_active:
             raise ValueError("device_inactive")
-        secret = (registered_device.device_secret or "").strip()
+        try:
+            secret = (registered_device.device_secret or "").strip()
+        except SecretDecryptionError as exc:
+            raise ValueError("device_secret_unavailable") from exc
         if not secret:
             raise ValueError("missing_device_secret")
         return secret, registered_device
@@ -223,7 +260,7 @@ async def verify_device_signature(
 
 
 @router.post("/device/v1/pressure", response_model=PressureIngestResponse, status_code=201)
-@limiter.limit("60/minute")
+@limiter.limit("60/minute", key_func=get_device_ingest_rate_limit_key)
 def create_pressure_record(
     request: Request,
     *,
@@ -247,11 +284,11 @@ def create_pressure_record(
         return {"status": "ok"}
     except HTTPException as e:
         # Log known HTTP exceptions (like Patient not found)
-        log_device_error(db, pressure_in.device_id, f"HTTP {e.status_code}: {e.detail}", request)
+        log_device_error(db, pressure_in.device_id, f"HTTP {e.status_code}", request)
         raise
     except Exception as e:
         # Log unexpected errors
-        log_device_error(db, pressure_in.device_id, f"Internal Error: {str(e)}", request)
+        log_device_error(db, pressure_in.device_id, f"INTERNAL_ERROR:{e.__class__.__name__}", request)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
@@ -259,7 +296,7 @@ def create_pressure_record(
 
 
 @router.post("/add_pressure", response_model=PressureIngestResponse, status_code=201, deprecated=True)
-@limiter.limit("60/minute")
+@limiter.limit("60/minute", key_func=get_device_ingest_rate_limit_key)
 def add_pressure_alias(
     request: Request,
     response: Response,

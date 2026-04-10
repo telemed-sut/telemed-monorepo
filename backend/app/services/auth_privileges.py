@@ -161,7 +161,10 @@ def backfill_bootstrap_privileged_roles(db: Session) -> int:
 
     for email in bootstrap_emails:
         if email not in admin_by_email:
-            logger.warning("Bootstrap privileged-role backfill skipped missing admin account: %s", email)
+            logger.warning(
+                "Bootstrap privileged-role backfill skipped missing admin account",
+                extra={"email": email},
+            )
 
     created = 0
     for email in bootstrap_emails:

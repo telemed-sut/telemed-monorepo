@@ -14,13 +14,16 @@ from app.core.config import get_settings
 from app.core.search import normalize_search_term
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
+from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole, VerificationStatus
 from app.models.invite import UserInvite
+from app.models.patient import Patient
 from app.models.user import User
 from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
 from app.schemas.user import (
     CLINICAL_ROLES,
     UserCreate,
+    UserCreateResponse,
     UserInviteCreateRequest,
     UserInviteCreateResponse,
     UserListResponse,
@@ -28,6 +31,7 @@ from app.schemas.user import (
     UserUpdate,
 )
 from app.services import auth as auth_service
+from app.services import auth_sessions
 from app.services.audit import log_action
 from app.services.auth import get_admin_user, get_current_user
 
@@ -195,6 +199,72 @@ def _normalize_utc(dt: datetime) -> datetime:
     return dt
 
 
+def _assign_patients_to_new_doctor(
+    *,
+    db: Session,
+    doctor_id: UUID,
+    scope: str,
+    target_ward: str | None,
+) -> tuple[int, int]:
+    if scope == "none":
+        return 0, 0
+
+    candidate_query = select(Patient.id).where(
+        Patient.deleted_at.is_(None),
+        Patient.is_active == True,  # noqa: E712
+    )
+    if scope == "ward":
+        candidate_query = candidate_query.where(Patient.ward == target_ward)
+
+    primary_assignment_subquery = select(DoctorPatientAssignment.patient_id).where(
+        DoctorPatientAssignment.role == "primary"
+    )
+    eligible_query = candidate_query.where(Patient.id.not_in(primary_assignment_subquery))
+
+    candidate_count = db.scalar(select(func.count()).select_from(candidate_query.subquery())) or 0
+    patient_ids = list(db.scalars(eligible_query))
+    if not patient_ids:
+        skipped_patient_count = candidate_count
+        logger.info(
+            "Doctor onboarding auto-assignment found no eligible patients",
+            extra={
+                "event": "doctor_onboarding_auto_assignment_empty",
+                "doctor_id": str(doctor_id),
+                "scope": scope,
+                "target_ward": target_ward,
+                "candidate_patient_count": candidate_count,
+                "skipped_patient_count": skipped_patient_count,
+            },
+        )
+        return 0, skipped_patient_count
+
+    skipped_patient_count = candidate_count - len(patient_ids)
+
+    db.add_all(
+        [
+            DoctorPatientAssignment(
+                doctor_id=doctor_id,
+                patient_id=patient_id,
+                role="consulting",
+            )
+            for patient_id in patient_ids
+        ]
+    )
+    db.flush()
+    logger.info(
+        "Doctor onboarding auto-assignment prepared consulting assignments",
+        extra={
+            "event": "doctor_onboarding_auto_assignment_prepared",
+            "doctor_id": str(doctor_id),
+            "scope": scope,
+            "target_ward": target_ward,
+            "assigned_patient_count": len(patient_ids),
+            "skipped_patient_count": skipped_patient_count,
+        },
+    )
+    return len(patient_ids), skipped_patient_count
+
+
 # ---------------------------------------------------------------------------
 # LIST  (admin-only)
 # ---------------------------------------------------------------------------
@@ -305,7 +375,7 @@ def get_users(
 # CREATE  (admin-only)
 # ---------------------------------------------------------------------------
 
-@router.post("", response_model=UserOut)
+@router.post("", response_model=UserCreateResponse)
 def create_user(
     *,
     request: Request,
@@ -375,6 +445,18 @@ def create_user(
         verification_status=user_in.verification_status,
     )
     db.add(user)
+    db.flush()
+
+    assigned_patient_count = 0
+    skipped_patient_count = 0
+    if user.role == UserRole.doctor:
+        assigned_patient_count, skipped_patient_count = _assign_patients_to_new_doctor(
+            db=db,
+            doctor_id=user.id,
+            scope=user_in.patient_assignment_scope,
+            target_ward=user_in.target_ward,
+        )
+
     db.commit()
     db.refresh(user)
 
@@ -384,17 +466,31 @@ def create_user(
         action="user_create",
         resource_type="user",
         resource_id=user.id,
-        details={"after": _user_snapshot(user)},
+        details={
+            "after": _user_snapshot(user),
+            "patient_assignment_scope": user_in.patient_assignment_scope,
+            "target_ward": user_in.target_ward,
+            "assigned_patient_count": assigned_patient_count,
+            "skipped_patient_count": skipped_patient_count,
+        },
         ip_address=_client_ip(request),
     )
 
     logger.info(
-        "User created: id=%s role=%s actor_id=%s",
-        user.id,
-        user.role.value,
-        current_user.id,
+        "User created",
+        extra={
+            "event": "user_created",
+            "user_id": str(user.id),
+            "role": user.role.value,
+            "actor_user_id": str(current_user.id),
+            "assigned_patient_count": assigned_patient_count,
+            "skipped_patient_count": skipped_patient_count,
+            "patient_assignment_scope": user_in.patient_assignment_scope,
+        },
     )
-    return user
+    return UserCreateResponse.model_validate(user).model_copy(
+        update={"assigned_patient_count": assigned_patient_count}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -614,7 +710,8 @@ def update_user(
 
     # Hash password if provided
     if "password" in update_data and update_data["password"]:
-        user.password_hash = get_password_hash(update_data.pop("password"))
+        auth_service.reset_user_password(db, user, update_data.pop("password"))
+        auth_sessions.revoke_user_sessions(db, user_id=user.id)
     else:
         update_data.pop("password", None)
 

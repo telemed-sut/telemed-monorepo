@@ -90,6 +90,11 @@ import {
   formatLocalDateKey,
   parseLocalDateKey,
 } from "@/lib/meeting-datetime";
+import {
+  readProtectedSessionItem,
+  removeProtectedSessionItem,
+  writeProtectedSessionItem,
+} from "@/lib/protected-client-state";
 import { getPresenceAwareStatus } from "./meeting-presence";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
@@ -275,10 +280,8 @@ function clampInt(value: unknown, fallback: number, min: number, max: number): n
 }
 
 function readCreateEventDraft(userId: string | null): CreateEventDraft | null {
-  if (typeof window === "undefined") return null;
-
   try {
-    const raw = window.sessionStorage.getItem(getCreateEventDraftKey(userId));
+    const raw = readProtectedSessionItem(getCreateEventDraftKey(userId));
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
@@ -321,18 +324,16 @@ function readCreateEventDraft(userId: string | null): CreateEventDraft | null {
 }
 
 function writeCreateEventDraft(userId: string | null, draft: CreateEventDraft): void {
-  if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(getCreateEventDraftKey(userId), JSON.stringify(draft));
+    writeProtectedSessionItem(getCreateEventDraftKey(userId), JSON.stringify(draft));
   } catch {
     // no-op
   }
 }
 
 function clearCreateEventDraft(userId: string | null): void {
-  if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.removeItem(getCreateEventDraftKey(userId));
+    removeProtectedSessionItem(getCreateEventDraftKey(userId));
   } catch {
     // no-op
   }
@@ -1612,7 +1613,9 @@ export function MeetingsContent() {
   const searchParams = useSearchParams();
   const token = useAuthStore((state) => state.token);
   const userId = useAuthStore((state) => state.userId);
+  const currentUser = useAuthStore((state) => state.currentUser);
   const userRole = useAuthStore((state) => state.role);
+  const setCurrentUser = useAuthStore((state) => state.setCurrentUser);
   const clearToken = useAuthStore((state) => state.clearToken);
   const language = useLanguageStore((state) => state.language);
   const canManageMeetings = canWriteClinicalData(userRole);
@@ -1963,29 +1966,73 @@ export function MeetingsContent() {
   // Load patients & doctors for form
   useEffect(() => {
     if (!token) return;
+    let cancelled = false;
+
     fetchAllPatients({ sort: "first_name", order: "asc" }, token, {
       maxItems: 5000,
     })
-      .then((items) => setPatients(items))
+      .then((items) => {
+        if (!cancelled) {
+          setPatients(items);
+        }
+      })
       .catch(() => { });
     // Doctors can't access /users endpoint; use /auth/me for their own info.
     // Read-only roles should not preload doctor options for a form they cannot submit.
     if (userRole === "doctor") {
+      const resolvedCurrentUser =
+        currentUser && (!userId || currentUser.id === userId) ? currentUser : null;
+
+      if (resolvedCurrentUser) {
+        setDoctors([
+          {
+            id: resolvedCurrentUser.id,
+            email: resolvedCurrentUser.email,
+            first_name: resolvedCurrentUser.first_name,
+            last_name: resolvedCurrentUser.last_name,
+            role: resolvedCurrentUser.role,
+            is_active: true,
+          },
+        ]);
+        return () => {
+          cancelled = true;
+        };
+      }
+
       fetchCurrentUser(token)
-        .then((me) => setDoctors([{ id: me.id, email: me.email, first_name: me.first_name, last_name: me.last_name, role: me.role, is_active: true }]))
+        .then((me) => {
+          if (cancelled || (userId && me.id !== userId)) {
+            return;
+          }
+
+          setCurrentUser(me);
+          setDoctors([{ id: me.id, email: me.email, first_name: me.first_name, last_name: me.last_name, role: me.role, is_active: true }]);
+        })
         .catch(() => { });
-      return;
+
+      return () => {
+        cancelled = true;
+      };
     }
 
     if (canManageMeetings) {
       fetchUsers({ page: 1, limit: 100, role: "doctor", clinical_only: true, sort: "first_name", order: "asc" }, token)
-        .then((res) => setDoctors(res.items))
+        .then((res) => {
+          if (!cancelled) {
+            setDoctors(res.items);
+          }
+        })
         .catch(() => { });
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     setDoctors([]);
-  }, [canManageMeetings, token, userRole]);
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageMeetings, currentUser, setCurrentUser, token, userId, userRole]);
 
   return (
     <main className="flex h-full w-full flex-1 flex-col overflow-hidden">

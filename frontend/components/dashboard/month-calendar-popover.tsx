@@ -40,6 +40,11 @@ import {
   formatLocalDateKey,
   parseLocalDateKey,
 } from "@/lib/meeting-datetime";
+import {
+  readProtectedSessionItem,
+  removeProtectedSessionItem,
+  writeProtectedSessionItem,
+} from "@/lib/protected-client-state";
 import { cn } from "@/lib/utils";
 import {
   canWriteClinicalData,
@@ -220,22 +225,24 @@ function getInviteesDraftKey(meetingId: string): string {
 }
 
 function readInviteesDraft(meetingId: string): string {
-  if (typeof window === "undefined") return "";
   try {
-    return window.localStorage.getItem(getInviteesDraftKey(meetingId)) ?? "";
+    return (
+      readProtectedSessionItem(getInviteesDraftKey(meetingId), {
+        migrateLegacyLocalStorage: true,
+      }) ?? ""
+    );
   } catch {
     return "";
   }
 }
 
 function writeInviteesDraft(meetingId: string, value: string): void {
-  if (typeof window === "undefined") return;
   try {
     if (value.trim()) {
-      window.localStorage.setItem(getInviteesDraftKey(meetingId), value);
+      writeProtectedSessionItem(getInviteesDraftKey(meetingId), value);
       return;
     }
-    window.localStorage.removeItem(getInviteesDraftKey(meetingId));
+    removeProtectedSessionItem(getInviteesDraftKey(meetingId));
   } catch {
     // no-op: local storage may be blocked
   }
@@ -246,9 +253,8 @@ function getComposerDraftKey(userId: string | null): string {
 }
 
 function readComposerDraft(userId: string | null): ComposerDraft | null {
-  if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(getComposerDraftKey(userId));
+    const raw = readProtectedSessionItem(getComposerDraftKey(userId));
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
@@ -292,18 +298,16 @@ function readComposerDraft(userId: string | null): ComposerDraft | null {
 }
 
 function writeComposerDraft(userId: string | null, draft: ComposerDraft): void {
-  if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(getComposerDraftKey(userId), JSON.stringify(draft));
+    writeProtectedSessionItem(getComposerDraftKey(userId), JSON.stringify(draft));
   } catch {
     // no-op
   }
 }
 
 function clearComposerDraft(userId: string | null): void {
-  if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.removeItem(getComposerDraftKey(userId));
+    removeProtectedSessionItem(getComposerDraftKey(userId));
   } catch {
     // no-op
   }

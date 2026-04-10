@@ -32,6 +32,7 @@ import type {
   SecurityStats,
   User,
   UserCreate,
+  UserCreateResponse,
   UserInviteCreateResponse,
   UserInviteListResponse,
   UserInviteStatus,
@@ -82,7 +83,7 @@ export async function fetchUsers(
 }
 
 export async function createUser(data: UserCreate, token: string) {
-  const response = await apiFetch<User>(
+  const response = await apiFetch<UserCreateResponse>(
     "/users",
     {
       method: "POST",

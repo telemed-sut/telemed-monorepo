@@ -1,4 +1,3 @@
-import json
 import logging
 import secrets
 from datetime import datetime, timezone, timedelta
@@ -13,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
+from app.core.secret_crypto import has_reserved_secret_prefix
 from app.core.security import generate_totp_secret
 from app.models.audit_log import AuditLog
 from app.models.device_registration import DeviceRegistration
@@ -22,6 +22,7 @@ from app.models.login_attempt import LoginAttempt
 from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
 from app.models.user import User
 from app.services import auth as auth_service
+from app.services import auth_sessions
 from app.services import security as security_service
 from app.services.auth import get_admin_user, get_db
 
@@ -92,24 +93,28 @@ def _emit_security_monitoring_event(
     ip_address: str | None,
     details: Optional[dict[str, object]] = None,
 ) -> None:
-    payload = {
-        "event": "security_audit_event",
-        "action": action,
-        "status": status,
-        "actor_user_id": str(actor.id) if actor else None,
-        "target_user_id": str(target_user.id) if target_user else None,
-        "ip_address": ip_address,
-        **(details or {}),
-    }
-    sanitized_payload = {key: value for key, value in payload.items() if value is not None}
     logger.info(
-        json.dumps(
-            sanitized_payload,
-            default=str,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
+        "security_audit_event",
+        extra={
+            "event": "security_audit_event",
+            "security_action": action,
+            "security_status": status,
+            "actor_user_id": str(actor.id) if actor else None,
+            "target_user_id": str(target_user.id) if target_user else None,
+            "ip_address": ip_address,
+            "details": details or {},
+        },
     )
+
+
+def _security_recovery_denial_code(exc: HTTPException) -> str:
+    if exc.status_code == status.HTTP_403_FORBIDDEN and exc.detail == (
+        "Security recovery actions are only allowed from approved IP addresses."
+    ):
+        return "ip_not_allowed"
+    if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+        return "stale_mfa"
+    return "not_security_admin"
 
 
 def _require_privileged_admin_management(
@@ -133,6 +138,12 @@ def _require_security_recovery_access(
     db: Session,
     current_user: User,
 ) -> None:
+    client_ip = _client_ip(request)
+    if not security_service.is_admin_unlock_ip_whitelisted(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Security recovery actions are only allowed from approved IP addresses.",
+        )
     auth_service.require_recent_privileged_session(
         request,
         current_user,
@@ -355,6 +366,11 @@ def _normalize_device_secret(raw_secret: str | None) -> str:
         return secrets.token_urlsafe(48)
 
     normalized = raw_secret.strip()
+    if has_reserved_secret_prefix(normalized):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="device_secret cannot start with reserved prefix 'encv1:'.",
+        )
     if len(normalized) < DEVICE_SECRET_MIN_LENGTH:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -580,7 +596,8 @@ def emergency_unlock_admin(
     reason = _normalize_privileged_reason(payload.reason or "")
     try:
         _require_security_recovery_access(request=request, db=db, current_user=current_user)
-    except HTTPException:
+    except HTTPException as exc:
+        denial_code = _security_recovery_denial_code(exc)
         _write_unlock_audit(
             db,
             actor=current_user,
@@ -588,8 +605,12 @@ def emergency_unlock_admin(
             success=False,
             target_user=None,
             reason=reason,
-            authorized_by="admin_not_security_admin",
-            message="Unauthorized emergency admin unlock attempt (security admin required)",
+            authorized_by=denial_code,
+            message=(
+                "Unauthorized emergency admin unlock attempt from non-allowlisted IP"
+                if denial_code == "ip_not_allowed"
+                else "Unauthorized emergency admin unlock attempt (security admin required)"
+            ),
         )
         raise
 
@@ -659,11 +680,14 @@ def emergency_unlock_admin(
     )
 
     logger.info(
-        "Emergency unlock: target_user_id=%s was_locked=%s authorized_by=%s actor_id=%s",
-        target.id,
-        was_locked,
-        "security_admin",
-        current_user.id,
+        "Admin account emergency unlock completed",
+        extra={
+            "event": "admin_emergency_unlock_completed",
+            "target_user_id": str(target.id),
+            "was_locked": was_locked,
+            "authorized_by": "security_admin",
+            "actor_user_id": str(current_user.id),
+        },
     )
     return AdminEmergencyUnlockResponse(
         message=f"Admin account {target.email} has been unlocked.",
@@ -718,14 +742,14 @@ def reset_user_two_factor_by_super_admin(
     reason = _normalize_privileged_reason(payload.reason)
     try:
         _require_security_recovery_access(request=request, db=db, current_user=current_user)
-    except HTTPException:
+    except HTTPException as exc:
         db.add(
             AuditLog(
                 user_id=current_user.id,
                 action="admin_force_2fa_reset_denied",
                 resource_type="user",
                 resource_id=user_id,
-                details={"reason": reason, "error": "not_security_admin"},
+                details={"reason": reason, "error": _security_recovery_denial_code(exc)},
                 ip_address=ip,
                 is_break_glass=False,
                 status="failure",
@@ -799,14 +823,14 @@ def reset_user_password_by_super_admin(
     reason = _normalize_privileged_reason(payload.reason)
     try:
         _require_security_recovery_access(request=request, db=db, current_user=current_user)
-    except HTTPException:
+    except HTTPException as exc:
         db.add(
             AuditLog(
                 user_id=current_user.id,
                 action="admin_force_password_reset_denied",
                 resource_type="user",
                 resource_id=user_id,
-                details={"reason": reason, "error": "not_security_admin"},
+                details={"reason": reason, "error": _security_recovery_denial_code(exc)},
                 ip_address=ip,
                 is_break_glass=False,
                 status="failure",
@@ -842,6 +866,7 @@ def reset_user_password_by_super_admin(
     target.failed_login_attempts = 0
     target.account_locked_until = None
     target.last_failed_login_at = None
+    revoked_sessions = auth_sessions.revoke_user_sessions(db, user_id=target.id)
     revoked_devices = security_service.revoke_all_trusted_devices(db, user_id=target.id)
     revoked_backup_codes = security_service.revoke_backup_codes(db, user_id=target.id)
     reset_token = auth_service.create_password_reset_token(target)
@@ -855,6 +880,7 @@ def reset_user_password_by_super_admin(
                 "reason": reason,
                 "target_email": target.email,
                 "reset_token_expires_in": settings.password_reset_expires_in,
+                "revoked_sessions": revoked_sessions,
                 "revoked_devices": revoked_devices,
                 "revoked_backup_codes": revoked_backup_codes,
             },
@@ -872,6 +898,7 @@ def reset_user_password_by_super_admin(
         ip_address=ip,
         details={
             "reason_present": bool(reason),
+            "revoked_sessions": revoked_sessions,
             "revoked_devices": revoked_devices,
             "revoked_backup_codes": revoked_backup_codes,
         },
@@ -945,6 +972,7 @@ def create_registered_device(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
+    _require_security_recovery_access(request=request, db=db, current_user=current_user)
     secret_value = _normalize_device_secret(payload.device_secret)
     now = datetime.now(timezone.utc)
 
@@ -985,6 +1013,8 @@ def create_registered_device(
     db.commit()
     db.refresh(device)
 
+    # One-time reveal: the plaintext secret is returned only at creation time so
+    # the operator can provision the device before it is persisted encrypted.
     return DeviceRegistrationCreateResponse(
         device=_to_device_registration_view(device),
         device_secret=secret_value,
@@ -1046,6 +1076,7 @@ def delete_registered_device(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
+    _require_security_recovery_access(request=request, db=db, current_user=current_user)
     normalized_device_id = device_id.strip()
     if not normalized_device_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="device_id is required.")
@@ -1089,6 +1120,7 @@ def rotate_registered_device_secret(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
+    _require_security_recovery_access(request=request, db=db, current_user=current_user)
     normalized_device_id = device_id.strip()
     if not normalized_device_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="device_id is required.")
@@ -1119,6 +1151,8 @@ def rotate_registered_device_secret(
 
     db.commit()
     db.refresh(device)
+    # One-time reveal: expose the rotated secret only in this response so the
+    # replacement credential can be deployed while the stored value remains encrypted.
     return DeviceRegistrationRotateSecretResponse(
         message=f"Secret rotated for {device.device_id}.",
         device_secret=secret_value,

@@ -63,10 +63,27 @@ If you prefer `make`, run:
 make backend-test-env
 ```
 
+### Dependency locking
+Use the lock workflow when you need a reproducible backend environment with
+hash verification. `requirements.txt` remains the human-maintained top-level
+input, and `requirements.lock` captures the fully resolved, hash-pinned set.
+
+From `backend/`:
+
+```bash
+make deps-lock
+make deps-sync
+```
+
+`./scripts/bootstrap_backend_env.sh` now prefers `requirements.lock` when the
+file exists. Set `REQUIREMENTS_FILE=/path/to/file` if you need to override the
+source explicitly.
+
 Optional environment overrides:
 - `PYTHON_BIN=/path/to/python3.12` picks a specific interpreter.
 - `VENV_DIR=/custom/path/to/venv` installs into a different virtual environment.
 - `UPGRADE_PIP=1` upgrades `pip` before syncing dependencies.
+- `REQUIREMENTS_FILE=/path/to/requirements.txt` overrides the dependency source.
 
 ### Running locally (without Docker)
 1) Bootstrap the environment with `./scripts/bootstrap_backend_env.sh`.

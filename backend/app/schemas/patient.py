@@ -166,6 +166,7 @@ class PatientListItemOut(BaseModel):
     last_name: str
     name: Optional[str] = None
     status: Optional[str] = None
+    ward: Optional[str] = None
     date_of_birth: date
     gender: Optional[str] = None
     created_at: datetime
@@ -179,6 +180,10 @@ class PatientListResponse(BaseModel):
     page: int
     limit: int
     total: int
+
+
+class PatientWardListResponse(BaseModel):
+    wards: List[str]
 
 
 class PatientContactDetailsResponse(BaseModel):

@@ -2,6 +2,8 @@
 
 ### Fixed
 
+- Replaced wildcard imports (`from .module import *`) in auth service facade with explicit imports for `auth_2fa`, `auth_login`, and `auth_tokens` modules, improving static analysis and refactoring safety.
+- Added Pydantic response models (`StatsOverviewResponse`, `HealthCheckResponse`, `LiveHealthCheckResponse`, `RootResponse`) to `/stats/overview`, `/health`, `/health/live`, and `/` endpoints for consistent API contracts and complete OpenAPI documentation.
 - Removed unused imports across backend modules and cleaned up dead code in auth service re-exports.
 - Fixed password change timestamp precision in token validation by removing microsecond multiplication.
 - Corrected stale password reset token comparison to use strict less-than instead of less-than-or-equal.
