@@ -175,6 +175,7 @@ Then run common tasks from the repository root:
 ```bash
 just help
 just doctor
+just doctor-backend-env
 just dev
 just dev-backend
 just dev-frontend
@@ -189,7 +190,9 @@ just check
 ```
 
 `just doctor` checks whether your local machine has the required CLI tools and
-local dependency directories. `just ci` runs the main local backend and
+local dependency directories. `just doctor-backend-env` runs the backend
+runtime preflight with your Infisical-backed environment and catches missing,
+placeholder, or invalid secrets before Docker Compose starts. `just ci` runs the main local backend and
 frontend quality gates that most closely match the core checks in GitHub
 Actions. `just ci-fast` runs a quicker static-check pass, and `just dev`
 starts the backend in the background, waits for `http://localhost:8000/health`
@@ -218,6 +221,10 @@ Services:
 Notes:
 
 - Official scripts ignore root `.env`; the source of truth is Infisical runtime env.
+- Run `just doctor-backend-env` first if `just dev-backend` fails early. It
+  checks the exact runtime env that Docker Compose will see and calls out:
+  missing secrets, placeholder values like `replace_with_*`, default
+  `DATABASE_URL` credentials (`user:password@`), and short device/JWT secrets.
 - Backend container runs migrations on startup and can run the local demo seed
   step via `backend/entrypoint.sh`.
 - Keep tracked `docker-compose.yml` free of local-only bind mounts and host DB

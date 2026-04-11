@@ -112,6 +112,8 @@ INFISICAL_RUN_ARGS="--env=dev" ./scripts/dev-api.sh
 
 ### Running with Docker Compose
 1) Preferred: run the team script from repo root (`./scripts/dev-backend.sh`).
+   If you want to check the exact runtime config first, run
+   `just doctor-backend-env` from the repo root.
 2) Alternative: export the required env vars in your shell, create a local
    `docker-compose.override.yml`, then run `docker compose up --build`.
 3) Backend runs on port 8000; local Docker Compose can run migrations and demo
@@ -135,6 +137,13 @@ services:
     ports:
       - "5432:5432"
 ```
+
+The backend runtime preflight now catches the local issues that most often
+cause startup loops:
+- missing `DATABASE_URL`, `JWT_SECRET`, or device ingest secrets
+- placeholder values like `replace_with_*`
+- insecure default `DATABASE_URL` credentials like `user:password@`
+- short JWT or device secrets that backend validation would reject later
 
 ### Auth and local demo users
 - Login endpoint: POST /auth/login with {"email", "password"}.

@@ -68,9 +68,13 @@ doctor:
 
   echo
   echo "Local setup looks ready."
+  echo "Next step: run \`just doctor-backend-env\` to validate Infisical-backed backend runtime config before \`just dev-backend\`."
 
 dev-backend:
   ./scripts/dev-backend.sh
+
+doctor-backend-env:
+  ./scripts/run-with-infisical.sh ./scripts/check-compose-env.sh db backend
 
 dev-frontend:
   ./scripts/dev-frontend.sh
