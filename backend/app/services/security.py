@@ -14,6 +14,7 @@ from app.core.security import (
     normalize_backup_code,
 )
 from app.core.request_utils import is_local_development_ip
+from app.db.session import get_redis_client
 from app.models.ip_ban import IPBan
 from app.models.login_attempt import LoginAttempt
 from app.models.enums import UserRole
@@ -23,10 +24,91 @@ from app.models.user import User
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+_LOGIN_FAIL_COUNTER_PREFIX = "security:login_fail:v1:"
+_IP_BAN_PREFIX = "security:ip_ban:v1:"
 
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _get_security_redis_client():
+    try:
+        return get_redis_client()
+    except Exception:
+        logger.warning("Security runtime could not initialize Redis client; continuing with database-only counters.", exc_info=True)
+        return None
+
+
+def _login_fail_counter_key(ip: str) -> str:
+    return f"{_LOGIN_FAIL_COUNTER_PREFIX}{ip}"
+
+
+def _ip_ban_key(ip: str) -> str:
+    return f"{_IP_BAN_PREFIX}{ip}"
+
+
+def cache_ip_ban(ip: str, *, banned_until: datetime) -> None:
+    redis_client = _get_security_redis_client()
+    if redis_client is None:
+        return
+
+    normalized = banned_until if banned_until.tzinfo is not None else banned_until.replace(tzinfo=timezone.utc)
+    ttl_seconds = max(1, int((normalized - _now_utc()).total_seconds()))
+    try:
+        redis_client.setex(_ip_ban_key(ip), ttl_seconds, normalized.isoformat())
+    except Exception:
+        logger.warning("Failed to cache IP ban in Redis.", exc_info=True)
+
+
+def clear_ip_ban_runtime_state(ip: str) -> None:
+    redis_client = _get_security_redis_client()
+    if redis_client is None:
+        return
+
+    try:
+        redis_client.delete(_ip_ban_key(ip))
+        redis_client.delete(_login_fail_counter_key(ip))
+    except Exception:
+        logger.warning("Failed to clear Redis-backed IP security state.", exc_info=True)
+
+
+def _get_cached_ip_ban(ip: str) -> datetime | None:
+    redis_client = _get_security_redis_client()
+    if redis_client is None:
+        return None
+
+    try:
+        value = redis_client.get(_ip_ban_key(ip))
+    except Exception:
+        logger.warning("Failed to read cached IP ban from Redis.", exc_info=True)
+        return None
+
+    if isinstance(value, bytes):
+        value = value.decode("utf-8")
+    if not isinstance(value, str) or not value.strip():
+        return None
+
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+def _increment_failed_login_counter(ip: str) -> int | None:
+    redis_client = _get_security_redis_client()
+    if redis_client is None:
+        return None
+
+    try:
+        count = int(redis_client.incr(_login_fail_counter_key(ip)))
+        if count == 1:
+            redis_client.expire(_login_fail_counter_key(ip), settings.ip_attempt_window_minutes * 60)
+        return count
+    except Exception:
+        logger.warning("Failed to increment Redis-backed failed login counter.", exc_info=True)
+        return None
 
 
 def is_ip_whitelisted(ip: str) -> bool:
@@ -56,6 +138,10 @@ def check_ip_banned(db: Session, ip: str) -> Optional[IPBan]:
     if is_ip_whitelisted(ip):
         return None
 
+    cached_ban_until = _get_cached_ip_ban(ip)
+    if cached_ban_until and cached_ban_until > _now_utc():
+        return IPBan(ip_address=ip, banned_until=cached_ban_until)
+
     ban = db.scalar(select(IPBan).where(IPBan.ip_address == ip))
     if not ban:
         return None
@@ -64,7 +150,11 @@ def check_ip_banned(db: Session, ip: str) -> Optional[IPBan]:
     if ban.banned_until and ban.banned_until.replace(tzinfo=timezone.utc if ban.banned_until.tzinfo is None else ban.banned_until.tzinfo) <= now:
         db.delete(ban)
         db.flush()
+        clear_ip_ban_runtime_state(ip)
         return None
+
+    if ban.banned_until:
+        cache_ip_ban(ip, banned_until=ban.banned_until)
 
     return ban
 
@@ -147,31 +237,35 @@ def handle_failed_login(db: Session, ip: str, email: str, user: Optional[User], 
 
     # Check IP-level threshold (skip whitelisted)
     if not is_ip_whitelisted(ip):
-        window_start = _now_utc() - timedelta(minutes=settings.ip_attempt_window_minutes)
-        ip_fail_count = db.scalar(
-            select(func.count())
-            .select_from(LoginAttempt)
-            .where(
-                LoginAttempt.ip_address == ip,
-                LoginAttempt.success == False,  # noqa: E712
-                LoginAttempt.created_at >= window_start,
-            )
-        ) or 0
+        ip_fail_count = _increment_failed_login_counter(ip)
+        if ip_fail_count is None:
+            window_start = _now_utc() - timedelta(minutes=settings.ip_attempt_window_minutes)
+            ip_fail_count = db.scalar(
+                select(func.count())
+                .select_from(LoginAttempt)
+                .where(
+                    LoginAttempt.ip_address == ip,
+                    LoginAttempt.success == False,  # noqa: E712
+                    LoginAttempt.created_at >= window_start,
+                )
+            ) or 0
 
         if ip_fail_count >= settings.ip_ban_threshold:
+            banned_until = _now_utc() + timedelta(minutes=settings.ip_ban_duration_minutes)
+            cache_ip_ban(ip, banned_until=banned_until)
             existing_ban = db.scalar(select(IPBan).where(IPBan.ip_address == ip))
             if not existing_ban:
                 ban = IPBan(
                     ip_address=ip,
                     reason=f"Exceeded {settings.ip_ban_threshold} failed login attempts in {settings.ip_attempt_window_minutes} minutes",
                     failed_attempts=ip_fail_count,
-                    banned_until=_now_utc() + timedelta(minutes=settings.ip_ban_duration_minutes),
+                    banned_until=banned_until,
                 )
                 db.add(ban)
                 logger.warning("Login source auto-banned after repeated failed attempts")
             else:
                 existing_ban.failed_attempts = ip_fail_count
-                existing_ban.banned_until = _now_utc() + timedelta(minutes=settings.ip_ban_duration_minutes)
+                existing_ban.banned_until = banned_until
                 db.add(existing_ban)
 
     db.flush()

@@ -1,5 +1,7 @@
 """Server-side session registry helpers for staff/admin access tokens."""
 
+import hashlib
+import logging
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -8,10 +10,139 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models.user_session import UserSession
+from app.services.redis_runtime import (
+    decode_cached_value,
+    get_redis_client_or_log,
+    log_redis_operation_failure,
+    parse_cached_datetime,
+)
+
+logger = logging.getLogger(__name__)
+
+_USER_SESSION_REDIS_PREFIX = "user_session:v1:"
 
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _normalize_dt(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _session_cache_key(session_id: str) -> str:
+    hashed = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+    return f"{_USER_SESSION_REDIS_PREFIX}{hashed}"
+
+
+def _get_session_redis_client():
+    return get_redis_client_or_log(
+        logger,
+        scope="user_session_cache",
+        fallback_label="database",
+    )
+
+
+def _cache_session_state(session: UserSession) -> None:
+    redis_client = _get_session_redis_client()
+    if redis_client is None:
+        return
+
+    expires_at = _normalize_dt(session.expires_at)
+    ttl_seconds = int((expires_at - _now_utc()).total_seconds())
+    cache_key = _session_cache_key(session.session_id)
+    if ttl_seconds <= 0:
+        try:
+            redis_client.delete(cache_key)
+        except Exception:
+            log_redis_operation_failure(
+                logger,
+                scope="user_session_cache",
+                operation="delete_expired_entry",
+                fallback_label="database",
+            )
+        return
+
+    payload = {
+        "user_id": str(session.user_id),
+        "session_id": session.session_id,
+        "auth_source": session.auth_source,
+        "last_seen_at": _normalize_dt(session.last_seen_at).isoformat(),
+        "expires_at": expires_at.isoformat(),
+    }
+    if session.revoked_at is not None:
+        payload["revoked_at"] = _normalize_dt(session.revoked_at).isoformat()
+
+    try:
+        redis_client.hset(cache_key, mapping=payload)
+        redis_client.expire(cache_key, ttl_seconds)
+    except Exception:
+        log_redis_operation_failure(
+            logger,
+            scope="user_session_cache",
+            operation="write",
+            fallback_label="database",
+        )
+
+
+def _clear_session_cache(session_id: str | None) -> None:
+    if not session_id:
+        return
+    redis_client = _get_session_redis_client()
+    if redis_client is None:
+        return
+    try:
+        redis_client.delete(_session_cache_key(session_id))
+    except Exception:
+        log_redis_operation_failure(
+            logger,
+            scope="user_session_cache",
+            operation="delete",
+            fallback_label="database",
+        )
+
+
+def _load_cached_session(*, user_id: UUID, session_id: str) -> UserSession | None:
+    redis_client = _get_session_redis_client()
+    if redis_client is None:
+        return None
+
+    try:
+        payload = redis_client.hgetall(_session_cache_key(session_id))
+    except Exception:
+        log_redis_operation_failure(
+            logger,
+            scope="user_session_cache",
+            operation="read",
+            fallback_label="database",
+        )
+        return None
+
+    if not payload:
+        return None
+
+    cached_user_id = decode_cached_value(payload.get("user_id"))
+    if cached_user_id != str(user_id):
+        return None
+
+    expires_at = parse_cached_datetime(payload.get("expires_at"))
+    revoked_at = parse_cached_datetime(payload.get("revoked_at"))
+    now = _now_utc()
+    if expires_at is None or expires_at <= now or revoked_at is not None:
+        _clear_session_cache(session_id)
+        return None
+
+    last_seen_at = parse_cached_datetime(payload.get("last_seen_at")) or now
+    return UserSession(
+        user_id=user_id,
+        session_id=session_id,
+        auth_source=decode_cached_value(payload.get("auth_source")) or "local",
+        last_seen_at=last_seen_at,
+        expires_at=expires_at,
+        revoked_at=revoked_at,
+    )
 
 
 def register_session(
@@ -43,6 +174,7 @@ def register_session(
         existing.revoked_at = None
     db.add(existing)
     db.flush()
+    _cache_session_state(existing)
     return existing
 
 
@@ -67,6 +199,7 @@ def touch_session(
     session.expires_at = now + timedelta(seconds=max(int(expires_in_seconds), 1))
     db.add(session)
     db.flush()
+    _cache_session_state(session)
     return session
 
 
@@ -79,6 +212,10 @@ def require_active_session(
 ) -> UserSession:
     if not session_id:
         raise credentials_exception
+
+    cached_session = _load_cached_session(user_id=user_id, session_id=session_id)
+    if cached_session is not None:
+        return cached_session
 
     session = db.scalar(
         select(UserSession).where(
@@ -95,8 +232,10 @@ def require_active_session(
         expires_at = expires_at.replace(tzinfo=timezone.utc)
 
     if session.revoked_at is not None or expires_at <= now:
+        _clear_session_cache(session_id)
         raise credentials_exception
 
+    _cache_session_state(session)
     return session
 
 
@@ -112,11 +251,13 @@ def revoke_session(
         select(UserSession).where(UserSession.session_id == session_id)
     )
     if session is None or session.revoked_at is not None:
+        _clear_session_cache(session_id)
         return False
 
     session.revoked_at = _now_utc()
     db.add(session)
     db.flush()
+    _clear_session_cache(session_id)
     return True
 
 
@@ -136,6 +277,8 @@ def revoke_user_sessions(
         session.revoked_at = now
         db.add(session)
     db.flush()
+    for session in sessions:
+        _clear_session_cache(session.session_id)
     return len(sessions)
 
 

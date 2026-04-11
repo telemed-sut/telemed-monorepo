@@ -73,6 +73,7 @@ def _resolve_patient_join_meeting_id(
 
 
 def _presence_response(meeting, presence) -> MeetingRoomPresenceResponse:
+    presence = meeting_presence_service.apply_runtime_presence_overlay(presence)
     return MeetingRoomPresenceResponse(
         meeting_id=str(meeting.id),
         state=presence.state,

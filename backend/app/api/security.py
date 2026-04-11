@@ -1335,6 +1335,11 @@ def create_ip_ban(
         db.commit()
         db.refresh(ban)
 
+    security_service.cache_ip_ban(
+        ban.ip_address,
+        banned_until=ban.banned_until,
+    )
+
     db.add(
         AuditLog(
             user_id=current_user.id,
@@ -1388,6 +1393,7 @@ def unban_ip(
     )
     db.delete(ban)
     db.commit()
+    security_service.clear_ip_ban_runtime_state(ip_address)
     logger.info("IP unbanned: %s actor_id=%s", ip_address, current_user.id)
     return {"message": f"IP {ip_address} has been unbanned"}
 

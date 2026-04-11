@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -74,22 +75,30 @@ def test_create_app_sets_content_security_policy_header():
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
 
 
-def test_ip_ban_cache_is_bounded_lru():
-    app_middleware._ip_ban_cache.clear()
+def test_ip_ban_middleware_uses_shared_security_runtime_state(monkeypatch):
+    ip_ban_app = FastAPI()
+    ip_ban_app.add_middleware(app_middleware.IPBanMiddleware)
 
-    max_entries = app_middleware._IP_BAN_CACHE_MAX_ENTRIES
-    for index in range(max_entries):
-        app_middleware._set_ip_ban_cache_entry(f"ip-{index}", float(index), float(index))
+    @ip_ban_app.get("/health")
+    async def health():
+        return {"status": "ok"}
 
-    app_middleware._get_ip_ban_cache_entry("ip-0", now=0.0)
-    app_middleware._set_ip_ban_cache_entry("ip-overflow", 99_999.0, 99_999.0)
+    monkeypatch.setattr(app_middleware, "_get_client_ip", lambda request: "8.8.8.8")
+    monkeypatch.setattr(app_middleware.security_service, "is_ip_whitelisted", lambda ip: False)
+    monkeypatch.setattr(
+        app_middleware.security_service,
+        "check_ip_banned",
+        lambda db, ip: SimpleNamespace(
+            ip_address=ip,
+            banned_until=datetime.now(timezone.utc) + timedelta(minutes=5),
+        ),
+    )
 
-    assert len(app_middleware._ip_ban_cache) == max_entries
-    assert "ip-0" in app_middleware._ip_ban_cache
-    assert "ip-1" not in app_middleware._ip_ban_cache
-    assert "ip-overflow" in app_middleware._ip_ban_cache
+    with TestClient(ip_ban_app) as client:
+        response = client.get("/health")
 
-    app_middleware._ip_ban_cache.clear()
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Access denied. Your IP has been temporarily blocked."
 
 
 def test_middleware_db_session_uses_dependency_override():

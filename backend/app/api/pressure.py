@@ -20,6 +20,7 @@ from app.core.limiter import get_device_ingest_rate_limit_key, limiter
 from app.models.device_registration import DeviceRegistration
 from app.models.device_error_log import DeviceErrorLog
 from app.models.device_request_nonce import DeviceRequestNonce
+from app.db.session import get_redis_client
 from app.core.request_utils import get_client_ip
 from app.core.secret_crypto import SecretDecryptionError
 
@@ -31,6 +32,7 @@ MAX_TIMESTAMP_DIFF = 300  # 5 minutes
 GENERIC_AUTH_ERROR = "Invalid signature"
 _SAFE_DEVICE_ERROR_TOKEN_RE = re.compile(r"[^a-z0-9_:-]+")
 _MAX_DEVICE_ERROR_MESSAGE_LENGTH = 256
+_DEVICE_NONCE_REDIS_PREFIX = "device_nonce:v1:"
 
 
 def sanitize_device_error_message(error_msg: str) -> str:
@@ -131,7 +133,24 @@ def _compute_signature(
 def _consume_nonce(db: Session, device_id: str, nonce: str) -> None:
     nonce_hash = hashlib.sha256(nonce.encode("utf-8")).hexdigest()
     now_utc = datetime.now(timezone.utc)
-    expires_at = now_utc + timedelta(seconds=settings.device_api_nonce_ttl_seconds)
+    ttl_seconds = max(int(settings.device_api_nonce_ttl_seconds), 1)
+    expires_at = now_utc + timedelta(seconds=ttl_seconds)
+
+    redis_client = get_redis_client()
+    if redis_client is not None:
+        redis_key = f"{_DEVICE_NONCE_REDIS_PREFIX}{device_id}:{nonce_hash}"
+        try:
+            stored = redis_client.set(redis_key, "1", ex=ttl_seconds, nx=True)
+            if not stored:
+                raise ValueError("replay_nonce")
+            return
+        except ValueError:
+            raise
+        except Exception:
+            logger.warning(
+                "Device nonce replay protection could not use Redis; falling back to database storage.",
+                exc_info=True,
+            )
 
     # Opportunistic cleanup to keep nonce table bounded without a background scheduler.
     db.query(DeviceRequestNonce).filter(DeviceRequestNonce.expires_at <= now_utc).delete(
@@ -239,7 +258,8 @@ async def verify_device_signature(
 
         if normalized_nonce:
             _consume_nonce(db, normalized_device_id, normalized_nonce)
-        elif registered_device:
+
+        if registered_device or normalized_nonce:
             db.commit()
 
         request.state.device_request_timestamp = ts

@@ -10,6 +10,7 @@ from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
 from app.schemas.meeting import MeetingCreate, MeetingUpdate
+from app.services import meeting_presence as meeting_presence_service
 from app.services import meeting_video as meeting_video_service
 
 settings = get_settings()
@@ -124,7 +125,10 @@ def get_meeting(db: Session, meeting_id: str) -> Optional[Meeting]:
             )
             .where(Meeting.id == uuid_id)
         )
-        return db.scalar(stmt)
+        meeting = db.scalar(stmt)
+        if meeting and meeting.room_presence:
+            meeting_presence_service.apply_runtime_presence_overlay(meeting.room_presence)
+        return meeting
     except ValueError:
         return None
 
@@ -243,4 +247,7 @@ def list_meetings(
     stmt = stmt.limit(safe_limit).offset(offset)
 
     items = db.scalars(stmt).unique().all()
+    for meeting in items:
+        if meeting.room_presence:
+            meeting_presence_service.apply_runtime_presence_overlay(meeting.room_presence)
     return items, total

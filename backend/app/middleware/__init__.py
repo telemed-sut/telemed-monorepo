@@ -1,9 +1,7 @@
 from contextlib import contextmanager
-from collections import OrderedDict
 import logging
-import time
 from datetime import datetime, timezone
-from typing import Iterator, OrderedDict as OrderedDictType, Tuple
+from typing import Iterator
 from urllib.parse import parse_qsl
 from uuid import UUID
 
@@ -17,46 +15,12 @@ from app.core.config import get_settings
 from app.core.security import decode_token
 from app.db.session import engine
 from app.models.audit_log import AuditLog
-from app.models.ip_ban import IPBan
 from app.services.auth import get_db
-from app.services.security import is_ip_whitelisted
+from app.services import security as security_service
 from app.core.request_utils import get_client_ip as _get_client_ip
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-
-# In-memory IP ban cache: ip -> (banned_until_timestamp, cached_at_timestamp)
-_IP_BAN_CACHE_MAX_ENTRIES = 10_000
-_ip_ban_cache: OrderedDictType[str, Tuple[float, float]] = OrderedDict()
-_CACHE_TTL = 30  # seconds
-
-
-def _get_ip_ban_cache_entry(ip: str, now: float) -> Tuple[float, float] | None:
-    entry = _ip_ban_cache.get(ip)
-    if entry is None:
-        return None
-
-    banned_until_ts, cached_at = entry
-    if now - cached_at >= _CACHE_TTL:
-        _ip_ban_cache.pop(ip, None)
-        return None
-
-    _ip_ban_cache.move_to_end(ip)
-    return entry
-
-
-def _set_ip_ban_cache_entry(ip: str, banned_until_ts: float, cached_at: float) -> None:
-    if ip in _ip_ban_cache:
-        _ip_ban_cache.pop(ip, None)
-
-    _ip_ban_cache[ip] = (banned_until_ts, cached_at)
-
-    while len(_ip_ban_cache) > _IP_BAN_CACHE_MAX_ENTRIES:
-        _ip_ban_cache.popitem(last=False)
-
-
-def _clear_ip_ban_cache_entry(ip: str) -> None:
-    _ip_ban_cache.pop(ip, None)
 
 
 def _build_sanitized_query_metadata(query: str) -> dict[str, object]:
@@ -217,47 +181,25 @@ class IPBanMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         ip = _get_client_ip(request)
 
-        if is_ip_whitelisted(ip):
+        if security_service.is_ip_whitelisted(ip):
             return await call_next(request)
 
-        # Check in-memory cache first
-        now = time.time()
-        cached_entry = _get_ip_ban_cache_entry(ip, now)
-        if cached_entry is not None:
-            banned_until_ts, _cached_at = cached_entry
-            if banned_until_ts > now:
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "Access denied. Your IP has been temporarily blocked."},
-                )
-
-        # Check DB
         try:
             with _get_middleware_db_session(request) as db:
-                from sqlalchemy import select as sa_select
-                ban = db.scalar(sa_select(IPBan).where(IPBan.ip_address == ip))
+                ban = security_service.check_ip_banned(db, ip)
                 if ban:
-                    if ban.banned_until:
-                        banned_until = ban.banned_until
-                        if banned_until.tzinfo is None:
-                            banned_until = banned_until.replace(tzinfo=timezone.utc)
-
-                        if banned_until > datetime.now(timezone.utc):
-                            _set_ip_ban_cache_entry(ip, banned_until.timestamp(), now)
-                            return JSONResponse(
-                                status_code=403,
-                                content={"detail": "Access denied. Your IP has been temporarily blocked."},
-                            )
-                        else:
-                            db.delete(ban)
-                            db.commit()
-                            _clear_ip_ban_cache_entry(ip)
-                    else:
-                        # Permanent ban (banned_until is None)
-                        _set_ip_ban_cache_entry(ip, now + 86400, now)
+                    if ban.banned_until is None:
                         return JSONResponse(
                             status_code=403,
                             content={"detail": "Access denied. Your IP has been blocked."},
+                        )
+                    banned_until = ban.banned_until
+                    if banned_until.tzinfo is None:
+                        banned_until = banned_until.replace(tzinfo=timezone.utc)
+                    if banned_until > datetime.now(timezone.utc):
+                        return JSONResponse(
+                            status_code=403,
+                            content={"detail": "Access denied. Your IP has been temporarily blocked."},
                         )
         except Exception:
             logger.exception("Error checking IP ban for %s", ip)
