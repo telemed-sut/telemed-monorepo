@@ -616,11 +616,28 @@ class Settings(BaseSettings):
                 )
             return self
 
-        if missing_keys and not self.allow_insecure_secret_storage:
+        insecure_secret_storage_explicitly_configured = (
+            "allow_insecure_secret_storage" in self.model_fields_set
+        )
+        if (
+            missing_keys
+            and not self.allow_insecure_secret_storage
+            and not (
+                self.app_env in {"development", "test"}
+                and not insecure_secret_storage_explicitly_configured
+            )
+        ):
             raise ValueError(
                 "Secret-at-rest encryption keys are required unless "
                 "ALLOW_INSECURE_SECRET_STORAGE=true is set explicitly for non-production compatibility mode."
             )
+
+        if (
+            missing_keys
+            and self.app_env in {"development", "test"}
+            and not insecure_secret_storage_explicitly_configured
+        ):
+            self.allow_insecure_secret_storage = True
 
         encrypted_secret_storage_enabled = bool(
             self.device_secret_encryption_key or self.two_factor_secret_encryption_key

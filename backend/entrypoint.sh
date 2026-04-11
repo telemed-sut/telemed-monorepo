@@ -51,8 +51,27 @@ sys.exit(1)
 PY
 }
 
+normalize_legacy_alembic_state() {
+  python - <<'PY'
+import os
+
+from app.db.alembic_compat import (
+    ensure_single_alembic_head,
+    format_alembic_preflight,
+    normalize_legacy_alembic_revision,
+)
+
+ensure_single_alembic_head()
+print(format_alembic_preflight(os.environ["DATABASE_URL"]))
+result = normalize_legacy_alembic_revision(os.environ["DATABASE_URL"])
+print(result.message)
+print(format_alembic_preflight(os.environ["DATABASE_URL"]))
+PY
+}
+
 run_migrations() {
   echo "🔄 Running database migrations..."
+  normalize_legacy_alembic_state
   alembic upgrade head
 }
 

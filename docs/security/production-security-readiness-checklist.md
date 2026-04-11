@@ -85,10 +85,17 @@ Confirm the maintenance and observability paths are in place.
 - Confirm structured logging is enabled in production.
 - Confirm request IDs are present in application responses and logs.
 - Confirm sensitive fields remain redacted in production log sinks.
+- Confirm startup logs include the Alembic preflight line with both database
+  revisions and repo heads.
 - Confirm the release artifact or build step consumes `backend/requirements.lock`
   or an equivalent hash-pinned backend dependency artifact.
 - Confirm Sentry, or the approved monitoring equivalent, is configured if used
   by your release policy.
+- Confirm your deploy pipeline includes:
+  - an Alembic single-head check,
+  - an env contract check,
+  - a migration immutability check, and
+  - a post-migration schema smoke check.
 
 ## Closed-system sign-off
 

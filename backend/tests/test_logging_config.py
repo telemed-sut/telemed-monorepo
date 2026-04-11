@@ -137,7 +137,10 @@ def test_auth_privileges_missing_bootstrap_admin_logs_generic_message(db, monkey
     assert created == 0
     assert len(caplog.records) == 1
     record = caplog.records[0]
-    assert record.getMessage() == "Bootstrap privileged-role backfill skipped missing admin account"
+    assert (
+        record.getMessage()
+        == "Bootstrap privileged-role backfill skipped configured SUPER_ADMIN_EMAIL because the admin account does not exist yet"
+    )
     assert "missing-admin@example.com" not in caplog.text
 
     payload = json.loads(RedactingJsonFormatter().format(record))

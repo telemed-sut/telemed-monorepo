@@ -81,6 +81,7 @@ jobs:
       JWT_SECRET: test-jwt-secret-key-must-be-at-least-32-chars
       JWT_EXPIRES_IN: 3600
       RUN_TEST_MIGRATIONS: "true"
+      GITHUB_EVENT_BEFORE: ${{ github.event.before }}
     
     services:
       postgres:
@@ -108,6 +109,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
     
     - name: Set up Python 3.11
       uses: actions/setup-python@v4
@@ -126,21 +129,31 @@ jobs:
       working-directory: ./backend
       run: |
         ruff check app tests --select E9,F63,F7,F82
-    
+
+    - name: Alembic head check
+      working-directory: ./backend
+      run: |
+        python scripts/check_alembic_heads.py
+
+    - name: Backend env contract check
+      working-directory: ./backend
+      run: |
+        python scripts/check_backend_env_contract.py
+
+    - name: Migration immutability check
+      working-directory: ./backend
+      run: |
+        python scripts/check_migration_immutability.py
+
     - name: Run migrations
       working-directory: ./backend
       run: |
         alembic upgrade head
 
-    - name: Alembic head check
+    - name: Backend schema smoke check
       working-directory: ./backend
       run: |
-        HEAD_COUNT=$(alembic heads | grep -c "(head)")
-        if [ "$HEAD_COUNT" -ne 1 ]; then
-          echo "Expected exactly 1 alembic head, got $HEAD_COUNT"
-          alembic heads
-          exit 1
-        fi
+        python scripts/check_backend_schema.py
 
     - name: Compile backend modules
       working-directory: ./backend

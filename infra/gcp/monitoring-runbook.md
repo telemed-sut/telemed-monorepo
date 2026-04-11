@@ -22,6 +22,8 @@ Workflow: `.github/workflows/cloud-run-uptime-check.yml`
 - Runs every 15 minutes
 - Resolves Cloud Run URLs dynamically from GCP
 - Fails when backend `/health` or frontend root fails
+- Writes Cloud Run revision details and recent backend error logs to the
+  GitHub Actions summary when the check fails
 
 Recommended:
 
@@ -136,3 +138,26 @@ textPayload:"\"action\":\"admin_force_password_reset\""
 2. Check latest deployment revision.
 3. Roll back Cloud Run to previous revision if regression confirmed.
 4. Record timeline in incident note (start time, impact, mitigation, root cause).
+
+## F) Migration and restart-loop triage
+
+Use this section when the backend revision keeps restarting or `/health`
+does not recover after deploy.
+
+1. Open the failed GitHub Action summary for either
+   `.github/workflows/deploy-cloud-run.yml` or
+   `.github/workflows/cloud-run-uptime-check.yml`.
+2. Read the latest backend log lines first. Look for:
+   - `Alembic preflight: database revisions=[...] repo heads=[...]`
+   - `No legacy Alembic revision remap needed.`
+   - `Remapped legacy Alembic revision ...`
+3. If the backend reports more than one repo head, stop and fix the migration
+   graph in git before you redeploy.
+4. If the database revision does not match the repo head and the backend did
+   not remap it automatically, inspect the `alembic_version` table and compare
+   it with `backend/alembic/versions/`.
+5. If the deploy job fails before Cloud Run starts, review the `Run database
+   migrations` step output and the `Backend schema smoke check` result from
+   `.github/workflows/backend-tests.yml`.
+6. If you confirm a bad release, roll back Cloud Run first. Then repair the
+   migration state in a controlled maintenance window.

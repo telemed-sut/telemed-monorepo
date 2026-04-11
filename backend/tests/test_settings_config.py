@@ -364,6 +364,36 @@ def test_settings_allow_explicit_insecure_secret_storage_only_in_non_production(
     assert settings.allow_insecure_secret_storage is True
 
 
+def test_settings_default_to_insecure_secret_storage_in_development_when_keys_are_missing(monkeypatch):
+    _apply_env(
+        monkeypatch,
+        APP_ENV="development",
+        DEVICE_SECRET_ENCRYPTION_KEY=None,
+        TWO_FACTOR_SECRET_ENCRYPTION_KEY=None,
+        ALLOW_INSECURE_SECRET_STORAGE=None,
+    )
+
+    settings = _build_settings()
+
+    assert settings.allow_insecure_secret_storage is True
+
+
+def test_settings_still_fail_when_insecure_secret_storage_is_explicitly_disabled(monkeypatch):
+    _apply_env(
+        monkeypatch,
+        APP_ENV="development",
+        DEVICE_SECRET_ENCRYPTION_KEY=None,
+        TWO_FACTOR_SECRET_ENCRYPTION_KEY=None,
+        ALLOW_INSECURE_SECRET_STORAGE="false",
+    )
+
+    with pytest.raises(
+        ValidationError,
+        match="Secret-at-rest encryption keys are required unless",
+    ):
+        _build_settings()
+
+
 def test_settings_fail_fast_when_crypto_backend_missing_for_encrypted_secret_storage(monkeypatch):
     _apply_env(monkeypatch, APP_ENV="test")
     monkeypatch.setattr(secret_crypto, "AES", None)

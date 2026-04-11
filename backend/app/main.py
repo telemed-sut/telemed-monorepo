@@ -123,6 +123,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 def backfill_bootstrap_privileged_roles_on_startup():
     try:
+        bootstrap_emails = get_settings().super_admin_emails
         with SessionLocal() as db:
             bind = db.get_bind()
             if bind is None or not inspect(bind).has_table("users"):
@@ -139,6 +140,17 @@ def backfill_bootstrap_privileged_roles_on_startup():
                 logger.info("Backfilled %s bootstrap privileged role assignment(s) from SUPER_ADMIN_EMAILS.", created)
             else:
                 db.rollback()
+                configured_count = (
+                    len([email for email in bootstrap_emails if email.strip()])
+                    if isinstance(bootstrap_emails, list)
+                    else len([email for email in bootstrap_emails.split(",") if email.strip()])
+                )
+                if configured_count:
+                    logger.warning(
+                        "Bootstrap privileged-role backfill found no matching admin accounts for configured SUPER_ADMIN_EMAILS."
+                    )
+                else:
+                    logger.info("Bootstrap privileged-role backfill skipped because SUPER_ADMIN_EMAILS is empty.")
     except Exception:
         logger.exception("Bootstrap privileged role backfill failed during startup.")
         raise

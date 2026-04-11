@@ -78,3 +78,32 @@ jobs:
           echo "- Backend: ${{ steps.urls.outputs.backend }}/health"
           echo "- Frontend: ${{ steps.urls.outputs.frontend }}"
         } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Capture failure diagnostics
+      if: ${{ failure() }}
+      shell: bash
+      run: |
+        set +e
+        {
+          echo "## Uptime Check Failure Diagnostics"
+          echo ""
+          echo "### Backend service"
+          gcloud run services describe "$GCP_BACKEND_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --format='yaml(status.url,status.latestReadyRevisionName,status.traffic)'
+          echo ""
+          echo "### Frontend service"
+          gcloud run services describe "$GCP_FRONTEND_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --format='yaml(status.url,status.latestReadyRevisionName,status.traffic)'
+          echo ""
+          echo "### Recent backend error logs"
+          gcloud logging read \
+            "resource.type=cloud_run_revision AND resource.labels.service_name=${GCP_BACKEND_SERVICE} AND severity>=ERROR" \
+            --project "$GCP_PROJECT_ID" \
+            --limit=20 \
+            --freshness=30m \
+            --format='value(timestamp,textPayload,jsonPayload.message)'
+        } >> "$GITHUB_STEP_SUMMARY"
