@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
-from app.core.security import create_access_token, get_password_hash, hash_security_token, verify_password
+from app.core.security import create_access_token, get_pin_hash, hash_security_token, verify_pin
 from app.models.meeting import Meeting
 from app.models.patient import Patient
 from app.models.patient_app_registration import PatientAppRegistration
@@ -396,7 +396,7 @@ def register_patient_app(
         )
 
     # Set PIN.
-    patient.pin_hash = get_password_hash(pin)
+    patient.pin_hash = get_pin_hash(pin)
     patient.app_registered_at = now
     _reset_patient_login_failures(db, patient)
 
@@ -452,7 +452,7 @@ def login_patient_app(
                 detail=_patient_lock_detail(locked_until),
             )
 
-        if not verify_password(pin, matched_patient.pin_hash):
+        if not verify_pin(pin, matched_patient.pin_hash):
             locked_until = _record_failed_patient_login(db, matched_patient)
             db.commit()
             if locked_until is not None:

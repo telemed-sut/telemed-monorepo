@@ -140,7 +140,8 @@ class SecurityAuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
 
-        if response.status_code != 403:
+        # Log both 401 (Unauthorized) and 403 (Forbidden) to the audit log.
+        if response.status_code not in {401, 403}:
             return response
 
         path = request.url.path
@@ -157,12 +158,14 @@ class SecurityAuditMiddleware(BaseHTTPMiddleware):
             "user_agent": request.headers.get("user-agent", "")[:300],
         }
 
+        action_name = "http_403_denied" if response.status_code == 403 else "http_401_unauthorized"
+
         try:
             with _get_middleware_db_session(request) as db:
                 db.add(
                     AuditLog(
                         user_id=actor_id,
-                        action="http_403_denied",
+                        action=action_name,
                         resource_type="http_request",
                         details=details,
                         ip_address=ip_address,
@@ -172,7 +175,7 @@ class SecurityAuditMiddleware(BaseHTTPMiddleware):
                 )
                 db.commit()
         except Exception:
-            logger.exception("Failed to write 403 audit log for %s", path)
+            logger.exception("Failed to write %s audit log for %s", action_name, path)
 
         return response
 

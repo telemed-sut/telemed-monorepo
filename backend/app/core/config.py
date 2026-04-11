@@ -90,6 +90,7 @@ class Settings(BaseSettings):
     clinical_lockout_seconds_step_three: int = 300
     patient_pin_max_login_attempts: int = 5
     patient_pin_lockout_minutes: int = 15
+    patient_pin_pepper: str = ""
     patient_app_token_ttl_seconds: int = 86_400 * 7
     min_active_admin_accounts: int = 2
     super_admin_emails: Union[List[str], str] = ["admin@example.com"]

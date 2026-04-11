@@ -8,7 +8,7 @@ http://localhost:3000 and http://localhost:8080, backend runs on port 8000.
 - FastAPI, Pydantic v2
 - SQLAlchemy 2.x, Alembic
 - PostgreSQL (via psycopg)
-- JWT (python-jose), passlib[bcrypt]
+- JWT (PyJWT), bcrypt
 
 ### Project layout
 - [app/main.py](app/main.py) – FastAPI app and routers

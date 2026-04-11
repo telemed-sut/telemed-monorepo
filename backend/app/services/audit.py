@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
+from app.core.logging_config import redact_sensitive_data
 
 
 logger = logging.getLogger(__name__)
@@ -47,17 +48,22 @@ def log_action(
     commit: bool = True,
 ) -> AuditLog:
     """Write an entry to the audit log."""
+    # Scrub sensitive data before persisting to DB
+    scrubbed_details = redact_sensitive_data(details) if details else None
+    scrubbed_old = redact_sensitive_data(old_values) if old_values else None
+    scrubbed_new = redact_sensitive_data(new_values) if new_values else None
+
     entry = AuditLog(
         user_id=user_id,
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
-        details=details,
+        details=scrubbed_details,
         ip_address=ip_address,
         is_break_glass=is_break_glass,
         break_glass_reason=break_glass_reason,
-        old_values=old_values,
-        new_values=new_values,
+        old_values=scrubbed_old,
+        new_values=scrubbed_new,
         status=status,
     )
     db.add(entry)

@@ -8,44 +8,77 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 from urllib.parse import quote
 
-from jose import JWTError, jwt
-from passlib.context import CryptContext
+import jwt
+from jwt.exceptions import PyJWTError as JWTError
+import bcrypt
 
 from app.core.config import get_settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 ALGORITHM = "HS256"
 TOTP_PERIOD_SECONDS = 30
 TOTP_DIGITS = 6
 BACKUP_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
-class _JoseDatetimeCompat(datetime):
-    @classmethod
-    def utcnow(cls):
-        # python-jose still calls datetime.utcnow(); keep behavior without emitting
-        # Python 3.13 deprecation warnings.
-        return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-jwt.datetime = _JoseDatetimeCompat
-
-
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    """Hash a password using bcrypt."""
+    # Salt is included in the resulting hash string.
+    # bcrypt.hashpw returns bytes; we decode to utf-8 string for storage.
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt()
+    ).decode("utf-8")
+
+
+def get_pin_hash(pin: str) -> str:
+    """Hash a patient PIN using the application-level pepper if configured."""
+    from app.core.config import get_settings
+    pepper = get_settings().patient_pin_pepper
+    if pepper:
+        # Use HMAC-SHA256 to mix the pepper with the PIN before hashing with bcrypt.
+        pin_peppered = hmac.new(
+            pepper.encode("utf-8"),
+            pin.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+        return get_password_hash(pin_peppered)
+    return get_password_hash(pin)
+
+
+def verify_pin(plain_pin: str, hashed_pin: str) -> bool:
+    """Verify a patient PIN against its hash, incorporating the pepper if configured."""
+    from app.core.config import get_settings
+    pepper = get_settings().patient_pin_pepper
+    if pepper:
+        pin_peppered = hmac.new(
+            pepper.encode("utf-8"),
+            plain_pin.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+        return verify_password(pin_peppered, hashed_pin)
+    return verify_password(plain_pin, hashed_pin)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify a password against its bcrypt hash."""
+    if not plain_password or not hashed_password:
+        return False
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8")
+        )
+    except Exception:
+        return False
 
 
 def create_access_token(data: Dict[str, Any], expires_in: int | None = None) -> str:
     settings = get_settings()
     to_encode = data.copy()
     ttl = expires_in if expires_in is not None else settings.jwt_expires_in
-    issued_at = jwt.datetime.now(timezone.utc)
-    expire = jwt.datetime.now(timezone.utc) + timedelta(seconds=ttl)
-    to_encode.update({"iat": issued_at, "exp": expire})
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(seconds=ttl)
+    to_encode.update({"iat": now, "exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.jwt_secret, algorithm=ALGORITHM)
     return encoded_jwt
 

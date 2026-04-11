@@ -9,8 +9,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 import httpx
-from jose import jwk, jwt
-from jose.utils import base64url_decode
+import jwt
 
 from app.core.config import get_settings
 
@@ -293,9 +292,9 @@ def _fetch_jwks(jwks_uri: str) -> dict[str, Any]:
 
 def _verify_id_token(*, id_token: str, jwks_uri: str, expected_nonce: str) -> dict[str, Any]:
     settings = get_settings()
-    header = jwt.get_unverified_header(id_token)
-    claims = jwt.get_unverified_claims(id_token)
-    if not isinstance(header, dict) or not isinstance(claims, dict):
+    try:
+        header = jwt.get_unverified_header(id_token)
+    except Exception:
         raise AdminSsoExchangeError("OIDC id_token is invalid.")
 
     key_id = _as_optional_str(header.get("kid"))
@@ -315,36 +314,28 @@ def _verify_id_token(*, id_token: str, jwks_uri: str, expected_nonce: str) -> di
     if jwk_data is None:
         raise AdminSsoExchangeError("Unable to find a matching OIDC signing key.")
 
-    message, encoded_signature = id_token.rsplit(".", 1)
-    decoded_signature = base64url_decode(encoded_signature.encode("utf-8"))
-    key = jwk.construct(jwk_data)
-    if not key.verify(message.encode("utf-8"), decoded_signature):
-        raise AdminSsoExchangeError("OIDC id_token signature verification failed.")
+    try:
+        # Use PyJWT's PyJWK class to construct the public key from JWK data
+        public_key = jwt.PyJWK.from_dict(jwk_data).key
+        algorithm = _as_optional_str(header.get("alg")) or "RS256"
 
-    issuer = _as_optional_str(claims.get("iss"))
-    if issuer != (settings.admin_oidc_issuer_url or "").rstrip("/"):
-        raise AdminSsoExchangeError("OIDC id_token issuer mismatch.")
-
-    audience = claims.get("aud")
-    expected_audience = settings.admin_oidc_client_id
-    if isinstance(audience, str):
-        audiences = {audience}
-    elif isinstance(audience, list):
-        audiences = {str(item) for item in audience if isinstance(item, str)}
-    else:
-        audiences = set()
-    if expected_audience not in audiences:
-        raise AdminSsoExchangeError("OIDC id_token audience mismatch.")
-
-    expiration = claims.get("exp")
-    if not isinstance(expiration, (int, float)) or int(expiration) <= int(time.time()):
+        claims = jwt.decode(
+            id_token,
+            public_key,
+            algorithms=[algorithm],
+            audience=settings.admin_oidc_client_id,
+            issuer=(settings.admin_oidc_issuer_url or "").rstrip("/"),
+            options={"verify_nonce": True},
+            nonce=expected_nonce,
+        )
+        return claims
+    except jwt.ExpiredSignatureError:
         raise AdminSsoExchangeError("OIDC id_token is expired.")
-
-    nonce = _as_optional_str(claims.get("nonce"))
-    if not nonce or nonce != expected_nonce:
+    except jwt.InvalidNonceError:
         raise AdminSsoExchangeError("OIDC nonce validation failed.")
-
-    return claims
+    except Exception as exc:
+        logger.warning("OIDC token verification failed: %s", str(exc))
+        raise AdminSsoExchangeError("OIDC id_token verification failed.")
 
 
 def _claims_indicate_mfa(claims: dict[str, Any], *, amr: tuple[str, ...]) -> bool:

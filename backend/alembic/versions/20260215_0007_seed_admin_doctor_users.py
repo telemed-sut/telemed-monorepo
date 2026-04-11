@@ -10,7 +10,7 @@ import os
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-from passlib.context import CryptContext
+import bcrypt
 
 # revision identifiers, used by Alembic.
 revision = "20260215_0007"
@@ -18,7 +18,9 @@ down_revision = "20260215_0006"
 branch_labels = None
 depends_on = None
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def _get_password_hash(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def _require_seed_password(env_name: str) -> str:
@@ -49,8 +51,8 @@ def upgrade() -> None:
         sa.column("verification_status", verification_status_enum),
     )
 
-    admin_hash = pwd_context.hash(_require_seed_password("SEED_ADMIN_PASSWORD"))
-    doctor_hash = pwd_context.hash(_require_seed_password("SEED_DOCTOR_PASSWORD"))
+    admin_hash = _get_password_hash(_require_seed_password("SEED_ADMIN_PASSWORD"))
+    doctor_hash = _get_password_hash(_require_seed_password("SEED_DOCTOR_PASSWORD"))
 
     op.bulk_insert(users_table, [
         {

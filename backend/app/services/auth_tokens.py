@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
-from jose import JWTError
+from jwt.exceptions import PyJWTError as JWTError
 
 from app.core.config import get_settings
 from app.core.security import create_access_token, decode_token
