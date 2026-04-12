@@ -831,12 +831,8 @@ export function EventDetailSheet({
                       >
                         <Avatar className="size-8 shrink-0 border border-background shadow-sm">
                           <AvatarFallback
-                            className={cn(
-                              "text-xs font-bold",
-                              participant.isOrganizer
-                                ? "bg-cyan-500/20 text-cyan-500"
-                                : "bg-emerald-500/20 text-emerald-500"
-                            )}
+                            className="text-xs font-bold"
+                            seed={`${participant.id}|${participant.name}|${participant.email ?? ""}|${participant.isOrganizer ? "organizer" : "participant"}`}
                           >
                             {getInitial(participant.name)}
                           </AvatarFallback>

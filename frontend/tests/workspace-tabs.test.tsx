@@ -207,7 +207,7 @@ describe("WorkspaceTabs", () => {
     expect(screen.queryByRole("tab", { name: /Patient five/i })).not.toBeInTheDocument();
   });
 
-  it("renders the language control in the workspace tabs row and updates the preference", async () => {
+  it("does not render the language control in the workspace tabs row", () => {
     const tabs = [
       createTab("tab-1", "Pinned home", "/patients/patient-1", {
         pinned: true,
@@ -239,17 +239,8 @@ describe("WorkspaceTabs", () => {
 
     render(<WorkspaceTabs />);
 
-    const languageButton = document.getElementById("header-language-button");
-
-    expect(languageButton).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /english/i })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /english/i }));
-    fireEvent.click(screen.getByText("ไทย"));
-
-    await waitFor(() => {
-      expect(useLanguageStore.getState().language).toBe("th");
-    });
+    expect(document.getElementById("header-language-button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /english/i })).not.toBeInTheDocument();
   });
 
   it("shows recent workspaces in configure dialog and clears the current user's workspace", async () => {

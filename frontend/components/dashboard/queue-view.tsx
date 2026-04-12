@@ -328,7 +328,6 @@ function QueueCard({
   const isDoctorLeftWaiting = isDoctorLeftWhilePatientWaiting(meeting);
   const statusForBadge = getPresenceAwareStatus(meeting);
   const livePresenceInfo = getLivePresenceInfo(meeting, language);
-  const config = getStatusConfig(statusForBadge, language);
   const appointmentDateLabel = formatAppointmentDate(meeting.date_time, language);
   const appointmentTimeLabel = formatMeetingTime(meeting.date_time, language);
 
@@ -389,10 +388,13 @@ function QueueCard({
               <AvatarFallback
                 className={cn(
                   "font-bold",
-                  isCompact ? "text-xs" : "text-sm",
-                  config.bg,
-                  config.text
+                  isCompact ? "text-xs" : "text-sm"
                 )}
+                seed={
+                  meeting.patient
+                    ? `${meeting.patient.id}|${meeting.patient.first_name}|${meeting.patient.last_name}`
+                    : `queue-patient|${meeting.id}`
+                }
               >
                 {getInitial(meeting.patient?.first_name)}
               </AvatarFallback>

@@ -109,6 +109,9 @@ def _ensure_doctor_can_view_meeting(
         )
 
 
+from fastapi.responses import JSONResponse
+from app.services.idempotency import get_idempotency_key, check_idempotency, lock_idempotency, save_idempotency_response
+
 @router.post("", response_model=MeetingOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("30/minute")
 def create_meeting(
@@ -116,17 +119,43 @@ def create_meeting(
     payload: MeetingCreate,
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """Create a new meeting/appointment (admin or doctor)."""
     if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # 1. Handle Idempotency
+    if idempotency_key:
+        cached_response = check_idempotency(idempotency_key, str(current_user.id))
+        if cached_response:
+            return JSONResponse(status_code=status.HTTP_200_OK, content=cached_response)
+        
+        if not lock_idempotency(idempotency_key, str(current_user.id)):
+             raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Request with this idempotency key is already in progress."
+            )
+
     # Doctors always create meetings under their own account.
     if current_user.role == UserRole.doctor:
         payload.doctor_id = current_user.id
 
-    meeting = meeting_service.create_meeting(db, payload)
-    return meeting
+    try:
+        meeting = meeting_service.create_meeting(db, payload)
+        
+        # 2. Save response for idempotency
+        if idempotency_key:
+            # We use MeetingOut.model_validate(meeting).model_dump() to ensure JSON serializable
+            # and matches the expected response schema exactly.
+            response_data = MeetingOut.model_validate(meeting).model_dump(mode='json')
+            save_idempotency_response(idempotency_key, str(current_user.id), response_data)
+            
+        return meeting
+    except Exception:
+        # If creation fails, we might want to clear the idempotency lock to allow retry
+        # But for simplicity, we let it expire (60s).
+        raise
 
 
 @router.get("", response_model=MeetingListResponse)
@@ -350,6 +379,8 @@ def issue_patient_video_token(
     return response
 
 
+from app.services.global_presence import touch_global_presence
+
 @router.post("/{meeting_id}/video/presence/heartbeat", response_model=MeetingRoomPresenceResponse)
 @limiter.limit("120/minute")
 def doctor_presence_heartbeat(
@@ -374,6 +405,9 @@ def doctor_presence_heartbeat(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only access meetings you own or assigned patients.",
         )
+
+    # Global presence heartbeat
+    touch_global_presence(str(current_user.id))
 
     presence = meeting_presence_service.touch_doctor_presence(db, meeting)
     if meeting_presence_service.reconcile_active_meeting_status(db, meeting, presence):
@@ -431,6 +465,10 @@ def patient_presence_heartbeat(
     meeting = meeting_service.get_meeting(db, resolved_meeting_id)
     if not meeting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    # Global presence heartbeat (if we have a patient ID)
+    if meeting.user_id:
+        touch_global_presence(str(meeting.user_id))
 
     presence = meeting_presence_service.touch_patient_presence(db, meeting)
     if meeting_presence_service.reconcile_active_meeting_status(db, meeting, presence):

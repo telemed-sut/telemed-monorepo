@@ -17,7 +17,7 @@ from app.api import alerts, audit, auth, dense_mode, meetings, patients, stats, 
 from app.api import patient_app as patient_app_api
 from app.api import security as security_api
 from app.core.config import get_settings
-from app.core.limiter import limiter
+from app.core.limiter import limiter, get_strict_client_ip_rate_limit_key
 from app.core.logging_config import configure_logging, reset_request_id, set_request_id
 from app.db.session import SessionLocal, get_redis_client
 from app.middleware import IPBanMiddleware, SecurityAuditMiddleware, SecurityHeadersMiddleware
@@ -101,8 +101,11 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
                     if isinstance(payload_device_id, str) and payload_device_id.strip() and device_id == "unknown":
                         device_id = payload_device_id.strip()
         except Exception:
+            logger.warning(
+                "Failed to parse request body for device context in validation handler",
+                extra={"path": request.url.path, "ip": _extract_client_ip(request)}
+            )
             # keep fallback device_id
-            pass
 
         try:
             with SessionLocal() as db:
@@ -292,7 +295,7 @@ def create_app() -> FastAPI:
     app.include_router(events.router)
 
     @app.get("/health", response_model=HealthCheckResponse)
-    @limiter.limit("60/minute")
+    @limiter.limit("60/minute", key_func=get_strict_client_ip_rate_limit_key)
     def health_check(request: Request):
         checks = {"status": "ok", "db": "ok", "redis": "disabled"}
         status_code = 200
@@ -316,12 +319,12 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=status_code, content=checks)
 
     @app.get("/health/live", response_model=LiveHealthCheckResponse)
-    @limiter.limit("60/minute")
+    @limiter.limit("60/minute", key_func=get_strict_client_ip_rate_limit_key)
     def live_health_check(request: Request):
         return {"status": "ok"}
 
     @app.get("/", response_model=RootResponse)
-    @limiter.limit("100/minute")
+    @limiter.limit("100/minute", key_func=get_strict_client_ip_rate_limit_key)
     def root(request: Request):
         return {"message": "Patient Management API", "status": "running"}
 

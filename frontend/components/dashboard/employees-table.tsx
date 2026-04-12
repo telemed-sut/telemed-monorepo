@@ -342,7 +342,10 @@ export function EmployeesTable() {
                         {employee.avatar ? (
                           <AvatarImage src={employee.avatar} />
                         ) : null}
-                        <AvatarFallback className="text-xs font-semibold">
+                        <AvatarFallback
+                          className="text-xs font-semibold"
+                          seed={`${employee.id}|${employee.name}|${employee.email}`}
+                        >
                           {employee.name
                             .split(" ")
                             .map((n) => n[0])

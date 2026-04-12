@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Avatar as AvatarPrimitive } from "@base-ui/react/avatar"
 
+import { buildProfileSeed, getProfileOrbStyle } from "@/components/ui/profile-avatar-orb"
 import { cn } from "@/lib/utils"
 
 function Avatar({
@@ -40,15 +41,32 @@ function AvatarImage({ className, ...props }: AvatarPrimitive.Image.Props) {
 
 function AvatarFallback({
   className,
+  seed,
+  style,
   ...props
-}: AvatarPrimitive.Fallback.Props) {
+}: AvatarPrimitive.Fallback.Props & {
+  seed?: string
+}) {
+  const fallbackStyle = React.useMemo(() => {
+    if (!seed) {
+      return style
+    }
+
+    return {
+      ...getProfileOrbStyle(buildProfileSeed(seed)),
+      ...style,
+    }
+  }, [seed, style])
+
   return (
     <AvatarPrimitive.Fallback
       data-slot="avatar-fallback"
       className={cn(
         "bg-muted text-muted-foreground rounded-full flex size-full items-center justify-center text-sm group-data-[size=sm]/avatar:text-xs",
+        seed && "font-semibold text-slate-700 dark:text-slate-100",
         className
       )}
+      style={fallbackStyle}
       {...props}
     />
   )

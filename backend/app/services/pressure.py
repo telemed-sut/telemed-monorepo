@@ -7,6 +7,8 @@ from app.models.pressure_record import PressureRecord
 from app.models.patient import Patient
 from app.schemas.pressure import PressureCreate
 
+from app.services.pubsub import publish_realtime_event, get_patient_channel
+
 class PressureService:
     def create_pressure(self, db: Session, pressure_in: PressureCreate) -> PressureRecord:
         # Check if patient exists
@@ -42,6 +44,22 @@ class PressureService:
             db.add(db_obj)
             db.commit()
             db.refresh(db_obj)
+            
+            # Publish real-time event
+            event_data = {
+                "id": str(db_obj.id),
+                "patient_id": str(db_obj.patient_id),
+                "sys_rate": db_obj.sys_rate,
+                "dia_rate": db_obj.dia_rate,
+                "heart_rate": db_obj.heart_rate,
+                "measured_at": db_obj.measured_at.isoformat(),
+            }
+            publish_realtime_event(
+                get_patient_channel(str(db_obj.patient_id)),
+                "new_pressure_reading",
+                event_data
+            )
+            
         except IntegrityError:
             db.rollback()
             # If unique constraint violation (duplicate device_id + measured_at)

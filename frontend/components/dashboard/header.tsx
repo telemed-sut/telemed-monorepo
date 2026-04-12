@@ -2,19 +2,25 @@
 
 import { usePathname } from "next/navigation";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { LayoutTemplate, RefreshCw } from "lucide-react";
+import { Check, Languages, LayoutTemplate, RefreshCw } from "lucide-react";
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { getDashboardPageTitle } from "@/components/dashboard/dashboard-route-utils";
 import { useDashboardStore } from "@/store/dashboard-store";
-import type { AppLanguage } from "@/store/language-config";
+import {
+  APP_LANGUAGE_OPTIONS,
+  type AppLanguage,
+} from "@/store/language-config";
 import { useLanguageStore } from "@/store/language-store";
+
+const HEADER_LANGUAGE_BUTTON_ID = "header-language-button";
 
 const labels: Record<
   AppLanguage,
@@ -28,6 +34,7 @@ const labels: Record<
     resetLayout: string;
     charts: string;
     usersTable: string;
+    language: string;
   }
 > = {
   en: {
@@ -40,6 +47,7 @@ const labels: Record<
     resetLayout: "Reset Layout",
     charts: "Charts",
     usersTable: "Users Table",
+    language: "Language",
   },
   th: {
     dashboard: "แดชบอร์ด",
@@ -51,13 +59,18 @@ const labels: Record<
     resetLayout: "รีเซ็ตเลย์เอาต์",
     charts: "กราฟ",
     usersTable: "ตารางผู้ใช้",
+    language: "ภาษา",
   },
 };
 
 export function DashboardHeader() {
   const pathname = usePathname();
   const language = useLanguageStore((state) => state.language);
+  const setLanguage = useLanguageStore((state) => state.setLanguage);
   const t = labels[language];
+  const selectedLanguageLabel =
+    APP_LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ||
+    APP_LANGUAGE_OPTIONS.find((option) => option.value === "en")?.label;
 
   // Overview layout
   const showAlertBanner = useDashboardStore((s) => s.showAlertBanner);
@@ -104,6 +117,34 @@ export function DashboardHeader() {
       </div>
 
       <div className="ml-auto flex items-center gap-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            id={HEADER_LANGUAGE_BUTTON_ID}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3 text-[0.92rem] font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.06)] outline-none transition-[background-color,color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-slate-50 hover:text-slate-900 focus-visible:ring-[3px] focus-visible:ring-sky-200 focus-visible:ring-offset-2"
+            type="button"
+          >
+            <Languages className="size-4" />
+            <span className="hidden md:inline">{selectedLanguageLabel}</span>
+            <span className="md:hidden">{language.toUpperCase()}</span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44 rounded-xl p-1.5">
+            <DropdownMenuLabel>{t.language}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {APP_LANGUAGE_OPTIONS.map((option) => (
+              <DropdownMenuItem
+                key={option.value}
+                className="flex items-center justify-between"
+                onClick={() => setLanguage(option.value)}
+              >
+                <span>{option.label}</span>
+                {option.value === language && (
+                  <Check className="size-4 text-primary" />
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         {hasEditLayout && (
           <DropdownMenu>
             <DropdownMenuTrigger

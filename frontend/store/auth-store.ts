@@ -3,7 +3,10 @@ import { create } from "zustand";
 import type { LoginResponse, UserMe } from "@/lib/api";
 import { clearPatientWorkspaceCache } from "@/lib/patient-workspace-cache";
 import { clearProtectedClientStorage } from "@/lib/protected-client-state";
-import { clearWorkspaceTabsState } from "@/store/workspace-tabs-store";
+import {
+  clearPersistedWorkspaceTabs,
+  clearWorkspaceTabsState,
+} from "@/store/workspace-tabs-store";
 
 /** Refresh token 5 minutes before expiry */
 const REFRESH_BUFFER_SECONDS = 300;
@@ -209,6 +212,7 @@ function readPersistedAuthSnapshot(): PersistedAuthSnapshot | null {
 function clearProtectedClientState() {
   persistAuthSnapshot(null);
   clearWorkspaceTabsState();
+  clearPersistedWorkspaceTabs();
   clearPatientWorkspaceCache();
   clearProtectedClientStorage();
 }
@@ -360,3 +364,4 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return get().getTokenTTL() < REFRESH_BUFFER_SECONDS;
   },
 }));
+

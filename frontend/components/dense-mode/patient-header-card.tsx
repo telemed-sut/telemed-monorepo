@@ -40,7 +40,10 @@ export function PatientHeaderCard() {
             <CardContent className="p-4">
                 <div className="flex items-start gap-4">
                     <Avatar className="size-14 ring-2 ring-primary/20">
-                        <AvatarFallback className="bg-primary/10 text-primary font-bold text-lg">
+                        <AvatarFallback
+                            className="font-bold text-lg"
+                            seed={`${patient.id}|${patient.first_name}|${patient.last_name}|${patient.people_id}`}
+                        >
                             {initials}
                         </AvatarFallback>
                     </Avatar>

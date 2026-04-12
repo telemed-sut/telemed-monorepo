@@ -236,7 +236,10 @@ function SidebarUserMenu({
                 : undefined
             }
           />
-          <AvatarFallback className="text-[0.82rem]">
+          <AvatarFallback
+            className="text-[0.82rem]"
+            seed={currentUser ? `${currentUser.id}|${currentUser.email}|${getUserDisplayName(currentUser)}` : "sidebar-user"}
+          >
             {currentUser ? getUserInitials(currentUser) : "??"}
           </AvatarFallback>
         </Avatar>

@@ -13,7 +13,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.limiter import get_strict_failed_login_key, limiter
+from app.core.limiter import get_strict_failed_login_key, get_strict_client_ip_rate_limit_key, limiter
 from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.patient_app import (
@@ -95,7 +95,7 @@ def generate_registration_code(
     "/register",
     response_model=PatientAppRegisterResponse,
 )
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=get_strict_client_ip_rate_limit_key)
 def register_patient(
     request: Request,
     payload: PatientAppRegisterRequest,

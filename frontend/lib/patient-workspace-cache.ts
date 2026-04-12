@@ -465,10 +465,7 @@ export function clearPatientWorkspaceCache() {
     return;
   }
 
-  const registryKeys = new Set<string>([
-    ...readPatientWorkspaceCacheRegistry({ preferStorage: true }),
-    ...readPatientWorkspaceCacheRegistryFromStorage(window.localStorage),
-  ]);
+  const registryKeys = readPatientWorkspaceCacheRegistry({ preferStorage: true });
   if (registryKeys.size > 0) {
     for (const key of registryKeys) {
       window.sessionStorage.removeItem(key);
@@ -476,7 +473,6 @@ export function clearPatientWorkspaceCache() {
     }
     writePatientWorkspaceCacheRegistry(new Set());
     window.localStorage.removeItem(PATIENT_WORKSPACE_CACHE_REGISTRY_KEY);
-    return;
   }
 
   for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {

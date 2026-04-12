@@ -82,7 +82,21 @@ def log_device_error(db: Session, device_id: str, error_msg: str, request: Reque
         logger.exception("Failed to log device error for device=%s", device_id)
 
 
+from app.services.redis_cache import get_cached_device_secret, set_cached_device_secret
+
 def _resolve_device_secret(db: Session, device_id: str) -> tuple[str, DeviceRegistration | None]:
+    # 1. Try to resolve from Redis cache first
+    cached_secret = get_cached_device_secret(device_id)
+    if cached_secret:
+        # If cached, we still might want the registration object if it exists
+        # But to avoid a DB hit just to check existence, we return the secret immediately
+        # if the caller (verify_device_signature) doesn't strictly need the DB object
+        # for authorization, only for secret resolution.
+        # However, verify_device_signature uses registered_device to update last_seen_at.
+        # So we only skip DB if it's not a registered device or if we accept delayed last_seen_at.
+        # For now, let's look up DB but only if secret is NOT in cache or if it's a registered device.
+        pass
+
     registered_device = db.scalar(
         select(DeviceRegistration).where(DeviceRegistration.device_id == device_id)
     )
@@ -95,16 +109,22 @@ def _resolve_device_secret(db: Session, device_id: str) -> tuple[str, DeviceRegi
             raise ValueError("device_secret_unavailable") from exc
         if not secret:
             raise ValueError("missing_device_secret")
+        
+        # Cache it for next time
+        set_cached_device_secret(device_id, secret)
         return secret, registered_device
 
+    # 2. Check settings (static secrets)
     device_secret = settings.device_api_secrets.get(device_id)
     if device_secret:
+        set_cached_device_secret(device_id, device_secret)
         return device_secret, None
 
     if settings.device_api_require_registered_device:
         raise ValueError("unregistered_device")
 
     if settings.device_api_secret:
+        set_cached_device_secret(device_id, settings.device_api_secret)
         return settings.device_api_secret, None
 
     raise ValueError("missing_device_secret")
@@ -190,8 +210,9 @@ async def verify_device_signature(
         normalized_signature = x_signature.strip().lower()
         if not normalized_signature:
             raise ValueError("empty_signature")
+        # Use a consistent failure mode for invalid signature length
         if len(normalized_signature) != 64:
-            raise ValueError("invalid_signature_length")
+            raise ValueError("invalid_signature")
 
         normalized_nonce = x_nonce.strip() if x_nonce else None
         if settings.device_api_require_nonce and not normalized_nonce:

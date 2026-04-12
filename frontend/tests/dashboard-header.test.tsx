@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
@@ -57,13 +57,25 @@ describe("DashboardHeader", () => {
     languageState.setLanguage.mockReset();
   });
 
-  it("renders the page title without a duplicate language switcher", async () => {
+  it("renders the page title and keeps the language switcher in the header", async () => {
     const { DashboardHeader } = await import("@/components/dashboard/header");
 
     render(<DashboardHeader />);
 
     expect(screen.getByRole("heading", { name: "Meetings" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Switch language to Thai" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Switch language to English" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /english/i })).toBeInTheDocument();
+  });
+
+  it("updates the language from the header switcher", async () => {
+    const { DashboardHeader } = await import("@/components/dashboard/header");
+
+    render(<DashboardHeader />);
+
+    fireEvent.click(screen.getByRole("button", { name: /english/i }));
+    fireEvent.click(screen.getByText("ไทย"));
+
+    await waitFor(() => {
+      expect(languageState.setLanguage).toHaveBeenCalledWith("th");
+    });
   });
 });

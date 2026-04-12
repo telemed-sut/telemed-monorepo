@@ -13,6 +13,7 @@ from app.models.enums import UserRole
 from app.models.invite import UserInvite
 from app.models.user import User
 
+from . import auth_sessions
 from .auth_tokens import _normalize_dt, _now_utc
 
 
@@ -32,6 +33,7 @@ def reset_user_password(db: Session, user: User, new_password: str) -> None:
     user.password_hash = get_password_hash(new_password)
     user.password_changed_at = _now_utc()
     db.flush()
+    auth_sessions.revoke_user_sessions(db, user_id=user.id)
 
 
 def hash_invite_token(token: str) -> str:

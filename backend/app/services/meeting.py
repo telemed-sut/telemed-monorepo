@@ -96,11 +96,46 @@ def _apply_list_filters(
     return stmt
 
 
+from fastapi import HTTPException, status
+from app.core.redis_client import distributed_lock
+
+from app.services.redis_cache import clear_dashboard_stats_cache
+
 def create_meeting(db: Session, payload: MeetingCreate) -> Meeting:
-    meeting = Meeting(**payload.model_dump())
-    db.add(meeting)
-    db.commit()
-    db.refresh(meeting)
+    # 1. Use a distributed lock to prevent concurrent creation for the same doctor at the same time
+    # Normalize time to minutes to prevent minor variations from bypassing the lock
+    time_str = payload.date_time.strftime("%Y%m%d%H%M")
+    lock_name = f"create_meeting:{payload.doctor_id}:{time_str}"
+    
+    with distributed_lock(lock_name, expire_seconds=30) as acquired:
+        if not acquired:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Could not acquire lock for meeting creation. Please try again."
+            )
+            
+        # 2. Check for existing overlapping meetings within the lock
+        # For simplicity, we check for meetings at the exact same start time
+        # In a real system, you might check for overlapping duration (e.g. start < end and end > start)
+        existing = db.scalar(
+            select(Meeting).where(
+                Meeting.doctor_id == payload.doctor_id,
+                Meeting.date_time == payload.date_time,
+                Meeting.status != MeetingStatus.cancelled
+            )
+        )
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The doctor already has a meeting scheduled at this time."
+            )
+
+        # 3. Create the meeting
+        meeting = Meeting(**payload.model_dump())
+        db.add(meeting)
+        db.commit()
+        db.refresh(meeting)
+        
     if meeting.user_id and meeting.status not in (
         MeetingStatus.cancelled,
         MeetingStatus.completed,
@@ -109,6 +144,10 @@ def create_meeting(db: Session, payload: MeetingCreate) -> Meeting:
             db=db,
             meeting=meeting,
         )
+        
+    # Invalidate stats cache
+    clear_dashboard_stats_cache()
+    
     # Reload with relationships
     return get_meeting(db, str(meeting.id))
 

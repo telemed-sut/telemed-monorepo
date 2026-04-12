@@ -238,14 +238,18 @@ def _validate_cookie_csrf(request: Request) -> None:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="CSRF validation failed.",
             )
-        return
+        # Always require cryptographic token validation even if origin is correct.
+        if has_valid_csrf_token:
+            return
 
     referer = request.headers.get("referer")
     if referer:
         normalized_referer = referer.rstrip("/")
         for allowed_origin in allowed_origins:
             if normalized_referer == allowed_origin or normalized_referer.startswith(f"{allowed_origin}/"):
-                return
+                # Always require cryptographic token validation even if referer is correct.
+                if has_valid_csrf_token:
+                    return
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="CSRF validation failed.",

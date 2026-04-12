@@ -641,7 +641,14 @@ export function MeetingsTable() {
                                                     <TableCell className="p-4 align-middle">
                                                         <div className="flex items-center gap-2">
                                                             <Avatar className="size-8 ring-2 ring-background transition-shadow group-hover:ring-violet-500/20">
-                                                                <AvatarFallback className="bg-violet-500/10 text-violet-600 dark:text-violet-400 text-xs font-semibold">
+                                                                <AvatarFallback
+                                                                    className="text-xs font-semibold"
+                                                                    seed={
+                                                                        meeting.doctor
+                                                                            ? `${meeting.doctor.id}|${meeting.doctor.first_name ?? ""}|${meeting.doctor.last_name ?? ""}|${meeting.doctor.email ?? ""}`
+                                                                            : `doctor|${meeting.id}`
+                                                                    }
+                                                                >
                                                                     {meeting.doctor
                                                                         ? `${meeting.doctor.first_name?.charAt(0) ?? ""}${meeting.doctor.last_name?.charAt(0) ?? ""}`.toUpperCase() || "DR"
                                                                         : "DR"}
@@ -659,7 +666,14 @@ export function MeetingsTable() {
                                                     <TableCell className="p-4 align-middle">
                                                         <div className="flex items-center gap-2">
                                                             <Avatar className="size-8 ring-2 ring-background transition-shadow group-hover:ring-primary/20">
-                                                                <AvatarFallback className="bg-primary/5 text-primary text-xs font-semibold">
+                                                                <AvatarFallback
+                                                                    className="text-xs font-semibold"
+                                                                    seed={
+                                                                        meeting.patient
+                                                                            ? `${meeting.patient.id}|${meeting.patient.first_name}|${meeting.patient.last_name}`
+                                                                            : `patient|${meeting.id}`
+                                                                    }
+                                                                >
                                                                     {meeting.patient
                                                                         ? `${meeting.patient.first_name.charAt(0)}${meeting.patient.last_name.charAt(0)}`.toUpperCase()
                                                                         : "PA"}

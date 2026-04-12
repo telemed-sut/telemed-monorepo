@@ -525,7 +525,10 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="flex items-start gap-4">
                   <Avatar className="size-16 rounded-[24px] border border-border/70">
-                    <AvatarFallback className="rounded-[24px] bg-muted text-xl font-semibold text-primary">
+                    <AvatarFallback
+                      className="rounded-[24px] text-xl font-semibold"
+                      seed={`${patient.id}|${patient.first_name}|${patient.last_name}|${patient.date_of_birth}|${patient.email ?? ""}`}
+                    >
                       {patientInitials || "PT"}
                     </AvatarFallback>
                   </Avatar>

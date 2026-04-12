@@ -31,9 +31,25 @@ def _audit_log_payload(entry: AuditLog) -> dict[str, str | None]:
     }
 
 
+import json
+from app.core.redis_client import redis_client
+
+AUDIT_LOG_BUFFER_KEY = "audit_log:buffer:v1"
+
+def push_to_audit_buffer(payload: dict) -> bool:
+    """Push audit log payload to Redis buffer."""
+    try:
+        # Convert UUIDs and datetimes to strings for JSON serialization
+        # (Though log_action already prepares a scrubbed payload if we use it)
+        redis_client.lpush(AUDIT_LOG_BUFFER_KEY, json.dumps(payload))
+        return True
+    except Exception:
+        logger.warning("Failed to push audit log to Redis buffer", exc_info=True)
+        return False
+
 def log_action(
     db: Session,
-    user_id: UUID,
+    user_id: Optional[UUID],
     action: str,
     resource_type: Optional[str] = None,
     resource_id: Optional[UUID] = None,
@@ -46,12 +62,32 @@ def log_action(
     status: str = "success",
     *,
     commit: bool = True,
-) -> AuditLog:
+    use_buffer: bool = False,
+) -> Optional[AuditLog]:
     """Write an entry to the audit log."""
-    # Scrub sensitive data before persisting to DB
+    # Scrub sensitive data before persisting
     scrubbed_details = redact_sensitive_data(details) if details else None
     scrubbed_old = redact_sensitive_data(old_values) if old_values else None
     scrubbed_new = redact_sensitive_data(new_values) if new_values else None
+
+    payload = {
+        "user_id": str(user_id) if user_id else None,
+        "action": action,
+        "resource_type": resource_type,
+        "resource_id": str(resource_id) if resource_id else None,
+        "details": scrubbed_details,
+        "ip_address": ip_address,
+        "is_break_glass": is_break_glass,
+        "break_glass_reason": break_glass_reason,
+        "old_values": scrubbed_old,
+        "new_values": scrubbed_new,
+        "status": status,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+
+    if use_buffer and push_to_audit_buffer(payload):
+        logger.info("audit_log_buffered", extra={"action": action, "user_id": str(user_id) if user_id else None})
+        return None
 
     entry = AuditLog(
         user_id=user_id,

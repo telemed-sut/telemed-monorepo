@@ -4,10 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
-  Check,
   Clock3,
   HeartPulse,
-  Languages,
   MoreHorizontal,
   Pin,
   TriangleAlert,
@@ -43,7 +41,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
-import { APP_LANGUAGE_OPTIONS, APP_LOCALE_MAP } from "@/store/language-config";
+import { APP_LOCALE_MAP } from "@/store/language-config";
 import { useLanguageStore } from "@/store/language-store";
 import type {
   RecentWorkspace,
@@ -71,7 +69,6 @@ const labels = {
     done: "Done",
     workspaceTabs: "Open tabs",
     pinned: "Pinned",
-    language: "Language",
     recentWorkspaces: "Recent workspaces",
     recentEmpty: "No recent workspaces yet",
     recentHint: "Open a patient workspace to see it here.",
@@ -104,7 +101,6 @@ const labels = {
     done: "เสร็จสิ้น",
     workspaceTabs: "แท็บที่เปิดอยู่",
     pinned: "ปักหมุด",
-    language: "ภาษา",
     recentWorkspaces: "พื้นที่ทำงานล่าสุด",
     recentEmpty: "ยังไม่มีพื้นที่ทำงานล่าสุด",
     recentHint: "เมื่อเปิดพื้นที่ทำงานผู้ป่วย ระบบจะแสดงไว้ที่นี่",
@@ -419,7 +415,6 @@ export function WorkspaceTabs() {
   const router = useRouter();
   const pathname = usePathname();
   const language = useLanguageStore((state) => state.language);
-  const setLanguage = useLanguageStore((state) => state.setLanguage);
   const userId = useAuthStore((state) => state.userId);
   const t = labels[language];
   const {
@@ -461,10 +456,6 @@ export function WorkspaceTabs() {
   const configReturnFocusRef = useRef<HTMLElement | null>(null);
   const configReturnTabIdRef = useRef<string | null>(null);
   const prefetchedTabHrefsRef = useRef<Set<string>>(new Set());
-  const selectedLanguageLabel =
-    APP_LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ||
-    APP_LANGUAGE_OPTIONS.find((option) => option.value === "en")?.label;
-
   useEffect(() => {
     hydrate(language, pathname, userId);
   }, [hydrate, language, pathname, userId]);
@@ -841,35 +832,6 @@ export function WorkspaceTabs() {
             </div>
           )}
 
-          <div className="shrink-0 pb-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                id={HEADER_LANGUAGE_BUTTON_ID}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-white/88 px-3 text-[0.92rem] font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] outline-none transition-[background-color,color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white hover:text-slate-900 focus-visible:ring-[3px] focus-visible:ring-sky-200 focus-visible:ring-offset-2"
-                type="button"
-              >
-                <Languages className="size-4" />
-                <span className="hidden md:inline">{selectedLanguageLabel}</span>
-                <span className="md:hidden">{language.toUpperCase()}</span>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44 rounded-xl p-1.5">
-                <DropdownMenuLabel>{t.language}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {APP_LANGUAGE_OPTIONS.map((option) => (
-                  <DropdownMenuItem
-                    key={option.value}
-                    className="flex items-center justify-between"
-                    onClick={() => setLanguage(option.value)}
-                  >
-                    <span>{option.label}</span>
-                    {option.value === language && (
-                      <Check className="size-4 text-primary" />
-                    )}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
         </div>
       </div>
 
