@@ -5,6 +5,10 @@ const replaceMock = vi.fn();
 const setSessionMock = vi.fn();
 const hydrateMock = vi.fn();
 const loginRequestMock = vi.fn();
+const loginWithPasskeyMock = vi.fn();
+const startConditionalPasskeyLoginMock = vi.fn();
+const browserSupportsConditionalPasskeyLoginMock = vi.fn();
+const cancelPasskeyCeremonyMock = vi.fn();
 const fetchAdminSsoStatusMock = vi.fn();
 const getAuthErrorMessageMock = vi.fn(() => "Fallback auth error");
 let mockSearchParamsString = "";
@@ -21,6 +25,14 @@ vi.mock("@/lib/api", () => ({
   getAdminSsoLoginPath: vi.fn(() => "/api/auth/admin/sso/login?next=%2Fpatients"),
   getAuthErrorMessage: getAuthErrorMessageMock,
   login: loginRequestMock,
+}));
+
+vi.mock("@/lib/api-passkeys", () => ({
+  browserSupportsConditionalPasskeyLogin: browserSupportsConditionalPasskeyLoginMock,
+  cancelPasskeyCeremony: cancelPasskeyCeremonyMock,
+  loginWithPasskey: loginWithPasskeyMock,
+  isPasskeyCeremonyCancelled: vi.fn(() => false),
+  startConditionalPasskeyLogin: startConditionalPasskeyLoginMock,
 }));
 
 vi.mock("@/store/auth-store", () => ({
@@ -49,16 +61,32 @@ describe("LoginClientPage", () => {
     setSessionMock.mockReset();
     hydrateMock.mockReset();
     loginRequestMock.mockReset();
+    loginWithPasskeyMock.mockReset();
+    startConditionalPasskeyLoginMock.mockReset();
+    browserSupportsConditionalPasskeyLoginMock.mockReset();
+    cancelPasskeyCeremonyMock.mockReset();
     fetchAdminSsoStatusMock.mockReset();
     getAuthErrorMessageMock.mockReset();
     getAuthErrorMessageMock.mockReturnValue("Fallback auth error");
     mockSearchParamsString = "";
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    browserSupportsConditionalPasskeyLoginMock.mockResolvedValue(false);
+    startConditionalPasskeyLoginMock.mockResolvedValue({
+      access_token: "passkey-token",
+      user: {
+        id: "passkey-user",
+        email: "doctor@example.com",
+      },
+    });
     fetchAdminSsoStatusMock.mockResolvedValue({
       enabled: false,
       enforced_for_admin: false,
       provider_name: null,
       login_path: null,
     });
+    authStore.hydrated = true;
+    authStore.token = null;
   });
 
   afterEach(() => {
@@ -191,6 +219,141 @@ describe("LoginClientPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps the Passkey area minimal and leaves password as the fallback", async () => {
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    render(<LoginClientPage />);
+
+    expect(await screen.findByRole("button", { name: "Sign in with Passkey" })).toBeInTheDocument();
+    expect(screen.getByText("Or use password")).toBeInTheDocument();
+    expect(screen.queryByText("Use a Passkey already saved on this device.")).not.toBeInTheDocument();
+  });
+
+  it("uses browser autofill instead of a visible Passkey button when conditional UI is supported", async () => {
+    browserSupportsConditionalPasskeyLoginMock.mockResolvedValueOnce(true);
+    startConditionalPasskeyLoginMock.mockImplementation(() => new Promise(() => {}));
+
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    render(<LoginClientPage />);
+
+    const emailInput = await screen.findByLabelText("Email address");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Sign in with Passkey" })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText("Or use password")).not.toBeInTheDocument();
+    expect(emailInput).toHaveAttribute("autocomplete", "username webauthn");
+    await waitFor(() => {
+      expect(startConditionalPasskeyLoginMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("waits for hydration before starting conditional passkey login", async () => {
+    authStore.hydrated = false;
+    browserSupportsConditionalPasskeyLoginMock.mockResolvedValueOnce(true);
+    startConditionalPasskeyLoginMock.mockImplementation(() => new Promise(() => {}));
+
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    const { rerender } = render(<LoginClientPage />);
+
+    expect(startConditionalPasskeyLoginMock).not.toHaveBeenCalled();
+
+    authStore.hydrated = true;
+    rerender(<LoginClientPage />);
+
+    const emailInput = await screen.findByLabelText("Email address");
+
+    await waitFor(() => {
+      expect(emailInput).toHaveAttribute("autocomplete", "username webauthn");
+    });
+    await waitFor(() => {
+      expect(startConditionalPasskeyLoginMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("silently ignores missing webauthn autofill input errors for conditional passkey login", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    browserSupportsConditionalPasskeyLoginMock.mockResolvedValueOnce(true);
+    startConditionalPasskeyLoginMock.mockRejectedValueOnce(
+      new Error(
+        'No <input> with "webauthn" as the only or last value in its `autocomplete` attribute was detected',
+      ),
+    );
+
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    render(<LoginClientPage />);
+
+    await screen.findByLabelText("Email address");
+
+    await waitFor(() => {
+      expect(startConditionalPasskeyLoginMock).toHaveBeenCalledTimes(1);
+    });
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText("Passkey login failed. Please try again or use password."),
+    ).not.toBeInTheDocument();
+
+    consoleErrorSpy.mockRestore();
+  });
+
+  it("does not flash the Passkey button while conditional UI support is still being detected", async () => {
+    browserSupportsConditionalPasskeyLoginMock.mockImplementationOnce(() => new Promise(() => {}));
+
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    render(<LoginClientPage />);
+
+    expect(screen.queryByRole("button", { name: "Sign in with Passkey" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Or use password")).not.toBeInTheDocument();
+  });
+
+  it("only enables the continue button after email and password are both filled", async () => {
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    render(<LoginClientPage />);
+
+    const continueButton = await screen.findByRole("button", { name: "Continue" });
+    expect(continueButton).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Email address"), {
+      target: { value: "doctor@example.com" },
+    });
+    expect(continueButton).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "Password123!" },
+    });
+    expect(continueButton).toBeEnabled();
+  });
+
+  it("shows a soft passkey guidance message without logging an error for unknown passkeys", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    loginWithPasskeyMock.mockRejectedValueOnce({
+      code: "passkey_not_registered",
+      message: "Passkey not recognized.",
+    });
+
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    render(<LoginClientPage />);
+
+    await screen.findByRole("button", { name: "Sign in with Passkey" });
+    consoleErrorSpy.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with Passkey" }));
+
+    expect(
+      await screen.findByText(
+        "That Passkey can't be used here anymore. Try again or use your password."
+      )
+    ).toBeInTheDocument();
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+    consoleErrorSpy.mockRestore();
+  });
+
   it("shows informational guidance when an admin account is locked", async () => {
     loginRequestMock.mockRejectedValueOnce({
       status: 423,
@@ -250,5 +413,29 @@ describe("LoginClientPage", () => {
     expect(screen.getByRole("link", { name: "Reset your password" })).toHaveAttribute("href", "/forgot-password");
     expect(screen.getByText("Contact an admin for help unlocking this account.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Authenticator or backup code")).not.toBeInTheDocument();
+  });
+
+  it("clears credentials after logout while keeping conditional passkey UI available", async () => {
+    window.sessionStorage.setItem(
+      "telemed.login.reset-credentials-after-logout",
+      String(Date.now()),
+    );
+    browserSupportsConditionalPasskeyLoginMock.mockResolvedValueOnce(true);
+    startConditionalPasskeyLoginMock.mockImplementation(() => new Promise(() => {}));
+
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    render(<LoginClientPage />);
+
+    const emailInput = await screen.findByLabelText("Email address");
+    const passwordInput = screen.getByLabelText("Password");
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Sign in with Passkey" })).not.toBeInTheDocument();
+    });
+    expect(emailInput).toHaveAttribute("autocomplete", "username webauthn");
+    expect(passwordInput).toHaveAttribute("autocomplete", "new-password");
+    expect(emailInput).toHaveValue("");
+    expect(passwordInput).toHaveValue("");
   });
 });

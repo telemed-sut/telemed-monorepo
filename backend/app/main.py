@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 import json
 import logging
 import os
@@ -13,7 +14,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import inspect, text
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api import alerts, audit, auth, dense_mode, meetings, patients, stats, users, pressure, device_monitor, events, heart_sound
+from app.api import alerts, audit, auth, dense_mode, meetings, patients, stats, users, pressure, device_monitor, events, heart_sound, passkeys
 from app.api import patient_app as patient_app_api
 from app.api import security as security_api
 from app.core.config import get_settings
@@ -25,6 +26,12 @@ from app.models.device_error_log import DeviceErrorLog
 from app.schemas.health import HealthCheckResponse, LiveHealthCheckResponse, RootResponse
 from app.services import auth as auth_service
 from app.services import meeting_presence as meeting_presence_service
+from app.services.redis_runtime import (
+    emit_runtime_alert_event,
+    emit_runtime_diagnostics_event,
+    evaluate_runtime_alert,
+    get_runtime_diagnostics,
+)
 from app.services.security import record_login_attempt
 from app.core.request_utils import get_client_ip
 
@@ -34,6 +41,13 @@ try:
 except ImportError:  # pragma: no cover - optional until dependency is installed
     sentry_sdk = None
     FastApiIntegration = None
+
+try:
+    from app.api import passkeys
+    _PASSKEYS_IMPORT_ERROR: ModuleNotFoundError | None = None
+except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific optional dependency
+    passkeys = None
+    _PASSKEYS_IMPORT_ERROR = exc
 
 logger = logging.getLogger(__name__)
 DEVICE_INGEST_PATHS = {"/add_pressure", "/device/v1/pressure", "/device/v1/heart-sounds"}
@@ -214,6 +228,18 @@ def _run_redis_healthcheck(settings) -> str:
     return "ok"
 
 
+@asynccontextmanager
+async def _application_lifespan(app: FastAPI):
+    settings = get_settings()
+    backfill_bootstrap_privileged_roles_on_startup()
+    _log_startup_metadata(settings)
+    meeting_presence_service.start_reconcile_worker()
+    try:
+        yield
+    finally:
+        meeting_presence_service.stop_reconcile_worker()
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging(settings.app_env)
@@ -224,6 +250,7 @@ def create_app() -> FastAPI:
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if docs_enabled else None,
+        lifespan=_application_lifespan,
     )
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
@@ -265,20 +292,6 @@ def create_app() -> FastAPI:
         response.headers["X-Request-Id"] = request_id
         return response
 
-    app.add_event_handler("startup", backfill_bootstrap_privileged_roles_on_startup)
-
-    @app.on_event("startup")
-    def log_application_startup():
-        _log_startup_metadata(settings)
-
-    @app.on_event("startup")
-    def start_meeting_presence_reconcile_worker():
-        meeting_presence_service.start_reconcile_worker()
-
-    @app.on_event("shutdown")
-    def stop_meeting_presence_reconcile_worker():
-        meeting_presence_service.stop_reconcile_worker()
-
     app.include_router(auth.router)
     app.include_router(patients.router)
     app.include_router(meetings.router)
@@ -293,11 +306,24 @@ def create_app() -> FastAPI:
     app.include_router(security_api.router)
     app.include_router(patient_app_api.router)
     app.include_router(events.router)
+    app.include_router(passkeys.router)
 
     @app.get("/health", response_model=HealthCheckResponse)
     @limiter.limit("60/minute", key_func=get_strict_client_ip_rate_limit_key)
     def health_check(request: Request):
-        checks = {"status": "ok", "db": "ok", "redis": "disabled"}
+        checks = {
+            "status": "ok",
+            "db": "ok",
+            "redis": "disabled",
+            "redis_runtime": get_runtime_diagnostics(),
+            "redis_runtime_alert": {
+                "status": "ok",
+                "should_alert": False,
+                "reasons": [],
+                "degraded_scope_threshold": max(int(settings.redis_runtime_degraded_scope_alert_threshold), 1),
+                "operation_failure_threshold": max(int(settings.redis_runtime_operation_failure_alert_threshold), 1),
+            },
+        }
         status_code = 200
 
         try:
@@ -316,6 +342,18 @@ def create_app() -> FastAPI:
             status_code = 503
             logger.exception("Redis health check failed")
 
+        checks["redis_runtime"] = get_runtime_diagnostics()
+        checks["redis_runtime_alert"] = evaluate_runtime_alert(
+            checks["redis_runtime"],
+            degraded_scope_threshold=settings.redis_runtime_degraded_scope_alert_threshold,
+            operation_failure_threshold=settings.redis_runtime_operation_failure_alert_threshold,
+        )
+        emit_runtime_diagnostics_event(logger)
+        emit_runtime_alert_event(
+            logger,
+            diagnostics=checks["redis_runtime"],
+            alert=checks["redis_runtime_alert"],
+        )
         return JSONResponse(status_code=status_code, content=checks)
 
     @app.get("/health/live", response_model=LiveHealthCheckResponse)

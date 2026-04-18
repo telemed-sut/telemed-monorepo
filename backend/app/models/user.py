@@ -70,6 +70,10 @@ class User(Base):
     _two_factor_secret_encrypted = Column("two_factor_secret", Text(), nullable=True)
     two_factor_enabled_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Security: Passkey onboarding
+    passkey_onboarding_dismissed = Column(Boolean, nullable=False, server_default="false", default=False)
+    last_onboarding_prompt_at = Column(DateTime(timezone=True), nullable=True)
+
     @property
     def two_factor_secret(self) -> str | None:
         return decrypt_secret_value(

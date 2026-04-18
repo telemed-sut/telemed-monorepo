@@ -5,10 +5,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 from uuid import UUID
 
-from app.db.session import get_redis_client
+from app.services.redis_runtime import get_redis_client_or_log, log_redis_operation_failure
 
 logger = logging.getLogger(__name__)
 _USER_EVENTS_CHANNEL = "user_events:v1"
+_REDIS_SCOPE = "user_events_pubsub"
+_FALLBACK_LABEL = "in-memory delivery"
 
 
 class UserEventHub:
@@ -56,7 +58,12 @@ class UserEventHub:
                 )
                 delivered_via_redis = True
             except Exception:
-                logger.warning("User events Redis publish failed; falling back to in-memory delivery.", exc_info=True)
+                log_redis_operation_failure(
+                    logger,
+                    scope=_REDIS_SCOPE,
+                    operation="publish",
+                    fallback_label=_FALLBACK_LABEL,
+                )
 
         if delivered_via_redis:
             return
@@ -71,11 +78,11 @@ class UserEventHub:
                 logger.debug("User events queue full; dropping event.")
 
     def _get_redis_client(self):
-        try:
-            return get_redis_client()
-        except Exception:
-            logger.warning("User events could not initialize Redis client; using in-memory delivery.", exc_info=True)
-            return None
+        return get_redis_client_or_log(
+            logger,
+            scope=_REDIS_SCOPE,
+            fallback_label=_FALLBACK_LABEL,
+        )
 
     async def _attach_redis_subscription(self, queue: asyncio.Queue[Dict[str, Any]]) -> bool:
         redis_client = self._get_redis_client()
@@ -86,7 +93,12 @@ class UserEventHub:
             pubsub = redis_client.pubsub(ignore_subscribe_messages=True)
             await asyncio.to_thread(pubsub.subscribe, _USER_EVENTS_CHANNEL)
         except Exception:
-            logger.warning("User events could not subscribe to Redis; using in-memory delivery.", exc_info=True)
+            log_redis_operation_failure(
+                logger,
+                scope=_REDIS_SCOPE,
+                operation="subscribe",
+                fallback_label=_FALLBACK_LABEL,
+            )
             try:
                 await asyncio.to_thread(pubsub.close)  # type: ignore[name-defined]
             except Exception:
@@ -103,7 +115,12 @@ class UserEventHub:
                 try:
                     message = await asyncio.to_thread(pubsub.get_message, timeout=1.0)
                 except Exception:
-                    logger.warning("User events Redis listener failed; subscription will stop.", exc_info=True)
+                    log_redis_operation_failure(
+                        logger,
+                        scope=_REDIS_SCOPE,
+                        operation="listen",
+                        fallback_label=_FALLBACK_LABEL,
+                    )
                     return
 
                 if not message:

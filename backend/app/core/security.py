@@ -144,7 +144,7 @@ def verify_totp_code(
     code: str,
     *,
     at_time: datetime | None = None,
-    window: int = 1,
+    window: int = 2,
 ) -> bool:
     normalized_code = normalize_totp_code(code)
     if not normalized_code or len(normalized_code) != TOTP_DIGITS:

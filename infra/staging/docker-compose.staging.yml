@@ -2,6 +2,7 @@ services:
   backend:
     init: true
     image: ${BACKEND_IMAGE:-ghcr.io/telemed-sut/telemed-backend:latest}
+    pull_policy: always
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -47,6 +48,7 @@ services:
   frontend:
     init: true
     image: ${FRONTEND_IMAGE:-ghcr.io/telemed-sut/telemed-frontend:latest}
+    pull_policy: always
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
@@ -107,6 +109,7 @@ services:
     profiles: ["identity"]
     init: true
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server:latest}
+    pull_policy: always
     restart: unless-stopped
     command: server
     environment:
@@ -134,6 +137,7 @@ services:
     profiles: ["identity"]
     init: true
     image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server:latest}
+    pull_policy: always
     restart: unless-stopped
     command: worker
     environment:

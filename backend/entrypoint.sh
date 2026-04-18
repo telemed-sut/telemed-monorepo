@@ -11,6 +11,45 @@ is_enabled() {
   esac
 }
 
+normalize_database_url() {
+  if [ -z "${DATABASE_URL:-}" ]; then
+    return 0
+  fi
+
+  DATABASE_URL="$(python - <<'PY'
+import os
+from urllib.parse import quote, urlsplit, urlunsplit
+
+database_url = os.environ["DATABASE_URL"].strip()
+if database_url.startswith("postgres://"):
+    database_url = f"postgresql+psycopg://{database_url[len('postgres://'):]}"
+elif database_url.startswith("postgresql://"):
+    database_url = f"postgresql+psycopg://{database_url[len('postgresql://'):]}"
+
+parsed = urlsplit(database_url)
+if (
+    os.path.exists("/.dockerenv")
+    and parsed.scheme in {"postgresql+psycopg", "postgresql", "postgres"}
+    and parsed.hostname in {"localhost", "127.0.0.1"}
+):
+    username = quote(parsed.username or "", safe="")
+    password = quote(parsed.password or "", safe="")
+    auth = username
+    if parsed.password is not None:
+        auth = f"{auth}:{password}" if auth else f":{password}"
+    if auth:
+        auth = f"{auth}@"
+    port = f":{parsed.port}" if parsed.port else ""
+    database_url = urlunsplit(
+        (parsed.scheme, f"{auth}db{port}", parsed.path, parsed.query, parsed.fragment)
+    )
+
+print(database_url, end="")
+PY
+)"
+  export DATABASE_URL
+}
+
 wait_for_database() {
   if [ -z "${DATABASE_URL:-}" ]; then
     echo "DATABASE_URL is not set; cannot wait for database." >&2
@@ -89,6 +128,8 @@ start_api() {
     --proxy-headers \
     --forwarded-allow-ips "$FORWARDED_ALLOW_IPS"
 }
+
+normalize_database_url
 
 echo "⏳ Waiting for database..."
 wait_for_database

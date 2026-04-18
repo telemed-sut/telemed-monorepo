@@ -101,7 +101,8 @@ from app.db.session import engine as app_engine
 from app.main import app
 from app.api import pressure as pressure_api
 from app.services.auth import get_db
-from app.services import admin_sso, admin_sso_store
+from app.services import admin_sso, admin_sso_store, passkey_store
+from app.services import redis_runtime as redis_runtime_service
 
 # Disable rate limiting during tests
 app.state.limiter.enabled = False
@@ -191,9 +192,13 @@ def setup_database():
 def reset_admin_sso_runtime_state():
     admin_sso.reset_runtime_caches()
     admin_sso_store.reset_runtime_state()
+    passkey_store.reset_runtime_state()
+    redis_runtime_service.reset_runtime_diagnostics()
     yield
     admin_sso.reset_runtime_caches()
     admin_sso_store.reset_runtime_state()
+    passkey_store.reset_runtime_state()
+    redis_runtime_service.reset_runtime_diagnostics()
 
 
 @pytest.fixture(scope="function", autouse=True)

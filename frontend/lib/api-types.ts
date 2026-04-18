@@ -54,6 +54,8 @@ export interface UserMe {
   mfa_recent_for_privileged_actions?: boolean;
   auth_source?: string;
   sso_provider?: string | null;
+  passkey_onboarding_dismissed?: boolean;
+  passkey_count?: number;
 }
 
 export interface AccessProfile {

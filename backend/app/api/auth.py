@@ -631,6 +631,8 @@ def get_me(
         mfa_recent_for_privileged_actions=auth_service.is_recent_mfa_authenticated(mfa_authenticated_at),
         auth_source=str(payload.get("auth_source") or "local"),
         sso_provider=payload.get("sso_provider"),
+        passkey_onboarding_dismissed=bool(current_user.passkey_onboarding_dismissed),
+        passkey_count=len(current_user.passkeys) if hasattr(current_user, "passkeys") else 0,
     )
 
 

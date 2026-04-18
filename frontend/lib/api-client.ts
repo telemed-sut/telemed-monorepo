@@ -36,6 +36,13 @@ const TRANSLATED_MESSAGE_RULES: Array<{
   messages: Record<ApiLanguage, string>;
 }> = [
   {
+    pattern: /registration challenge expired|login challenge expired|challenge expired or not found|challenge.*not found/i,
+    messages: {
+      en: "Passkey setup expired. Please try again.",
+      th: "ขั้นตอนตั้งค่า Passkey หมดเวลาแล้ว กรุณาลองใหม่อีกครั้ง",
+    },
+  },
+  {
     pattern: /access denied|permission denied|forbidden|คุณไม่มีสิทธิ์ทำรายการนี้/i,
     messages: {
       en: "Access denied",
@@ -78,7 +85,7 @@ const TRANSLATED_MESSAGE_RULES: Array<{
     },
   },
   {
-    pattern: /user not found|not found|ไม่พบข้อมูลผู้ใช้ที่ต้องการ/i,
+    pattern: /\buser not found\b|ไม่พบข้อมูลผู้ใช้ที่ต้องการ/i,
     messages: {
       en: "Requested record was not found.",
       th: "ไม่พบข้อมูลผู้ใช้ที่ต้องการ",

@@ -20,9 +20,9 @@ from app.core.limiter import get_device_ingest_rate_limit_key, limiter
 from app.models.device_registration import DeviceRegistration
 from app.models.device_error_log import DeviceErrorLog
 from app.models.device_request_nonce import DeviceRequestNonce
-from app.db.session import get_redis_client
 from app.core.request_utils import get_client_ip
 from app.core.secret_crypto import SecretDecryptionError
+from app.services.redis_runtime import get_redis_client_or_log, log_redis_operation_failure
 
 router = APIRouter()
 settings = get_settings()
@@ -33,6 +33,8 @@ GENERIC_AUTH_ERROR = "Invalid signature"
 _SAFE_DEVICE_ERROR_TOKEN_RE = re.compile(r"[^a-z0-9_:-]+")
 _MAX_DEVICE_ERROR_MESSAGE_LENGTH = 256
 _DEVICE_NONCE_REDIS_PREFIX = "device_nonce:v1:"
+_REDIS_SCOPE = "device nonce replay cache"
+_FALLBACK_LABEL = "database nonce table"
 
 
 def sanitize_device_error_message(error_msg: str) -> str:
@@ -156,7 +158,11 @@ def _consume_nonce(db: Session, device_id: str, nonce: str) -> None:
     ttl_seconds = max(int(settings.device_api_nonce_ttl_seconds), 1)
     expires_at = now_utc + timedelta(seconds=ttl_seconds)
 
-    redis_client = get_redis_client()
+    redis_client = get_redis_client_or_log(
+        logger,
+        scope=_REDIS_SCOPE,
+        fallback_label=_FALLBACK_LABEL,
+    )
     if redis_client is not None:
         redis_key = f"{_DEVICE_NONCE_REDIS_PREFIX}{device_id}:{nonce_hash}"
         try:
@@ -167,9 +173,11 @@ def _consume_nonce(db: Session, device_id: str, nonce: str) -> None:
         except ValueError:
             raise
         except Exception:
-            logger.warning(
-                "Device nonce replay protection could not use Redis; falling back to database storage.",
-                exc_info=True,
+            log_redis_operation_failure(
+                logger,
+                scope=_REDIS_SCOPE,
+                operation="consume_nonce",
+                fallback_label=_FALLBACK_LABEL,
             )
 
     # Opportunistic cleanup to keep nonce table bounded without a background scheduler.

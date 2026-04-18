@@ -1,8 +1,9 @@
 import json
+import os
 import re
 from functools import lru_cache
 from typing import Dict, List, Literal, Union
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from pydantic import ValidationError, field_validator, model_validator
 from pydantic_settings import (
@@ -96,11 +97,11 @@ class Settings(BaseSettings):
     super_admin_emails: Union[List[str], str] = ["admin@example.com"]
     admin_unlock_whitelisted_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
     admin_2fa_required: bool = True
-    admin_jwt_expires_in: int = 14400
+    admin_jwt_expires_in: int = 2592000
     admin_2fa_issuer: str = "Telemed Admin"
-    privileged_action_mfa_max_age_seconds: int = 900
+    privileged_action_mfa_max_age_seconds: int = 86400
     trusted_device_cookie_name: str = "trusted_device_token"
-    admin_trusted_device_days: int = 1
+    admin_trusted_device_days: int = 30
     user_trusted_device_days: int = 7
     backup_code_count: int = 10
     backup_code_expires_days: int = 365
@@ -152,6 +153,8 @@ class Settings(BaseSettings):
     # Rate Limiting
     redis_url: str | None = None
     rate_limit_whitelist: Union[List[str], str] = ["127.0.0.1", "::1"]
+    redis_runtime_degraded_scope_alert_threshold: int = 1
+    redis_runtime_operation_failure_alert_threshold: int = 5
     # Video meeting integration
     meeting_video_provider: Literal["disabled", "mock", "zego"] = "disabled"
     zego_app_id: int | None = None
@@ -172,10 +175,42 @@ class Settings(BaseSettings):
 
         value = v.strip()
         if value.startswith("postgres://"):
-            return f"postgresql+psycopg://{value[len('postgres://'):]}"
-        if value.startswith("postgresql://"):
-            return f"postgresql+psycopg://{value[len('postgresql://'):]}"
-        return value
+            value = f"postgresql+psycopg://{value[len('postgres://'):]}"
+        elif value.startswith("postgresql://"):
+            value = f"postgresql+psycopg://{value[len('postgresql://'):]}"
+
+        return cls._rewrite_local_database_host_for_container(value)
+
+    @classmethod
+    def _rewrite_local_database_host_for_container(cls, database_url: str) -> str:
+        if not os.path.exists("/.dockerenv"):
+            return database_url
+
+        parsed = urlsplit(database_url)
+        if parsed.scheme not in {"postgresql+psycopg", "postgresql", "postgres"}:
+            return database_url
+        if parsed.hostname not in {"localhost", "127.0.0.1"}:
+            return database_url
+
+        username = quote(parsed.username or "", safe="")
+        password = quote(parsed.password or "", safe="")
+        auth = username
+        if parsed.password is not None:
+            auth = f"{auth}:{password}" if auth else f":{password}"
+        if auth:
+            auth = f"{auth}@"
+
+        port = f":{parsed.port}" if parsed.port else ""
+        rewritten_netloc = f"{auth}db{port}"
+        return urlunsplit(
+            (
+                parsed.scheme,
+                rewritten_netloc,
+                parsed.path,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
 
     @field_validator(
         "cors_origins",
@@ -296,18 +331,7 @@ class Settings(BaseSettings):
                     raise ValueError("DEVICE_API_SECRETS JSON must be an object")
                 raw_map = {str(k): str(val) for k, val in parsed.items()}
             except json.JSONDecodeError:
-                # Backward-friendly format: "deviceA=secretA,deviceB=secretB"
-                raw_map = {}
-                for pair in value.split(","):
-                    item = pair.strip()
-                    if not item:
-                        continue
-                    device_id, sep, secret = item.partition("=")
-                    if not sep:
-                        raise ValueError(
-                            "DEVICE_API_SECRETS must be JSON object or comma-separated 'device=secret' pairs."
-                        )
-                    raw_map[device_id.strip()] = secret.strip()
+                raw_map = cls._parse_legacy_device_api_secrets(value)
         else:
             raise ValueError("DEVICE_API_SECRETS must be a mapping or string.")
 
@@ -324,6 +348,33 @@ class Settings(BaseSettings):
                 raise ValueError(f"DEVICE_API_SECRETS[{device_id}] must not be empty.")
             normalized[device_id] = secret
         return normalized
+
+    @classmethod
+    def _parse_legacy_device_api_secrets(cls, value: str) -> Dict[str, str]:
+        normalized_value = value.strip()
+        if normalized_value.startswith("{") and normalized_value.endswith("}"):
+            normalized_value = normalized_value[1:-1].strip()
+
+        raw_map: Dict[str, str] = {}
+        for pair in normalized_value.split(","):
+            item = pair.strip()
+            if not item:
+                continue
+
+            if "=" in item:
+                device_id, secret = item.split("=", 1)
+            elif ":" in item:
+                device_id, secret = item.split(":", 1)
+            else:
+                raise ValueError(
+                    "DEVICE_API_SECRETS must be JSON object or comma-separated 'device=secret' pairs."
+                )
+
+            normalized_device_id = device_id.strip().strip("\"'")
+            normalized_secret = secret.strip().strip("\"'")
+            raw_map[normalized_device_id] = normalized_secret
+
+        return raw_map
 
     @field_validator("device_api_nonce_ttl_seconds")
     @classmethod
@@ -407,7 +458,38 @@ class Settings(BaseSettings):
         if v is None:
             return None
         value = v.strip()
-        return value or None
+        if not value:
+            return None
+        if not os.path.exists("/.dockerenv"):
+            return value
+
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"redis", "rediss"}:
+            return value
+        if parsed.hostname not in {"localhost", "127.0.0.1"}:
+            return value
+
+        password = parsed.password
+        if password is None:
+            password = os.environ.get("REDIS_PASSWORD", "telemed-dev-redis-password")
+
+        username = quote(parsed.username or "", safe="")
+        quoted_password = quote(password or "", safe="")
+        auth = username
+        if password is not None:
+            auth = f"{auth}:{quoted_password}" if auth else f":{quoted_password}"
+        if auth:
+            auth = f"{auth}@"
+        port = f":{parsed.port}" if parsed.port else ""
+        return urlunsplit(
+            (
+                parsed.scheme,
+                f"{auth}redis{port}",
+                parsed.path,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
 
     @field_validator(
         "admin_oidc_issuer_url",

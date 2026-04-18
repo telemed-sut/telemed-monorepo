@@ -1,56 +1,84 @@
-import redis
+import logging
 import time
 import uuid
 from contextlib import contextmanager
-from typing import Generator
+from typing import Any, Generator
+
 from app.core.config import get_settings
+from app.db.session import get_redis_client as get_shared_redis_client
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
+_warned_missing_proxy_scopes: set[str] = set()
 
-# Use the same connection pool logic as in session.py to avoid multiple pools
-# But provide a clean singleton for the application
-_redis_client: redis.Redis | None = None
 
-def get_redis_client() -> redis.Redis:
-    global _redis_client
-    if _redis_client is not None:
-        return _redis_client
-    
-    redis_url = settings.redis_url or "redis://localhost:6379"
-    _redis_client = redis.from_url(
-        redis_url,
-        encoding="utf-8",
-        decode_responses=True
+class RedisClientProxy:
+    """Lazy proxy that preserves the historical module-level redis_client API."""
+
+    def __getattr__(self, name: str) -> Any:
+        client = get_shared_redis_client()
+        if client is None:
+            raise RuntimeError("Redis client is not configured.")
+        return getattr(client, name)
+
+
+redis_client = RedisClientProxy()
+
+
+def _warn_missing_client(scope: str) -> None:
+    if scope in _warned_missing_proxy_scopes:
+        return
+    logger.warning(
+        "%s is unavailable because Redis is not configured.",
+        scope,
+        extra={
+            "event": "redis_client_unconfigured",
+            "redis_scope": scope,
+        },
     )
-    return _redis_client
+    _warned_missing_proxy_scopes.add(scope)
 
-# Shortcut for common operations
-redis_client = get_redis_client()
 
-def check_redis_connection():
+def get_redis_client():
+    return get_shared_redis_client()
+
+
+def check_redis_connection() -> bool:
     """Simple health check for Redis connection."""
+    client = get_shared_redis_client()
+    if client is None:
+        return False
     try:
-        return redis_client.ping()
+        return bool(client.ping())
     except Exception:
         return False
+
+
+def _should_fail_open_for_lock() -> bool:
+    return settings.app_env in {"development", "test"}
+
 
 @contextmanager
 def distributed_lock(
     lock_name: str,
     expire_seconds: int = 10,
     timeout_seconds: int = 5,
-    retry_interval: float = 0.1
+    retry_interval: float = 0.1,
 ) -> Generator[bool, None, None]:
     """
-    A simple distributed lock implementation using Redis SET NX.
-    
-    Args:
-        lock_name: Unique name for the lock.
-        expire_seconds: Time after which the lock automatically expires.
-        timeout_seconds: How long to wait to acquire the lock before giving up.
-        retry_interval: Interval between retry attempts.
+    Acquire a Redis-backed distributed lock when available.
+
+    In development/test environments without Redis, this becomes a permissive
+    no-op lock so local workflows and isolated tests can still proceed.
     """
-    client = get_redis_client()
+    client = get_shared_redis_client()
+    if client is None:
+        if settings.app_env in {"development", "test"}:
+            _warn_missing_client("distributed lock")
+            yield True
+            return
+        raise RuntimeError("Distributed lock requires Redis in non-development environments.")
+
     lock_key = f"lock:{lock_name}"
     lock_value = str(uuid.uuid4())
     start_time = time.time()
@@ -58,16 +86,21 @@ def distributed_lock(
 
     try:
         while time.time() - start_time < timeout_seconds:
-            if client.set(lock_key, lock_value, ex=expire_seconds, nx=True):
-                acquired = True
-                break
+            try:
+                if client.set(lock_key, lock_value, ex=expire_seconds, nx=True):
+                    acquired = True
+                    break
+            except Exception:
+                if _should_fail_open_for_lock():
+                    _warn_missing_client("distributed lock")
+                    yield True
+                    return
+                raise
             time.sleep(retry_interval)
-        
+
         yield acquired
     finally:
         if acquired:
-            # Only delete if we are the owner (value matches)
-            # Use Lua script for atomic check-and-delete
             script = """
             if redis.call("get", KEYS[1]) == ARGV[1] then
                 return redis.call("del", KEYS[1])
@@ -75,4 +108,14 @@ def distributed_lock(
                 return 0
             end
             """
-            client.eval(script, 1, lock_key, lock_value)
+            try:
+                client.eval(script, 1, lock_key, lock_value)
+            except Exception:
+                if _should_fail_open_for_lock():
+                    logger.warning(
+                        "Distributed lock release failed in %s; continuing.",
+                        settings.app_env,
+                        exc_info=True,
+                    )
+                else:
+                    raise

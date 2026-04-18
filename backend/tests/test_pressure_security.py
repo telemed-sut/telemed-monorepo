@@ -305,7 +305,7 @@ def test_add_pressure_uses_redis_for_nonce_replay_protection(client: TestClient,
             return True
 
     fake_redis = FakeRedisClient()
-    monkeypatch.setattr(pressure_api, "get_redis_client", lambda: fake_redis)
+    monkeypatch.setattr(pressure_api, "get_redis_client_or_log", lambda *args, **kwargs: fake_redis)
 
     original_require_nonce = pressure_api.settings.device_api_require_nonce
     pressure_api.settings.device_api_require_nonce = True
@@ -347,7 +347,7 @@ def test_add_pressure_falls_back_to_db_nonce_storage_when_redis_unavailable(clie
         def set(self, *args, **kwargs):
             raise RuntimeError("redis unavailable")
 
-    monkeypatch.setattr(pressure_api, "get_redis_client", lambda: BrokenRedisClient())
+    monkeypatch.setattr(pressure_api, "get_redis_client_or_log", lambda *args, **kwargs: BrokenRedisClient())
 
     original_require_nonce = pressure_api.settings.device_api_require_nonce
     pressure_api.settings.device_api_require_nonce = True

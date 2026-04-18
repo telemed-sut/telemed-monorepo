@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 
 import { OverviewStatsProvider } from "@/components/dashboard/overview-stats-context";
 import { FinancialFlowChart } from "./financial-flow-chart";
+import { PasskeyOnboardingNudge } from "./passkey-onboarding-nudge";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
@@ -124,6 +125,7 @@ export function OverviewContent() {
     <OverviewStatsProvider>
       <main className="flex-1 space-y-5 overflow-auto px-3 py-3 sm:px-4 sm:py-4">
         {showAlertBanner && <AlertBanner />}
+        <PasskeyOnboardingNudge />
         {showStatsCards && <StatsCards />}
         {showChart && <FinancialFlowChart />}
         {showTable && <OverviewPrivacyCard />}

@@ -15,7 +15,8 @@ from app.models.patient import Patient
 from app.models.user import User
 from app.schemas.stats import StatsOverviewResponse
 from app.services import auth as auth_service
-from app.core.redis_client import redis_client
+from app.services import meeting as meeting_service
+from app.services.redis_cache import get_dashboard_stats_cache_key
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ _OVERVIEW_STATS_CACHE_TTL_SECONDS = 300  # 5 minutes
 
 
 def _overview_stats_cache_key(*, user_id: str, role: str, year: int) -> str:
-    return f"stats:overview:v2:{role}:{user_id}:{year}"
+    return get_dashboard_stats_cache_key(role=role, user_id=user_id, year=year)
 
 
 
@@ -55,14 +56,16 @@ def get_overview_stats(
         role=current_user.role.value,
         year=resolved_year,
     )
+    redis_client = get_redis_client()
 
     # 1. Try to serve from cache
-    try:
-        cached_payload = redis_client.get(cache_key)
-        if cached_payload:
-            return json.loads(cached_payload)
-    except Exception:
-        logger.warning("Failed to read overview stats cache for user %s", current_user.id, exc_info=True)
+    if redis_client is not None:
+        try:
+            cached_payload = redis_client.get(cache_key)
+            if cached_payload:
+                return json.loads(cached_payload)
+        except Exception:
+            logger.warning("Failed to read overview stats cache for user %s", current_user.id, exc_info=True)
 
     month_labels = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -228,13 +231,14 @@ def get_overview_stats(
     }
 
     # 4. Save to cache
-    try:
-        redis_client.setex(
-            cache_key,
-            _OVERVIEW_STATS_CACHE_TTL_SECONDS,
-            json.dumps(payload),
-        )
-    except Exception:
-        logger.warning("Failed to write overview stats cache for user %s", current_user.id, exc_info=True)
+    if redis_client is not None:
+        try:
+            redis_client.setex(
+                cache_key,
+                _OVERVIEW_STATS_CACHE_TTL_SECONDS,
+                json.dumps(payload),
+            )
+        except Exception:
+            logger.warning("Failed to write overview stats cache for user %s", current_user.id, exc_info=True)
 
     return payload

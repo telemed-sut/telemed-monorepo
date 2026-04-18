@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlparse
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -39,6 +40,19 @@ def test_admin_sso_status_disabled_by_default(client: TestClient):
         "login_path": None,
         "logout_path": None,
     }
+
+
+def test_admin_sso_store_requires_redis_backed_state_outside_dev(monkeypatch):
+    monkeypatch.setattr(admin_sso_store, "_allows_local_fallback", lambda: False)
+    monkeypatch.setattr(admin_sso_store, "get_redis_client", lambda: None)
+
+    with pytest.raises(RuntimeError, match="admin SSO artifact store requires Redis-backed shared runtime state"):
+        admin_sso_store.store_login_artifact(
+            state_token="prod-like-state",
+            nonce="nonce",
+            code_verifier="code-verifier",
+            next_path="/patients",
+        )
 
 
 def test_admin_sso_health_reports_disabled_by_default(client: TestClient, monkeypatch):

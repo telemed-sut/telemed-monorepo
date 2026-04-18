@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 from sqlalchemy import create_engine
@@ -25,6 +26,8 @@ def _require_sslmode_for_remote_database_url(database_url: str) -> None:
     url = make_url(database_url)
     host = (url.host or "").strip().lower()
     if host in {"", "localhost", "127.0.0.1", "::1"}:
+        return
+    if os.path.exists("/.dockerenv") and host in {"db", "patient-db"}:
         return
 
     sslmode = url.query.get("sslmode")

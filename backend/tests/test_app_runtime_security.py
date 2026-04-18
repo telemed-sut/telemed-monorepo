@@ -64,7 +64,9 @@ def test_create_app_enforces_allowed_hosts(monkeypatch):
         get_settings.cache_clear()
 
 
-def test_create_app_sets_content_security_policy_header():
+def test_create_app_sets_content_security_policy_header(monkeypatch):
+    monkeypatch.setattr(app_main, "_run_database_healthcheck", lambda: "ok")
+    monkeypatch.setattr(app_main, "_run_redis_healthcheck", lambda settings: "disabled")
     app = create_app()
 
     with TestClient(app) as client:

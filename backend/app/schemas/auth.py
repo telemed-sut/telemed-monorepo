@@ -32,6 +32,8 @@ class UserMeResponse(BaseModel):
     mfa_recent_for_privileged_actions: bool = False
     auth_source: str = "local"
     sso_provider: str | None = None
+    passkey_onboarding_dismissed: bool = False
+    passkey_count: int = 0
 
 
 class AccessProfileResponse(BaseModel):

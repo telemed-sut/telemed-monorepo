@@ -6,12 +6,14 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import QRCode from "qrcode";
 
+import { SensitiveActionReauthDialog } from "@/components/dashboard/sensitive-action-reauth-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,6 +66,13 @@ import {
   type TrustedDevice,
   type UserMe,
 } from "@/lib/api";
+import {
+  listPasskeys,
+  deletePasskey,
+  registerNewPasskey,
+  isPasskeyCeremonyCancelled,
+  type PasskeyOut,
+} from "@/lib/api-passkeys";
 import { useSessionLogout } from "@/hooks/use-session-logout";
 import { toast } from "@/components/ui/toast";
 import { useAuthStore } from "@/store/auth-store";
@@ -85,10 +94,46 @@ import {
 import {
   formatCompactDuration,
 } from "@/lib/secure-session";
+import { isRecentSensitiveSessionError } from "@/lib/sensitive-session";
 import { DASHBOARD_HOME_HREF } from "@/components/dashboard/dashboard-route-utils";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
+
+const SETTINGS_VALIDATION_TOAST_IDS = {
+  verify2FA: "settings-verify-2fa-required",
+  verify2FAInvalid: "settings-verify-2fa-invalid",
+  reset2FA: "settings-reset-2fa-required",
+  disable2FA: "settings-disable-2fa-required",
+  resolveUser: "settings-resolve-user-required",
+  emergencyReason: "settings-emergency-reason-required",
+  adminInviteEmail: "settings-admin-invite-email-required",
+  adminInviteReason: "settings-admin-invite-reason-required",
+} as const;
+
+function isInvalidTwoFactorCodeError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const record = error as {
+    detail?: unknown;
+    message?: unknown;
+  };
+  if (
+    record.detail &&
+    typeof record.detail === "object" &&
+    "code" in record.detail &&
+    (record.detail as { code?: unknown }).code === "invalid_two_factor_code"
+  ) {
+    return true;
+  }
+
+  return (
+    typeof record.message === "string" &&
+    /invalid two-factor authentication code/i.test(record.message)
+  );
+}
 
 function extractSetupKey(uri: string | null | undefined): string | null {
   if (!uri) return null;
@@ -159,6 +204,11 @@ function isSettingsPanelId(value: string | null): value is SettingsPanelId {
 interface SettingsContentProps {
   presentation?: "page" | "modal";
   onRequestClose?: () => void;
+}
+
+interface SensitiveReauthRequest {
+  actionLabel: string;
+  run: () => Promise<void>;
 }
 
 interface SettingsPanelNavButtonProps {
@@ -327,6 +377,9 @@ export function SettingsContent({
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [trustedDevices, setTrustedDevices] = useState<TrustedDevice[]>([]);
   const [trustedLoading, setTrustedLoading] = useState(false);
+  const [passkeys, setPasskeys] = useState<PasskeyOut[]>([]);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
   const [emergencyBusy, setEmergencyBusy] = useState(false);
   const [targetEmail, setTargetEmail] = useState("");
   const [resolvedUser, setResolvedUser] =
@@ -357,6 +410,10 @@ export function SettingsContent({
   const [adminSectionOpen, setAdminSectionOpen] = useState<
     "onboarding" | "emergency" | null
   >(null);
+  const activeValidationToastIdsRef = useRef(new Set<string>());
+  const pendingSensitiveReauthRef = useRef<SensitiveReauthRequest | null>(null);
+  const [sensitiveReauthRequest, setSensitiveReauthRequest] =
+    useState<SensitiveReauthRequest | null>(null);
 
   const isAdmin = role === "admin";
   const isModalPresentation = presentation === "modal";
@@ -512,11 +569,34 @@ export function SettingsContent({
     }
   }, [token, language]);
 
+  const loadPasskeys = useCallback(async () => {
+    if (!token) return;
+    setPasskeyLoading(true);
+    try {
+      const response = await listPasskeys();
+      setPasskeys(response.items);
+    } catch (error: unknown) {
+      toast.error(
+        getErrorMessage(
+          error,
+          tr(
+            language,
+            "Something went wrong. Please try again.",
+            "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง",
+          ),
+        ),
+      );
+    } finally {
+      setPasskeyLoading(false);
+    }
+  }, [token, language]);
+
   useEffect(() => {
     if (!hydrated || !token) return;
     void load2FAStatus();
     void loadTrustedDevices();
-  }, [hydrated, token, load2FAStatus, loadTrustedDevices]);
+    void loadPasskeys();
+  }, [hydrated, token, load2FAStatus, loadTrustedDevices, loadPasskeys]);
 
   useEffect(() => {
     let cancelled = false;
@@ -572,6 +652,67 @@ export function SettingsContent({
       lastName !== (currentUser.last_name || "")
     );
   }, [currentUser, firstName, lastName]);
+
+  const hasVerifyCode = verifyCode.trim().length > 0;
+  const hasResetCode = resetCode.trim().length > 0;
+  const hasDisableCode = disableCode.trim().length > 0;
+  const normalizedTargetEmail = targetEmail.trim().toLowerCase();
+  const hasTargetEmail = normalizedTargetEmail.length > 0;
+  const hasEmergencyReason = emergencyReason.trim().length >= 8;
+  const normalizedAdminInviteEmail = newAdminEmail.trim().toLowerCase();
+  const hasAdminInviteEmail = normalizedAdminInviteEmail.length > 0;
+  const hasAdminInviteReason = adminInviteReason.trim().length >= 8;
+
+  const dismissValidationToast = useCallback((id: string) => {
+    activeValidationToastIdsRef.current.delete(id);
+    toast.dismiss(id);
+  }, []);
+
+  const showValidationToastOnce = useCallback(
+    (id: string, title: string) => {
+      if (activeValidationToastIdsRef.current.has(id)) {
+        return;
+      }
+
+      activeValidationToastIdsRef.current.add(id);
+      toast.error(title, {
+        id,
+        onDismiss: () => {
+          activeValidationToastIdsRef.current.delete(id);
+        },
+        onAutoClose: () => {
+          activeValidationToastIdsRef.current.delete(id);
+        },
+      });
+    },
+    [],
+  );
+
+  const requestSensitiveReauth = useCallback(
+    (request: SensitiveReauthRequest) => {
+      pendingSensitiveReauthRef.current = request;
+      setSensitiveReauthRequest((current) => current ?? request);
+    },
+    [],
+  );
+
+  const closeSensitiveReauth = useCallback((open: boolean) => {
+    if (open) return;
+    pendingSensitiveReauthRef.current = null;
+    setSensitiveReauthRequest(null);
+  }, []);
+
+  const handleSensitiveActionError = useCallback(
+    (error: unknown, request: SensitiveReauthRequest): boolean => {
+      if (!isRecentSensitiveSessionError(error)) {
+        return false;
+      }
+
+      requestSensitiveReauth(request);
+      return true;
+    },
+    [requestSensitiveReauth],
+  );
 
   const hasPrivilegedAccess = accessProfile?.has_privileged_access ?? false;
   const privilegedAccessCodename = accessProfile?.access_class ?? null;
@@ -771,9 +912,12 @@ export function SettingsContent({
   );
 
   const handleVerify2FA = async () => {
-    if (!token) return;
-    if (!verifyCode.trim()) {
-      toast.error(tr(language, "Please enter 2FA code", "กรุณากรอกรหัส 2FA"));
+    if (!token || twoFABusy) return;
+    if (!hasVerifyCode) {
+      showValidationToastOnce(
+        SETTINGS_VALIDATION_TOAST_IDS.verify2FA,
+        tr(language, "Please enter 2FA code", "กรุณากรอกรหัส 2FA"),
+      );
       return;
     }
 
@@ -786,6 +930,21 @@ export function SettingsContent({
       setVerifyCode("");
       await load2FAStatus();
     } catch (error: unknown) {
+      if (isInvalidTwoFactorCodeError(error)) {
+        showValidationToastOnce(
+          SETTINGS_VALIDATION_TOAST_IDS.verify2FAInvalid,
+          getErrorMessage(
+            error,
+            tr(
+              language,
+              "Authenticator code or backup code is incorrect.",
+              "รหัส 2FA หรือ Backup Code ไม่ถูกต้อง",
+            ),
+          ),
+        );
+        return;
+      }
+
       toast.error(
         getErrorMessage(
           error,
@@ -802,9 +961,10 @@ export function SettingsContent({
   };
 
   const handleReset2FA = async () => {
-    if (!token) return;
-    if (twoFA?.enabled && !resetCode.trim()) {
-      toast.error(
+    if (!token || twoFABusy || Boolean(sensitiveReauthRequest)) return;
+    if (twoFA?.enabled && !hasResetCode) {
+      showValidationToastOnce(
+        SETTINGS_VALIDATION_TOAST_IDS.reset2FA,
         tr(
           language,
           "Please enter current 2FA code",
@@ -837,6 +997,15 @@ export function SettingsContent({
         ),
       );
     } catch (error: unknown) {
+      if (
+        handleSensitiveActionError(error, {
+          actionLabel: tr(language, "Reset 2FA", "รีเซ็ต 2FA"),
+          run: handleReset2FA,
+        })
+      ) {
+        return;
+      }
+
       toast.error(
         getErrorMessage(
           error,
@@ -853,9 +1022,10 @@ export function SettingsContent({
   };
 
   const handleDisable2FA = async () => {
-    if (!token) return;
-    if (!disableCode.trim()) {
-      toast.error(
+    if (!token || twoFABusy || Boolean(sensitiveReauthRequest)) return;
+    if (!hasDisableCode) {
+      showValidationToastOnce(
+        SETTINGS_VALIDATION_TOAST_IDS.disable2FA,
         tr(
           language,
           "Please enter current 2FA code to disable",
@@ -874,6 +1044,15 @@ export function SettingsContent({
       await loadTrustedDevices();
       toast.success(tr(language, "2FA disabled", "ปิด 2FA เรียบร้อย"));
     } catch (error: unknown) {
+      if (
+        handleSensitiveActionError(error, {
+          actionLabel: tr(language, "Disable 2FA", "ปิดใช้งาน 2FA"),
+          run: handleDisable2FA,
+        })
+      ) {
+        return;
+      }
+
       toast.error(
         getErrorMessage(
           error,
@@ -889,8 +1068,59 @@ export function SettingsContent({
     }
   };
 
+  const handleRegisterPasskey = async () => {
+    if (!token || passkeyBusy) return;
+    setPasskeyBusy(true);
+    try {
+      const name = tr(language, "My Device", "อุปกรณ์ของฉัน") + " (" + new Date().toLocaleDateString() + ")";
+      await registerNewPasskey(name);
+      toast.success(tr(language, "Passkey registered successfully", "ลงทะเบียน Passkey สำเร็จแล้ว"));
+      await loadPasskeys();
+    } catch (error: unknown) {
+      if (isPasskeyCeremonyCancelled(error)) {
+        return;
+      }
+      console.error("Passkey registration error:", error);
+      toast.error(
+        getErrorMessage(
+          error,
+          tr(
+            language,
+            "Failed to register Passkey",
+            "ไม่สามารถลงทะเบียน Passkey ได้",
+          ),
+        ),
+      );
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
+
+  const handleDeletePasskey = async (passkeyId: string) => {
+    if (!token || passkeyBusy) return;
+    setPasskeyBusy(true);
+    try {
+      await deletePasskey(passkeyId);
+      toast.success(tr(language, "Passkey deleted", "ลบ Passkey เรียบร้อยแล้ว"));
+      await loadPasskeys();
+    } catch (error: unknown) {
+      toast.error(
+        getErrorMessage(
+          error,
+          tr(
+            language,
+            "Failed to delete Passkey",
+            "ไม่สามารถลบ Passkey ได้",
+          ),
+        ),
+      );
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
+
   const handleRegenerateBackupCodes = async () => {
-    if (!token) return;
+    if (!token || twoFABusy || Boolean(sensitiveReauthRequest)) return;
     setTwoFABusy(true);
     try {
       const response = await regenerateBackupCodes(token);
@@ -903,6 +1133,15 @@ export function SettingsContent({
         ),
       );
     } catch (error: unknown) {
+      if (
+        handleSensitiveActionError(error, {
+          actionLabel: tr(language, "Generate / Regenerate", "สร้าง / สร้างใหม่"),
+          run: handleRegenerateBackupCodes,
+        })
+      ) {
+        return;
+      }
+
       toast.error(
         getErrorMessage(
           error,
@@ -953,7 +1192,7 @@ export function SettingsContent({
   };
 
   const handleRevokeTrustedDevice = async (deviceId: string) => {
-    if (!token) return;
+    if (!token || twoFABusy || Boolean(sensitiveReauthRequest)) return;
     setTwoFABusy(true);
     try {
       await revokeTrustedDevice(deviceId, token);
@@ -962,6 +1201,15 @@ export function SettingsContent({
         tr(language, "Trusted device revoked", "ยกเลิกอุปกรณ์ที่เชื่อถือแล้ว"),
       );
     } catch (error: unknown) {
+      if (
+        handleSensitiveActionError(error, {
+          actionLabel: tr(language, "Revoke", "เพิกถอน"),
+          run: async () => handleRevokeTrustedDevice(deviceId),
+        })
+      ) {
+        return;
+      }
+
       toast.error(
         getErrorMessage(
           error,
@@ -978,7 +1226,7 @@ export function SettingsContent({
   };
 
   const handleRevokeAllTrustedDevices = async () => {
-    if (!token) return;
+    if (!token || twoFABusy || Boolean(sensitiveReauthRequest)) return;
     setTwoFABusy(true);
     try {
       await revokeAllTrustedDevices(token);
@@ -987,6 +1235,15 @@ export function SettingsContent({
         tr(language, "All trusted devices revoked", "ยกเลิกอุปกรณ์ทั้งหมดแล้ว"),
       );
     } catch (error: unknown) {
+      if (
+        handleSensitiveActionError(error, {
+          actionLabel: tr(language, "Revoke All", "เพิกถอนทั้งหมด"),
+          run: handleRevokeAllTrustedDevices,
+        })
+      ) {
+        return;
+      }
+
       toast.error(
         getErrorMessage(
           error,
@@ -1003,10 +1260,10 @@ export function SettingsContent({
   };
 
   const resolveEmergencyTarget = async () => {
-    if (!token) return;
-    const normalizedEmail = targetEmail.trim().toLowerCase();
-    if (!normalizedEmail) {
-      toast.error(
+    if (!token || emergencyBusy) return;
+    if (!hasTargetEmail) {
+      showValidationToastOnce(
+        SETTINGS_VALIDATION_TOAST_IDS.resolveUser,
         tr(language, "Please enter user email", "กรุณากรอกอีเมลผู้ใช้งาน"),
       );
       return;
@@ -1014,7 +1271,7 @@ export function SettingsContent({
 
     setEmergencyBusy(true);
     try {
-      const user = await resolveSecurityUserByEmail(normalizedEmail, token);
+      const user = await resolveSecurityUserByEmail(normalizedTargetEmail, token);
       setResolvedUser(user);
       toast.success(tr(language, "User found", "พบผู้ใช้แล้ว"));
     } catch (error: unknown) {
@@ -1035,16 +1292,17 @@ export function SettingsContent({
   };
 
   const handleEmergencyUnlock = async () => {
-    if (!token) return;
-    const normalizedEmail = targetEmail.trim().toLowerCase();
-    if (!normalizedEmail) {
-      toast.error(
+    if (!token || emergencyBusy || Boolean(sensitiveReauthRequest)) return;
+    if (!hasTargetEmail) {
+      showValidationToastOnce(
+        SETTINGS_VALIDATION_TOAST_IDS.resolveUser,
         tr(language, "Please enter user email", "กรุณากรอกอีเมลผู้ใช้งาน"),
       );
       return;
     }
-    if (emergencyReason.trim().length < 8) {
-      toast.error(
+    if (!hasEmergencyReason) {
+      showValidationToastOnce(
+        SETTINGS_VALIDATION_TOAST_IDS.emergencyReason,
         tr(
           language,
           "Please enter reason with at least 8 characters",
@@ -1057,12 +1315,21 @@ export function SettingsContent({
     setEmergencyBusy(true);
     try {
       await adminEmergencyUnlock(
-        { email: normalizedEmail, reason: emergencyReason.trim() },
+        { email: normalizedTargetEmail, reason: emergencyReason.trim() },
         token,
       );
       toast.success(tr(language, "Account unlocked", "ปลดล็อกบัญชีเรียบร้อย"));
       await resolveEmergencyTarget();
     } catch (error: unknown) {
+      if (
+        handleSensitiveActionError(error, {
+          actionLabel: tr(language, "Unlock account", "ปลดล็อกบัญชี"),
+          run: handleEmergencyUnlock,
+        })
+      ) {
+        return;
+      }
+
       toast.error(
         getErrorMessage(
           error,
@@ -1079,9 +1346,17 @@ export function SettingsContent({
   };
 
   const handleEmergencyReset2FA = async () => {
-    if (!token || !resolvedUser) return;
-    if (emergencyReason.trim().length < 8) {
-      toast.error(
+    if (
+      !token ||
+      !resolvedUser ||
+      emergencyBusy ||
+      Boolean(sensitiveReauthRequest)
+    ) {
+      return;
+    }
+    if (!hasEmergencyReason) {
+      showValidationToastOnce(
+        SETTINGS_VALIDATION_TOAST_IDS.emergencyReason,
         tr(
           language,
           "Please enter reason with at least 8 characters",
@@ -1103,6 +1378,15 @@ export function SettingsContent({
       );
       await resolveEmergencyTarget();
     } catch (error: unknown) {
+      if (
+        handleSensitiveActionError(error, {
+          actionLabel: tr(language, "Reset 2FA", "รีเซ็ต 2FA"),
+          run: handleEmergencyReset2FA,
+        })
+      ) {
+        return;
+      }
+
       toast.error(
         getErrorMessage(
           error,
@@ -1119,9 +1403,17 @@ export function SettingsContent({
   };
 
   const handleEmergencyResetPassword = async () => {
-    if (!token || !resolvedUser) return;
-    if (emergencyReason.trim().length < 8) {
-      toast.error(
+    if (
+      !token ||
+      !resolvedUser ||
+      emergencyBusy ||
+      Boolean(sensitiveReauthRequest)
+    ) {
+      return;
+    }
+    if (!hasEmergencyReason) {
+      showValidationToastOnce(
+        SETTINGS_VALIDATION_TOAST_IDS.emergencyReason,
         tr(
           language,
           "Please enter reason with at least 8 characters",
@@ -1149,6 +1441,15 @@ export function SettingsContent({
       );
       await resolveEmergencyTarget();
     } catch (error: unknown) {
+      if (
+        handleSensitiveActionError(error, {
+          actionLabel: tr(language, "Reset password", "รีเซ็ตรหัสผ่าน"),
+          run: handleEmergencyResetPassword,
+        })
+      ) {
+        return;
+      }
+
       toast.error(
         getErrorMessage(
           error,
@@ -1189,18 +1490,27 @@ export function SettingsContent({
   };
 
   const handleCreateAdminOnboarding = async () => {
-    if (!token || !canManagePrivilegedAdmins) return;
+    if (
+      !token ||
+      !canManagePrivilegedAdmins ||
+      onboardingBusy ||
+      Boolean(sensitiveReauthRequest)
+    ) {
+      return;
+    }
 
-    const email = newAdminEmail.trim().toLowerCase();
+    const email = normalizedAdminInviteEmail;
     const reason = adminInviteReason.trim();
-    if (!email) {
-      toast.error(
+    if (!hasAdminInviteEmail) {
+      showValidationToastOnce(
+        SETTINGS_VALIDATION_TOAST_IDS.adminInviteEmail,
         tr(language, "Please enter admin email", "กรุณากรอกอีเมลแอดมิน"),
       );
       return;
     }
-    if (reason.length < 8) {
-      toast.error(
+    if (!hasAdminInviteReason) {
+      showValidationToastOnce(
+        SETTINGS_VALIDATION_TOAST_IDS.adminInviteReason,
         tr(
           language,
           "Please enter reason with at least 8 characters",
@@ -1224,6 +1534,19 @@ export function SettingsContent({
         tr(language, "Admin invite generated", "สร้างลิงก์คำเชิญแอดมินแล้ว"),
       );
     } catch (error: unknown) {
+      if (
+        handleSensitiveActionError(error, {
+          actionLabel: tr(
+            language,
+            "Generate admin invite",
+            "สร้างลิงก์คำเชิญแอดมิน",
+          ),
+          run: handleCreateAdminOnboarding,
+        })
+      ) {
+        return;
+      }
+
       setCreatedAdminInviteEmail("");
       setCreatedAdminInviteUrl("");
       setCreatedAdminInviteExpiresAt(null);
@@ -2589,9 +2912,15 @@ export function SettingsContent({
                                         "123456",
                                       )}
                                       value={verifyCode}
-                                      onChange={(event) =>
-                                        setVerifyCode(event.target.value)
-                                      }
+                                      onChange={(event) => {
+                                        setVerifyCode(event.target.value);
+                                        dismissValidationToast(
+                                          SETTINGS_VALIDATION_TOAST_IDS.verify2FA,
+                                        );
+                                        dismissValidationToast(
+                                          SETTINGS_VALIDATION_TOAST_IDS.verify2FAInvalid,
+                                        );
+                                      }}
                                       className="min-w-[220px] flex-1"
                                     />
                                     <Button
@@ -2649,9 +2978,12 @@ export function SettingsContent({
                                             "123456",
                                           )}
                                           value={resetCode}
-                                          onChange={(event) =>
-                                            setResetCode(event.target.value)
-                                          }
+                                          onChange={(event) => {
+                                            setResetCode(event.target.value);
+                                            dismissValidationToast(
+                                              SETTINGS_VALIDATION_TOAST_IDS.reset2FA,
+                                            );
+                                          }}
                                         />
                                       </>
                                     ) : null}
@@ -2701,9 +3033,12 @@ export function SettingsContent({
                                           "123456",
                                         )}
                                         value={disableCode}
-                                        onChange={(event) =>
-                                          setDisableCode(event.target.value)
-                                        }
+                                        onChange={(event) => {
+                                          setDisableCode(event.target.value);
+                                          dismissValidationToast(
+                                            SETTINGS_VALIDATION_TOAST_IDS.disable2FA,
+                                          );
+                                        }}
                                       />
                                       <Button
                                         type="button"
@@ -2721,6 +3056,98 @@ export function SettingsContent({
                                   ) : null}
                                 </div>
                               </div>
+                            </div>
+                          </SettingsDisclosure>
+
+                          <SettingsDisclosure
+                            open={securitySectionOpen === "passkeys"}
+                            onOpenChange={(open) =>
+                              setSecuritySectionOpen(open ? "passkeys" : null)
+                            }
+                            title={tr(language, "Passkeys", "Passkeys")}
+                            description={tr(
+                              language,
+                              "Use biometrics like TouchID or FaceID for instant, phishing-proof sign-in.",
+                              "ใช้การสแกนนิ้วหรือใบหน้าเพื่อเข้าสู่ระบบที่รวดเร็วและปลอดภัยสูงสุด",
+                            )}
+                            summary={
+                              passkeyLoading
+                                ? tr(language, "Loading...", "กำลังโหลด...")
+                                : tr(
+                                    language,
+                                    `${passkeys.length} keys`,
+                                    `${passkeys.length} กุญแจ`,
+                                  )
+                            }
+                          >
+                            <div className="space-y-4">
+                              <p className="text-sm text-muted-foreground">
+                                {tr(
+                                  language,
+                                  "Passkeys provide a faster and more secure way to sign in without typing passwords or OTPs.",
+                                  "Passkeys ช่วยให้เข้าสู่ระบบได้เร็วและปลอดภัยกว่าเดิม โดยไม่ต้องพิมพ์รหัสผ่านหรือรหัส OTP",
+                                )}
+                              </p>
+                              {passkeys.length > 0 ? (
+                                <div className="space-y-2">
+                                  {passkeys.map((pk) => (
+                                    <div
+                                      key={pk.id}
+                                      className="flex items-center justify-between rounded-xl border border-border bg-muted/10 p-3"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <p className="truncate text-sm font-medium">
+                                          {pk.name || "Unnamed Device"}
+                                        </p>
+                                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                                          {tr(language, "Added", "เพิ่มเมื่อ")}{" "}
+                                          {formatDateTime(pk.created_at, language)}
+                                          {pk.last_used_at ? (
+                                            <>
+                                              {" • "}
+                                              {tr(language, "Used", "ใช้ล่าสุด")}{" "}
+                                              {formatDateTime(pk.last_used_at, language)}
+                                            </>
+                                          ) : null}
+                                        </p>
+                                      </div>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        tone="danger"
+                                        className="h-8 w-8 p-0"
+                                        onClick={() => handleDeletePasskey(pk.id)}
+                                        disabled={passkeyBusy}
+                                      >
+                                        <X className="size-4" />
+                                      </Button>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs italic text-muted-foreground">
+                                  {tr(
+                                    language,
+                                    "No passkeys registered yet.",
+                                    "ยังไม่มีการลงทะเบียน Passkey",
+                                  )}
+                                </p>
+                              )}
+
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="w-full sm:w-auto"
+                                onClick={handleRegisterPasskey}
+                                disabled={passkeyBusy}
+                              >
+                                <svg className="mr-2 size-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 20C7.59 20 4 16.41 4 12C4 7.59 7.59 4 12 4C16.41 4 20 7.59 20 12C20 16.41 16.41 20 12 20Z" fill="currentColor"/>
+                                  <path d="M12 17C13.6569 17 15 15.6569 15 14C15 12.3431 13.6569 11 12 11C10.3431 11 9 12.3431 9 14C9 15.6569 10.3431 17 12 17Z" fill="currentColor"/>
+                                  <path d="M12 6C10.34 6 9 7.34 9 9V10H15V9C15 7.34 13.66 6 12 6Z" fill="currentColor"/>
+                                </svg>
+                                {tr(language, "Register new Passkey", "ลงทะเบียน Passkey ใหม่")}
+                              </Button>
                             </div>
                           </SettingsDisclosure>
 
@@ -3086,6 +3513,9 @@ export function SettingsContent({
                                     value={newAdminEmail}
                                     onChange={(event) => {
                                       setNewAdminEmail(event.target.value);
+                                      dismissValidationToast(
+                                        SETTINGS_VALIDATION_TOAST_IDS.adminInviteEmail,
+                                      );
                                       setCreatedAdminInviteEmail("");
                                       setCreatedAdminInviteUrl("");
                                       setCreatedAdminInviteExpiresAt(null);
@@ -3108,9 +3538,12 @@ export function SettingsContent({
                                       "เลขอ้างอิง incident, approval หรือ onboarding ticket",
                                     )}
                                     value={adminInviteReason}
-                                    onChange={(event) =>
-                                      setAdminInviteReason(event.target.value)
-                                    }
+                                    onChange={(event) => {
+                                      setAdminInviteReason(event.target.value);
+                                      dismissValidationToast(
+                                        SETTINGS_VALIDATION_TOAST_IDS.adminInviteReason,
+                                      );
+                                    }}
                                   />
                                 </div>
                               </div>
@@ -3241,6 +3674,9 @@ export function SettingsContent({
                                     value={targetEmail}
                                     onChange={(event) => {
                                       setTargetEmail(event.target.value);
+                                      dismissValidationToast(
+                                        SETTINGS_VALIDATION_TOAST_IDS.resolveUser,
+                                      );
                                       setResolvedUser(null);
                                       setGeneratedResetToken("");
                                       setGeneratedResetTokenTTL(null);
@@ -3263,9 +3699,12 @@ export function SettingsContent({
                                       "เหตุผลสำหรับการทำรายการฉุกเฉิน",
                                     )}
                                     value={emergencyReason}
-                                    onChange={(event) =>
-                                      setEmergencyReason(event.target.value)
-                                    }
+                                    onChange={(event) => {
+                                      setEmergencyReason(event.target.value);
+                                      dismissValidationToast(
+                                        SETTINGS_VALIDATION_TOAST_IDS.emergencyReason,
+                                      );
+                                    }}
                                   />
                                 </div>
                                 <div className="flex items-end">
@@ -3405,6 +3844,17 @@ export function SettingsContent({
           </section>
         </div>
       </div>
+      <SensitiveActionReauthDialog
+        open={Boolean(sensitiveReauthRequest)}
+        onOpenChange={closeSensitiveReauth}
+        actionLabel={sensitiveReauthRequest?.actionLabel}
+        onSuccess={async () => {
+          const nextAction = pendingSensitiveReauthRef.current;
+          pendingSensitiveReauthRef.current = null;
+          setSensitiveReauthRequest(null);
+          await nextAction?.run();
+        }}
+      />
     </main>
   );
 }

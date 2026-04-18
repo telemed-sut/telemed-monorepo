@@ -1,9 +1,12 @@
 import json
 import logging
 from typing import Any
-from app.core.redis_client import redis_client
+
+from app.services.redis_runtime import get_redis_client_or_log, log_redis_operation_failure
 
 logger = logging.getLogger(__name__)
+_REDIS_SCOPE = "realtime pubsub"
+_FALLBACK_LABEL = "best-effort no-op publish"
 
 def publish_realtime_event(channel: str, event_type: str, data: Any) -> bool:
     """
@@ -19,13 +22,26 @@ def publish_realtime_event(channel: str, event_type: str, data: Any) -> bool:
         "data": data,
         "published_at": None # We could add timestamp here
     }
-    
+
+    redis_client = get_redis_client_or_log(
+        logger,
+        scope=_REDIS_SCOPE,
+        fallback_label=_FALLBACK_LABEL,
+    )
+    if redis_client is None:
+        return False
+
     try:
         # Using the standard redis-py publish method
         redis_client.publish(channel, json.dumps(payload))
         return True
     except Exception:
-        logger.warning("Failed to publish real-time event to %s", channel, exc_info=True)
+        log_redis_operation_failure(
+            logger,
+            scope=_REDIS_SCOPE,
+            operation="publish",
+            fallback_label=_FALLBACK_LABEL,
+        )
         return False
 
 def get_patient_channel(patient_id: str) -> str:

@@ -6,6 +6,7 @@ from app.models.meeting_room_presence import MeetingRoomPresence
 from app.models.patient import Patient
 from app.models.user import User
 from app.services import meeting_presence as meeting_presence_service
+from app.services import redis_runtime as redis_runtime_service
 
 
 class FakeRedisHashClient:
@@ -55,7 +56,7 @@ def _create_meeting_fixture(db):
 
 def test_apply_runtime_presence_overlay_prefers_redis_state(db, monkeypatch):
     fake_redis = FakeRedisHashClient()
-    monkeypatch.setattr(meeting_presence_service, "get_redis_client", lambda: fake_redis)
+    monkeypatch.setattr(meeting_presence_service, "get_redis_client_or_log", lambda *args, **kwargs: fake_redis)
 
     meeting = _create_meeting_fixture(db)
     stale_time = datetime.now(timezone.utc) - timedelta(minutes=2)
@@ -85,7 +86,7 @@ def test_apply_runtime_presence_overlay_prefers_redis_state(db, monkeypatch):
 
 def test_touch_doctor_presence_throttles_database_writes_when_redis_available(db, monkeypatch):
     fake_redis = FakeRedisHashClient()
-    monkeypatch.setattr(meeting_presence_service, "get_redis_client", lambda: fake_redis)
+    monkeypatch.setattr(meeting_presence_service, "get_redis_client_or_log", lambda *args, **kwargs: fake_redis)
 
     meeting = _create_meeting_fixture(db)
 
@@ -101,3 +102,27 @@ def test_touch_doctor_presence_throttles_database_writes_when_redis_available(db
     assert MeetingRoomPresence._ensure_utc(db_presence.doctor_last_seen_at) == first_db_timestamp
     assert second_presence.doctor_online is True
     assert MeetingRoomPresence._ensure_utc(second_presence.doctor_last_seen_at) >= first_db_timestamp
+
+
+def test_apply_runtime_presence_overlay_falls_back_cleanly_when_redis_unavailable(db, monkeypatch):
+    redis_runtime_service.reset_runtime_diagnostics()
+    monkeypatch.setattr(
+        meeting_presence_service,
+        "get_redis_client_or_log",
+        lambda *args, **kwargs: None,
+    )
+
+    meeting = _create_meeting_fixture(db)
+    stale_time = datetime.now(timezone.utc) - timedelta(minutes=2)
+    presence = MeetingRoomPresence(
+        meeting_id=meeting.id,
+        patient_last_seen_at=stale_time,
+        refreshed_at=stale_time,
+    )
+    db.add(presence)
+    db.commit()
+    db.refresh(presence)
+
+    hydrated = meeting_presence_service.apply_runtime_presence_overlay(presence)
+    assert hydrated is presence
+    assert MeetingRoomPresence._ensure_utc(hydrated.patient_last_seen_at) == stale_time

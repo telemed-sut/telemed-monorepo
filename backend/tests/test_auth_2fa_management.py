@@ -13,6 +13,7 @@ from app.core.security import (
     generate_totp_secret,
     get_password_hash,
     hash_security_token,
+    verify_totp_code,
 )
 from app.models.audit_log import AuditLog
 from app.models.user import User
@@ -494,6 +495,18 @@ def test_step_up_auth_rejects_invalid_two_factor_code_and_writes_failure_audit(c
     )
     assert audit is not None
     assert audit.details["reason"] == "invalid_two_factor_code"
+
+
+def test_verify_totp_code_accepts_small_clock_skew():
+    secret = generate_totp_secret()
+    base_time = datetime(2026, 4, 17, 5, 0, 0, tzinfo=timezone.utc)
+    otp_code = generate_totp_code(secret, at_time=base_time)
+
+    assert verify_totp_code(
+        secret,
+        otp_code,
+        at_time=base_time + timedelta(seconds=61),
+    ) is True
 
 
 def test_step_up_auth_rejects_sso_sessions(client: TestClient, db: Session):

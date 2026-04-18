@@ -60,14 +60,23 @@ def _create_meeting(
     return meeting
 
 
-def _patient_auth_headers(patient: Patient, db: Session | None = None) -> dict[str, str]:
+def _patient_auth_headers(
+    patient: Patient,
+    db: Session | None = None,
+    *,
+    user_agent: str = "patient-app-meetings-test/1.0",
+) -> dict[str, str]:
     session = db or object_session(patient)
     token = patient_app_service.create_patient_login_response(
         db=session,
         patient=patient,
+        user_agent=user_agent,
     )["access_token"]
     session.commit()
-    return {"Authorization": f"Bearer {token}"}
+    return {
+        "Authorization": f"Bearer {token}",
+        "user-agent": user_agent,
+    }
 
 
 def _doctor_auth_headers(user: User, db: Session | None = None) -> dict[str, str]:

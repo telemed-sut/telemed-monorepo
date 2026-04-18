@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import { useRouter } from "next/navigation";
 
 import { logout, logoutAdminSso } from "@/lib/api";
+import { markLoginCredentialsForResetAfterLogout } from "@/lib/login-form-privacy";
 import { useAuthStore } from "@/store/auth-store";
 
 export function useSessionLogout() {
@@ -30,6 +31,7 @@ export function useSessionLogout() {
       // Best-effort revoke; local cleanup still needs to happen.
     }
 
+    markLoginCredentialsForResetAfterLogout();
     clearToken();
     router.replace("/login");
   }, [router]);

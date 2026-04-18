@@ -20,10 +20,22 @@ import {
   type LoginChallengeDetail,
   type LockedRecoveryOption,
 } from "@/lib/api";
+import {
+  browserSupportsConditionalPasskeyLogin,
+  cancelPasskeyCeremony,
+  isPasskeyCeremonyCancelled,
+  loginWithPasskey,
+  startConditionalPasskeyLogin,
+} from "@/lib/api-passkeys";
+import {
+  clearLoginCredentialResetMarker,
+  shouldResetLoginCredentialsAfterLogout,
+} from "@/lib/login-form-privacy";
 import { useAuthStore } from "@/store/auth-store";
 import { AuthMessage } from "@/components/auth/auth-message";
 import { SecretDisclosure } from "@/components/auth/secret-disclosure";
 import { AuthShell } from "@/components/auth/auth-shell";
+import { cn } from "@/lib/utils";
 import { type AppLanguage } from "@/store/language-config";
 import { useLanguageStore } from "@/store/language-store";
 
@@ -89,6 +101,26 @@ function getRecoveryOptionLabel(language: AppLanguage, option: LockedRecoveryOpt
   }
 }
 
+function findConditionalPasskeyInput(): HTMLInputElement | null {
+  const element = document.querySelector<HTMLInputElement>(
+    'input[autocomplete="webauthn"], input[autocomplete$=" webauthn"]',
+  );
+  return element instanceof HTMLInputElement ? element : null;
+}
+
+function isMissingConditionalPasskeyInputError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const message =
+    "message" in error && typeof error.message === "string" ? error.message : "";
+
+  return message.includes(
+    'No <input> with "webauthn" as the only or last value in its `autocomplete` attribute was detected',
+  );
+}
+
 export default function LoginClientPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -101,6 +133,7 @@ export default function LoginClientPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lockoutDetail, setLockoutDetail] = useState<LoginChallengeDetail | null>(null);
   const [lockoutRetryAfterSeconds, setLockoutRetryAfterSeconds] = useState<number | null>(null);
@@ -112,10 +145,56 @@ export default function LoginClientPage() {
   const [rememberDevice, setRememberDevice] = useState(true);
   const [trustedDays, setTrustedDays] = useState<number | null>(null);
   const [adminSsoStatus, setAdminSsoStatus] = useState<AdminSsoStatus | null>(null);
+  const [shouldSuppressCredentialAutofill, setShouldSuppressCredentialAutofill] = useState(false);
+  const [supportsConditionalPasskeyUi, setSupportsConditionalPasskeyUi] = useState<boolean | null>(null);
 
   useEffect(() => {
     hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    setShouldSuppressCredentialAutofill(shouldResetLoginCredentialsAfterLogout());
+  }, []);
+
+  useEffect(() => {
+    if (!shouldSuppressCredentialAutofill) {
+      return;
+    }
+
+    const clearCredentialFields = () => {
+      setEmail("");
+      setPassword("");
+      setOtpCode("");
+      setError(null);
+      setLoginStep("credentials");
+      setProvisioningUri(null);
+      setTrustedDays(null);
+      setIsPasswordVisible(false);
+      setLockoutDetail(null);
+      setLockoutRetryAfterSeconds(null);
+
+      const emailInput = document.getElementById("email");
+      if (emailInput instanceof HTMLInputElement) {
+        emailInput.value = "";
+      }
+
+      const passwordInput = document.getElementById("password");
+      if (passwordInput instanceof HTMLInputElement) {
+        passwordInput.value = "";
+      }
+    };
+
+    clearCredentialFields();
+    const animationFrameId = window.requestAnimationFrame(clearCredentialFields);
+    const timeoutId = window.setTimeout(clearCredentialFields, 150);
+    window.addEventListener("pageshow", clearCredentialFields);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      window.clearTimeout(timeoutId);
+      window.removeEventListener("pageshow", clearCredentialFields);
+    };
+  }, [shouldSuppressCredentialAutofill]);
 
   useEffect(() => {
     if (hydrated && token) {
@@ -168,6 +247,29 @@ export default function LoginClientPage() {
     };
 
     void loadAdminSsoStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const detectConditionalPasskeyUi = async () => {
+      try {
+        const supported = await browserSupportsConditionalPasskeyLogin();
+        if (!cancelled) {
+          setSupportsConditionalPasskeyUi(supported);
+        }
+      } catch {
+        if (!cancelled) {
+          setSupportsConditionalPasskeyUi(false);
+        }
+      }
+    };
+
+    void detectConditionalPasskeyUi();
+
     return () => {
       cancelled = true;
     };
@@ -310,6 +412,12 @@ export default function LoginClientPage() {
   const showForgotPassword = recoveryOptions.includes("forgot_password");
   const showContactAdmin = recoveryOptions.includes("contact_admin");
   const showContactSecurityAdmin = recoveryOptions.includes("contact_security_admin");
+  const hasTypedCredentials = email.trim().length > 0 || password.trim().length > 0;
+  const hasCompleteCredentials = email.trim().length > 0 && password.trim().length > 0;
+  const isSubmitReady = isTwoFactorStep ? otpCode.trim().length > 0 : hasCompleteCredentials;
+  const shouldEmphasizePasskey = !isTwoFactorStep && !hasTypedCredentials;
+  const isConditionalPasskeyUiPending = supportsConditionalPasskeyUi === null;
+  const shouldUseConditionalPasskeyUi = supportsConditionalPasskeyUi === true && !isTwoFactorStep;
   const title = isTwoFactorStep
     ? tr(language, "Confirm sign-in", "ยืนยันการเข้าสู่ระบบ")
     : tr(language, "Welcome Back", "ยินดีต้อนรับกลับ");
@@ -335,6 +443,8 @@ export default function LoginClientPage() {
       setLockoutDetail(null);
       setLockoutRetryAfterSeconds(null);
       setSession(res);
+      clearLoginCredentialResetMarker();
+      setShouldSuppressCredentialAutofill(false);
       router.replace("/patients");
     } catch (err) {
       const apiError = err as ApiError;
@@ -374,6 +484,124 @@ export default function LoginClientPage() {
       setLoading(false);
     }
   };
+
+  const onPasskeyLogin = async () => {
+    cancelPasskeyCeremony();
+    setError(null);
+    setPasskeyLoading(true);
+    try {
+      // If email is provided, we can use it to narrow down passkeys,
+      // but WebAuthn also supports discoverable credentials (empty email).
+      const res = await loginWithPasskey(email || undefined);
+      if (!res.user) {
+        throw new Error(
+          tr(language, "Unable to establish session. Please try again.", "ไม่สามารถเริ่มต้นเซสชันได้ โปรดลองอีกครั้ง")
+        );
+      }
+      setSession(res);
+      clearLoginCredentialResetMarker();
+      setShouldSuppressCredentialAutofill(false);
+      router.replace("/patients");
+    } catch (err: any) {
+      // Don't show error if user cancelled the native dialog
+      if (isPasskeyCeremonyCancelled(err)) {
+        setError(null);
+        return;
+      }
+
+      // Check for specific error code from backend
+      if (err.code === "passkey_not_registered") {
+        setError(tr(
+          language, 
+          "That Passkey can't be used here anymore. Try again or use your password.", 
+          "Passkey นี้ใช้กับระบบนี้ไม่ได้แล้ว ลองอีกครั้งหรือใช้รหัสผ่านแทน"
+        ));
+        return;
+      }
+
+      console.error("Passkey login error:", err);
+
+      setError(tr(language, "Passkey login failed. Please try again or use password.", "การเข้าสู่ระบบด้วย Passkey ล้มเหลว กรุณาลองใหม่หรือใช้รหัสผ่าน"));
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!hydrated || !shouldUseConditionalPasskeyUi) {
+      return;
+    }
+
+    let cancelled = false;
+    let animationFrameId: number | null = null;
+
+    const beginConditionalPasskeyLogin = async () => {
+      await new Promise<void>((resolve) => {
+        animationFrameId = window.requestAnimationFrame(() => {
+          animationFrameId = null;
+          resolve();
+        });
+      });
+
+      if (cancelled || !findConditionalPasskeyInput()) {
+        return;
+      }
+
+      try {
+        const res = await startConditionalPasskeyLogin();
+        if (cancelled) {
+          return;
+        }
+        if (!res.user) {
+          throw new Error(
+            tr(language, "Unable to establish session. Please try again.", "ไม่สามารถเริ่มต้นเซสชันได้ โปรดลองอีกครั้ง")
+          );
+        }
+        setSession(res);
+        clearLoginCredentialResetMarker();
+        setShouldSuppressCredentialAutofill(false);
+        router.replace("/patients");
+      } catch (err: any) {
+        if (
+          cancelled ||
+          isPasskeyCeremonyCancelled(err) ||
+          isMissingConditionalPasskeyInputError(err)
+        ) {
+          return;
+        }
+
+        if (err.code === "passkey_not_registered") {
+          setError(
+            tr(
+              language,
+              "That Passkey can't be used here anymore. Try again or use your password.",
+              "Passkey นี้ใช้กับระบบนี้ไม่ได้แล้ว ลองอีกครั้งหรือใช้รหัสผ่านแทน"
+            )
+          );
+          return;
+        }
+
+        console.error("Conditional Passkey login error:", err);
+        setError(
+          tr(
+            language,
+            "Passkey login failed. Please try again or use password.",
+            "การเข้าสู่ระบบด้วย Passkey ล้มเหลว กรุณาลองใหม่หรือใช้รหัสผ่าน"
+          )
+        );
+      }
+    };
+
+    void beginConditionalPasskeyLogin();
+
+    return () => {
+      cancelled = true;
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+      cancelPasskeyCeremony();
+    };
+  }, [hydrated, language, router, setSession, shouldUseConditionalPasskeyUi]);
 
   const togglePasswordVisibility = () => setIsPasswordVisible((prev) => !prev);
   const adminSsoEnabled = Boolean(adminSsoStatus?.enabled);
@@ -419,14 +647,47 @@ export default function LoginClientPage() {
         </div>
       ) : null}
 
-      <form onSubmit={onSubmit} className="space-y-6">
-        {adminSsoEnabled ? (
-          <div className="flex items-center gap-3 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-            <span className="h-px flex-1 bg-border" />
-            <span>{tr(language, "Password sign in", "ลงชื่อเข้าใช้ด้วยรหัสผ่าน")}</span>
-            <span className="h-px flex-1 bg-border" />
+      {!shouldUseConditionalPasskeyUi && !isConditionalPasskeyUiPending ? (
+        <>
+          <div className="transition-all">
+            <Button
+              type="button"
+              variant={shouldEmphasizePasskey ? "default" : "outline"}
+              className={cn(
+                "w-full justify-center gap-2 py-5 transition-all",
+                shouldEmphasizePasskey
+                  ? "border-sky-900 bg-sky-900 text-white hover:bg-sky-800 shadow-[0_16px_30px_rgba(12,74,110,0.22)]"
+                  : "border-2 hover:bg-slate-50"
+              )}
+              onClick={onPasskeyLogin}
+              disabled={passkeyLoading || loading}
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 20C7.59 20 4 16.41 4 12C4 7.59 7.59 4 12 4C16.41 4 20 7.59 20 12C20 16.41 16.41 20 12 20Z" fill="currentColor"/>
+                <path d="M12 17C13.6569 17 15 15.6569 15 14C15 12.3431 13.6569 11 12 11C10.3431 11 9 12.3431 9 14C9 15.6569 10.3431 17 12 17Z" fill="currentColor"/>
+                <path d="M12 6C10.34 6 9 7.34 9 9V10H15V9C15 7.34 13.66 6 12 6Z" fill="currentColor"/>
+              </svg>
+              <span className="font-semibold">
+                {passkeyLoading
+                  ? tr(language, "Checking Passkey...", "กำลังตรวจสอบ Passkey...")
+                  : tr(language, "Sign in with Passkey", "ลงชื่อเข้าใช้ด้วย Passkey")}
+              </span>
+            </Button>
           </div>
-        ) : null}
+
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-muted-foreground/55">
+            <span className="h-px flex-1 bg-border/60" />
+            <span>{tr(language, "Or use password", "หรือใช้รหัสผ่าน")}</span>
+            <span className="h-px flex-1 bg-border/60" />
+          </div>
+        </>
+      ) : null}
+
+      <form
+        onSubmit={onSubmit}
+        className="space-y-6"
+        autoComplete="on"
+      >
         {!isTwoFactorStep ? (
           <>
             <div className="space-y-2">
@@ -434,7 +695,13 @@ export default function LoginClientPage() {
               <Input
                 id="email"
                 type="email"
-                autoComplete="username"
+                autoComplete={
+                  shouldUseConditionalPasskeyUi
+                    ? "username webauthn"
+                    : shouldSuppressCredentialAutofill
+                      ? "off"
+                      : "username"
+                }
                 placeholder={tr(language, "Enter your email", "กรอกอีเมล")}
                 value={email}
                 onChange={(e) => {
@@ -458,7 +725,7 @@ export default function LoginClientPage() {
                 <Input
                   id="password"
                   className="pe-9"
-                  autoComplete="current-password"
+                  autoComplete={shouldSuppressCredentialAutofill ? "new-password" : "current-password"}
                   placeholder={tr(language, "Enter your password", "กรอกรหัสผ่าน")}
                   type={isPasswordVisible ? "text" : "password"}
                   value={password}
@@ -640,7 +907,17 @@ export default function LoginClientPage() {
           </AuthMessage>
         )}
 
-        <Button variant="glass-primary" className="w-full" type="submit" disabled={loading}>
+        <Button
+          variant="outline"
+          className={cn(
+            "w-full",
+            isSubmitReady
+              ? "border-slate-950 bg-slate-950 text-white hover:bg-slate-900"
+              : "border-slate-200 bg-slate-300 text-white hover:bg-slate-300"
+          )}
+          type="submit"
+          disabled={loading || !isSubmitReady}
+        >
           {loading
             ? tr(language, "Signing in...", "กำลังเข้าสู่ระบบ...")
             : isTwoFactorStep

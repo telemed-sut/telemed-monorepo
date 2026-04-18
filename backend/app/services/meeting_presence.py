@@ -6,13 +6,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
-from app.db.session import get_redis_client
 from app.db.session import SessionLocal
 from app.models.enums import MeetingStatus
 
 from app.models.meeting import Meeting
 from app.models.meeting_room_presence import MeetingRoomPresence
 from app.models.meeting_room_presence import ROOM_PRESENCE_HEARTBEAT_TIMEOUT_SECONDS
+from app.services.redis_runtime import (
+    get_redis_client_or_log,
+    log_redis_operation_failure,
+    parse_cached_datetime,
+)
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -22,6 +26,8 @@ _reconcile_worker_thread: Thread | None = None
 _PRESENCE_REDIS_PREFIX = "meeting_presence:v1:"
 _PRESENCE_REDIS_TTL_SECONDS = max(ROOM_PRESENCE_HEARTBEAT_TIMEOUT_SECONDS * 4, 120)
 _PRESENCE_DB_FLUSH_INTERVAL_SECONDS = 10
+_REDIS_SCOPE = "meeting_presence_runtime"
+_FALLBACK_LABEL = "database-only state"
 _UNSET = object()
 
 def _now_utc() -> datetime:
@@ -37,27 +43,12 @@ def _serialize_dt(value: datetime | None) -> str | None:
     return normalized.isoformat() if normalized is not None else None
 
 
-def _deserialize_dt(value) -> datetime | None:
-    if isinstance(value, bytes):
-        value = value.decode("utf-8")
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()
-    if not normalized:
-        return None
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return None
-    return MeetingRoomPresence._ensure_utc(parsed)
-
-
 def _get_presence_redis_client():
-    try:
-        return get_redis_client()
-    except Exception:
-        logger.warning("Meeting presence could not initialize Redis client; continuing with database-only state.", exc_info=True)
-        return None
+    return get_redis_client_or_log(
+        logger,
+        scope=_REDIS_SCOPE,
+        fallback_label=_FALLBACK_LABEL,
+    )
 
 
 def _write_presence_runtime_state(
@@ -94,7 +85,12 @@ def _write_presence_runtime_state(
         redis_client.hset(key, mapping=mapping)
         redis_client.expire(key, _PRESENCE_REDIS_TTL_SECONDS)
     except Exception:
-        logger.warning("Meeting presence Redis write failed; continuing with database state.", exc_info=True)
+        log_redis_operation_failure(
+            logger,
+            scope=_REDIS_SCOPE,
+            operation="write",
+            fallback_label=_FALLBACK_LABEL,
+        )
 
 
 def _read_presence_runtime_state(meeting_id) -> dict[str, datetime | None]:
@@ -105,7 +101,12 @@ def _read_presence_runtime_state(meeting_id) -> dict[str, datetime | None]:
     try:
         payload = redis_client.hgetall(_presence_redis_key(meeting_id))
     except Exception:
-        logger.warning("Meeting presence Redis read failed; continuing with database state.", exc_info=True)
+        log_redis_operation_failure(
+            logger,
+            scope=_REDIS_SCOPE,
+            operation="read",
+            fallback_label=_FALLBACK_LABEL,
+        )
         return {}
 
     if not payload:
@@ -121,7 +122,7 @@ def _read_presence_runtime_state(meeting_id) -> dict[str, datetime | None]:
     ):
         if field_name not in payload:
             continue
-        runtime_state[field_name] = _deserialize_dt(payload.get(field_name))
+        runtime_state[field_name] = parse_cached_datetime(payload.get(field_name))
     return runtime_state
 
 

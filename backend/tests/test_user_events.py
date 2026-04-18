@@ -67,7 +67,7 @@ class BrokenRedisClient:
 
 @pytest.mark.anyio
 async def test_user_event_hub_delivers_events_with_in_memory_fallback(monkeypatch):
-    monkeypatch.setattr(user_events_module, "get_redis_client", lambda: None)
+    monkeypatch.setattr(user_events_module, "get_redis_client_or_log", lambda *args, **kwargs: None)
     hub = user_events_module.UserEventHub()
 
     queue = await hub.subscribe()
@@ -83,7 +83,7 @@ async def test_user_event_hub_delivers_events_with_in_memory_fallback(monkeypatc
 @pytest.mark.anyio
 async def test_user_event_hub_delivers_events_via_redis_pubsub(monkeypatch):
     broker = FakeRedisBroker()
-    monkeypatch.setattr(user_events_module, "get_redis_client", lambda: FakeRedisClient(broker))
+    monkeypatch.setattr(user_events_module, "get_redis_client_or_log", lambda *args, **kwargs: FakeRedisClient(broker))
     hub = user_events_module.UserEventHub()
 
     queue = await hub.subscribe()
@@ -98,7 +98,7 @@ async def test_user_event_hub_delivers_events_via_redis_pubsub(monkeypatch):
 
 @pytest.mark.anyio
 async def test_user_event_hub_falls_back_to_in_memory_when_redis_subscription_fails(monkeypatch):
-    monkeypatch.setattr(user_events_module, "get_redis_client", lambda: BrokenRedisClient())
+    monkeypatch.setattr(user_events_module, "get_redis_client_or_log", lambda *args, **kwargs: BrokenRedisClient())
     hub = user_events_module.UserEventHub()
 
     queue = await hub.subscribe()

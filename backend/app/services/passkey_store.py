@@ -2,9 +2,9 @@ import hashlib
 import json
 import logging
 import time
-from dataclasses import asdict, dataclass
+from base64 import urlsafe_b64encode
 from threading import Lock
-from typing import Any
+from typing import Any, TypedDict
 
 from app.core.config import get_settings
 from app.db.session import get_redis_client
@@ -18,26 +18,21 @@ from app.services.redis_runtime import (
 
 logger = logging.getLogger(__name__)
 
-_STATE_PREFIX = "admin_sso:state:"
-_LOGOUT_HINT_PREFIX = "admin_sso:logout_hint:"
-_REDIS_SCOPE = "admin SSO artifact store"
-_FALLBACK_LABEL = "local in-memory artifact store"
-
+_CHALLENGE_PREFIX = "passkey:challenge:"
+_REDIS_SCOPE = "passkey challenge store"
+_FALLBACK_LABEL = "local in-memory challenge store"
 _local_store: dict[str, tuple[float, str]] = {}
 _local_store_lock = Lock()
 
 
-@dataclass(frozen=True)
-class AdminSsoLoginArtifact:
-    nonce: str
-    code_verifier: str
-    next_path: str
-    created_at: float
-
+class ChallengePayload(TypedDict, total=False):
+    challenge: str
+    origin: str
+    rp_id: str
+    user_verification: str
 
 def _hash_key(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
 
 def _local_cleanup(now: float | None = None) -> None:
     current = now or time.time()
@@ -68,7 +63,6 @@ def _require_shared_redis_state() -> None:
         app_env=get_settings().app_env,
     )
 
-
 def _set_json(key: str, payload: dict[str, Any], ttl_seconds: int) -> None:
     client = _get_store_redis_client()
     encoded = json.dumps(payload)
@@ -92,7 +86,6 @@ def _set_json(key: str, payload: dict[str, Any], ttl_seconds: int) -> None:
     with _local_store_lock:
         _local_cleanup()
         _local_store[key] = (time.time() + max(ttl_seconds, 1), encoded)
-
 
 def _pop_json(key: str) -> dict[str, Any] | None:
     client = _get_store_redis_client()
@@ -128,88 +121,66 @@ def _pop_json(key: str) -> dict[str, Any] | None:
     decoded = json.loads(payload)
     return decoded if isinstance(decoded, dict) else None
 
-
-def _delete_key(key: str) -> None:
-    client = _get_store_redis_client()
-    if client is not None:
-        try:
-            client.delete(key)
-            return
-        except Exception:
-            if not _allows_local_fallback():
-                _require_shared_redis_state()
-            log_redis_operation_failure(
-                logger,
-                scope=_REDIS_SCOPE,
-                operation="delete",
-                fallback_label=_FALLBACK_LABEL,
-            )
-
-    if not _allows_local_fallback():
-        _require_shared_redis_state()
-
-    with _local_store_lock:
-        _local_store.pop(key, None)
+def _bytes_to_base64url(value: bytes) -> str:
+    return urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
 
-def store_login_artifact(*, state_token: str, nonce: str, code_verifier: str, next_path: str) -> None:
-    settings = get_settings()
-    artifact = AdminSsoLoginArtifact(
-        nonce=nonce,
-        code_verifier=code_verifier,
-        next_path=next_path,
-        created_at=time.time(),
-    )
-    _set_json(
-        f"{_STATE_PREFIX}{_hash_key(state_token)}",
-        asdict(artifact),
-        settings.admin_oidc_state_ttl_seconds,
-    )
+def _normalize_challenge(challenge: str | bytes) -> str:
+    if isinstance(challenge, bytes):
+        return _bytes_to_base64url(challenge)
+
+    normalized = challenge.strip()
+    if not normalized:
+        raise ValueError("Challenge must be non-empty")
+    return normalized
 
 
-def pop_login_artifact(state_token: str) -> AdminSsoLoginArtifact | None:
-    payload = _pop_json(f"{_STATE_PREFIX}{_hash_key(state_token)}")
-    if payload is None:
-        return None
-    try:
-        return AdminSsoLoginArtifact(
-            nonce=str(payload["nonce"]),
-            code_verifier=str(payload["code_verifier"]),
-            next_path=str(payload["next_path"]),
-            created_at=float(payload["created_at"]),
-        )
-    except (KeyError, TypeError, ValueError):
+def store_challenge(
+    session_id: str,
+    challenge: str | bytes,
+    *,
+    origin: str | None = None,
+    rp_id: str | None = None,
+    user_verification: str | None = None,
+    ttl_seconds: int = 300,
+) -> None:
+    payload: ChallengePayload = {
+        "challenge": _normalize_challenge(challenge),
+    }
+    if origin:
+        payload["origin"] = origin
+    if rp_id:
+        payload["rp_id"] = rp_id
+    if user_verification:
+        payload["user_verification"] = user_verification
+
+    _set_json(f"{_CHALLENGE_PREFIX}{_hash_key(session_id)}", payload, ttl_seconds)
+
+
+def pop_challenge(session_id: str) -> ChallengePayload | None:
+    payload = _pop_json(f"{_CHALLENGE_PREFIX}{_hash_key(session_id)}")
+    if not payload:
         return None
 
-
-def clear_login_artifact(state_token: str) -> None:
-    _delete_key(f"{_STATE_PREFIX}{_hash_key(state_token)}")
-
-
-def store_logout_hint(*, session_id: str, id_token_hint: str, ttl_seconds: int) -> None:
-    if not session_id or not id_token_hint:
-        return
-    _set_json(
-        f"{_LOGOUT_HINT_PREFIX}{_hash_key(session_id)}",
-        {"id_token_hint": id_token_hint, "created_at": time.time()},
-        ttl_seconds,
-    )
-
-
-def pop_logout_hint(session_id: str | None) -> str | None:
-    if not session_id:
+    challenge = payload.get("challenge")
+    if not isinstance(challenge, str) or not challenge.strip():
         return None
-    payload = _pop_json(f"{_LOGOUT_HINT_PREFIX}{_hash_key(session_id)}")
-    if payload is None:
-        return None
-    value = payload.get("id_token_hint")
-    return str(value) if isinstance(value, str) and value else None
 
+    normalized: ChallengePayload = {"challenge": challenge.strip()}
 
-def clear_logout_hint(session_id: str | None) -> None:
-    if not session_id:
-        return
-    _delete_key(f"{_LOGOUT_HINT_PREFIX}{_hash_key(session_id)}")
+    origin = payload.get("origin")
+    if isinstance(origin, str) and origin.strip():
+        normalized["origin"] = origin.strip()
+
+    rp_id = payload.get("rp_id")
+    if isinstance(rp_id, str) and rp_id.strip():
+        normalized["rp_id"] = rp_id.strip()
+
+    user_verification = payload.get("user_verification")
+    if isinstance(user_verification, str) and user_verification.strip():
+        normalized["user_verification"] = user_verification.strip()
+
+    return normalized
 
 
 def reset_runtime_state() -> None:
