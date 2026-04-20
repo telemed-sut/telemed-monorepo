@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -16,11 +16,12 @@ import {
 
 import type { AppLanguage } from "@/store/language-config";
 import {
-  canManageUsers,
   fetchPatient,
   fetchPatientHeartSounds,
+  getErrorMessage,
   type HeartSoundRecord,
   type Patient,
+  uploadPatientHeartSound,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -30,6 +31,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { toast } from "@/components/ui/toast";
 import { HeartSoundInlinePlayer } from "@/components/dashboard/heart-sound-inline-player";
 import { getPatientLoadErrorTitle } from "@/components/dashboard/patient-load-error";
 import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
@@ -51,11 +61,6 @@ type DisplayHeartSoundRecord = HeartSoundRecord & {
   draftFileName?: string;
   fileSizeBytes?: number;
   isDraft?: boolean;
-};
-
-type RecordsBanner = {
-  title: string;
-  message: string;
 };
 
 const tr = (language: AppLanguage, en: string, th: string) =>
@@ -84,88 +89,8 @@ const PANEL_POSITIONS: Record<PanelKind, number[]> = {
   anterior: [1, 2, 3, 4, 5, 6],
   posterior: [7, 8, 9, 10, 11, 12, 13, 14],
 };
-const MAX_HEART_SOUND_UPLOAD_BYTES = 10 * 1024 * 1024;
-
-function getDemoRecordsBanner(language: AppLanguage): RecordsBanner {
-  return {
-    title: tr(language, "Built-in demo recordings are loaded", "กำลังแสดงไฟล์เสียงตัวอย่างในระบบ"),
-    message: tr(
-      language,
-      "This patient does not have uploaded heart-sound files yet, so sample recordings were inserted to make the workspace immediately usable.",
-      "ผู้ป่วยรายนี้ยังไม่มีไฟล์เสียงหัวใจที่อัปโหลดไว้ ระบบจึงใส่ไฟล์ตัวอย่างให้ก่อนเพื่อให้หน้านี้ใช้งานได้ทันที"
-    ),
-  };
-}
-
-function getDemoHeartSoundRecords(patientId: string): HeartSoundRecord[] {
-  return [
-    {
-      id: "demo-sound-1",
-      patient_id: patientId,
-      device_id: "demo-device-a1",
-      mac_address: "DE:MO:AA:01:10:01",
-      position: 1,
-      blob_url: "/heart-sound-samples/anterior-position-1.wav",
-      storage_key: "samples/anterior-position-1.wav",
-      mime_type: "audio/wav",
-      duration_seconds: 4.0,
-      recorded_at: "2026-03-27T05:12:00Z",
-      created_at: "2026-03-27T05:12:00Z",
-    },
-    {
-      id: "demo-sound-2",
-      patient_id: patientId,
-      device_id: "demo-device-a3",
-      mac_address: "DE:MO:AA:03:10:03",
-      position: 3,
-      blob_url: "/heart-sound-samples/anterior-position-3.wav",
-      storage_key: "samples/anterior-position-3.wav",
-      mime_type: "audio/wav",
-      duration_seconds: 3.4,
-      recorded_at: "2026-03-27T05:18:00Z",
-      created_at: "2026-03-27T05:18:00Z",
-    },
-    {
-      id: "demo-sound-3",
-      patient_id: patientId,
-      device_id: "demo-device-p9a",
-      mac_address: "DE:MO:PO:09:20:A1",
-      position: 9,
-      blob_url: "/heart-sound-samples/posterior-position-9-a.wav",
-      storage_key: "samples/posterior-position-9-a.wav",
-      mime_type: "audio/wav",
-      duration_seconds: 4.2,
-      recorded_at: "2026-03-27T05:24:00Z",
-      created_at: "2026-03-27T05:24:00Z",
-    },
-    {
-      id: "demo-sound-4",
-      patient_id: patientId,
-      device_id: "demo-device-p9b",
-      mac_address: "DE:MO:PO:09:20:B2",
-      position: 9,
-      blob_url: "/heart-sound-samples/posterior-position-9-b.wav",
-      storage_key: "samples/posterior-position-9-b.wav",
-      mime_type: "audio/wav",
-      duration_seconds: 3.1,
-      recorded_at: "2026-03-27T05:26:00Z",
-      created_at: "2026-03-27T05:26:00Z",
-    },
-    {
-      id: "demo-sound-5",
-      patient_id: patientId,
-      device_id: "demo-device-p14",
-      mac_address: "DE:MO:PO:14:30:01",
-      position: 14,
-      blob_url: "/heart-sound-samples/posterior-position-14.wav",
-      storage_key: "samples/posterior-position-14.wav",
-      mime_type: "audio/wav",
-      duration_seconds: 4.0,
-      recorded_at: "2026-03-27T05:30:00Z",
-      created_at: "2026-03-27T05:30:00Z",
-    },
-  ];
-}
+const MAX_HEART_SOUND_UPLOAD_BYTES = 50 * 1024 * 1024;
+const HEART_SOUND_AUTO_REFRESH_INTERVAL_MS = 5000;
 
 function formatDateTime(value: string, language: AppLanguage) {
   return new Date(value).toLocaleString(language === "th" ? "th-TH" : "en-GB", {
@@ -206,6 +131,28 @@ function getUploadSizeError(language: AppLanguage, rejectedFiles: File[]) {
     `${rejectedFiles.length} files exceed the ${maxSize} limit and were not added.`,
     `${rejectedFiles.length} ไฟล์มีขนาดเกิน ${maxSize} จึงไม่ได้ถูกเพิ่มเข้าคิว`
   );
+}
+
+function getHeartSoundUploadErrorMessage(language: AppLanguage, error: unknown) {
+  const message = getErrorMessage(
+    error,
+    tr(
+      language,
+      "Unable to upload heart-sound files right now.",
+      "ยังไม่สามารถอัปโหลดไฟล์เสียงหัวใจได้ในขณะนี้"
+    ),
+    language
+  );
+
+  if (/blob storage cors|frontend origin in blob storage cors/i.test(message)) {
+    return tr(
+      language,
+      "Azure Blob Storage is blocking browser uploads for this origin. Add this frontend URL to the storage account CORS rules, then try again.",
+      "Azure Blob Storage กำลังบล็อกการอัปโหลดจากเว็บโดเมนนี้อยู่ กรุณาเพิ่ม URL ของ frontend นี้ในกฎ CORS ของ storage account แล้วลองใหม่อีกครั้ง"
+    );
+  }
+
+  return message;
 }
 
 function getPanelByPosition(position: number): PanelKind {
@@ -512,10 +459,9 @@ export function PatientHeartSoundContent({
   const token = useAuthStore((state) => state.token);
   const clearToken = useAuthStore((state) => state.clearToken);
   const userId = useAuthStore((state) => state.userId);
-  const userRole = useAuthStore((state) => state.role);
   const language = useLanguageStore((state) => state.language);
   const router = useRouter();
-  const showSystemDetails = canManageUsers(userRole);
+  const showSystemDetails = true;
   const patientWorkspaceHrefs = useMemo(
     () => getPatientWorkspaceHrefs(patientId),
     [patientId]
@@ -532,32 +478,24 @@ export function PatientHeartSoundContent({
     [cachedSnapshot]
   );
   const hasCachedRecords = Boolean(cachedSnapshot);
-  const cachedUsesDemo = hasCachedRecords && cachedRecords.length === 0;
 
   const [patient, setPatient] = useState<PatientHeartSoundPatient | null>(
     () => cachedSnapshot?.patient ?? null
   );
-  const [records, setRecords] = useState<HeartSoundRecord[]>(
-    () =>
-      cachedUsesDemo
-        ? getDemoHeartSoundRecords(patientId)
-        : cachedRecords
-  );
+  const [records, setRecords] = useState<HeartSoundRecord[]>(() => cachedRecords);
   const [draftRecords, setDraftRecords] = useState<DisplayHeartSoundRecord[]>([]);
   const [loading, setLoading] = useState(
     () => !(cachedSnapshot?.patient && hasCachedRecords)
   );
   const [patientError, setPatientError] = useState<string | null>(null);
-  const [recordsBanner, setRecordsBanner] = useState<RecordsBanner | null>(
-    () => (cachedUsesDemo ? getDemoRecordsBanner(language) : null)
-  );
-  const [usingDemoRecords, setUsingDemoRecords] = useState(cachedUsesDemo);
+  const [recordsError, setRecordsError] = useState<string | null>(null);
   const [activePosition, setActivePosition] = useState<number | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadPanel, setUploadPanel] = useState<PanelKind>("anterior");
   const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>("auto");
   const [manualPosition, setManualPosition] = useState<number>(1);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [playingRecordId, setPlayingRecordId] = useState<string | null>(null);
@@ -566,6 +504,7 @@ export function PatientHeartSoundContent({
   const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
   const shouldScrollRef = useRef(false);
   const draftRecordsRef = useRef<DisplayHeartSoundRecord[]>([]);
+  const refreshInFlightRef = useRef(false);
 
   useEffect(() => {
     patientWorkspaceHrefs.forEach((href) => {
@@ -576,20 +515,14 @@ export function PatientHeartSoundContent({
 
   useEffect(() => {
     setPatient(cachedSnapshot?.patient ?? null);
-    setRecords(
-      cachedUsesDemo ? getDemoHeartSoundRecords(patientId) : cachedRecords
-    );
-    setUsingDemoRecords(cachedUsesDemo);
-    setRecordsBanner(cachedUsesDemo ? getDemoRecordsBanner(language) : null);
+    setRecords(cachedRecords);
     setLoading(!(cachedSnapshot?.patient && hasCachedRecords));
     setPatientError(null);
+    setRecordsError(null);
   }, [
     cachedSnapshot,
     cachedRecords,
-    cachedUsesDemo,
     hasCachedRecords,
-    language,
-    patientId,
   ]);
 
   useEffect(() => {
@@ -606,6 +539,54 @@ export function PatientHeartSoundContent({
     };
   }, []);
 
+  const applyFetchedHeartSounds = useCallback((items: HeartSoundRecord[]) => {
+    setRecords(items);
+    setRecordsError(null);
+    writePatientHeartSoundCache(userId, patientId, {
+      records: items,
+      recordsCachedAt: Date.now(),
+    });
+  }, [patientId, userId]);
+
+  const refreshHeartSounds = useCallback(
+    async ({ clearRecordsOnError = false }: { clearRecordsOnError?: boolean } = {}) => {
+      if (!token || refreshInFlightRef.current) {
+        return;
+      }
+
+      refreshInFlightRef.current = true;
+      try {
+        const soundData = await fetchPatientHeartSounds(patientId, token);
+        applyFetchedHeartSounds(soundData.items);
+      } catch (err) {
+        const status = (err as { status?: number }).status;
+        if (status === 401) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
+
+        if (clearRecordsOnError) {
+          setRecords([]);
+        }
+        setRecordsError(
+          getErrorMessage(
+            err,
+            tr(
+              language,
+              "Unable to load heart-sound records right now.",
+              "ยังไม่สามารถโหลดรายการไฟล์เสียงหัวใจได้ในขณะนี้"
+            ),
+            language
+          )
+        );
+      } finally {
+        refreshInFlightRef.current = false;
+      }
+    },
+    [applyFetchedHeartSounds, clearToken, language, patientId, router, token]
+  );
+
   useEffect(() => {
     if (!token) {
       router.replace("/login");
@@ -621,8 +602,7 @@ export function PatientHeartSoundContent({
         setLoading(true);
       }
       setPatientError(null);
-      setRecordsBanner(null);
-      setUsingDemoRecords(false);
+      setRecordsError(null);
       try {
         const patientData = await fetchPatient(patientId, token);
         if (cancelled) {
@@ -633,55 +613,8 @@ export function PatientHeartSoundContent({
           patient: patientData,
           patientCachedAt: Date.now(),
         });
-
-        try {
-          const soundData = await fetchPatientHeartSounds(patientId, token);
-          if (cancelled) {
-            return;
-          }
-          if (soundData.items.length > 0) {
-            setRecords(soundData.items);
-            setUsingDemoRecords(false);
-            writePatientHeartSoundCache(userId, patientId, {
-              records: soundData.items,
-              recordsCachedAt: Date.now(),
-            });
-          } else {
-            setRecords(getDemoHeartSoundRecords(patientId));
-            setUsingDemoRecords(true);
-            setRecordsBanner(getDemoRecordsBanner(language));
-            writePatientHeartSoundCache(userId, patientId, {
-              records: [],
-              recordsCachedAt: Date.now(),
-            });
-          }
-        } catch (err) {
-          if (cancelled) {
-            return;
-          }
-          const status = (err as { status?: number }).status;
-          if (status === 401) {
-            clearToken();
-            router.replace("/login");
-            return;
-          }
-          setRecords(getDemoHeartSoundRecords(patientId));
-          setUsingDemoRecords(true);
-          setRecordsBanner({
-            title: tr(language, "Built-in demo recordings are loaded", "กำลังแสดงไฟล์เสียงตัวอย่างในระบบ"),
-            message:
-              status === 404
-                ? tr(
-                    language,
-                    "The live heart-sound endpoint is not ready yet, so sample recordings were loaded instead. You can review the layout and play audio immediately while backend setup continues.",
-                    "endpoint รายการเสียงหัวใจจริงยังไม่พร้อม ระบบจึงโหลดไฟล์เสียงตัวอย่างแทน คุณสามารถตรวจ layout และกดฟังเสียงได้ทันทีระหว่างที่ backend กำลังตั้งค่า"
-                  )
-                : tr(
-                    language,
-                    "Live patient recordings could not be loaded right now, so sample recordings were loaded instead to keep the workspace usable.",
-                    "ยังไม่สามารถโหลดไฟล์เสียงจริงของผู้ป่วยได้ในขณะนี้ ระบบจึงโหลดไฟล์เสียงตัวอย่างแทนเพื่อให้หน้ายังใช้งานต่อได้"
-                  ),
-          });
+        if (!cancelled) {
+          await refreshHeartSounds({ clearRecordsOnError: true });
         }
       } catch (err) {
         if (cancelled) {
@@ -713,10 +646,44 @@ export function PatientHeartSoundContent({
     hasCachedRecords,
     language,
     patientId,
+    refreshHeartSounds,
     router,
     token,
     userId,
   ]);
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    const refreshVisibleRecords = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+      void refreshHeartSounds({ clearRecordsOnError: false });
+    };
+
+    const intervalId = window.setInterval(
+      refreshVisibleRecords,
+      HEART_SOUND_AUTO_REFRESH_INTERVAL_MS
+    );
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshHeartSounds({ clearRecordsOnError: false });
+      }
+    };
+
+    window.addEventListener("focus", refreshVisibleRecords);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refreshVisibleRecords);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [patientId, refreshHeartSounds, token]);
 
   const displayRecords = useMemo<DisplayHeartSoundRecord[]>(() => {
     return [...draftRecords, ...records].sort((left, right) => {
@@ -798,8 +765,8 @@ export function PatientHeartSoundContent({
     setUploadError(null);
   };
 
-  const queueSelectedFiles = () => {
-    if (selectedFiles.length === 0) {
+  const queueSelectedFiles = async () => {
+    if (selectedFiles.length === 0 || !token) {
       return;
     }
 
@@ -811,17 +778,56 @@ export function PatientHeartSoundContent({
     const nextDrafts = selectedFiles.map((file, index) =>
       createDraftRecord(file, patientId, assignedPositions[index], index)
     );
+    const draftIds = new Set(nextDrafts.map((record) => record.id));
 
     setDraftRecords((current) => [...nextDrafts, ...current]);
-    setSelectedFiles([]);
     setUploadError(null);
-    setUploadOpen(false);
-    setActivePosition(assignedPositions[0] ?? null);
-    setManualPosition(assignedPositions[0] ?? manualPosition);
-    shouldScrollRef.current = true;
+    setIsUploading(true);
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+    try {
+      for (const [index, file] of selectedFiles.entries()) {
+        await uploadPatientHeartSound(
+          patientId,
+          {
+            file,
+            position: assignedPositions[index],
+          },
+          token
+        );
+      }
+
+      await refreshHeartSounds({ clearRecordsOnError: true });
+      setSelectedFiles([]);
+      setUploadOpen(false);
+      setActivePosition(assignedPositions[0] ?? null);
+      setManualPosition(assignedPositions[0] ?? manualPosition);
+      shouldScrollRef.current = true;
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      toast.success(
+        tr(
+          language,
+          "Heart-sound files uploaded",
+          "อัปโหลดไฟล์เสียงหัวใจเรียบร้อย"
+        )
+      );
+    } catch (error) {
+      const message = getHeartSoundUploadErrorMessage(language, error);
+      setUploadError(message);
+      toast.error(
+        tr(language, "Upload failed", "อัปโหลดไม่สำเร็จ"),
+        {
+          description: message,
+        }
+      );
+    } finally {
+      setDraftRecords((current) =>
+        current.filter((record) => !draftIds.has(record.id))
+      );
+      setIsUploading(false);
     }
   };
 
@@ -866,20 +872,6 @@ export function PatientHeartSoundContent({
 
   return (
     <div className="flex-1 min-h-0 space-y-5 overflow-y-auto py-2">
-      {recordsBanner ? (
-        <section className="rounded-[24px] border border-sky-200/80 bg-sky-50/85 px-4 py-3 shadow-sm">
-          <div className="flex items-start gap-3">
-            <div className="mt-0.5 rounded-2xl bg-sky-100 p-2 text-sky-700">
-              <CircleAlert className="size-5" />
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-sky-950">{recordsBanner.title}</p>
-              <p className="text-sm leading-6 text-sky-900/80">{recordsBanner.message}</p>
-            </div>
-          </div>
-        </section>
-      ) : null}
-
       <section className="rounded-[28px] border border-slate-200/80 bg-white/95 shadow-[0_16px_38px_rgba(15,23,42,0.05)]">
         <div className="flex flex-col gap-5 px-5 py-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-3">
@@ -915,13 +907,9 @@ export function PatientHeartSoundContent({
               {draftRecords.length > 0 ? (
                 <span className="inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-emerald-700">
                   <AudioLines className="size-4" />
-                  {draftRecords.length} {tr(language, "queued", "รออัปโหลด")}
-                </span>
-              ) : null}
-              {usingDemoRecords ? (
-                <span className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-3 py-1.5 text-[#0f6f89]">
-                  <CircleAlert className="size-4" />
-                  {tr(language, "Demo audio loaded", "โหลดเสียงตัวอย่างแล้ว")}
+                  {draftRecords.length} {isUploading
+                    ? tr(language, "uploading", "กำลังอัปโหลด")
+                    : tr(language, "queued", "รออัปโหลด")}
                 </span>
               ) : null}
             </div>
@@ -931,6 +919,7 @@ export function PatientHeartSoundContent({
             <Button
               className="min-h-11 min-w-[240px] rounded-2xl"
               onClick={() => setUploadOpen((current) => !current)}
+              disabled={isUploading}
             >
               <CloudUpload className="size-4" />
               {uploadOpen
@@ -1072,13 +1061,13 @@ export function PatientHeartSoundContent({
                   {tr(language, "Upload workflow", "ขั้นตอนอัปโหลด")}
                 </p>
                 <h2 className="mt-1.5 text-lg font-semibold tracking-tight text-slate-900">
-                  {tr(language, "Queue files", "เพิ่มไฟล์เข้าคิว")}
+                  {tr(language, "Upload files", "อัปโหลดไฟล์")}
                 </h2>
                 <p className="mt-1 text-sm text-slate-600">
                   {tr(
                     language,
-                    "Pick files, set side and assignment, then queue them into this patient workspace.",
-                    "เลือกไฟล์ ตั้งค่าด้านและการกำหนดตำแหน่ง แล้วเพิ่มเข้าคิวใน workspace ของผู้ป่วยรายนี้",
+                    "Pick files, set side and assignment, then upload them into this patient workspace.",
+                    "เลือกไฟล์ ตั้งค่าด้านและการกำหนดตำแหน่ง แล้วอัปโหลดเข้า workspace ของผู้ป่วยรายนี้",
                   )}
                 </p>
               </div>
@@ -1088,6 +1077,7 @@ export function PatientHeartSoundContent({
                 size="sm"
                 className="rounded-full shrink-0"
                 onClick={() => setUploadOpen((current) => !current)}
+                disabled={isUploading}
               >
                 {uploadOpen ? tr(language, "Close", "ปิด") : tr(language, "Open", "เปิด")}
               </Button>
@@ -1107,8 +1097,8 @@ export function PatientHeartSoundContent({
                         <p className="mt-0.5 text-xs text-slate-600">
                           {tr(
                             language,
-                            "Multiple audio files are supported in one queue.",
-                            "รองรับการเลือกหลายไฟล์และเพิ่มเข้าคิวพร้อมกัน",
+                            "Multiple audio files are supported in one upload batch.",
+                            "รองรับการเลือกหลายไฟล์และอัปโหลดพร้อมกัน",
                           )}
                         </p>
                       </div>
@@ -1116,9 +1106,12 @@ export function PatientHeartSoundContent({
                         type="button"
                         className="min-h-10 rounded-xl shrink-0"
                         onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
                       >
                         <CloudUpload className="size-4" />
-                        {tr(language, "Choose files", "เลือกไฟล์")}
+                        {isUploading
+                          ? tr(language, "Uploading...", "กำลังอัปโหลด...")
+                          : tr(language, "Choose files", "เลือกไฟล์")}
                       </Button>
                     </div>
                     <Input
@@ -1170,6 +1163,7 @@ export function PatientHeartSoundContent({
                                 setManualPosition(7);
                               }
                             }}
+                            disabled={isUploading}
                           >
                             {getPanelLabel(language, panel)}
                           </Button>
@@ -1194,6 +1188,7 @@ export function PatientHeartSoundContent({
                                 : "text-slate-700 hover:bg-white",
                             )}
                             onClick={() => setAssignmentMode(mode)}
+                            disabled={isUploading}
                           >
                             {mode === "auto"
                               ? tr(language, "Auto", "อัตโนมัติ")
@@ -1220,6 +1215,7 @@ export function PatientHeartSoundContent({
                               manualPosition === position && "bg-slate-900 text-white hover:bg-slate-900/90",
                             )}
                             onClick={() => setManualPosition(position)}
+                            disabled={isUploading}
                           >
                             {position}
                           </Button>
@@ -1253,6 +1249,7 @@ export function PatientHeartSoundContent({
                                 size="icon"
                                 className="rounded-full text-slate-500"
                                 onClick={() => removeSelectedFile(key)}
+                                disabled={isUploading}
                                 aria-label={tr(language, "Remove file", "ลบไฟล์")}
                               >
                                 <X className="size-4" />
@@ -1281,21 +1278,23 @@ export function PatientHeartSoundContent({
                               )
                             : tr(
                                 language,
-                                "Every selected file will be queued to the exact position shown here.",
-                                "ไฟล์ที่เลือกทั้งหมดจะถูกเพิ่มเข้าคิวในตำแหน่งที่ระบุไว้นี้",
+                                "Every selected file will be uploaded to the exact position shown here.",
+                                "ไฟล์ที่เลือกทั้งหมดจะถูกอัปโหลดไปยังตำแหน่งที่ระบุไว้นี้",
                               )}
                         </p>
                       </div>
                       <Button
                         type="button"
                         className="min-h-11 rounded-xl shrink-0"
-                        disabled={selectedFiles.length === 0}
+                        disabled={selectedFiles.length === 0 || isUploading}
                         onClick={queueSelectedFiles}
                       >
                         <CloudUpload className="size-4" />
-                        {selectedFiles.length === 0
+                        {isUploading
+                          ? tr(language, "Uploading...", "กำลังอัปโหลด...")
+                          : selectedFiles.length === 0
                           ? tr(language, "Choose files first", "เลือกไฟล์ก่อน")
-                          : tr(language, `Queue ${selectedFiles.length}`, `เพิ่ม ${selectedFiles.length} ไฟล์`)}
+                          : tr(language, `Upload ${selectedFiles.length}`, `อัปโหลด ${selectedFiles.length} ไฟล์`)}
                       </Button>
                     </div>
                   </div>
@@ -1315,7 +1314,12 @@ export function PatientHeartSoundContent({
                         )}
                       </p>
                     </div>
-                    <Button type="button" className="min-h-10 rounded-xl shrink-0" onClick={() => setUploadOpen(true)}>
+                    <Button
+                      type="button"
+                      className="min-h-10 rounded-xl shrink-0"
+                      onClick={() => setUploadOpen(true)}
+                      disabled={isUploading}
+                    >
                       <CloudUpload className="size-4" />
                       {tr(language, "Open upload", "เปิดอัปโหลด")}
                     </Button>
@@ -1391,6 +1395,22 @@ export function PatientHeartSoundContent({
           </div>
         </div>
 
+        {recordsError ? (
+          <div className="border-b border-amber-200/80 bg-amber-50/80 px-5 py-4">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 rounded-2xl bg-amber-100 p-2 text-amber-700">
+                <CircleAlert className="size-5" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-amber-950">
+                  {tr(language, "Unable to load recordings", "ไม่สามารถโหลดรายการไฟล์เสียงได้")}
+                </p>
+                <p className="text-sm leading-6 text-amber-900/80">{recordsError}</p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {displayRecords.length === 0 ? (
           <div className="px-6 py-16 text-center">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-3xl bg-[#0891B2]/10 text-[#0891B2]">
@@ -1406,7 +1426,12 @@ export function PatientHeartSoundContent({
                 "ใช้ขั้นตอนอัปโหลดเพื่อแนบไฟล์เสียงไปยังตำแหน่งด้านหน้าหรือด้านหลัง"
               )}
             </p>
-            <Button type="button" className="mt-5 rounded-2xl" onClick={() => setUploadOpen(true)}>
+            <Button
+              type="button"
+              className="mt-5 rounded-2xl"
+              onClick={() => setUploadOpen(true)}
+              disabled={isUploading}
+            >
               <CloudUpload className="size-4" />
               {tr(language, "Open upload workflow", "เปิดขั้นตอนอัปโหลด")}
             </Button>
@@ -1496,75 +1521,79 @@ export function PatientHeartSoundContent({
               })}
             </div>
 
-            <div className="hidden overflow-x-auto lg:block">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-slate-100/80 text-left text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                    <th className="px-6 py-4 font-medium">
+            <div className="hidden overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-[0_24px_60px_-44px_rgba(15,23,42,0.45)] lg:block">
+              <Table className="min-w-full border-separate border-spacing-0 text-sm">
+                <TableHeader className="[&_tr]:border-b">
+                  <TableRow className="sticky top-0 z-20 bg-background/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/70 hover:bg-transparent">
+                    <TableHead className="h-12 min-w-[180px] px-6 text-left align-middle text-sm font-medium text-muted-foreground">
                       {tr(language, "Date / time", "วันเวลา")}
-                    </th>
+                    </TableHead>
                     {showSystemDetails ? (
-                      <th className="px-6 py-4 font-medium">
+                      <TableHead className="h-12 min-w-[220px] px-6 text-left align-middle text-sm font-medium text-muted-foreground">
                         {tr(language, "User ID", "รหัสผู้ใช้")}
-                      </th>
+                      </TableHead>
                     ) : null}
                     {showSystemDetails ? (
-                      <th className="px-6 py-4 font-medium">
+                      <TableHead className="h-12 min-w-[180px] px-6 text-left align-middle text-sm font-medium text-muted-foreground">
                         {tr(language, "MAC Address", "ที่อยู่ MAC")}
-                      </th>
+                      </TableHead>
                     ) : null}
-                    <th className="px-6 py-4 font-medium">
+                    <TableHead className="h-12 min-w-[120px] px-6 text-left align-middle text-sm font-medium text-muted-foreground">
                       {tr(language, "Position", "ตำแหน่ง")}
-                    </th>
-                    <th className="px-6 py-4 font-medium">
+                    </TableHead>
+                    <TableHead className="h-12 min-w-[360px] px-6 text-left align-middle text-sm font-medium text-muted-foreground">
                       {tr(language, "Playback", "การเล่นเสียง")}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody className="[&_tr:last-child]:border-0">
                   {visibleRecords.map((record) => {
                     const isActive = activePosition === record.position;
                     const isJumpedRow = activeRowId === record.id;
                     const fileSize = formatFileSize(record.fileSizeBytes);
 
                     return (
-                      <tr
+                      <TableRow
                         key={record.id}
                         ref={(node) => {
                           rowRefs.current[record.id] = node;
                         }}
                         className={cn(
-                          "border-b border-slate-100 transition-colors last:border-b-0",
-                          isActive && "bg-[#ecfeff]",
-                          isJumpedRow && "bg-[#cffafe]"
+                          "group border-b border-slate-100 transition-colors hover:bg-muted/30",
+                          isActive && "bg-[#ecfeff] hover:bg-[#dff9ff]",
+                          isJumpedRow && "bg-[#cffafe] hover:bg-[#c4f3ff]"
                         )}
                       >
-                        <td className="px-6 py-4 align-top font-medium text-slate-800">
+                        <TableCell className="px-6 py-4 align-middle">
                           <div className="space-y-1">
-                            <div>{formatDateTime(record.recorded_at, language)}</div>
+                            <div className="font-medium text-slate-800">
+                              {formatDateTime(record.recorded_at, language)}
+                            </div>
                             {record.isDraft ? (
                               <Badge className="border-transparent bg-amber-500/14 text-amber-700">
                                 {tr(language, "Queued", "รออัปโหลด")}
                               </Badge>
                             ) : null}
                           </div>
-                        </td>
+                        </TableCell>
                         {showSystemDetails ? (
-                          <td className="px-6 py-4 align-top text-slate-600">
-                            <span className="break-all">{record.patient_id}</span>
-                          </td>
+                          <TableCell className="px-6 py-4 align-middle text-slate-600">
+                            <span className="block max-w-[240px] break-all">{record.patient_id}</span>
+                          </TableCell>
                         ) : null}
                         {showSystemDetails ? (
-                          <td className="px-6 py-4 align-top text-slate-600">
+                          <TableCell className="px-6 py-4 align-middle text-slate-600">
                             <div className="space-y-1">
                               <div>{record.mac_address}</div>
                               {record.draftFileName ? (
-                                <div className="truncate text-xs text-slate-500">{record.draftFileName}</div>
+                                <div className="max-w-[180px] truncate text-xs text-slate-500">
+                                  {record.draftFileName}
+                                </div>
                               ) : null}
                             </div>
-                          </td>
+                          </TableCell>
                         ) : null}
-                        <td className="px-6 py-4 align-top">
+                        <TableCell className="px-6 py-4 align-middle">
                           <button
                             type="button"
                             onClick={() => jumpToPosition(record.position)}
@@ -1577,9 +1606,9 @@ export function PatientHeartSoundContent({
                           >
                             {record.position}
                           </button>
-                        </td>
-                        <td className="px-6 py-4 align-top">
-                          <div className="min-w-[280px]">
+                        </TableCell>
+                        <TableCell className="px-6 py-4 align-middle">
+                          <div className="min-w-[320px] max-w-[820px]">
                             <HeartSoundInlinePlayer
                               src={record.blob_url}
                               isActive={playingRecordId === record.id}
@@ -1595,12 +1624,12 @@ export function PatientHeartSoundContent({
                               </div>
                             )}
                           </div>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </>
         )}

@@ -181,6 +181,24 @@ def test_settings_accepts_comma_separated_device_api_secrets(monkeypatch):
     }
 
 
+def test_settings_allows_empty_azure_blob_storage_path_prefix(monkeypatch):
+    _apply_env(
+        monkeypatch,
+        AZURE_BLOB_STORAGE_CONNECTION_STRING=(
+            "DefaultEndpointsProtocol=https;"
+            "AccountName=telemedheartsound01;"
+            "AccountKey=test-key;"
+            "EndpointSuffix=core.windows.net"
+        ),
+        AZURE_BLOB_STORAGE_CONTAINER="heart-sounds",
+        AZURE_BLOB_STORAGE_PATH_PREFIX="",
+    )
+
+    settings = _build_settings()
+
+    assert settings.azure_blob_storage_path_prefix == ""
+
+
 def test_settings_enable_api_docs_by_default_in_development(monkeypatch):
     _apply_env(monkeypatch, APP_ENV="development", API_DOCS_ENABLED=None)
 

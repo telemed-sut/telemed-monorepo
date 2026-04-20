@@ -21,16 +21,26 @@ const tr = (language: string, en: string, th: string) =>
   language === "th" ? th : en;
 
 export function PasskeyOnboardingNudge() {
-  const { user, token, refreshMe } = useAuthStore();
+  const { currentUser, setCurrentUser } = useAuthStore();
   const language = useLanguageStore((state) => state.language);
   const [isVisible, setIsVisible] = useState(
-    user?.role === "admin" && 
-    (user?.passkey_count ?? 0) === 0 && 
-    !user?.passkey_onboarding_dismissed
+    currentUser?.role === "admin" &&
+    (currentUser?.passkey_count ?? 0) === 0 &&
+    !currentUser?.passkey_onboarding_dismissed
   );
   const [loading, setLoading] = useState(false);
 
-  if (!isVisible || !user) return null;
+  if (!isVisible || !currentUser) return null;
+
+  const refreshCurrentUser = async () => {
+    try {
+      const { fetchCurrentUser } = await import("@/lib/api");
+      const nextUser = await fetchCurrentUser();
+      setCurrentUser(nextUser ?? null);
+    } catch {
+      // Best-effort refresh only; the nudge can still close locally.
+    }
+  };
 
   const handleRegister = async () => {
     setLoading(true);
@@ -38,14 +48,13 @@ export function PasskeyOnboardingNudge() {
       const name = tr(language, "My Device", "อุปกรณ์ของฉัน") + " (" + new Date().toLocaleDateString() + ")";
       await registerNewPasskey(name);
       toast.success(tr(language, "Passkey registered successfully!", "ลงทะเบียน Passkey สำเร็จแล้ว!"));
-      await refreshMe(); // Update user state to hide nudge
+      await refreshCurrentUser();
       setIsVisible(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (isPasskeyCeremonyCancelled(error)) {
         setLoading(false);
         return;
       }
-      console.error("Onboarding passkey error:", error);
       toast.error(tr(language, "Failed to register Passkey.", "ไม่สามารถลงทะเบียน Passkey ได้"));
     } finally {
       setLoading(false);
@@ -56,7 +65,7 @@ export function PasskeyOnboardingNudge() {
     try {
       await dismissPasskeyOnboarding();
       setIsVisible(false);
-      await refreshMe();
+      await refreshCurrentUser();
     } catch (error) {
       setIsVisible(false);
     }

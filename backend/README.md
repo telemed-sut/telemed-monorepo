@@ -39,6 +39,23 @@ http://localhost:3000 and http://localhost:8080, backend runs on port 8000.
 Primary source should be Infisical secrets at runtime.  
 `.env.example` documents required keys only. `backend/.env` is not an official runtime source anymore.
 
+### Heart-sound upload secrets
+Heart-sound direct upload depends on Azure Blob Storage runtime secrets. Keep
+these values in Infisical for the target environment, or export them in your
+shell before you start Docker Compose or the backend directly.
+
+- `AZURE_BLOB_STORAGE_CONNECTION_STRING`: required for generating SAS upload
+  URLs
+- `AZURE_BLOB_STORAGE_CONTAINER`: required Blob container name for heart-sound
+  files
+- `AZURE_BLOB_STORAGE_URL_TTL_SECONDS`: optional override for signed URL TTL;
+  defaults to `900`
+- `AZURE_BLOB_STORAGE_PATH_PREFIX`: optional path prefix inside the container
+
+`./scripts/check-compose-env.sh` now fails fast when the required Azure Blob
+secrets are missing, so local startup stops before you reach a broken upload
+flow in the browser.
+
 ### Frontend Integration
 - Backend URL: `http://localhost:8000`
 - Frontend Env: `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`

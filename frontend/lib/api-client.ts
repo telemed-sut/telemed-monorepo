@@ -678,8 +678,10 @@ export async function rawFetch<T>(
 ): Promise<RawFetchResult<T>> {
   const url = `${API_BASE_URL}${path}`;
   const method = (options.method ?? "GET").toUpperCase();
+  const bodyIsFormData =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(bodyIsFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string> || {}),
   };
 

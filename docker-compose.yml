@@ -1,5 +1,5 @@
 x-backend-common-env: &backend-common-env
-  DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required. Run backend/scripts/bootstrap_backend_env.sh or use Infisical before running docker compose.}"
+  DATABASE_URL: "${DOCKER_DATABASE_URL:-${DATABASE_URL:?DATABASE_URL is required. Run backend/scripts/bootstrap_backend_env.sh or use Infisical before running docker compose.}}"
   JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required. Run backend/scripts/bootstrap_backend_env.sh or use Infisical before running docker compose.}"
   JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-3600}"
   ADMIN_JWT_EXPIRES_IN: "${ADMIN_JWT_EXPIRES_IN:-14400}"
@@ -78,6 +78,10 @@ x-backend-common-env: &backend-common-env
   ZEGO_APP_ID: "${ZEGO_APP_ID:-}"
   ZEGO_SERVER_SECRET: "${ZEGO_SERVER_SECRET:-}"
   REDIS_URL: "${REDIS_URL:-}"
+  AZURE_BLOB_STORAGE_CONNECTION_STRING: "${AZURE_BLOB_STORAGE_CONNECTION_STRING:-}"
+  AZURE_BLOB_STORAGE_CONTAINER: "${AZURE_BLOB_STORAGE_CONTAINER:-}"
+  AZURE_BLOB_STORAGE_PATH_PREFIX: "${AZURE_BLOB_STORAGE_PATH_PREFIX:-}"
+  AZURE_BLOB_STORAGE_URL_TTL_SECONDS: "${AZURE_BLOB_STORAGE_URL_TTL_SECONDS:-900}"
 
 services:
   frontend:

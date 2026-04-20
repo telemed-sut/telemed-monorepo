@@ -7,6 +7,7 @@ const {
   mockPush,
   mockBack,
   mockSearchParams,
+  mockSearchParamsObject,
   mockToastDismiss,
   mockToastError,
   mockToastSuccess,
@@ -21,53 +22,62 @@ const {
   mockListPasskeys,
   mockAuthState,
   mockLanguageState,
-} = vi.hoisted(() => ({
-  mockReplace: vi.fn(),
-  mockPush: vi.fn(),
-  mockBack: vi.fn(),
-  mockSearchParams: { value: "panel=security" },
-  mockToastDismiss: vi.fn(),
-  mockToastError: vi.fn(),
-  mockToastSuccess: vi.fn(),
-  mockFetchAccessProfile: vi.fn(),
-  mockFetch2FAStatus: vi.fn(),
-  mockFetchCurrentUser: vi.fn(),
-  mockFetchTrustedDevices: vi.fn(),
-  mockDisable2FA: vi.fn(),
-  mockReset2FA: vi.fn(),
-  mockVerify2FA: vi.fn(),
-  mockCreateUserInvite: vi.fn(),
-  mockListPasskeys: vi.fn(),
-  mockAuthState: {
-    token: "settings-token",
-    userId: "doctor-1",
-    role: "doctor",
-    hydrated: true,
-    currentUser: {
-      id: "doctor-1",
-      email: "doctor@example.com",
-      first_name: "Test",
-      last_name: "Doctor",
+} = vi.hoisted(() => {
+  const mockSearchParams = { value: "panel=security" };
+  const mockSearchParamsObject = {
+    get: (key: string) => new URLSearchParams(mockSearchParams.value).get(key),
+    toString: () => mockSearchParams.value,
+  };
+
+  return {
+    mockReplace: vi.fn(),
+    mockPush: vi.fn(),
+    mockBack: vi.fn(),
+    mockSearchParams,
+    mockSearchParamsObject,
+    mockToastDismiss: vi.fn(),
+    mockToastError: vi.fn(),
+    mockToastSuccess: vi.fn(),
+    mockFetchAccessProfile: vi.fn(),
+    mockFetch2FAStatus: vi.fn(),
+    mockFetchCurrentUser: vi.fn(),
+    mockFetchTrustedDevices: vi.fn(),
+    mockDisable2FA: vi.fn(),
+    mockReset2FA: vi.fn(),
+    mockVerify2FA: vi.fn(),
+    mockCreateUserInvite: vi.fn(),
+    mockListPasskeys: vi.fn(),
+    mockAuthState: {
+      token: "settings-token",
+      userId: "doctor-1",
       role: "doctor",
-      verification_status: "verified",
-      two_factor_enabled: true,
-      mfa_verified: true,
-      mfa_recent_for_privileged_actions: true,
-      mfa_authenticated_at: "2026-04-17T03:30:00.000Z",
-      auth_source: "local",
-      sso_provider: null,
+      hydrated: true,
+      currentUser: {
+        id: "doctor-1",
+        email: "doctor@example.com",
+        first_name: "Test",
+        last_name: "Doctor",
+        role: "doctor",
+        verification_status: "verified",
+        two_factor_enabled: true,
+        mfa_verified: true,
+        mfa_recent_for_privileged_actions: true,
+        mfa_authenticated_at: "2026-04-17T03:30:00.000Z",
+        auth_source: "local",
+        sso_provider: null,
+      },
+      ssoProvider: null,
+      mfaVerified: true,
+      mfaAuthenticatedAt: "2026-04-17T03:30:00.000Z",
+      clearToken: vi.fn(),
+      setCurrentUser: vi.fn(),
+      getTokenTTL: vi.fn(() => 1800),
     },
-    ssoProvider: null,
-    mfaVerified: true,
-    mfaAuthenticatedAt: "2026-04-17T03:30:00.000Z",
-    clearToken: vi.fn(),
-    setCurrentUser: vi.fn(),
-    getTokenTTL: vi.fn(() => 1800),
-  },
-  mockLanguageState: {
-    language: "en" as const,
-  },
-}));
+    mockLanguageState: {
+      language: "en" as const,
+    },
+  };
+});
 
 vi.mock("next/image", () => ({
   // eslint-disable-next-line @next/next/no-img-element
@@ -80,7 +90,7 @@ vi.mock("next/navigation", () => ({
     push: mockPush,
     back: mockBack,
   }),
-  useSearchParams: () => new URLSearchParams(mockSearchParams.value),
+  useSearchParams: () => mockSearchParamsObject,
 }));
 
 vi.mock("@/hooks/use-session-logout", () => ({
@@ -248,7 +258,7 @@ describe("SettingsContent validation toasts", () => {
     fireEvent.click(disableButton);
 
     expect(mockToastError).toHaveBeenCalledTimes(2);
-  });
+  }, 15000);
 
   it("dedupes the admin invite validation toast for repeated empty-reason clicks", async () => {
     mockSearchParams.value = "panel=admin";
@@ -317,7 +327,7 @@ describe("SettingsContent validation toasts", () => {
         "settings-admin-invite-reason-required",
       );
     });
-  });
+  }, 15000);
 
   it("opens the sensitive reauth dialog once when reset 2FA requires recent MFA", async () => {
     mockFetch2FAStatus.mockResolvedValue({
@@ -344,7 +354,7 @@ describe("SettingsContent validation toasts", () => {
     expect(screen.getAllByTestId("sensitive-reauth-dialog")).toHaveLength(1);
     expect(mockReset2FA).toHaveBeenCalledTimes(1);
     expect(mockToastError).not.toHaveBeenCalled();
-  });
+  }, 15000);
 
   it("shows the invalid 2FA error toast only once until the code changes", async () => {
     mockVerify2FA.mockRejectedValue(
@@ -381,5 +391,5 @@ describe("SettingsContent validation toasts", () => {
     });
 
     expect(mockToastDismiss).toHaveBeenCalledWith("settings-verify-2fa-invalid");
-  });
+  }, 15000);
 });

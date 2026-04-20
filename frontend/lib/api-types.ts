@@ -235,6 +235,22 @@ export interface HeartSoundRecord {
   created_at: string;
 }
 
+export interface UploadPatientHeartSoundPayload {
+  file: File;
+  position: number;
+  recorded_at?: string | null;
+}
+
+export interface HeartSoundUploadSession {
+  session_id: string;
+  storage_key: string;
+  blob_url: string;
+  upload_url: string;
+  upload_headers: Record<string, string>;
+  expires_at: string;
+  max_file_size_bytes: number;
+}
+
 export interface HeartSoundListResponse {
   items: HeartSoundRecord[];
   total: number;

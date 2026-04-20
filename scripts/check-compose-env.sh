@@ -51,6 +51,12 @@ device_api_secret = (os.environ.get("DEVICE_API_SECRET") or "").strip()
 device_api_secrets = (os.environ.get("DEVICE_API_SECRETS") or "").strip()
 meeting_signing_secret = (os.environ.get("MEETING_SIGNING_SECRET") or "").strip()
 redis_url = (os.environ.get("REDIS_URL") or "").strip()
+azure_blob_storage_connection_string = (
+    os.environ.get("AZURE_BLOB_STORAGE_CONNECTION_STRING") or ""
+).strip()
+azure_blob_storage_container = (
+    os.environ.get("AZURE_BLOB_STORAGE_CONTAINER") or ""
+).strip()
 app_env = (os.environ.get("APP_ENV") or "development").strip().lower()
 
 if not database_url:
@@ -145,6 +151,22 @@ else:
         "warning",
         "REDIS_URL is not set. Local backend can still run, but production-grade rate limiting and shared transient state are unavailable.",
     )
+
+if not azure_blob_storage_connection_string:
+    add_issue("missing", "AZURE_BLOB_STORAGE_CONNECTION_STRING")
+elif "replace_with" in azure_blob_storage_connection_string.lower():
+    add_issue(
+        "invalid",
+        "AZURE_BLOB_STORAGE_CONNECTION_STRING still contains placeholder text like 'replace_with'.",
+    )
+
+if not azure_blob_storage_container:
+    add_issue("missing", "AZURE_BLOB_STORAGE_CONTAINER")
+elif "replace_with" in azure_blob_storage_container.lower():
+    add_issue(
+        "invalid",
+        "AZURE_BLOB_STORAGE_CONTAINER still contains placeholder text like 'replace_with'.",
+    )
 PY
 }
 
@@ -181,6 +203,8 @@ check_backend_env() {
   if ((${#missing[@]} > 0 || ${#invalid[@]} > 0)); then
     echo "This repo expects Docker Compose runtime secrets to come from Infisical or exported shell variables." >&2
     echo "Add the missing keys to your Infisical environment, or export them before running ./scripts/dev-backend.sh." >&2
+    echo >&2
+    echo "Heart-sound uploads require AZURE_BLOB_STORAGE_CONNECTION_STRING and AZURE_BLOB_STORAGE_CONTAINER at startup." >&2
     echo >&2
     echo "Tip: for device ingest config, you can provide either DEVICE_API_SECRET, DEVICE_API_SECRETS, or set DEVICE_API_REQUIRE_REGISTERED_DEVICE=true intentionally." >&2
     exit 1

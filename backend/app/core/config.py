@@ -166,6 +166,10 @@ class Settings(BaseSettings):
     meeting_signing_allow_jwt_secret_fallback: bool = False
     meeting_video_room_prefix: str = "telemed"
     meeting_presence_reconcile_interval_seconds: int = 30
+    azure_blob_storage_connection_string: str | None = None
+    azure_blob_storage_container: str | None = None
+    azure_blob_storage_path_prefix: str = ""
+    azure_blob_storage_url_ttl_seconds: int = 900
 
     @field_validator("database_url", mode="before")
     @classmethod
@@ -268,6 +272,29 @@ class Settings(BaseSettings):
         if v is None:
             return None
         return cls._validate_device_secret_value(v, "MEETING_SIGNING_SECRET")
+
+    @field_validator("azure_blob_storage_connection_string", "azure_blob_storage_container", mode="before")
+    @classmethod
+    def normalize_optional_storage_strings(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
+
+    @field_validator("azure_blob_storage_path_prefix")
+    @classmethod
+    def normalize_storage_path_prefix(cls, v: str) -> str:
+        value = (v or "").strip().strip("/")
+        return value
+
+    @field_validator("azure_blob_storage_url_ttl_seconds")
+    @classmethod
+    def validate_azure_blob_storage_url_ttl_seconds(cls, v: int) -> int:
+        if v < 60:
+            raise ValueError("AZURE_BLOB_STORAGE_URL_TTL_SECONDS must be at least 60.")
+        if v > 86400:
+            raise ValueError("AZURE_BLOB_STORAGE_URL_TTL_SECONDS must be <= 86400.")
+        return v
 
     @field_validator(
         "device_secret_encryption_key",
@@ -730,6 +757,18 @@ class Settings(BaseSettings):
                 "Missing dependency 'pycryptodomex'. Install it to enable secrets-at-rest encryption."
             )
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_azure_blob_storage_configuration(self):
+        configured_values = [
+            self.azure_blob_storage_connection_string,
+            self.azure_blob_storage_container,
+        ]
+        if any(configured_values) and not all(configured_values):
+            raise ValueError(
+                "AZURE_BLOB_STORAGE_CONNECTION_STRING and AZURE_BLOB_STORAGE_CONTAINER must both be set."
+            )
         return self
 
     @property

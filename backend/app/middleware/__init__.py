@@ -97,7 +97,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "script-src 'none'; "
                 "font-src 'none'; "
                 "manifest-src 'none'; "
-                "connect-src 'self'"
+                "connect-src 'self' https://*.blob.core.windows.net"
             )
 
         response.headers["X-Content-Type-Options"] = "nosniff"

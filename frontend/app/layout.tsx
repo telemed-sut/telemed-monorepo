@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
@@ -55,6 +55,8 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const headerList = await headers();
+  const nonce = headerList.get("x-nonce") ?? undefined;
   const cookieStore = await cookies();
   const detectedLang = resolveAppLanguage(
     cookieStore.get(APP_LANGUAGE_COOKIE_KEY)?.value
@@ -69,6 +71,7 @@ export default async function RootLayout({
           defaultTheme="light"
           enableSystem={false}
           disableTransitionOnChange
+          nonce={nonce}
         >
           <I18nProvider>
             <AppearanceInitializer />

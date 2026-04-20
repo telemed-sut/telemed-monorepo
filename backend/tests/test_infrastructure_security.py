@@ -127,6 +127,37 @@ def test_compose_applies_resource_limits_and_health_checks():
     assert "memory: 256M" in authentik_redis_block
 
 
+def test_compose_backend_prefers_container_safe_database_url():
+    compose_text = _read_text(REPO_ROOT / "docker-compose.yml")
+    backend_common_env_block = compose_text.split("services:", 1)[0]
+
+    assert 'DATABASE_URL: "${DOCKER_DATABASE_URL:-${DATABASE_URL:?' in backend_common_env_block
+
+
+def test_start_compose_loads_repo_runtime_env_files_before_compose_up():
+    script_text = _read_text(REPO_ROOT / "scripts" / "start-compose.sh")
+
+    assert 'load_env_file_if_present "$ROOT_DIR/.env"' in script_text
+    assert 'load_env_file_if_present "$ROOT_DIR/.env.local"' in script_text
+    assert 'load_env_file_if_present "$ROOT_DIR/backend/.env.local"' in script_text
+    assert 'load_env_file_if_present "$ROOT_DIR/frontend/.env.local"' in script_text
+    assert "load_default_runtime_env" in script_text
+
+
+def test_compose_env_preflight_requires_azure_blob_secrets_for_backend_startup():
+    script_text = _read_text(REPO_ROOT / "scripts" / "check-compose-env.sh")
+
+    assert 'add_issue("missing", "AZURE_BLOB_STORAGE_CONNECTION_STRING")' in script_text
+    assert 'add_issue("missing", "AZURE_BLOB_STORAGE_CONTAINER")' in script_text
+    assert "Heart-sound uploads require AZURE_BLOB_STORAGE_CONNECTION_STRING" in script_text
+
+
+def test_infisical_project_defaults_to_dev_environment():
+    infisical_text = _read_text(REPO_ROOT / ".infisical.json")
+
+    assert '"defaultEnvironment": "dev"' in infisical_text
+
+
 def test_compose_hardens_runtime_services_and_requires_authentik_redis_password():
     compose_text = _read_text(REPO_ROOT / "docker-compose.yml")
 
@@ -258,8 +289,9 @@ def test_staging_compose_enables_init_for_all_services():
 def test_frontend_next_config_sets_explicit_body_size_limits():
     next_config_text = _read_text(REPO_ROOT / "frontend" / "next.config.ts")
 
-    assert 'proxyClientMaxBodySize: "1mb"' in next_config_text
-    assert 'bodySizeLimit: "1mb"' in next_config_text
+    assert 'const HEART_SOUND_UPLOAD_PROXY_BODY_LIMIT = "10mb";' in next_config_text
+    assert "proxyClientMaxBodySize: HEART_SOUND_UPLOAD_PROXY_BODY_LIMIT" in next_config_text
+    assert "bodySizeLimit: HEART_SOUND_UPLOAD_PROXY_BODY_LIMIT" in next_config_text
 
 
 def test_dependabot_configuration_covers_repo_ecosystems_weekly():

@@ -1,10 +1,12 @@
-import { apiFetch, appendPagination } from "./api-client";
+import { apiFetch, appendPagination, invalidateCache } from "./api-client";
 import { fetchAllPages } from "./api-fetch-all";
 import type {
   ActiveMedication,
   BulkDeletePatientsResponse,
   FetchPatientsParams,
   HeartSoundListResponse,
+  HeartSoundRecord,
+  HeartSoundUploadSession,
   LabTrendPoint,
   NoteCreatePayload,
   OrderCreatePayload,
@@ -20,12 +22,16 @@ import type {
   PendingLab,
   TimelineEvent,
   TimelineResponse,
+  UploadPatientHeartSoundPayload,
 } from "./api-types";
 
 interface FetchAllOptions {
   pageSize?: number;
   maxItems?: number;
 }
+
+const AZURE_DIRECT_UPLOAD_CORS_ERROR =
+  "Azure Blob Storage blocked the browser upload. Allow this frontend origin in Blob Storage CORS and try again.";
 
 export async function fetchPatients(params: FetchPatientsParams, token: string) {
   const search = new URLSearchParams();
@@ -104,6 +110,64 @@ export async function fetchPatientHeartSounds(patientId: string, token: string) 
     { method: "GET" },
     token
   );
+}
+
+export async function uploadPatientHeartSound(
+  patientId: string,
+  payload: UploadPatientHeartSoundPayload,
+  token: string
+) {
+  const uploadSession = await apiFetch<HeartSoundUploadSession>(
+    `/patients/${patientId}/heart-sounds/upload-session`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        filename: payload.file.name,
+        position: payload.position,
+        file_size_bytes: payload.file.size,
+        mime_type: payload.file.type || "application/octet-stream",
+        recorded_at: payload.recorded_at ?? null,
+      }),
+      skipCache: true,
+    },
+    token
+  );
+
+  let uploadResponse: Response;
+  try {
+    uploadResponse = await fetch(uploadSession.upload_url, {
+      method: "PUT",
+      headers: uploadSession.upload_headers,
+      body: payload.file,
+    });
+  } catch (error) {
+    throw new Error(AZURE_DIRECT_UPLOAD_CORS_ERROR);
+  }
+
+  if (!uploadResponse.ok) {
+    const responseText = await uploadResponse.text().catch(() => "");
+    if (
+      uploadResponse.status === 403 &&
+      /cors|corspreflightfailure|no matching rule/i.test(responseText)
+    ) {
+      throw new Error(AZURE_DIRECT_UPLOAD_CORS_ERROR);
+    }
+    throw new Error("Unable to upload the file directly to Azure Blob Storage.");
+  }
+
+  const response = await apiFetch<HeartSoundRecord>(
+    `/patients/${patientId}/heart-sounds/complete-upload`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: uploadSession.session_id,
+      }),
+      skipCache: true,
+    },
+    token
+  );
+  invalidateCache(`/patients/${patientId}/heart-sounds`);
+  return response;
 }
 
 export async function fetchPatientAssignments(patientId: string, token: string) {

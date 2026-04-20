@@ -299,6 +299,36 @@ describe("LoginClientPage", () => {
     consoleErrorSpy.mockRestore();
   });
 
+  it("falls back to the regular Passkey button when conditional passkey bootstrap fails", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    browserSupportsConditionalPasskeyLoginMock.mockResolvedValueOnce(true);
+    startConditionalPasskeyLoginMock.mockRejectedValueOnce({
+      status: 500,
+      message: "Internal Server Error",
+    });
+
+    const LoginClientPage = (await import("@/app/login/login-client")).default;
+
+    render(<LoginClientPage />);
+
+    await screen.findByLabelText("Email address");
+
+    await waitFor(() => {
+      expect(startConditionalPasskeyLoginMock).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Sign in with Passkey" })).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Or use password")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Passkey login failed. Please try again or use password."),
+    ).not.toBeInTheDocument();
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+
+    consoleErrorSpy.mockRestore();
+  });
+
   it("does not flash the Passkey button while conditional UI support is still being detected", async () => {
     browserSupportsConditionalPasskeyLoginMock.mockImplementationOnce(() => new Promise(() => {}));
 

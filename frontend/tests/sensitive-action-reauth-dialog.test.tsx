@@ -7,6 +7,7 @@ const {
   mockFetchCurrentUser,
   mockStepUpAuth,
   mockSetSession,
+  mockSetCurrentUser,
   mockClearToken,
   mockAuthState,
   mockLanguageState,
@@ -16,12 +17,16 @@ const {
   mockFetchCurrentUser: vi.fn(),
   mockStepUpAuth: vi.fn(),
   mockSetSession: vi.fn(),
+  mockSetCurrentUser: vi.fn(),
   mockClearToken: vi.fn(),
   mockAuthState: {
     token: "session-token",
+    userId: null as string | null,
+    currentUser: null as { email?: string | null } | null,
     authSource: "local",
     ssoProvider: null,
     setSession: vi.fn(),
+    setCurrentUser: vi.fn(),
     clearToken: vi.fn(),
   },
   mockLanguageState: {
@@ -71,11 +76,15 @@ vi.mock("@/components/ui/toast", () => ({
 describe("SensitiveActionReauthDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAuthState.userId = null;
+    mockAuthState.currentUser = null;
     mockAuthState.authSource = "local";
     mockAuthState.ssoProvider = null;
     mockAuthState.setSession = mockSetSession;
+    mockAuthState.setCurrentUser = mockSetCurrentUser;
     mockAuthState.clearToken = mockClearToken;
     mockFetchCurrentUser.mockResolvedValue({
+      id: "admin-user",
       email: "admin@example.com",
       auth_source: "local",
       sso_provider: null,
@@ -222,6 +231,7 @@ describe("SensitiveActionReauthDialog", () => {
   it("uses the live auth source and shows SSO guidance when the current session is SSO-backed", async () => {
     mockAuthState.authSource = "local";
     mockFetchCurrentUser.mockResolvedValue({
+      id: "admin-user",
       email: "admin@example.com",
       auth_source: "sso",
       sso_provider: "Okta",

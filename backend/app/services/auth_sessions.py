@@ -1,20 +1,28 @@
 """Server-side session registry helpers for staff/admin access tokens."""
 
-import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.user_session import UserSession
 from app.services.redis_runtime import (
     decode_cached_value,
     get_redis_client_or_log,
-    log_redis_operation_failure,
     parse_cached_datetime,
+)
+from app.services.session_registry_common import (
+    build_session_cache_key,
+    cache_session_hash,
+    cleanup_stale_sessions,
+    clear_cached_session_hash,
+    load_cached_session_hash,
+    now_utc,
+    normalize_dt,
+    revoke_owner_sessions,
 )
 
 logger = logging.getLogger(__name__)
@@ -23,18 +31,15 @@ _USER_SESSION_REDIS_PREFIX = "user_session:v1:"
 
 
 def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return now_utc()
 
 
 def _normalize_dt(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
+    return normalize_dt(dt)
 
 
 def _session_cache_key(session_id: str) -> str:
-    hashed = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
-    return f"{_USER_SESSION_REDIS_PREFIX}{hashed}"
+    return build_session_cache_key(_USER_SESSION_REDIS_PREFIX, session_id)
 
 
 def _get_session_redis_client():
@@ -46,24 +51,8 @@ def _get_session_redis_client():
 
 
 def _cache_session_state(session: UserSession) -> None:
-    redis_client = _get_session_redis_client()
-    if redis_client is None:
-        return
-
     expires_at = _normalize_dt(session.expires_at)
-    ttl_seconds = int((expires_at - _now_utc()).total_seconds())
     cache_key = _session_cache_key(session.session_id)
-    if ttl_seconds <= 0:
-        try:
-            redis_client.delete(cache_key)
-        except Exception:
-            log_redis_operation_failure(
-                logger,
-                scope="user_session_cache",
-                operation="delete_expired_entry",
-                fallback_label="database",
-            )
-        return
 
     payload = {
         "user_id": str(session.user_id),
@@ -75,51 +64,32 @@ def _cache_session_state(session: UserSession) -> None:
     if session.revoked_at is not None:
         payload["revoked_at"] = _normalize_dt(session.revoked_at).isoformat()
 
-    try:
-        redis_client.hset(cache_key, mapping=payload)
-        redis_client.expire(cache_key, ttl_seconds)
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope="user_session_cache",
-            operation="write",
-            fallback_label="database",
-        )
+    cache_session_hash(
+        redis_client_getter=_get_session_redis_client,
+        logger=logger,
+        scope="user_session_cache",
+        cache_key=cache_key,
+        expires_at=expires_at,
+        payload=payload,
+    )
 
 
 def _clear_session_cache(session_id: str | None) -> None:
-    if not session_id:
-        return
-    redis_client = _get_session_redis_client()
-    if redis_client is None:
-        return
-    try:
-        redis_client.delete(_session_cache_key(session_id))
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope="user_session_cache",
-            operation="delete",
-            fallback_label="database",
-        )
+    clear_cached_session_hash(
+        redis_client_getter=_get_session_redis_client,
+        logger=logger,
+        scope="user_session_cache",
+        cache_key=_session_cache_key(session_id) if session_id else None,
+    )
 
 
 def _load_cached_session(*, user_id: UUID, session_id: str) -> UserSession | None:
-    redis_client = _get_session_redis_client()
-    if redis_client is None:
-        return None
-
-    try:
-        payload = redis_client.hgetall(_session_cache_key(session_id))
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope="user_session_cache",
-            operation="read",
-            fallback_label="database",
-        )
-        return None
-
+    payload = load_cached_session_hash(
+        redis_client_getter=_get_session_redis_client,
+        logger=logger,
+        scope="user_session_cache",
+        cache_key=_session_cache_key(session_id),
+    )
     if not payload:
         return None
 
@@ -266,20 +236,14 @@ def revoke_user_sessions(
     *,
     user_id: UUID,
 ) -> int:
-    now = _now_utc()
-    sessions = db.scalars(
-        select(UserSession).where(
-            UserSession.user_id == user_id,
-            UserSession.revoked_at.is_(None),
-        )
-    ).all()
-    for session in sessions:
-        session.revoked_at = now
-        db.add(session)
-    db.flush()
-    for session in sessions:
-        _clear_session_cache(session.session_id)
-    return len(sessions)
+    return revoke_owner_sessions(
+        db,
+        model=UserSession,
+        owner_column=UserSession.user_id,
+        owner_id=user_id,
+        revoked_column=UserSession.revoked_at,
+        clear_session_cache=_clear_session_cache,
+    )
 
 
 def cleanup_sessions(
@@ -289,28 +253,12 @@ def cleanup_sessions(
     expired_retention_days: int = 7,
     batch_size: int = 1000,
 ) -> int:
-    now = _now_utc()
-    revoked_cutoff = now - timedelta(days=max(int(revoked_retention_days), 0))
-    expired_cutoff = now - timedelta(days=max(int(expired_retention_days), 0))
-    total_deleted = 0
-
-    while True:
-        stale_ids = db.scalars(
-            select(UserSession.id).where(
-                (UserSession.revoked_at.is_not(None) & (UserSession.revoked_at < revoked_cutoff))
-                | (UserSession.revoked_at.is_(None) & (UserSession.expires_at < expired_cutoff))
-            ).limit(max(int(batch_size), 1))
-        ).all()
-        if not stale_ids:
-            break
-
-        result = db.execute(
-            delete(UserSession).where(UserSession.id.in_(stale_ids))
-        )
-        db.commit()
-        deleted_count = result.rowcount or 0
-        total_deleted += deleted_count
-        if deleted_count == 0:
-            break
-
-    return total_deleted
+    return cleanup_stale_sessions(
+        db,
+        model=UserSession,
+        revoked_column=UserSession.revoked_at,
+        expires_column=UserSession.expires_at,
+        revoked_retention_days=revoked_retention_days,
+        expired_retention_days=expired_retention_days,
+        batch_size=batch_size,
+    )

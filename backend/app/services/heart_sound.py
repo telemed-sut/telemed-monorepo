@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.models.heart_sound_record import HeartSoundRecord
 from app.models.patient import Patient
-from app.schemas.heart_sound import HeartSoundCreate
+from app.schemas.heart_sound import HeartSoundCreate, HeartSoundRecordOut
+from app.services.blob_storage import azure_blob_storage_service
 
 
 class HeartSoundService:
@@ -74,6 +75,17 @@ class HeartSoundService:
         )
         items = db.scalars(stmt).all()
         return list(items), int(total)
+
+    def serialize_heart_sound_record(self, record: HeartSoundRecord) -> HeartSoundRecordOut:
+        response = HeartSoundRecordOut.model_validate(record)
+        return response.model_copy(
+            update={
+                "blob_url": azure_blob_storage_service.build_read_url(
+                    record.storage_key,
+                    record.blob_url,
+                )
+            }
+        )
 
 
 heart_sound_service = HeartSoundService()

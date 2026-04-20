@@ -102,6 +102,7 @@ from app.main import app
 from app.api import pressure as pressure_api
 from app.services.auth import get_db
 from app.services import admin_sso, admin_sso_store, passkey_store
+from app.services import heart_sound_upload_sessions as heart_sound_upload_session_service
 from app.services import redis_runtime as redis_runtime_service
 
 # Disable rate limiting during tests
@@ -193,11 +194,13 @@ def reset_admin_sso_runtime_state():
     admin_sso.reset_runtime_caches()
     admin_sso_store.reset_runtime_state()
     passkey_store.reset_runtime_state()
+    heart_sound_upload_session_service.reset_runtime_state()
     redis_runtime_service.reset_runtime_diagnostics()
     yield
     admin_sso.reset_runtime_caches()
     admin_sso_store.reset_runtime_state()
     passkey_store.reset_runtime_state()
+    heart_sound_upload_session_service.reset_runtime_state()
     redis_runtime_service.reset_runtime_diagnostics()
 
 

@@ -105,9 +105,7 @@ describe("useSessionLogout", () => {
     expect(logoutMock).not.toHaveBeenCalled();
     expect(useAuthStore.getState().authSource).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
-    expect(window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY)).toBe(
-      createWorkspaceTabsStorage("user-a")
-    );
+    expect(window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(PATIENT_CACHE_KEY)).toBeNull();
     expect(window.localStorage.getItem(INVITEES_DRAFT_KEY)).toBeNull();
     expect(window.sessionStorage.getItem(COMPOSER_DRAFT_KEY)).toBeNull();
@@ -150,9 +148,7 @@ describe("useSessionLogout", () => {
     expect(assignMock).not.toHaveBeenCalled();
     expect(useAuthStore.getState().authSource).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
-    expect(window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY)).toBe(
-      createWorkspaceTabsStorage("user-a")
-    );
+    expect(window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(PATIENT_CACHE_KEY)).toBeNull();
     expect(window.localStorage.getItem(INVITEES_DRAFT_KEY)).toBeNull();
     expect(window.sessionStorage.getItem(COMPOSER_DRAFT_KEY)).toBeNull();
@@ -195,9 +191,7 @@ describe("useSessionLogout", () => {
     expect(assignMock).not.toHaveBeenCalled();
     expect(useAuthStore.getState().authSource).toBeNull();
     expect(useAuthStore.getState().token).toBeNull();
-    expect(window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY)).toBe(
-      createWorkspaceTabsStorage("user-a")
-    );
+    expect(window.localStorage.getItem(WORKSPACE_TABS_STORAGE_KEY)).toBeNull();
     expect(window.localStorage.getItem(PATIENT_CACHE_KEY)).toBeNull();
     expect(window.localStorage.getItem(INVITEES_DRAFT_KEY)).toBeNull();
     expect(window.sessionStorage.getItem(COMPOSER_DRAFT_KEY)).toBeNull();

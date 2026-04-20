@@ -7,6 +7,7 @@ const {
   mockPush,
   mockFetchPatient,
   mockFetchPatientHeartSounds,
+  mockUploadPatientHeartSound,
   mockAuthState,
   mockLanguageState,
 } = vi.hoisted(() => ({
@@ -15,6 +16,7 @@ const {
   mockPush: vi.fn(),
   mockFetchPatient: vi.fn(),
   mockFetchPatientHeartSounds: vi.fn(),
+  mockUploadPatientHeartSound: vi.fn(),
   mockAuthState: {
     token: "test-token" as string | null,
     userId: "user-a" as string | null,
@@ -48,6 +50,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
     ...actual,
     fetchPatient: mockFetchPatient,
     fetchPatientHeartSounds: mockFetchPatientHeartSounds,
+    uploadPatientHeartSound: mockUploadPatientHeartSound,
   };
 });
 
@@ -84,9 +87,22 @@ describe("patient heart sound page", () => {
         },
       ],
     });
+    mockUploadPatientHeartSound.mockResolvedValue({
+      id: "sound-uploaded",
+      patient_id: "patient-1",
+      device_id: "doctor-upload:user-a",
+      mac_address: "MANUAL_UPLOAD",
+      position: 1,
+      blob_url: "https://example.com/uploaded.wav?sig=test",
+      storage_key: "heart-sounds/patient-1/uploaded.wav",
+      duration_seconds: 12,
+      recorded_at: "2026-04-19T14:30:00Z",
+      created_at: "2026-04-19T14:30:00Z",
+    });
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
   });
 
@@ -107,7 +123,7 @@ describe("patient heart sound page", () => {
     expect(screen.getAllByText("John Doe").length).toBeGreaterThan(0);
   }, 10000);
 
-  it("keeps the page usable when heart sound records fail to load", async () => {
+  it("shows a real load error when heart sound records fail to load", async () => {
     mockFetchPatientHeartSounds.mockReset();
     mockFetchPatientHeartSounds.mockRejectedValue(
       Object.assign(new Error("Request failed"), { status: 404 })
@@ -121,14 +137,14 @@ describe("patient heart sound page", () => {
     ).toBeInTheDocument();
     expect(screen.getAllByText("John Doe").length).toBeGreaterThan(0);
     expect(
-      screen.getByText("Built-in demo recordings are loaded")
+      screen.getByText("Unable to load recordings")
     ).toBeInTheDocument();
-    expect(screen.getByText("Demo audio loaded")).toBeInTheDocument();
-    expect(screen.getAllByText(/DE:MO:PO:09:20:A1/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Request failed")).toBeInTheDocument();
+    expect(screen.queryByText(/DE:MO:PO:09:20:A1/)).not.toBeInTheDocument();
     expect(screen.getByText("Upload heart sound files")).toBeInTheDocument();
   }, 10000);
 
-  it("loads demo recordings when the patient has no uploaded files yet", async () => {
+  it("shows empty state when the patient has no uploaded files yet", async () => {
     mockFetchPatientHeartSounds.mockResolvedValue({ items: [] });
 
     const { PatientHeartSoundContent } = await import("@/components/dashboard/patient-heart-sound");
@@ -137,9 +153,10 @@ describe("patient heart sound page", () => {
     expect(
       await screen.findByRole("heading", { name: "Heart Sound", level: 1 })
     ).toBeInTheDocument();
-    expect(screen.getByText("Built-in demo recordings are loaded")).toBeInTheDocument();
-    expect(screen.getAllByText(/DE:MO:AA:01:10:01/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/DE:MO:PO:14:30:01/).length).toBeGreaterThan(0);
+    expect(screen.getByText("No heart sound records yet")).toBeInTheDocument();
+    expect(screen.queryByText("Built-in demo recordings are loaded")).not.toBeInTheDocument();
+    expect(screen.queryByText(/DE:MO:AA:01:10:01/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/DE:MO:PO:14:30:01/)).not.toBeInTheDocument();
   });
 
   it("rejects oversized upload files on the client before queueing", async () => {
@@ -155,7 +172,7 @@ describe("patient heart sound page", () => {
     const validFile = new File(["ok"], "valid.wav", { type: "audio/wav" });
     const oversizedFile = new File(["too-large"], "oversized.wav", { type: "audio/wav" });
     Object.defineProperty(validFile, "size", { value: 1024 });
-    Object.defineProperty(oversizedFile, "size", { value: 11 * 1024 * 1024 });
+    Object.defineProperty(oversizedFile, "size", { value: 51 * 1024 * 1024 });
 
     const input = document.getElementById("heart-sound-files") as HTMLInputElement;
     fireEvent.change(input, {
@@ -165,10 +182,177 @@ describe("patient heart sound page", () => {
     });
 
     expect(
-      screen.getByText("oversized.wav exceeds the 10.0 MB limit and was not added.")
+      screen.getByText("oversized.wav exceeds the 50.0 MB limit and was not added.")
     ).toBeInTheDocument();
     expect(screen.getByText("valid.wav")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Remove file" })).toHaveLength(1);
+  });
+
+  it("uploads selected files and refreshes the record list", async () => {
+    mockFetchPatientHeartSounds
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "sound-1",
+            patient_id: "patient-1",
+            device_id: "device-1",
+            mac_address: "F6:62:73:62:79:5E",
+            position: 3,
+            blob_url: "https://example.com/heart.wav",
+            duration_seconds: 12,
+            recorded_at: "2026-03-27T04:50:00Z",
+            created_at: "2026-03-27T04:50:00Z",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "sound-uploaded",
+            patient_id: "patient-1",
+            device_id: "doctor-upload:user-a",
+            mac_address: "MANUAL_UPLOAD",
+            position: 1,
+            blob_url: "https://example.com/uploaded.wav?sig=test",
+            storage_key: "heart-sounds/patient-1/uploaded.wav",
+            duration_seconds: 12,
+            recorded_at: "2026-04-19T14:30:00Z",
+            created_at: "2026-04-19T14:30:00Z",
+          },
+        ],
+      });
+
+    const { PatientHeartSoundContent } = await import("@/components/dashboard/patient-heart-sound");
+    render(<PatientHeartSoundContent patientId="patient-1" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Heart Sound", level: 1 })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload heart sound files" }));
+
+    const validFile = new File(["ok"], "valid.wav", { type: "audio/wav" });
+    Object.defineProperty(validFile, "size", { value: 1024 });
+
+    const input = document.getElementById("heart-sound-files") as HTMLInputElement;
+    fireEvent.change(input, {
+      target: {
+        files: [validFile],
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload 1" }));
+
+    await waitFor(() => {
+      expect(mockUploadPatientHeartSound).toHaveBeenCalledWith(
+        "patient-1",
+        expect.objectContaining({
+          file: validFile,
+          position: expect.any(Number),
+        }),
+        "test-token"
+      );
+    });
+    await waitFor(() => {
+      expect(mockFetchPatientHeartSounds.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  it("shows a storage CORS hint when browser uploads are blocked by Azure", async () => {
+    mockUploadPatientHeartSound.mockRejectedValue(
+      new Error(
+        "Azure Blob Storage blocked the browser upload. Allow this frontend origin in Blob Storage CORS and try again."
+      )
+    );
+
+    const { PatientHeartSoundContent } = await import("@/components/dashboard/patient-heart-sound");
+    render(<PatientHeartSoundContent patientId="patient-1" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Heart Sound", level: 1 })
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload heart sound files" }));
+
+    const validFile = new File(["ok"], "cors-check.wav", { type: "audio/wav" });
+    Object.defineProperty(validFile, "size", { value: 1024 });
+
+    const input = document.getElementById("heart-sound-files") as HTMLInputElement;
+    fireEvent.change(input, {
+      target: {
+        files: [validFile],
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload 1" }));
+
+    expect(
+      await screen.findByText(
+        "Azure Blob Storage is blocking browser uploads for this origin. Add this frontend URL to the storage account CORS rules, then try again."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("auto-refreshes heart sound records while the page stays open", async () => {
+    mockFetchPatientHeartSounds
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "sound-1",
+            patient_id: "patient-1",
+            device_id: "device-1",
+            mac_address: "F6:62:73:62:79:5E",
+            position: 3,
+            blob_url: "https://example.com/heart.wav",
+            duration_seconds: 12,
+            recorded_at: "2026-03-27T04:50:00Z",
+            created_at: "2026-03-27T04:50:00Z",
+          },
+        ],
+      })
+      .mockResolvedValue({
+        items: [],
+      });
+
+    let intervalCallback: (() => void) | null = null;
+    const setIntervalMock = ((handler: TimerHandler) => {
+      intervalCallback =
+        typeof handler === "function" ? () => handler() : null;
+      return 1;
+    }) as unknown as typeof window.setInterval;
+    const setIntervalSpy = vi
+      .spyOn(window, "setInterval")
+      .mockImplementation(setIntervalMock);
+    const clearIntervalSpy = vi
+      .spyOn(window, "clearInterval")
+      .mockImplementation(() => undefined);
+
+    const { PatientHeartSoundContent } = await import("@/components/dashboard/patient-heart-sound");
+    render(<PatientHeartSoundContent patientId="patient-1" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Heart Sound", level: 1 })
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(mockFetchPatientHeartSounds).toHaveBeenCalled();
+    });
+
+    const callsBeforeInterval = mockFetchPatientHeartSounds.mock.calls.length;
+    expect(intervalCallback).toBeTruthy();
+    if (!intervalCallback) {
+      throw new Error("Expected interval callback to be registered");
+    }
+    (intervalCallback as () => void)();
+
+    await waitFor(() => {
+      expect(mockFetchPatientHeartSounds.mock.calls.length).toBe(
+        callsBeforeInterval + 1
+      );
+    });
+
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
   });
 
   it("filters the recording table to the selected position only", async () => {
@@ -297,7 +481,7 @@ describe("patient heart sound page", () => {
     expect(screen.getAllByText("การเล่นเสียง").length).toBeGreaterThan(0);
   });
 
-  it("hides system columns for doctor accounts", async () => {
+  it("shows system columns for doctor accounts", async () => {
     mockAuthState.role = "doctor";
 
     const { PatientHeartSoundContent } = await import("@/components/dashboard/patient-heart-sound");
@@ -307,8 +491,8 @@ describe("patient heart sound page", () => {
       await screen.findByRole("heading", { name: "Heart Sound", level: 1 })
     ).toBeInTheDocument();
     expect(screen.getAllByText("Date / time").length).toBeGreaterThan(0);
-    expect(screen.queryByText("User ID")).not.toBeInTheDocument();
-    expect(screen.queryByText("MAC Address")).not.toBeInTheDocument();
+    expect(screen.getAllByText("User ID").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("MAC Address").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Position").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Playback").length).toBeGreaterThan(0);
   });

@@ -44,6 +44,7 @@ const PUBLIC_SENTRY_RELEASE =
   process.env.NEXT_PUBLIC_SENTRY_RELEASE ?? process.env.SENTRY_RELEASE ?? "";
 const ENABLE_PRODUCTION_BROWSER_SOURCEMAPS =
   process.env.ENABLE_PRODUCTION_BROWSER_SOURCEMAPS === "true";
+const HEART_SOUND_UPLOAD_PROXY_BODY_LIMIT = "10mb";
 
 const nextConfig: NextConfig = {
   // Keep Strict Mode on in production builds while avoiding double-invoke noise during local development.
@@ -79,9 +80,9 @@ const nextConfig: NextConfig = {
   experimental: {
     // Keep the proxy/client body clone limit explicit so oversized payloads fail
     // predictably at the Next.js edge/proxy layer instead of relying on defaults.
-    proxyClientMaxBodySize: "1mb",
+    proxyClientMaxBodySize: HEART_SOUND_UPLOAD_PROXY_BODY_LIMIT,
     serverActions: {
-      bodySizeLimit: "1mb",
+      bodySizeLimit: HEART_SOUND_UPLOAD_PROXY_BODY_LIMIT,
     },
     viewTransition: true,
   },

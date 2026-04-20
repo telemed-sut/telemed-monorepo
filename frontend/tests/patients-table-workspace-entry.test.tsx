@@ -50,9 +50,6 @@ vi.mock("framer-motion", () => ({
   m: {
     tr: (props: HTMLAttributes<HTMLTableRowElement>) => <tr {...props} />,
   },
-}));
-
-vi.mock("motion/react", () => ({
   motion: {
     path: (props: HTMLAttributes<SVGPathElement>) => <path {...props} />,
     circle: (props: SVGProps<SVGCircleElement>) => <circle {...props} />,

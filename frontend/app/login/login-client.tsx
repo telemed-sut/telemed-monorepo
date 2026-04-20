@@ -502,15 +502,16 @@ export default function LoginClientPage() {
       clearLoginCredentialResetMarker();
       setShouldSuppressCredentialAutofill(false);
       router.replace("/patients");
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const apiError = err as ApiError;
       // Don't show error if user cancelled the native dialog
-      if (isPasskeyCeremonyCancelled(err)) {
+      if (isPasskeyCeremonyCancelled(apiError)) {
         setError(null);
         return;
       }
 
       // Check for specific error code from backend
-      if (err.code === "passkey_not_registered") {
+      if (apiError.code === "passkey_not_registered") {
         setError(tr(
           language, 
           "That Passkey can't be used here anymore. Try again or use your password.", 
@@ -519,7 +520,7 @@ export default function LoginClientPage() {
         return;
       }
 
-      console.error("Passkey login error:", err);
+      console.error("Passkey login error:", apiError);
 
       setError(tr(language, "Passkey login failed. Please try again or use password.", "การเข้าสู่ระบบด้วย Passkey ล้มเหลว กรุณาลองใหม่หรือใช้รหัสผ่าน"));
     } finally {
@@ -561,16 +562,17 @@ export default function LoginClientPage() {
         clearLoginCredentialResetMarker();
         setShouldSuppressCredentialAutofill(false);
         router.replace("/patients");
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const apiError = err as ApiError;
         if (
           cancelled ||
-          isPasskeyCeremonyCancelled(err) ||
-          isMissingConditionalPasskeyInputError(err)
+          isPasskeyCeremonyCancelled(apiError) ||
+          isMissingConditionalPasskeyInputError(apiError)
         ) {
           return;
         }
 
-        if (err.code === "passkey_not_registered") {
+        if (apiError.code === "passkey_not_registered") {
           setError(
             tr(
               language,
@@ -581,14 +583,11 @@ export default function LoginClientPage() {
           return;
         }
 
-        console.error("Conditional Passkey login error:", err);
-        setError(
-          tr(
-            language,
-            "Passkey login failed. Please try again or use password.",
-            "การเข้าสู่ระบบด้วย Passkey ล้มเหลว กรุณาลองใหม่หรือใช้รหัสผ่าน"
-          )
-        );
+        // Conditional passkey is a best-effort enhancement. If its bootstrap
+        // fails, fall back to the regular password/passkey UI instead of
+        // surfacing a blocking login error before the user acts.
+        setSupportsConditionalPasskeyUi(false);
+        setError(null);
       }
     };
 

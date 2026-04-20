@@ -42,6 +42,52 @@ class HeartSoundIngestResponse(BaseModel):
     record_id: UUID4
 
 
+class HeartSoundUploadSessionCreate(BaseModel):
+    filename: str = Field(..., min_length=1, max_length=255)
+    position: int = Field(..., ge=1, le=14)
+    file_size_bytes: int = Field(..., gt=0)
+    mime_type: str | None = Field(default=None, max_length=128)
+    recorded_at: datetime | None = Field(default=None)
+
+    @field_validator("filename")
+    @classmethod
+    def normalize_filename(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("filename must not be empty")
+        return normalized
+
+    @field_validator("mime_type")
+    @classmethod
+    def normalize_mime_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
+class HeartSoundUploadSessionOut(BaseModel):
+    session_id: str
+    storage_key: str
+    blob_url: str
+    upload_url: str
+    upload_headers: dict[str, str] = Field(default_factory=dict)
+    expires_at: datetime
+    max_file_size_bytes: int
+
+
+class HeartSoundUploadFinalize(BaseModel):
+    session_id: str = Field(..., min_length=1, max_length=255)
+
+    @field_validator("session_id")
+    @classmethod
+    def normalize_session_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("session_id must not be empty")
+        return normalized
+
+
 class HeartSoundRecordOut(BaseModel):
     id: UUID4
     patient_id: UUID4
@@ -60,3 +106,29 @@ class HeartSoundRecordOut(BaseModel):
 
 class HeartSoundListResponse(BaseModel):
     items: list[HeartSoundRecordOut]
+
+
+class HeartSoundStorageAuditRecordOut(BaseModel):
+    id: UUID4
+    patient_id: UUID4
+    device_id: str
+    position: int
+    storage_key: str | None = None
+    normalized_storage_key: str | None = None
+    blob_url: str
+    canonical_blob_url: str | None = None
+    blob_exists: bool
+    is_consistent: bool
+    issues: list[str] = Field(default_factory=list)
+    recorded_at: datetime
+    created_at: datetime
+
+
+class HeartSoundStorageAuditResponse(BaseModel):
+    items: list[HeartSoundStorageAuditRecordOut]
+    total_records: int
+    scanned_count: int
+    inconsistent_count: int
+    issue_counts: dict[str, int] = Field(default_factory=dict)
+    limit: int
+    offset: int
