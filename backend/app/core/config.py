@@ -128,6 +128,10 @@ class Settings(BaseSettings):
     device_api_require_nonce: bool = False
     device_api_nonce_ttl_seconds: int = 300
     device_api_max_body_bytes: int = 262_144
+    device_session_stale_threshold_seconds: int = 120
+    device_session_auto_close_timeout_seconds: int = 1800
+    device_session_transition_window_seconds: int = 30
+    device_session_late_packet_grace_seconds: int = 5
 
     # Auth cookie settings
     auth_cookie_name: str = "access_token"

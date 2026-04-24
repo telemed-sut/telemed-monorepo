@@ -1,10 +1,11 @@
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
 from app.core.secret_crypto import decrypt_secret_value, encrypt_secret_value
+from app.models.enums import DeviceExamMeasurementType
 
 
 class DeviceRegistration(Base):
@@ -17,6 +18,12 @@ class DeviceRegistration(Base):
     # be stored in plaintext when encryption keys are configured.
     _device_secret_encrypted = Column("device_secret", Text(), nullable=False)
     notes = Column(String(500), nullable=True)
+    default_measurement_type = Column(
+        Enum(DeviceExamMeasurementType, name="device_exam_measurement_type", create_type=False),
+        nullable=False,
+        default=DeviceExamMeasurementType.lung_sound,
+        server_default=DeviceExamMeasurementType.lung_sound.value,
+    )
     is_active = Column(Boolean, nullable=False, server_default="true", default=True)
     last_seen_at = Column(DateTime(timezone=True), nullable=True)
     deactivated_at = Column(DateTime(timezone=True), nullable=True)

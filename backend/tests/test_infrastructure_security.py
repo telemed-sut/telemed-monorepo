@@ -144,6 +144,14 @@ def test_start_compose_loads_repo_runtime_env_files_before_compose_up():
     assert "load_default_runtime_env" in script_text
 
 
+def test_start_compose_force_recreates_app_services_to_avoid_stale_restart_state():
+    script_text = _read_text(REPO_ROOT / "scripts" / "start-compose.sh")
+
+    assert 'if contains_service "backend" "${services[@]}"; then' in script_text
+    assert 'if contains_service "frontend" "${services[@]}"; then' in script_text
+    assert 'compose_args+=(--force-recreate)' in script_text
+
+
 def test_compose_env_preflight_requires_azure_blob_secrets_for_backend_startup():
     script_text = _read_text(REPO_ROOT / "scripts" / "check-compose-env.sh")
 

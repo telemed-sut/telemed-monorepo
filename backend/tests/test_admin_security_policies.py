@@ -762,6 +762,65 @@ def test_security_recovery_endpoints_enforce_ip_allowlist(client: TestClient, db
         )
 
 
+def test_security_admin_can_register_device_from_non_recovery_ip(client: TestClient, db: Session, monkeypatch):
+    from app.core import request_utils
+
+    bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+    security_admin = _make_user(db, email="registry-non-recovery-ip-admin@example.com", role=UserRole.admin)
+    _grant_privileged_role(
+        db,
+        user=security_admin,
+        role=PrivilegedRole.security_admin,
+        created_by=bootstrap_admin,
+    )
+
+    monkeypatch.setattr(request_utils.settings, "trusted_proxy_ips", ["testclient"])
+    monkeypatch.setattr(
+        security_service.settings,
+        "admin_unlock_whitelisted_ips",
+        ["127.0.0.1"],
+    )
+
+    token = _login(client, security_admin.email).json()["access_token"]
+    response = client.post(
+        "/security/devices",
+        json={
+            "device_id": "ward-device-non-recovery-ip-001",
+            "display_name": "Ward Device Non Recovery IP",
+            "notes": "Normal device registry action",
+            "is_active": True,
+        },
+        headers={
+            **_auth(token),
+            "x-forwarded-for": "198.51.100.44",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["device"]["device_id"] == "ward-device-non-recovery-ip-001"
+
+    updated = client.patch(
+        "/security/devices/ward-device-non-recovery-ip-001",
+        json={"is_active": False},
+        headers={
+            **_auth(token),
+            "x-forwarded-for": "198.51.100.44",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["is_active"] is False
+
+    deleted = client.delete(
+        "/security/devices/ward-device-non-recovery-ip-001",
+        headers={
+            **_auth(token),
+            "x-forwarded-for": "198.51.100.44",
+        },
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["device_id"] == "ward-device-non-recovery-ip-001"
+
+
 def test_security_admin_can_manage_device_registry(client: TestClient, db: Session):
     bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
     security_admin = _make_user(db, email="registry-security-admin@example.com", role=UserRole.admin)
@@ -779,6 +838,7 @@ def test_security_admin_can_manage_device_registry(client: TestClient, db: Sessi
             "device_id": "ward-bp-001",
             "display_name": "Ward BP Device 01",
             "notes": "Near nursing station",
+            "default_measurement_type": "heart_sound",
             "is_active": True,
         },
         headers=_auth(token),
@@ -786,6 +846,7 @@ def test_security_admin_can_manage_device_registry(client: TestClient, db: Sessi
     assert created.status_code == 201, created.text
     created_payload = created.json()
     assert created_payload["device"]["device_id"] == "ward-bp-001"
+    assert created_payload["device"]["default_measurement_type"] == "heart_sound"
     assert len(created_payload["device_secret"]) >= 32
     assert "device_secret" not in created_payload["device"]
 
@@ -798,7 +859,11 @@ def test_security_admin_can_manage_device_registry(client: TestClient, db: Sessi
 
     updated = client.patch(
         "/security/devices/ward-bp-001",
-        json={"is_active": False, "notes": "Deactivated for maintenance"},
+        json={
+            "is_active": False,
+            "notes": "Deactivated for maintenance",
+            "default_measurement_type": "blood_pressure",
+        },
         headers=_auth(token),
     )
     assert updated.status_code == 200, updated.text
@@ -806,6 +871,7 @@ def test_security_admin_can_manage_device_registry(client: TestClient, db: Sessi
     assert updated_payload["is_active"] is False
     assert updated_payload["deactivated_at"] is not None
     assert updated_payload["notes"] == "Deactivated for maintenance"
+    assert updated_payload["default_measurement_type"] == "blood_pressure"
     assert "device_secret" not in updated_payload
 
     rotated = client.post(
@@ -900,6 +966,11 @@ def test_generic_admin_cannot_manage_device_credentials(client: TestClient, db: 
         json={},
         headers=headers,
     )
+    update_response = client.patch(
+        f"/security/devices/{device.device_id}",
+        json={"is_active": False},
+        headers=headers,
+    )
     delete_response = client.delete(
         f"/security/devices/{device.device_id}",
         headers=headers,
@@ -907,6 +978,7 @@ def test_generic_admin_cannot_manage_device_credentials(client: TestClient, db: 
 
     assert create_response.status_code == 403
     assert rotate_response.status_code == 403
+    assert update_response.status_code == 403
     assert delete_response.status_code == 403
 
 

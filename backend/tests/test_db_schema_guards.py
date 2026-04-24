@@ -5,9 +5,11 @@ import pytest
 
 from app.models.alert import Alert
 from app.models.device_error_log import DeviceErrorLog
+from app.models.device_exam_session import DeviceExamSession
 from app.models.device_request_nonce import DeviceRequestNonce
 from app.models.encounter import Encounter
 from app.models.heart_sound_record import HeartSoundRecord
+from app.models.lung_sound_record import LungSoundRecord
 from app.models.login_attempt import LoginAttempt
 from app.models.pressure_record import PressureRecord
 from app.models.user_privileged_role_assignment import (
@@ -28,17 +30,37 @@ def _load_migration_module(filename: str):
     return module
 
 
+def _read_migration_text(filename: str) -> str:
+    migration_path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / filename
+    return migration_path.read_text(encoding="utf-8")
+
+
 def test_heart_sound_record_uses_cascade_delete_and_unique_blob_url_index():
     patient_fk = next(iter(HeartSoundRecord.__table__.c.patient_id.foreign_keys))
 
     assert patient_fk.ondelete == "CASCADE"
     assert "ix_heart_sound_records_blob_url" in _index_names(HeartSoundRecord.__table__)
+    assert "ix_heart_sound_records_device_exam_session_id" in _index_names(HeartSoundRecord.__table__)
 
 
 def test_pressure_record_uses_cascade_delete_for_patient_fk():
     patient_fk = next(iter(PressureRecord.__table__.c.patient_id.foreign_keys))
 
     assert patient_fk.ondelete == "CASCADE"
+    assert "ix_pressure_records_device_exam_session_id" in _index_names(PressureRecord.__table__)
+
+
+def test_lung_sound_record_uses_session_link_and_query_indexes():
+    patient_fk = next(iter(LungSoundRecord.__table__.c.patient_id.foreign_keys))
+    session_fk = next(iter(LungSoundRecord.__table__.c.device_exam_session_id.foreign_keys))
+
+    assert patient_fk.ondelete == "CASCADE"
+    assert session_fk.ondelete == "SET NULL"
+    assert "ix_lung_sound_records_patient_id" in _index_names(LungSoundRecord.__table__)
+    assert "ix_lung_sound_records_device_exam_session_id" in _index_names(LungSoundRecord.__table__)
+    assert "ix_lung_sound_records_recorded_at" in _index_names(LungSoundRecord.__table__)
+    assert "ix_lung_sound_records_session_routing" in _index_names(LungSoundRecord.__table__)
+    assert "ix_lung_sound_records_device_received_at" in _index_names(LungSoundRecord.__table__)
 
 
 def test_device_models_do_not_add_redundant_primary_key_indexes():
@@ -48,6 +70,7 @@ def test_device_models_do_not_add_redundant_primary_key_indexes():
 
 def test_query_focused_indexes_are_present_in_models():
     assert "ix_encounters_status" in _index_names(Encounter.__table__)
+    assert "ix_device_exam_sessions_device_status_started" in _index_names(DeviceExamSession.__table__)
     assert "ix_alerts_patient_id_is_acknowledged" in _index_names(Alert.__table__)
     assert "ix_login_attempts_email_created_at" in _index_names(LoginAttempt.__table__)
     assert "ix_user_privileged_role_assignments_created_by" in _index_names(
@@ -64,3 +87,18 @@ def test_seed_migration_is_blocked_in_production(monkeypatch):
 
     with pytest.raises(ValueError, match="Seed migration is blocked in production"):
         migration.upgrade()
+
+
+def test_device_session_review_migration_commits_new_enum_values_before_constraints():
+    migration_text = _read_migration_text("20260423_0037_device_session_review_routing.py")
+
+    autocommit_index = migration_text.index("with op.get_context().autocommit_block():")
+    stale_index = migration_text.index(
+        "ALTER TYPE device_exam_session_status ADD VALUE IF NOT EXISTS 'stale'"
+    )
+    review_needed_index = migration_text.index(
+        "ALTER TYPE device_exam_session_status ADD VALUE IF NOT EXISTS 'review_needed'"
+    )
+    constraint_index = migration_text.index("uq_device_exam_sessions_device_open")
+
+    assert autocommit_index < stale_index < review_needed_index < constraint_index

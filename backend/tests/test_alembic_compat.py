@@ -86,7 +86,7 @@ def test_format_alembic_preflight_reports_database_revision_and_repo_head(tmp_pa
     )
 
     assert "database revisions=[28eb7c50e1f3]" in preflight
-    assert "repo heads=[20260411_0032]" in preflight
+    assert "repo heads=[20260423_0037]" in preflight
 
 
 def test_ensure_single_alembic_head_returns_current_head():
@@ -94,5 +94,5 @@ def test_ensure_single_alembic_head_returns_current_head():
         ensure_single_alembic_head(
             alembic_ini_path="/Volumes/P1Back/telemed-monorepo/backend/alembic.ini"
         )
-        == "20260411_0032"
+        == "20260423_0037"
     )

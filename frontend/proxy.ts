@@ -113,7 +113,7 @@ function permissionsPolicyFor(pathname: string): string {
   return "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const nonce = crypto.randomUUID().replace(/-/g, "");
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-nonce", nonce);

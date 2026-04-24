@@ -79,6 +79,7 @@ function makeDevice(overrides: Partial<DeviceRegistration> = {}): DeviceRegistra
     device_id: "ward-bp-001",
     display_name: "Ward BP Device 01",
     notes: "Near nursing station",
+    default_measurement_type: "lung_sound",
     is_active: true,
     last_seen_at: "2026-02-25T06:27:00.000Z",
     deactivated_at: null,
@@ -117,9 +118,24 @@ describe("DeviceRegistryContent", () => {
   it("renders the device registry shell and requests device data on load", async () => {
     await renderDeviceRegistry();
     await waitFor(() => expect(mockFetchDeviceRegistrations).toHaveBeenCalledTimes(1));
-    expect(screen.getByText("Device Registration Center")).toBeInTheDocument();
-    expect(screen.getByText("Register new device")).toBeInTheDocument();
+    expect(screen.getByText("Device Operations")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /new device/i })).toBeInTheDocument();
+    expect(screen.queryByText("Active in this page")).toBeNull();
+    expect(screen.queryByRole("button", { name: /auto refresh/i })).toBeNull();
+    expect(screen.queryByText(/Synced|Live sync ready|Syncing live/i)).toBeNull();
   }, 10000);
+
+  it("uses a wrapping table layout so device rows can fit without horizontal scrolling", async () => {
+    const { container } = await renderDeviceRegistry();
+    await screen.findByText("Ward BP Device 01");
+
+    const table = container.querySelector('table[data-slot="table"]');
+    expect(table).not.toBeNull();
+    expect(table?.className).not.toContain("table-fixed");
+
+    const actionGroup = screen.getByTestId("device-actions-d-1");
+    expect(actionGroup.className).toContain("flex-wrap");
+  });
 
   it("shows toast error when refresh fails", async () => {
     mockFetchDeviceRegistrations
@@ -168,6 +184,9 @@ describe("DeviceRegistryContent", () => {
   it("shows one validation toast payload and inline field errors when required fields are missing", async () => {
     await renderDeviceRegistry();
     await screen.findByText("Ward BP Device 01");
+
+    fireEvent.click(screen.getByRole("button", { name: /new device/i }));
+    await screen.findByText("Register new device");
 
     fireEvent.click(screen.getByRole("button", { name: /register device/i }));
     fireEvent.click(screen.getByRole("button", { name: /register device/i }));

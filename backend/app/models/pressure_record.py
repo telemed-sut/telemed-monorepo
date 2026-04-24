@@ -18,6 +18,11 @@ class PressureRecord(Base):
         ForeignKey("patients.id", ondelete="CASCADE"),
         nullable=False,
     )
+    device_exam_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("device_exam_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     device_id: Mapped[str] = mapped_column(String, nullable=False)
     
     heart_rate: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -32,9 +37,11 @@ class PressureRecord(Base):
 
     # Relationship to Patient
     patient = relationship("Patient", back_populates="pressure_records")
+    device_exam_session = relationship("DeviceExamSession")
 
     __table_args__ = (
         Index("ix_pressure_records_patient_id", "patient_id"),
+        Index("ix_pressure_records_device_exam_session_id", "device_exam_session_id"),
         Index("ix_pressure_records_device_id", "device_id"),
         Index("ix_pressure_records_measured_at", "measured_at"),
         Index("ix_pressure_records_created_at", "created_at"),

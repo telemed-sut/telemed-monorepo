@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { cookies, headers } from "next/headers";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
-import { Toaster } from "@/components/ui/sonner";
 import { AuthInitializer } from "@/components/auth-initializer";
 import { LanguageInitializer } from "@/components/language-initializer";
 import { ProgressBarClient } from "@/components/progress-bar-client";
@@ -10,9 +9,17 @@ import { TranslationSafeguard } from "@/components/translation-safeguard";
 import { I18nProvider } from "@/components/i18n-provider";
 import { AppearanceInitializer } from "@/components/appearance-initializer";
 import { AgentationClient } from "@/components/agentation-client";
+import { ToasterClient } from "@/components/toaster-client";
 import { APP_LANGUAGE_COOKIE_KEY, resolveAppLanguage } from "@/store/language-config";
 
+const metadataBase = new URL(
+  process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    "http://localhost:3000"
+);
+
 export const metadata: Metadata = {
+  metadataBase,
   title: "E Med Help SUT — Telemedicine Dashboard",
   description: "ระบบจัดการผู้ป่วยและนัดหมายแพทย์ทางไกล — E Med Help SUT",
   openGraph: {
@@ -81,7 +88,7 @@ export default async function RootLayout({
             <LanguageInitializer />
             <AgentationClient />
             {children}
-            <Toaster />
+            <ToasterClient />
           </I18nProvider>
         </ThemeProvider>
       </body>

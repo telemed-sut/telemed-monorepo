@@ -66,3 +66,15 @@ class Patient(Base):
         back_populates="patient",
         order_by="HeartSoundRecord.recorded_at.desc()",
     )
+    lung_sound_records = relationship(
+        "LungSoundRecord",
+        back_populates="patient",
+        order_by="LungSoundRecord.recorded_at.desc()",
+    )
+    device_exam_sessions = relationship(
+        "DeviceExamSession",
+        back_populates="patient",
+        order_by="DeviceExamSession.created_at.desc()",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

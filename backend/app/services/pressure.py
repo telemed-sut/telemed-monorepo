@@ -3,24 +3,34 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 
+from app.models.enums import DeviceExamMeasurementType
 from app.models.pressure_record import PressureRecord
 from app.models.patient import Patient
 from app.schemas.pressure import PressureCreate
 
+from app.services.device_exam_session import device_exam_session_service
+from app.services.device_session_events import publish_device_session_event_sync
 from app.services.pubsub import publish_realtime_event, get_patient_channel
 
 class PressureService:
     def create_pressure(self, db: Session, pressure_in: PressureCreate) -> PressureRecord:
+        resolved_patient_id, resolved_session_id = device_exam_session_service.resolve_ingest_context(
+            db,
+            device_id=pressure_in.device_id,
+            requested_patient_id=pressure_in.patient_id,
+            requested_session_id=pressure_in.session_id,
+            measurement_type=DeviceExamMeasurementType.blood_pressure,
+        )
         # Check if patient exists
         patient = db.query(Patient).filter(
-            Patient.id == pressure_in.patient_id,
+            Patient.id == resolved_patient_id,
             Patient.deleted_at.is_(None),
             Patient.is_active == True,  # noqa: E712
         ).first()
         if not patient:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Patient with ID {pressure_in.patient_id} not found"
+                detail=f"Patient with ID {resolved_patient_id} not found"
             )
 
         measured_at = pressure_in.measured_at or datetime.now(timezone.utc)
@@ -29,7 +39,8 @@ class PressureService:
 
         # Create record
         db_obj = PressureRecord(
-            patient_id=pressure_in.patient_id,
+            patient_id=resolved_patient_id,
+            device_exam_session_id=resolved_session_id,
             device_id=pressure_in.device_id,
             heart_rate=pressure_in.heart_rate,
             sys_rate=pressure_in.sys_rate,
@@ -42,6 +53,12 @@ class PressureService:
         
         try:
             db.add(db_obj)
+            device_exam_session_service.touch_session_last_seen(
+                db,
+                session_id=resolved_session_id,
+                device_id=pressure_in.device_id,
+                seen_at=measured_at,
+            )
             db.commit()
             db.refresh(db_obj)
             
@@ -49,6 +66,7 @@ class PressureService:
             event_data = {
                 "id": str(db_obj.id),
                 "patient_id": str(db_obj.patient_id),
+                "device_exam_session_id": str(db_obj.device_exam_session_id) if db_obj.device_exam_session_id else None,
                 "sys_rate": db_obj.sys_rate,
                 "dia_rate": db_obj.dia_rate,
                 "heart_rate": db_obj.heart_rate,
@@ -59,6 +77,12 @@ class PressureService:
                 "new_pressure_reading",
                 event_data
             )
+            if resolved_session_id is not None:
+                publish_device_session_event_sync(
+                    event_type="device_session.measurement_received",
+                    session=device_exam_session_service.get_session(db, session_id=resolved_session_id),
+                    extra={"source": "pressure_ingest", "measurement_id": str(db_obj.id)},
+                )
             
         except IntegrityError:
             db.rollback()

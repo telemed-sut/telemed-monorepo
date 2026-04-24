@@ -681,6 +681,166 @@ export interface FetchDeviceErrorsOptions {
   deviceId?: string;
 }
 
+export type DeviceExamMeasurementType =
+  | "lung_sound"
+  | "heart_sound"
+  | "blood_pressure"
+  | "multi";
+
+export type DeviceMeasurementRoutingStatus =
+  | "verified"
+  | "needs_review"
+  | "unmatched"
+  | "quarantined";
+
+export type DeviceExamSessionStatus =
+  | "pending_pair"
+  | "active"
+  | "stale"
+  | "completed"
+  | "cancelled"
+  | "review_needed";
+
+export interface DeviceLiveSessionItem {
+  session_id: string;
+  patient_id: string;
+  patient_name: string;
+  encounter_id: string | null;
+  device_id: string;
+  device_display_name: string | null;
+  measurement_type: DeviceExamMeasurementType;
+  status: DeviceExamSessionStatus;
+  started_at: string | null;
+  last_seen_at: string | null;
+  freshness_status: string;
+  seconds_since_last_seen: number | null;
+  pairing_code: string | null;
+}
+
+export interface DeviceLiveSessionResponse {
+  items: DeviceLiveSessionItem[];
+  total: number;
+  active_count: number;
+  pending_pair_count: number;
+  stale_count: number;
+  generated_at: string;
+}
+
+export interface DeviceInventoryItem {
+  device_id: string;
+  device_display_name: string;
+  default_measurement_type: DeviceExamMeasurementType;
+  is_active: boolean;
+  device_last_seen_at: string | null;
+  availability_status: "idle" | "in_use" | "busy" | "inactive";
+  session_id: string | null;
+  patient_id: string | null;
+  patient_name: string | null;
+  measurement_type: DeviceExamMeasurementType | null;
+  session_started_at: string | null;
+  session_last_seen_at: string | null;
+  freshness_status: string | null;
+}
+
+export interface DeviceInventoryResponse {
+  items: DeviceInventoryItem[];
+  total: number;
+  idle_count: number;
+  in_use_count: number;
+  busy_count: number;
+  inactive_count: number;
+  generated_at: string;
+}
+
+export interface DeviceExamSession {
+  id: string;
+  patient_id: string;
+  encounter_id: string | null;
+  device_id: string;
+  measurement_type: DeviceExamMeasurementType;
+  status: DeviceExamSessionStatus;
+  resolution_reason?: string | null;
+  pairing_code: string | null;
+  notes: string | null;
+  started_by: string | null;
+  ended_by: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeviceExamSessionCreatePayload {
+  patient_id: string;
+  device_id: string;
+  measurement_type: DeviceExamMeasurementType;
+  encounter_id?: string | null;
+  notes?: string | null;
+  activate_now?: boolean;
+}
+
+export interface DeviceExamSessionStatusPayload {
+  notes?: string | null;
+}
+
+export interface DeviceExamSessionListResponse {
+  items: DeviceExamSession[];
+  total: number;
+}
+
+export interface FetchDeviceExamSessionsOptions {
+  patientId?: string;
+  deviceId?: string;
+  status?: DeviceExamSessionStatus;
+  limit?: number;
+  offset?: number;
+}
+
+export interface FetchDeviceLiveSessionsOptions {
+  includePending?: boolean;
+  staleAfterSeconds?: number;
+  deviceId?: string;
+}
+
+export interface FetchDeviceInventoryOptions {
+  staleAfterSeconds?: number;
+}
+
+export interface DeviceLungSoundReviewItem {
+  record_id: string;
+  device_id: string;
+  routing_status: DeviceMeasurementRoutingStatus;
+  position: number;
+  recorded_at: string;
+  server_received_at: string;
+  patient_id: string | null;
+  patient_name: string | null;
+  device_exam_session_id: string | null;
+  session_status: DeviceExamSessionStatus | null;
+  conflict_metadata: Record<string, unknown> | null;
+}
+
+export interface DeviceLungSoundReviewQueueResponse {
+  items: DeviceLungSoundReviewItem[];
+  total: number;
+  needs_review_count: number;
+  unmatched_count: number;
+  generated_at: string;
+}
+
+export interface FetchDeviceLungSoundReviewOptions {
+  limit?: number;
+  routingStatus?: "needs_review" | "unmatched";
+  deviceId?: string;
+}
+
+export interface ResolveDeviceLungSoundReviewPayload {
+  resolution: "verified" | "quarantined";
+  target_session_id?: string;
+  note?: string;
+}
+
 export interface AuditLogItem {
   id: string;
   user_id: string | null;
@@ -751,6 +911,7 @@ export interface DeviceRegistration {
   device_id: string;
   display_name: string;
   notes: string | null;
+  default_measurement_type: DeviceExamMeasurementType;
   is_active: boolean;
   last_seen_at: string | null;
   deactivated_at: string | null;
@@ -768,7 +929,8 @@ export interface DeviceRegistrationListResponse {
 export interface DeviceRegistrationCreatePayload {
   device_id: string;
   display_name: string;
-  notes?: string;
+  notes?: string | null;
+  default_measurement_type?: DeviceExamMeasurementType;
   is_active?: boolean;
   device_secret?: string;
 }
@@ -780,7 +942,8 @@ export interface DeviceRegistrationCreateResponse {
 
 export interface DeviceRegistrationUpdatePayload {
   display_name?: string;
-  notes?: string;
+  notes?: string | null;
+  default_measurement_type?: DeviceExamMeasurementType;
   is_active?: boolean;
 }
 

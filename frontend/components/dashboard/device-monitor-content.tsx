@@ -235,7 +235,9 @@ function mergeDeviceErrors(current: DeviceErrorLog[], incoming: DeviceErrorLog[]
 
 export function DeviceMonitorContent() {
   const token = useAuthStore((state) => state.token);
+  const role = useAuthStore((state) => state.role);
   const language = useLanguageStore((state) => state.language);
+  const canViewAnalytics = role === "admin";
 
   const [stats, setStats] = useState<DeviceStats | null>(null);
   const [errors, setErrors] = useState<DeviceErrorLog[]>([]);
@@ -305,7 +307,7 @@ export function DeviceMonitorContent() {
 
   const loadStats = useCallback(
     async (throwOnError: boolean = false) => {
-      if (!token || isFetchingStatsRef.current) return;
+      if (!token || !canViewAnalytics || isFetchingStatsRef.current) return;
       const activeRange = getDateWindow(timePreset, customFromDate, customToDate);
       if (!activeRange) return;
       const durationMs = activeRange.end.getTime() - activeRange.start.getTime();
@@ -339,12 +341,12 @@ export function DeviceMonitorContent() {
         isFetchingStatsRef.current = false;
       }
     },
-    [token, timePreset, customFromDate, customToDate]
+    [canViewAnalytics, token, timePreset, customFromDate, customToDate]
   );
 
   const loadErrors = useCallback(
     async (forceFullSync: boolean = false, throwOnError: boolean = false) => {
-      if (!token || isFetchingErrorsRef.current) return;
+      if (!token || !canViewAnalytics || isFetchingErrorsRef.current) return;
       const activeRange = getDateWindow(timePreset, customFromDate, customToDate);
       if (!activeRange) return;
       isFetchingErrorsRef.current = true;
@@ -373,18 +375,18 @@ export function DeviceMonitorContent() {
         isFetchingErrorsRef.current = false;
       }
     },
-    [token, timePreset, customFromDate, customToDate]
+    [canViewAnalytics, token, timePreset, customFromDate, customToDate]
   );
 
   const loadLatestErrorActivity = useCallback(async () => {
-    if (!token) return;
+    if (!token || !canViewAnalytics) return;
     try {
       const latestLog = await fetchDeviceErrors(token, { limit: 1 });
       setLatestErrorActivityAt(latestLog[0]?.occurred_at ?? null);
     } catch {
       // Keep last-known timestamp when request fails.
     }
-  }, [token]);
+  }, [canViewAnalytics, token]);
 
   const jumpToLatestDataWindow = useCallback(() => {
     if (!latestErrorActivityAt) {
@@ -509,7 +511,7 @@ export function DeviceMonitorContent() {
 
   const loadData = useCallback(
     async (forceFullSync: boolean = false) => {
-      if (!token || isFetchingAllRef.current) return;
+      if (!token || !canViewAnalytics || isFetchingAllRef.current) return;
       if (!getDateWindow(timePreset, customFromDate, customToDate)) return;
 
       isFetchingAllRef.current = true;
@@ -537,10 +539,11 @@ export function DeviceMonitorContent() {
         isFetchingAllRef.current = false;
       }
     },
-    [token, timePreset, customFromDate, customToDate, loadStats, loadErrors, loadLatestErrorActivity, toLoadError]
+    [canViewAnalytics, token, timePreset, customFromDate, customToDate, loadStats, loadErrors, loadLatestErrorActivity, toLoadError]
   );
 
   const refreshErrorsOnly = useCallback(async () => {
+    if (!canViewAnalytics) return;
     try {
       await loadErrors(false, false);
       await loadLatestErrorActivity();
@@ -548,16 +551,17 @@ export function DeviceMonitorContent() {
     } catch {
       // Keep stale data on background refresh errors.
     }
-  }, [loadErrors, loadLatestErrorActivity]);
+  }, [canViewAnalytics, loadErrors, loadLatestErrorActivity]);
 
   const refreshStatsOnly = useCallback(async () => {
+    if (!canViewAnalytics) return;
     try {
       await loadStats(false);
       setLastUpdated(new Date());
     } catch {
       // Keep stale data on background refresh errors.
     }
-  }, [loadStats]);
+  }, [canViewAnalytics, loadStats]);
 
   const allDeviceErrorData = useMemo(() => {
     if (!stats) return [];
@@ -908,14 +912,16 @@ export function DeviceMonitorContent() {
   }, [activeWindow, deviceHealthRows, language, recentScopedErrors, selectedDeviceSummary]);
 
   useEffect(() => {
+    if (!canViewAnalytics) return;
     lastErrorCursorRef.current = null;
     setErrors([]);
     if (getDateWindow(timePreset, customFromDate, customToDate)) {
       void loadData(true);
     }
-  }, [loadData, windowSelectionKey, timePreset, customFromDate, customToDate]);
+  }, [canViewAnalytics, loadData, windowSelectionKey, timePreset, customFromDate, customToDate]);
 
   useEffect(() => {
+    if (!canViewAnalytics) return;
     let interval: NodeJS.Timeout | undefined;
     if (isAutoRefresh && token) {
       interval = setInterval(() => {
@@ -925,9 +931,10 @@ export function DeviceMonitorContent() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isAutoRefresh, token, refreshErrorsOnly, refreshIntervalMs]);
+  }, [canViewAnalytics, isAutoRefresh, token, refreshErrorsOnly, refreshIntervalMs]);
 
   useEffect(() => {
+    if (!canViewAnalytics) return;
     let interval: NodeJS.Timeout | undefined;
     if (isAutoRefresh && token) {
       interval = setInterval(() => {
@@ -937,7 +944,7 @@ export function DeviceMonitorContent() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isAutoRefresh, token, refreshStatsOnly, statsRefreshIntervalMs]);
+  }, [canViewAnalytics, isAutoRefresh, token, refreshStatsOnly, statsRefreshIntervalMs]);
 
   useEffect(() => {
     setDeviceHealthPageIndex((prev) => Math.min(prev, deviceHealthPageCount - 1));
@@ -965,8 +972,8 @@ export function DeviceMonitorContent() {
     window.localStorage.setItem(SAVED_MONITOR_VIEWS_KEY, JSON.stringify(savedViews));
   }, [savedViews]);
 
-  if (loading && !stats) return <div className="p-8">{tr(language, "Loading device data...", "กำลังโหลดข้อมูลอุปกรณ์...")}</div>;
-  if (errorObj)
+  if (canViewAnalytics && loading && !stats) return <div className="p-8">{tr(language, "Loading device data...", "กำลังโหลดข้อมูลอุปกรณ์...")}</div>;
+  if (canViewAnalytics && errorObj)
     return (
       <div className="p-8">
         <div className="rounded-md bg-destructive/15 p-4">
@@ -992,30 +999,39 @@ export function DeviceMonitorContent() {
         </div>
       </div>
     );
-  if (!stats) return <div className="p-8">{tr(language, "No data available.", "ไม่มีข้อมูล")}</div>;
+  if (canViewAnalytics && !stats) return <div className="p-8">{tr(language, "No data available.", "ไม่มีข้อมูล")}</div>;
 
   return (
     <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 bg-background w-full">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-bold tracking-tight">{tr(language, "Device Monitor", "มอนิเตอร์อุปกรณ์")}</h1>
-          <p className="text-muted-foreground">{tr(language, "Real-time status of physical device API ingestion.", "สถานะเรียลไทม์ของการรับข้อมูลจากอุปกรณ์ผ่าน API")}</p>
-          <p className="text-sm text-muted-foreground">
-            {tr(language, "Range:", "ช่วงเวลา:")} {rangeLabel}
+          <p className="text-muted-foreground">
+            {canViewAnalytics
+              ? tr(language, "Real-time status of physical device API ingestion.", "สถานะเรียลไทม์ของการรับข้อมูลจากอุปกรณ์ผ่าน API")
+              : tr(language, "Live pairing status between devices and patients, plus current device availability.", "สถานะการจับคู่ระหว่างอุปกรณ์กับผู้ป่วยแบบสด พร้อมความพร้อมใช้งานของเครื่อง")}
           </p>
-          <p className="text-sm text-muted-foreground">
-            {tr(language, "Latest error activity:", "ข้อมูลข้อผิดพลาดล่าสุด:")}{" "}
-            {latestErrorActivityAt
-              ? toLocalTimeString(new Date(latestErrorActivityAt), language)
-              : tr(language, "No error history", "ยังไม่มีประวัติข้อผิดพลาด")}
-          </p>
-          {lastUpdated && (
+          {canViewAnalytics && (
+            <p className="text-sm text-muted-foreground">
+              {tr(language, "Range:", "ช่วงเวลา:")} {rangeLabel}
+            </p>
+          )}
+          {canViewAnalytics && (
+            <p className="text-sm text-muted-foreground">
+              {tr(language, "Latest error activity:", "ข้อมูลข้อผิดพลาดล่าสุด:")}{" "}
+              {latestErrorActivityAt
+                ? toLocalTimeString(new Date(latestErrorActivityAt), language)
+                : tr(language, "No error history", "ยังไม่มีประวัติข้อผิดพลาด")}
+            </p>
+          )}
+          {canViewAnalytics && lastUpdated && (
             <p className="text-sm text-muted-foreground">
               {tr(language, "Last refreshed:", "รีเฟรชล่าสุด:")} {toLocalTimeString(lastUpdated, language)}
             </p>
           )}
         </div>
 
+        {canViewAnalytics && (
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <Select value={timePreset} onValueChange={(value) => setTimePreset(value as TimePreset)}>
             <SelectTrigger className="h-9 w-[160px] text-sm">
@@ -1121,8 +1137,11 @@ export function DeviceMonitorContent() {
             {tr(language, "Refresh", "รีเฟรช")}
           </Button>
         </div>
+        )}
       </div>
 
+      {canViewAnalytics && stats ? (
+      <>
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -1209,6 +1228,21 @@ export function DeviceMonitorContent() {
         deviceHealthPageSize={deviceHealthPageSize}
         setDeviceHealthPageSize={setDeviceHealthPageSize}
       />
+      </>
+      ) : !canViewAnalytics ? (
+        <Card className="border-dashed border-slate-300 bg-slate-50/60">
+          <CardHeader>
+            <CardTitle>{tr(language, "Analytics view is admin-only", "มุมมองวิเคราะห์สงวนไว้สำหรับแอดมิน")}</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {tr(
+                language,
+                "Doctors can still use the live operations board above to identify the active device-patient pairing in real time.",
+                "แพทย์ยังสามารถใช้ live operations ด้านบนเพื่อตรวจดูการจับคู่ระหว่างอุปกรณ์กับผู้ป่วยแบบเรียลไทม์ได้",
+              )}
+            </p>
+          </CardHeader>
+        </Card>
+      ) : null}
     </main>
   );
 }

@@ -16,7 +16,7 @@ from app.core.secret_crypto import has_reserved_secret_prefix
 from app.core.security import generate_totp_secret
 from app.models.audit_log import AuditLog
 from app.models.device_registration import DeviceRegistration
-from app.models.enums import PrivilegedRole, UserRole
+from app.models.enums import DeviceExamMeasurementType, PrivilegedRole, UserRole
 from app.models.ip_ban import IPBan
 from app.models.login_attempt import LoginAttempt
 from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
@@ -144,6 +144,21 @@ def _require_security_recovery_access(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Security recovery actions are only allowed from approved IP addresses.",
         )
+    auth_service.require_recent_privileged_session(
+        request,
+        current_user,
+        max_age_seconds=HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS,
+    )
+    if not auth_service.can_manage_security_recovery(current_user, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security admin only.")
+
+
+def _require_device_registry_management(
+    *,
+    request: Request,
+    db: Session,
+    current_user: User,
+) -> None:
     auth_service.require_recent_privileged_session(
         request,
         current_user,
@@ -287,6 +302,7 @@ class DeviceRegistrationView(BaseModel):
     device_id: str
     display_name: str
     notes: str | None = None
+    default_measurement_type: DeviceExamMeasurementType
     is_active: bool
     last_seen_at: datetime | None = None
     deactivated_at: datetime | None = None
@@ -306,6 +322,7 @@ class DeviceRegistrationCreateRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=200)
     device_secret: str | None = None
     notes: str | None = Field(default=None, max_length=500)
+    default_measurement_type: DeviceExamMeasurementType = DeviceExamMeasurementType.lung_sound
     is_active: bool = True
 
     @model_validator(mode="after")
@@ -328,11 +345,17 @@ class DeviceRegistrationCreateResponse(BaseModel):
 class DeviceRegistrationUpdateRequest(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=200)
     notes: str | None = Field(default=None, max_length=500)
+    default_measurement_type: DeviceExamMeasurementType | None = None
     is_active: bool | None = None
 
     @model_validator(mode="after")
     def validate_payload(self):
-        if self.display_name is None and self.notes is None and self.is_active is None:
+        if (
+            self.display_name is None
+            and self.notes is None
+            and self.default_measurement_type is None
+            and self.is_active is None
+        ):
             raise ValueError("At least one field must be provided.")
         if self.display_name is not None:
             self.display_name = self.display_name.strip()
@@ -385,6 +408,7 @@ def _to_device_registration_view(device: DeviceRegistration) -> DeviceRegistrati
         device_id=device.device_id,
         display_name=device.display_name,
         notes=device.notes,
+        default_measurement_type=device.default_measurement_type,
         is_active=bool(device.is_active),
         last_seen_at=device.last_seen_at,
         deactivated_at=device.deactivated_at,
@@ -974,7 +998,7 @@ def create_registered_device(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
-    _require_security_recovery_access(request=request, db=db, current_user=current_user)
+    _require_device_registry_management(request=request, db=db, current_user=current_user)
     secret_value = _normalize_device_secret(payload.device_secret)
     now = datetime.now(timezone.utc)
 
@@ -983,6 +1007,7 @@ def create_registered_device(
         display_name=payload.display_name,
         device_secret=secret_value,
         notes=payload.notes,
+        default_measurement_type=payload.default_measurement_type,
         is_active=payload.is_active,
         deactivated_at=None if payload.is_active else now,
         created_by=current_user.id,
@@ -1011,6 +1036,7 @@ def create_registered_device(
         details={
             "device_id": payload.device_id,
             "display_name": payload.display_name,
+            "default_measurement_type": payload.default_measurement_type.value,
             "is_active": payload.is_active,
         },
     )
@@ -1035,6 +1061,7 @@ def update_registered_device(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
+    _require_device_registry_management(request=request, db=db, current_user=current_user)
     normalized_device_id = device_id.strip()
     if not normalized_device_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="device_id is required.")
@@ -1048,6 +1075,8 @@ def update_registered_device(
         device.display_name = payload.display_name
     if payload.notes is not None:
         device.notes = payload.notes
+    if payload.default_measurement_type is not None:
+        device.default_measurement_type = payload.default_measurement_type
     if payload.is_active is not None:
         device.is_active = payload.is_active
         device.deactivated_at = None if payload.is_active else now
@@ -1067,6 +1096,7 @@ def update_registered_device(
         details={
             "device_id": device.device_id,
             "display_name": device.display_name,
+            "default_measurement_type": device.default_measurement_type.value,
             "is_active": bool(device.is_active),
         },
     )
@@ -1084,7 +1114,7 @@ def delete_registered_device(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
-    _require_security_recovery_access(request=request, db=db, current_user=current_user)
+    _require_device_registry_management(request=request, db=db, current_user=current_user)
     normalized_device_id = device_id.strip()
     if not normalized_device_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="device_id is required.")

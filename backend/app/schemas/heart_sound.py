@@ -3,7 +3,8 @@ from pydantic import BaseModel, Field, UUID4, field_validator
 
 
 class HeartSoundCreate(BaseModel):
-    patient_id: UUID4 = Field(..., alias="user_id")
+    patient_id: UUID4 | None = Field(default=None, alias="user_id")
+    session_id: UUID4 | None = None
     mac_address: str = Field(..., min_length=1, max_length=64)
     position: int = Field(..., ge=1, le=14)
     blob_url: str = Field(..., min_length=1, max_length=2048)
@@ -91,6 +92,7 @@ class HeartSoundUploadFinalize(BaseModel):
 class HeartSoundRecordOut(BaseModel):
     id: UUID4
     patient_id: UUID4
+    device_exam_session_id: UUID4 | None = None
     device_id: str
     mac_address: str
     position: int

@@ -17,6 +17,22 @@ contains_service() {
   return 1
 }
 
+should_force_recreate() {
+  if [[ ${#services[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  if contains_service "backend" "${services[@]}"; then
+    return 0
+  fi
+
+  if contains_service "frontend" "${services[@]}"; then
+    return 0
+  fi
+
+  return 1
+}
+
 load_env_file_if_present() {
   local env_file="$1"
   [[ -f "$env_file" ]] || return 0
@@ -119,7 +135,14 @@ main() {
   load_default_runtime_env
   derive_local_db_env
   ./scripts/check-compose-env.sh "$@"
-  exec env COMPOSE_DISABLE_ENV_FILE=1 docker compose up --build "$@"
+
+  compose_args=(up --build)
+  if should_force_recreate; then
+    echo "Forcing recreate for app containers to avoid stale auto-restarted services."
+    compose_args+=(--force-recreate)
+  fi
+
+  exec env COMPOSE_DISABLE_ENV_FILE=1 docker compose "${compose_args[@]}" "$@"
 }
 
 main "$@"

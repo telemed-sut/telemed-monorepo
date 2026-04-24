@@ -184,6 +184,11 @@ cause startup loops:
   - `SEED_MEDICAL_STUDENT_PASSWORD`
 - The seed script refuses to run against non-local database targets unless you
   set `ALLOW_DEMO_SEED=true` explicitly.
+- For a complete local device demo flow, run
+  `venv/bin/alembic upgrade head`, then
+  `python scripts/seed_device_demo_flow.py`. It creates one demo doctor,
+  patient, registered lung device, assignment, and open device exam session,
+  then prints the simulator command. Redis is optional for this local script.
 - `SUPER_ADMIN_EMAILS` is bootstrap and break-glass fallback only. Production
   privileged access is assigned in the database.
 - When admin SSO is enabled, the backend uses PKCE and stores OIDC login/logout
@@ -317,6 +322,13 @@ python -m scripts.simulate_device_ingest \
 `python -m scripts.seed` inserts local demo users and around 15 realistic
 patients if tables are empty. The script is blocked for non-local database
 targets unless you opt in with `ALLOW_DEMO_SEED=true`.
+
+Run `venv/bin/alembic upgrade head` before
+`python scripts/seed_device_demo_flow.py` to prepare the no-hardware demo path
+for lung-sound testing. It creates or updates a demo doctor, patient, device
+registration, doctor-patient assignment, and open device exam session without
+deleting existing data. The command output includes the `DEVICE_API_SECRET` and
+`DEVICE_SESSION_ID` values for `tools/simulate_lung_device.py`.
 
 ### Notes
 - CORS allows only configured origins and Authorization header.

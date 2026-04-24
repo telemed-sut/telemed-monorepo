@@ -18,6 +18,11 @@ class HeartSoundRecord(Base):
         ForeignKey("patients.id", ondelete="CASCADE"),
         nullable=False,
     )
+    device_exam_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("device_exam_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     device_id: Mapped[str] = mapped_column(String(128), nullable=False)
     mac_address: Mapped[str] = mapped_column(String(64), nullable=False)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -29,9 +34,11 @@ class HeartSoundRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     patient = relationship("Patient", back_populates="heart_sound_records")
+    device_exam_session = relationship("DeviceExamSession")
 
     __table_args__ = (
         Index("ix_heart_sound_records_patient_id", "patient_id"),
+        Index("ix_heart_sound_records_device_exam_session_id", "device_exam_session_id"),
         Index("ix_heart_sound_records_device_id", "device_id"),
         Index("ix_heart_sound_records_mac_address", "mac_address"),
         Index("ix_heart_sound_records_position", "position"),

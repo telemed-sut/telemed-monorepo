@@ -240,15 +240,16 @@ async def verify_device_signature(
 
         # 2. Read and validate body payload details used in signature checks
         raw_body = await request.body()
-        if not raw_body:
-            raise ValueError("missing_body")
         if len(raw_body) > settings.device_api_max_body_bytes:
             raise ValueError("body_too_large")
 
-        try:
-            payload = json.loads(raw_body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise ValueError("invalid_json")
+        if raw_body:
+            try:
+                payload = json.loads(raw_body.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                raise ValueError("invalid_json")
+        else:
+            payload = {}
 
         payload_device_id = payload.get("device_id")
         if (

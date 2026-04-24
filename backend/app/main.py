@@ -14,7 +14,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import inspect, text
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api import alerts, audit, auth, dense_mode, meetings, patients, stats, users, pressure, device_monitor, events, heart_sound, passkeys
+from app.api import alerts, audit, auth, dense_mode, device_sessions, meetings, patients, stats, users, pressure, device_monitor, events, heart_sound, lung_sound, passkeys
 from app.api import patient_app as patient_app_api
 from app.api import security as security_api
 from app.core.config import get_settings
@@ -50,7 +50,7 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment-specific op
     _PASSKEYS_IMPORT_ERROR = exc
 
 logger = logging.getLogger(__name__)
-DEVICE_INGEST_PATHS = {"/add_pressure", "/device/v1/pressure", "/device/v1/heart-sounds"}
+DEVICE_INGEST_PATHS = {"/add_pressure", "/device/v1/pressure", "/device/v1/heart-sounds", "/device/v1/lung-sounds"}
 _SENTRY_INITIALIZED = False
 
 
@@ -302,6 +302,9 @@ def create_app() -> FastAPI:
     app.include_router(stats.router)
     app.include_router(pressure.router)
     app.include_router(heart_sound.router)
+    app.include_router(lung_sound.router)
+    app.include_router(device_sessions.router)
+    app.include_router(device_sessions.device_router)
     app.include_router(device_monitor.router)
     app.include_router(security_api.router)
     app.include_router(patient_app_api.router)

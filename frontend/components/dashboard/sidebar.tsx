@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Activity,
   Cpu,
+  Stethoscope,
 } from "lucide-react";
 import { useEffect, useMemo, useState, startTransition } from "react";
 import { Logo } from "@/components/ui/logo";
@@ -65,6 +66,12 @@ const meetingsRoute: NavItem = {
   link: "/meetings",
 };
 
+const deviceOperationsRoute: NavItem = {
+  id: "device-operations",
+  icon: Stethoscope,
+  link: "/device-operations",
+};
+
 const adminOnlyRoutes: NavItem[] = [
   { id: "users", icon: UserCog, link: "/users" },
   { id: "device-monitor", icon: Activity, link: "/device-monitor" },
@@ -91,6 +98,7 @@ const SIDEBAR_LABELS: Record<
       overview: "Overview",
       patients: "Patients",
       meetings: "Meetings",
+      "device-operations": "Device Operations",
       users: "Users",
       "device-monitor": "Device Monitor",
       "device-registry": "Device Registry",
@@ -110,6 +118,7 @@ const SIDEBAR_LABELS: Record<
       overview: "ภาพรวม",
       patients: "ผู้ป่วย",
       meetings: "การนัดหมาย",
+      "device-operations": "ปฏิบัติการอุปกรณ์",
       users: "ผู้ใช้",
       "device-monitor": "มอนิเตอร์อุปกรณ์",
       "device-registry": "ทะเบียนอุปกรณ์",
@@ -384,7 +393,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
       cancelled = true;
       window.removeEventListener("telemed-profile-updated", handleProfileUpdated);
     };
-  }, [token, userId]);
+  }, [setCurrentUser, token, userId]);
 
   useEffect(() => {
     if (isMobile) {
@@ -393,13 +402,16 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   }, [isMobile, pathname, setOpenMobile]);
 
   const showMeetings = canViewClinicalData(userRole);
+  const showDeviceOperations =
+    userRole === "admin" || userRole === "doctor" || userRole === "medical_student";
   const navRoutes = useMemo(
     () => [
       ...baseRoutes,
       ...(showMeetings ? [meetingsRoute] : []),
+      ...(showDeviceOperations ? [deviceOperationsRoute] : []),
       ...(canManageUsers(userRole) ? adminOnlyRoutes : []),
     ],
-    [showMeetings, userRole]
+    [showDeviceOperations, showMeetings, userRole]
   );
 
   useEffect(() => {

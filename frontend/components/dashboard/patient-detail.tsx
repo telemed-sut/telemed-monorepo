@@ -39,6 +39,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
+import { PatientDeviceSessionHistory } from "@/components/dashboard/patient-device-session-history";
 import { getPatientLoadErrorTitle } from "@/components/dashboard/patient-load-error";
 import {
   readPatientDetailCache,
@@ -804,6 +805,14 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
               </CardContent>
             </Card>
           </div>
+        </m.section>
+
+        <m.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22, delay: 0.08 }}
+        >
+          <PatientDeviceSessionHistory token={token} patientId={patientId} language={language} />
         </m.section>
 
         <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">

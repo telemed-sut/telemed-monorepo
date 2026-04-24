@@ -15,6 +15,12 @@ import type {
   BulkDeleteUsersResponse,
   BulkRestoreUsersResponse,
   DeviceErrorLog,
+  DeviceExamSession,
+  DeviceExamSessionCreatePayload,
+  DeviceExamSessionListResponse,
+  DeviceExamSessionStatusPayload,
+  DeviceInventoryResponse,
+  DeviceLiveSessionResponse,
   DeviceRegistration,
   DeviceRegistrationCreatePayload,
   DeviceRegistrationCreateResponse,
@@ -23,6 +29,10 @@ import type {
   DeviceRegistrationUpdatePayload,
   DeviceStats,
   FetchDeviceErrorsOptions,
+  FetchDeviceLungSoundReviewOptions,
+  FetchDeviceExamSessionsOptions,
+  FetchDeviceInventoryOptions,
+  FetchDeviceLiveSessionsOptions,
   FetchDeviceStatsOptions,
   IPBan,
   IPBanListResponse,
@@ -30,6 +40,9 @@ import type {
   OverviewStatsResponse,
   PurgeDeletedUsersResponse,
   SecurityStats,
+  DeviceLungSoundReviewItem,
+  DeviceLungSoundReviewQueueResponse,
+  ResolveDeviceLungSoundReviewPayload,
   User,
   UserCreate,
   UserCreateResponse,
@@ -262,6 +275,145 @@ export async function fetchDeviceErrors(token: string, options: FetchDeviceError
   return apiFetch<DeviceErrorLog[]>(`/device/v1/errors?${params.toString()}`, { method: "GET" }, token);
 }
 
+export async function fetchDeviceLiveSessions(
+  token: string,
+  options: FetchDeviceLiveSessionsOptions = {},
+) {
+  const params = new URLSearchParams();
+  if (options.includePending) {
+    params.set("include_pending", "true");
+  }
+  if (typeof options.staleAfterSeconds === "number") {
+    params.set("stale_after_seconds", String(options.staleAfterSeconds));
+  }
+  if (options.deviceId) {
+    params.set("device_id", options.deviceId);
+  }
+
+  const qs = params.toString();
+  return apiFetch<DeviceLiveSessionResponse>(
+    `/device/v1/live-sessions${qs ? `?${qs}` : ""}`,
+    { method: "GET", skipCache: true },
+    token,
+  );
+}
+
+export async function fetchDeviceInventory(
+  token: string,
+  options: FetchDeviceInventoryOptions = {},
+) {
+  const params = new URLSearchParams();
+  if (typeof options.staleAfterSeconds === "number") {
+    params.set("stale_after_seconds", String(options.staleAfterSeconds));
+  }
+
+  const qs = params.toString();
+  return apiFetch<DeviceInventoryResponse>(
+    `/device/v1/device-inventory${qs ? `?${qs}` : ""}`,
+    { method: "GET", skipCache: true },
+    token,
+  );
+}
+
+export async function fetchDeviceLungSoundReviewQueue(
+  token: string,
+  options: FetchDeviceLungSoundReviewOptions = {},
+) {
+  const params = new URLSearchParams();
+  params.set("limit", String(options.limit ?? 100));
+  if (options.routingStatus) {
+    params.set("routing_status", options.routingStatus);
+  }
+  if (options.deviceId) {
+    params.set("device_id", options.deviceId);
+  }
+
+  return apiFetch<DeviceLungSoundReviewQueueResponse>(
+    `/device/v1/review/lung-sounds?${params.toString()}`,
+    { method: "GET", skipCache: true },
+    token,
+  );
+}
+
+export async function resolveDeviceLungSoundReviewItem(
+  token: string,
+  recordId: string,
+  payload: ResolveDeviceLungSoundReviewPayload,
+) {
+  return apiFetch<DeviceLungSoundReviewItem>(
+    `/device/v1/review/lung-sounds/${encodeURIComponent(recordId)}`,
+    { method: "POST", body: JSON.stringify(payload), skipCache: true },
+    token,
+  );
+}
+
+export async function createDeviceExamSession(
+  token: string,
+  payload: DeviceExamSessionCreatePayload,
+) {
+  return apiFetch<DeviceExamSession>(
+    "/device-sessions",
+    { method: "POST", body: JSON.stringify(payload), skipCache: true },
+    token,
+  );
+}
+
+export async function activateDeviceExamSession(token: string, sessionId: string) {
+  return apiFetch<DeviceExamSession>(
+    `/device-sessions/${encodeURIComponent(sessionId)}/activate`,
+    { method: "POST", skipCache: true },
+    token,
+  );
+}
+
+export async function completeDeviceExamSession(
+  token: string,
+  sessionId: string,
+  payload: DeviceExamSessionStatusPayload = {},
+) {
+  return apiFetch<DeviceExamSession>(
+    `/device-sessions/${encodeURIComponent(sessionId)}/complete`,
+    { method: "POST", body: JSON.stringify(payload), skipCache: true },
+    token,
+  );
+}
+
+export async function cancelDeviceExamSession(
+  token: string,
+  sessionId: string,
+  payload: DeviceExamSessionStatusPayload = {},
+) {
+  return apiFetch<DeviceExamSession>(
+    `/device-sessions/${encodeURIComponent(sessionId)}/cancel`,
+    { method: "POST", body: JSON.stringify(payload), skipCache: true },
+    token,
+  );
+}
+
+export async function fetchDeviceExamSessions(
+  token: string,
+  options: FetchDeviceExamSessionsOptions = {},
+) {
+  const params = new URLSearchParams();
+  if (options.patientId) {
+    params.set("patient_id", options.patientId);
+  }
+  if (options.deviceId) {
+    params.set("device_id", options.deviceId);
+  }
+  if (options.status) {
+    params.set("status", options.status);
+  }
+  params.set("limit", String(options.limit ?? 50));
+  params.set("offset", String(options.offset ?? 0));
+
+  return apiFetch<DeviceExamSessionListResponse>(
+    `/device-sessions?${params.toString()}`,
+    { method: "GET", skipCache: true },
+    token,
+  );
+}
+
 export async function fetchAuditLogs(
   token: string,
   params: {
@@ -393,7 +545,7 @@ export async function fetchLoginAttempts(
 }
 
 export async function fetchDeviceRegistrations(
-  params: { page?: number; limit?: number; q?: string; is_active?: boolean },
+  params: { page?: number; limit?: number; q?: string; is_active?: boolean; skipCache?: boolean },
   token: string,
 ) {
   const query = new URLSearchParams();
@@ -401,15 +553,21 @@ export async function fetchDeviceRegistrations(
   if (params.q) query.set("q", params.q);
   if (params.is_active !== undefined) query.set("is_active", params.is_active ? "true" : "false");
   const qs = query.toString();
-  return apiFetch<DeviceRegistrationListResponse>(`/security/devices${qs ? `?${qs}` : ""}`, {}, token);
+  return apiFetch<DeviceRegistrationListResponse>(
+    `/security/devices${qs ? `?${qs}` : ""}`,
+    { skipCache: params.skipCache ?? false },
+    token,
+  );
 }
 
 export async function createDeviceRegistration(payload: DeviceRegistrationCreatePayload, token: string) {
-  return apiFetch<DeviceRegistrationCreateResponse>(
+  const response = await apiFetch<DeviceRegistrationCreateResponse>(
     "/security/devices",
     { method: "POST", body: JSON.stringify(payload) },
     token,
   );
+  invalidateCache("/security/devices");
+  return response;
 }
 
 export async function updateDeviceRegistration(
@@ -417,19 +575,23 @@ export async function updateDeviceRegistration(
   payload: DeviceRegistrationUpdatePayload,
   token: string,
 ) {
-  return apiFetch<DeviceRegistration>(
+  const response = await apiFetch<DeviceRegistration>(
     `/security/devices/${encodeURIComponent(deviceId)}`,
     { method: "PATCH", body: JSON.stringify(payload) },
     token,
   );
+  invalidateCache("/security/devices");
+  return response;
 }
 
 export async function deleteDeviceRegistration(deviceId: string, token: string) {
-  return apiFetch<DeviceRegistrationDeleteResponse>(
+  const response = await apiFetch<DeviceRegistrationDeleteResponse>(
     `/security/devices/${encodeURIComponent(deviceId)}`,
     { method: "DELETE" },
     token,
   );
+  invalidateCache("/security/devices");
+  return response;
 }
 
 export async function bulkDeleteUsers(
