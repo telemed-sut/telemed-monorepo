@@ -14,12 +14,12 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import inspect, text
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from app.api import alerts, audit, auth, dense_mode, device_sessions, meetings, patients, stats, users, pressure, device_monitor, events, heart_sound, lung_sound, passkeys
+from app.api import alerts, audit, auth, dense_mode, device_sessions, meetings, patients, stats, users, pressure, device_monitor, events, heart_sound, lung_sound, passkeys, patient_stream
 from app.api import patient_app as patient_app_api
 from app.api import security as security_api
 from app.core.config import get_settings
 from app.core.limiter import limiter, get_strict_client_ip_rate_limit_key
-from app.core.logging_config import configure_logging, reset_request_id, set_request_id
+from app.core.logging_config import configure_logging, redact_sensitive_data, reset_request_id, set_request_id
 from app.db.session import SessionLocal, get_redis_client
 from app.middleware import IPBanMiddleware, SecurityAuditMiddleware, SecurityHeadersMiddleware
 from app.models.device_error_log import DeviceErrorLog
@@ -93,7 +93,10 @@ def _format_validation_summary(exc: RequestValidationError, max_items: int = 6) 
     for err in exc.errors():
         loc = ".".join(str(part) for part in err.get("loc", []) if part != "body")
         message = str(err.get("msg", "invalid value"))
-        errors.append(f"{loc}: {message}" if loc else message)
+        # Redact the error message itself if it contains sensitive field markers
+        # to prevent PII leakage into logs.
+        scrubbed_message = redact_sensitive_data(message)
+        errors.append(f"{loc}: {scrubbed_message}" if loc else scrubbed_message)
 
     if not errors:
         return "invalid_request_payload"
@@ -310,6 +313,7 @@ def create_app() -> FastAPI:
     app.include_router(patient_app_api.router)
     app.include_router(events.router)
     app.include_router(passkeys.router)
+    app.include_router(patient_stream.router)
 
     @app.get("/health", response_model=HealthCheckResponse)
     @limiter.limit("60/minute", key_func=get_strict_client_ip_rate_limit_key)

@@ -1,6 +1,6 @@
 x-backend-common-env: &backend-common-env
-  DATABASE_URL: "${DOCKER_DATABASE_URL:-${DATABASE_URL:?DATABASE_URL is required. Run backend/scripts/bootstrap_backend_env.sh or use Infisical before running docker compose.}}"
-  JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required. Run backend/scripts/bootstrap_backend_env.sh or use Infisical before running docker compose.}"
+  DATABASE_URL: "${DOCKER_DATABASE_URL:-${DATABASE_URL:-postgresql+psycopg://user:password@db:5432/patient_db}}"
+  JWT_SECRET: "${JWT_SECRET:-replace_with_a_minimum_32_character_random_secret}"
   JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-3600}"
   ADMIN_JWT_EXPIRES_IN: "${ADMIN_JWT_EXPIRES_IN:-14400}"
   APP_ENV: "${APP_ENV:-development}"
@@ -186,8 +186,8 @@ services:
     image: postgres:15-alpine
     container_name: patient-db
     environment:
-      POSTGRES_USER: "${POSTGRES_USER:?POSTGRES_USER is required}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}"
+      POSTGRES_USER: "${POSTGRES_USER:-user}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-password}"
       POSTGRES_DB: "${POSTGRES_DB:-patient_db}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -219,7 +219,7 @@ services:
     container_name: telemed-authentik-db
     environment:
       POSTGRES_USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
-      POSTGRES_PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-authentik-dev-password}"
+      POSTGRES_PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-telemed-dev-auth-password}"
       POSTGRES_DB: "${AUTHENTIK_POSTGRES_DB:-authentik}"
     volumes:
       - authentik_postgres_data:/var/lib/postgresql/data
@@ -240,7 +240,7 @@ services:
     image: redis:7-alpine
     container_name: telemed-authentik-redis
     environment:
-      AUTHENTIK_REDIS_PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-authentik-dev-password}"
+      AUTHENTIK_REDIS_PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-telemed-dev-auth-password}"
     command:
       [
         "sh",
@@ -265,13 +265,13 @@ services:
     container_name: telemed-authentik-server
     command: server
     environment:
-      AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY:-authentik-dev-secret-key}"
+      AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY:-telemed-dev-auth-secret}"
       AUTHENTIK_POSTGRESQL__HOST: authentik-postgresql
       AUTHENTIK_POSTGRESQL__USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
-      AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-authentik-dev-password}"
+      AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-telemed-dev-auth-password}"
       AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB:-authentik}"
       AUTHENTIK_REDIS__HOST: authentik-redis
-      AUTHENTIK_REDIS__PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-authentik-dev-password}"
+      AUTHENTIK_REDIS__PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-telemed-dev-auth-password}"
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
     ports:
       - "127.0.0.1:9000:9000"
@@ -319,13 +319,13 @@ services:
     container_name: telemed-authentik-worker
     command: worker
     environment:
-      AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY:-authentik-dev-secret-key}"
+      AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY:-telemed-dev-auth-secret}"
       AUTHENTIK_POSTGRESQL__HOST: authentik-postgresql
       AUTHENTIK_POSTGRESQL__USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
-      AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-authentik-dev-password}"
+      AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-telemed-dev-auth-password}"
       AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB:-authentik}"
       AUTHENTIK_REDIS__HOST: authentik-redis
-      AUTHENTIK_REDIS__PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-authentik-dev-password}"
+      AUTHENTIK_REDIS__PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-telemed-dev-auth-password}"
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
     depends_on:
       - authentik-postgresql

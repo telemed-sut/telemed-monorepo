@@ -1,5 +1,7 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { Activity, Cpu, Waves } from "lucide-react";
 
 import { DeviceMonitorLiveOps } from "@/components/dashboard/device-monitor-live-ops";
@@ -17,32 +19,20 @@ function localeOf(language: AppLanguage) {
 }
 
 export function DeviceOperationsContent() {
+  const router = useRouter();
   const token = useAuthStore((state) => state.token);
   const role = useAuthStore((state) => state.role);
   const language = useLanguageStore((state) => state.language);
-  const canViewOperations =
-    role === "admin" || role === "doctor" || role === "medical_student";
-  const canManageSessions = role === "admin" || role === "doctor";
+  const isAdmin = role === "admin";
 
-  if (!canViewOperations) {
-    return (
-      <main className="flex-1 overflow-auto bg-slate-50/80 p-3 sm:p-5 lg:p-7">
-        <div className="mx-auto max-w-7xl">
-          <Card>
-            <CardHeader>
-              <CardTitle>{tr(language, "Access required", "ต้องมีสิทธิ์เข้าถึง")}</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              {tr(
-                language,
-                "You do not have permission to view device operations.",
-                "คุณไม่มีสิทธิ์ดูหน้าปฏิบัติการอุปกรณ์",
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </main>
-    );
+  useEffect(() => {
+    if (!isAdmin) {
+      router.replace("/overview");
+    }
+  }, [isAdmin, router]);
+
+  if (!isAdmin) {
+    return null;
   }
 
   return (
@@ -149,7 +139,7 @@ export function DeviceOperationsContent() {
           language={language}
           autoRefreshEnabled
           refreshIntervalMs={5000}
-          canManageSessions={canManageSessions}
+          canManageSessions={isAdmin}
         />
       </div>
     </main>

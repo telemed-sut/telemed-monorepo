@@ -124,38 +124,24 @@ telemed-monorepo/
 └── README.md
 ```
 
-## Quick Start (Docker + Infisical, Primary)
+## Quick Start (Local .env, Primary)
 
-Primary backend command:
+1. Copy `.env.example` to `.env` and fill in the values.
+2. Run `./scripts/dev-backend.sh` to start the backend and database.
+3. Run `./scripts/dev-frontend.sh` to start the frontend.
 
-```bash
-./scripts/dev-backend.sh
-```
+## Advanced: Using Infisical (Optional)
 
-Primary frontend command:
-
-```bash
-./scripts/dev-frontend.sh
-```
-
-Primary share-link command:
+If you prefer to use Infisical for secret management, install the CLI and login, then set `USE_INFISICAL=true`:
 
 ```bash
-./scripts/dev-share-link.sh
+USE_INFISICAL=true ./scripts/dev-backend.sh
 ```
 
 Optional (if your Infisical CLI needs explicit runtime args):
 
 ```bash
-INFISICAL_RUN_ARGS="--projectId <project_id> --env <environment> --path /" ./scripts/dev-backend.sh
-```
-
-The same pattern works with every Infisical-aware helper under `scripts/`, for example:
-
-```bash
-INFISICAL_RUN_ARGS="--env=dev" ./scripts/dev-frontend.sh
-INFISICAL_RUN_ARGS="--env=dev" ./scripts/test-backend.sh
-INFISICAL_RUN_ARGS="--env=dev" ./scripts/build-frontend.sh
+USE_INFISICAL=true INFISICAL_RUN_ARGS="--projectId <project_id> --env <environment> --path /" ./scripts/dev-backend.sh
 ```
 
 ## Just command runner
@@ -220,7 +206,8 @@ Services:
 
 Notes:
 
-- Official scripts ignore root `.env`; the source of truth is Infisical runtime env.
+- You can use `.env` files in the root, `backend/`, or `frontend/` directories.
+- If you use Infisical, it will take precedence if `USE_INFISICAL=true` is set.
 - Run `just doctor-backend-env` first if `just dev-backend` fails early. It
   checks the exact runtime env that Docker Compose will see and calls out:
   missing secrets, placeholder values like `replace_with_*`, default

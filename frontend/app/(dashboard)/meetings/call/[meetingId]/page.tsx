@@ -320,6 +320,7 @@ export default function MeetingCallPage() {
   const language = useLanguageStore((state) => state.language);
   const token = useAuthStore((state) => state.token);
   const role = useAuthStore((state) => state.role);
+  const currentUser = useAuthStore((state) => state.currentUser);
   const hydrateAuth = useAuthStore((state) => state.hydrate);
   const isPopupWindow = searchParams.get("popup") === "1";
   const resumeFromMiniWindow = searchParams.get("resume") === "1";
@@ -786,6 +787,16 @@ export default function MeetingCallPage() {
         setSession(videoSession);
         const meetingLink = `${window.location.origin}/meetings/call/${meetingId}`;
 
+        if (process.env.NODE_ENV === "development") {
+          console.log("[ZEGO] Session received:", {
+            app_id: videoSession.app_id,
+            room_id: videoSession.room_id,
+            user_id: videoSession.user_id,
+            provider: videoSession.provider,
+            token_prefix: videoSession.token?.substring(0, 4),
+          });
+        }
+
         // Fire-and-forget patient invite — does not block room setup
         void createMeetingPatientInvite(meetingId, token)
           .then((invite) => {
@@ -804,7 +815,11 @@ export default function MeetingCallPage() {
           throw new Error("Call container is not ready.");
         }
 
-        const displayName = role === "doctor" ? "Doctor" : "User";
+        const doctorName = currentUser?.first_name
+          ? `${currentUser.first_name} ${currentUser.last_name || ""}`.trim()
+          : "";
+        const displayName = doctorName || (role === "doctor" ? "Doctor" : "User");
+
         const kitToken = zego.generateKitTokenForProduction(
           videoSession.app_id,
           videoSession.token,
@@ -835,6 +850,20 @@ export default function MeetingCallPage() {
             },
           ],
           showLeavingView: false,
+          onJoinRoom: () => {
+            setLoading(false);
+            if (process.env.NODE_ENV === "development") {
+              console.log("[ZEGO] Successfully joined the room");
+            }
+          },
+          onRoomStateUpdate: (state) => {
+            if (state === "CONNECTED" || state === "DISCONNECTED") {
+              setLoading(false);
+            }
+            if (process.env.NODE_ENV === "development") {
+              console.log("[ZEGO] Room state update:", state);
+            }
+          },
           onLeaveRoom: () => {
             if (suppressLeaveRoomNavigationRef.current) {
               return;
@@ -907,7 +936,7 @@ export default function MeetingCallPage() {
         zegoInstanceRef.current = null;
         // Clear ZEGO DOM remnants so the next mount starts with a clean container.
         if (containerNode) {
-          containerNode.innerHTML = "";
+          containerNode.textContent = "";
         }
       }
     };
@@ -916,6 +945,7 @@ export default function MeetingCallPage() {
     token,
     role,
     language,
+    currentUser,
     isPopupWindow,
     postMiniWindowMessage,
     handleLeaveCallRoute,
@@ -1208,7 +1238,7 @@ export default function MeetingCallPage() {
           isPopupWindow ? "min-h-[86vh]" : "min-h-[80vh]"
         )}
       >
-        <div className="absolute inset-0 bg-gradient-to-tr from-slate-950 via-slate-900 to-slate-950 opacity-50" />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-slate-950 via-slate-900 to-slate-950 opacity-50" />
         <div ref={containerRef} className="relative z-10 h-full w-full" />
         <MeetingCallChrome
           language={language}

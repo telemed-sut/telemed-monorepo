@@ -402,16 +402,15 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
   }, [isMobile, pathname, setOpenMobile]);
 
   const showMeetings = canViewClinicalData(userRole);
-  const showDeviceOperations =
-    userRole === "admin" || userRole === "doctor" || userRole === "medical_student";
+  const isAdmin = userRole === "admin";
   const navRoutes = useMemo(
     () => [
       ...baseRoutes,
       ...(showMeetings ? [meetingsRoute] : []),
-      ...(showDeviceOperations ? [deviceOperationsRoute] : []),
+      ...(isAdmin ? [deviceOperationsRoute] : []),
       ...(canManageUsers(userRole) ? adminOnlyRoutes : []),
     ],
-    [showDeviceOperations, showMeetings, userRole]
+    [isAdmin, showMeetings, userRole]
   );
 
   useEffect(() => {

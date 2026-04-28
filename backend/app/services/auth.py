@@ -195,23 +195,13 @@ def _validate_cookie_csrf(request: Request) -> None:
             return None
         return normalized
 
-    def derive_request_origin() -> str | None:
-        forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
-        forwarded_host = request.headers.get("x-forwarded-host", "").split(",")[0].strip()
-        host = forwarded_host or request.headers.get("host", "").split(",")[0].strip()
-        scheme = forwarded_proto or request.url.scheme
-        if not host or not scheme:
-            return None
-        return normalize_origin(f"{scheme}://{host}")
-
     allowed_origins: set[str] = set()
+    
+    # Strictly allow ONLY configured origins. 
+    # Do NOT trust incoming X-Forwarded-Host for origin validation.
     frontend_origin = normalize_origin(settings.frontend_base_url)
     if frontend_origin:
         allowed_origins.add(frontend_origin)
-
-    request_origin = derive_request_origin()
-    if request_origin:
-        allowed_origins.add(request_origin)
 
     raw_cors_origins = settings.cors_origins
     if isinstance(raw_cors_origins, str):
@@ -223,6 +213,7 @@ def _validate_cookie_csrf(request: Request) -> None:
         normalized = normalize_origin(origin)
         if normalized:
             allowed_origins.add(normalized)
+    
     csrf_cookie = request.cookies.get("csrf_token")
     csrf_header = request.headers.get("x-csrf-token")
     has_valid_csrf_token = bool(
@@ -268,20 +259,32 @@ def is_super_admin(user: Optional[User], db: Session | None = None) -> bool:
     return can_manage_privileged_admins(user, db)
 
 
-def require_roles(allowed_roles: List[UserRole]):
-    """Dependency to require specific roles"""
-    def role_checker(current_user: User = Depends(get_current_user)) -> User:
+def require_roles(allowed_roles: List[UserRole], *, require_mfa: bool = False):
+    """Dependency to require specific roles and optionally MFA verification."""
+    def role_checker(
+        request: Request,
+        current_user: User = Depends(get_current_user)
+    ) -> User:
         if current_user.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Access denied. Required roles: {[role.value for role in allowed_roles]}"
             )
+        
+        if require_mfa:
+            payload = get_request_auth_payload(request)
+            if not payload.get("mfa_verified"):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Multi-factor authentication (MFA) required for this action.",
+                )
+                
         return current_user
     return role_checker
 
 
 # Common role dependencies
-get_admin_user = require_roles([UserRole.admin])
+get_admin_user = require_roles([UserRole.admin], require_mfa=True)
 get_clinical_user = require_roles([
     UserRole.admin,
     UserRole.doctor,

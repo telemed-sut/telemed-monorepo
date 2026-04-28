@@ -6,6 +6,37 @@ LOG_FILE="$ROOT_DIR/logs/cron_cleanup.log"
 
 cd "$ROOT_DIR"
 
+load_env_file_if_present() {
+  local env_file="$1"
+  [[ -f "$env_file" ]] || return 0
+
+  local line key value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ -n "${line//[[:space:]]/}" ]] || continue
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" == *"="* ]] || continue
+
+    key="${line%%=*}"
+    value="${line#*=}"
+
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+    if [[ -z "${!key+x}" ]]; then
+      export "$key=$value"
+    fi
+  done < "$env_file"
+}
+
+# Try loading env from root or current backend dir
+load_env_file_if_present "$ROOT_DIR/../.env"
+load_env_file_if_present "$ROOT_DIR/../.env.local"
+load_env_file_if_present "$ROOT_DIR/.env"
+load_env_file_if_present "$ROOT_DIR/.env.local"
+
 if [ -n "${DATABASE_URL:-}" ] && [ -n "${JWT_SECRET:-}" ]; then
   venv/bin/python scripts/cleanup_audit_logs.py >>"$LOG_FILE" 2>&1
   venv/bin/python scripts/cleanup_sessions.py >>"$LOG_FILE" 2>&1

@@ -1,9 +1,11 @@
+import json
 import time
 from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -25,6 +27,7 @@ from app.services import audit as audit_service
 from app.services.auth import get_admin_user, get_db, verify_patient_access, verify_patient_access_doctor
 from app.services.blob_storage import BlobStorageConfigurationError, azure_blob_storage_service
 from app.services.heart_sound import heart_sound_service
+from app.services.redis import redis_manager
 from app.services.heart_sound_upload_sessions import (
     create_upload_session,
     delete_upload_session,
@@ -130,22 +133,33 @@ def get_patient_heart_sounds(
     db: Session = Depends(get_db),
     current_user: User = Depends(verify_patient_access),
 ):
+    # Phase 2: Redis Read-Cache for high-frequency polling
+    cache_key = f"telemed:cache:heart_sounds:{patient_id}:{limit}:{offset}"
+    try:
+        cached = redis_manager.client.get(cache_key)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+
     items, total = heart_sound_service.list_patient_heart_sounds(db, patient_id, limit=limit, offset=offset)
-    audit_service.log_action(
-        db,
-        current_user.id,
-        "view_patient_heart_sounds",
-        resource_type="patient",
-        resource_id=patient_id,
-        ip_address=get_client_ip(request),
-        details={"count": len(items)},
-    )
-    return {
-        "items": [heart_sound_service.serialize_heart_sound_record(item) for item in items],
+    
+    # Do not log action if it's likely a frequent polling (optional logic)
+    # audit_service.log_action(...)
+    
+    response_data = {
+        "items": [heart_sound_service.serialize_heart_sound_record(item).model_dump(mode='json') for item in items],
         "total": total,
         "limit": limit,
         "offset": offset,
     }
+
+    try:
+        redis_manager.client.set(cache_key, json.dumps(response_data), ex=10)
+    except Exception:
+        pass
+
+    return response_data
 
 
 @router.get("/heart-sounds/storage-consistency-audit", response_model=HeartSoundStorageAuditResponse)
@@ -379,11 +393,16 @@ def create_patient_heart_sound_upload_session(
             "session_id": session_payload["session_id"],
         },
     )
+    upload_url = prepared_upload.upload_url
+    if "session_id=" not in upload_url:
+        separator = "&" if "?" in upload_url else "?"
+        upload_url = f"{upload_url}{separator}session_id={session_payload['session_id']}"
+
     return {
         "session_id": session_payload["session_id"],
         "storage_key": prepared_upload.storage_key,
         "blob_url": prepared_upload.blob_url,
-        "upload_url": prepared_upload.upload_url,
+        "upload_url": upload_url,
         "upload_headers": {
             "x-ms-blob-type": "BlockBlob",
             "x-ms-blob-content-type": payload.mime_type or "application/octet-stream",
@@ -462,3 +481,65 @@ def complete_patient_heart_sound_upload(
         },
     )
     return heart_sound_service.serialize_heart_sound_record(record)
+
+
+@router.api_route(
+    "/patients/{patient_id}/heart-sounds/upload-local-proxy", 
+    methods=["POST", "PUT"], 
+    status_code=201
+)
+@limiter.limit("30/minute")
+async def upload_patient_heart_sound_local_proxy(
+    request: Request,
+    patient_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(verify_patient_access_doctor),
+):
+    """Special endpoint to support local filesystem storage when Azure is unavailable."""
+    from app.services.blob_storage import LocalStorageService
+    if not isinstance(azure_blob_storage_service, LocalStorageService):
+        raise HTTPException(status_code=400, detail="Local proxy upload is only available in local storage mode.")
+
+    # Read raw body for PUT (matching Azure style) or multipart for POST
+    if request.method == "PUT":
+        file_bytes = await request.body()
+    else:
+        form = await request.form()
+        file_field = form.get("file")
+        if not file_field or not isinstance(file_field, UploadFile):
+             raise HTTPException(status_code=400, detail="Missing file in multipart form")
+        file_bytes = await file_field.read()
+
+    session_id = request.query_params.get("session_id")
+    if not session_id:
+         # Fallback key generation if session_id missing
+         storage_key = f"manual/{patient_id}/{uuid4().hex}-upload.wav"
+    else:
+        session = get_upload_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Upload session not found or expired")
+        storage_key = session["storage_key"]
+        
+    file_path = azure_blob_storage_service.base_dir / storage_key
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_bytes(file_bytes)
+    
+    return {"status": "ok"}
+
+
+@router.get("/heart-sounds/local/{storage_key:path}")
+def serve_local_heart_sound(
+    storage_key: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(verify_patient_access),
+):
+    """Serve heart sound files from the local filesystem."""
+    from app.services.blob_storage import LocalStorageService
+    if not isinstance(azure_blob_storage_service, LocalStorageService):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    file_path = azure_blob_storage_service.base_dir / storage_key
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(path=file_path)

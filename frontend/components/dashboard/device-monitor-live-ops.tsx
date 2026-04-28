@@ -1,13 +1,13 @@
 "use client";
 
-import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import QRCode from "qrcode";
 import {
   Activity,
   CheckCircle2,
+  CircleAlert,
+  Cpu,
+  ExternalLink,
   Loader2,
-  Monitor,
   Play,
   RefreshCw,
   Search,
@@ -17,19 +17,17 @@ import {
   Waves,
   XCircle,
 } from "lucide-react";
-
 import {
   API_BASE_URL,
-  activateDeviceExamSession,
-  cancelDeviceExamSession,
   completeDeviceExamSession,
   createDeviceExamSession,
+  fetchDeviceExamSessions,
   fetchDeviceLungSoundReviewQueue,
   fetchDeviceInventory,
   fetchDeviceLiveSessions,
   fetchPatients,
   isProbablyJwt,
-  resolveDeviceLungSoundReviewItem,
+  resolveDeviceLungSoundReview,
   type DeviceLungSoundReviewItem,
   type DeviceLungSoundReviewQueueResponse,
   type DeviceInventoryItem,
@@ -216,7 +214,7 @@ function pickTargetSessionIdForReview(
   liveSessions: DeviceLiveSessionItem[],
 ): string | null {
   const deviceSessions = liveSessions.filter((session) => session.device_id === item.device_id);
-  const statuses: DeviceLiveSessionItem["status"][] = ["active", "stale", "pending_pair"];
+  const statuses: DeviceLiveSessionItem["status"][] = ["active", "stale"];
   for (const status of statuses) {
     const match = deviceSessions.find((session) => session.status === status);
     if (match) {
@@ -282,6 +280,7 @@ export function DeviceMonitorLiveOps({
   const [liveData, setLiveData] = useState<DeviceLiveSessionResponse | null>(null);
   const [inventoryData, setInventoryData] = useState<DeviceInventoryResponse | null>(null);
   const [reviewData, setReviewData] = useState<DeviceLungSoundReviewQueueResponse | null>(null);
+  const [recentCompletedData, setRecentCompletedData] = useState<any[]>([]);
   const [reviewRoutingFilter, setReviewRoutingFilter] = useState<ReviewRoutingFilter>("all");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -297,13 +296,11 @@ export function DeviceMonitorLiveOps({
   const [patientSearchLoading, setPatientSearchLoading] = useState(false);
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [measurementType, setMeasurementType] = useState<DeviceExamMeasurementType>(DEFAULT_MEASUREMENT_TYPE);
-  const [activateNow, setActivateNow] = useState(true);
   const [sessionNotes, setSessionNotes] = useState("");
   const [startSubmitting, setStartSubmitting] = useState(false);
-  const [sessionActionId, setSessionActionId] = useState<string | null>(null);
   const [reviewActionId, setReviewActionId] = useState<string | null>(null);
-  const [pairingSession, setPairingSession] = useState<DeviceLiveSessionItem | null>(null);
-  const [pairingQrDataUrl, setPairingQrDataUrl] = useState<string | null>(null);
+  const [showSwitchConfirm, setShowSwitchConfirm] = useState(false);
+  const [activeSessionToClose, setActiveSessionToClose] = useState<any | null>(null);
   const isFetchingRef = useRef(false);
   const refreshTimerRef = useRef<number | null>(null);
 
@@ -323,7 +320,7 @@ export function DeviceMonitorLiveOps({
               routingStatus: reviewRoutingFilter === "all" ? undefined : reviewRoutingFilter,
             })
           : Promise.resolve(null);
-        const [liveSessions, inventory, reviewQueue] = await Promise.all([
+        const [liveSessions, inventory, reviewQueue, completedSessions] = await Promise.all([
           fetchDeviceLiveSessions(token, {
             includePending,
             staleAfterSeconds,
@@ -332,10 +329,17 @@ export function DeviceMonitorLiveOps({
             staleAfterSeconds,
           }),
           reviewPromise,
+          fetchDeviceExamSessions(token, {
+            status: "completed",
+            limit: 5,
+            sort: "ended_at",
+            order: "desc",
+          }),
         ]);
         setLiveData(liveSessions);
         setInventoryData(inventory);
         setReviewData(reviewQueue);
+        setRecentCompletedData(completedSessions.items ?? []);
         setErrorText(null);
         setLastUpdated(new Date());
       } catch (error) {
@@ -369,39 +373,6 @@ export function DeviceMonitorLiveOps({
     }, Math.max(refreshIntervalMs, 4000));
     return () => window.clearInterval(intervalId);
   }, [autoRefreshEnabled, loadSnapshot, refreshIntervalMs, token]);
-
-  useEffect(() => {
-    if (!pairingSession?.pairing_code) {
-      setPairingQrDataUrl(null);
-      return;
-    }
-
-    let cancelled = false;
-    const payload = JSON.stringify({
-      type: "device_exam_session_pairing",
-      version: 1,
-      session_id: pairingSession.session_id,
-      device_id: pairingSession.device_id,
-      pairing_code: pairingSession.pairing_code,
-      measurement_type: pairingSession.measurement_type,
-    });
-
-    QRCode.toDataURL(payload, {
-      margin: 2,
-      width: 240,
-      errorCorrectionLevel: "M",
-    })
-      .then((dataUrl) => {
-        if (!cancelled) setPairingQrDataUrl(dataUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setPairingQrDataUrl(null);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [pairingSession]);
 
   useEffect(() => {
     if (!token) return;
@@ -569,7 +540,7 @@ export function DeviceMonitorLiveOps({
   const availableDevices = useMemo(
     () =>
       (inventoryData?.items ?? []).filter(
-        (item) => item.is_active && item.availability_status === "idle",
+        (item) => item.is_active && (item.availability_status === "idle" || item.availability_status === "in_use"),
       ),
     [inventoryData?.items],
   );
@@ -583,6 +554,10 @@ export function DeviceMonitorLiveOps({
 
   useEffect(() => {
     if (!selectedDeviceId) {
+      // Auto-select if there is exactly one device available
+      if (availableDevices.length === 1) {
+        setSelectedDeviceId(availableDevices[0].device_id);
+      }
       return;
     }
     const selectedDevice = availableDevices.find((device) => device.device_id === selectedDeviceId);
@@ -591,34 +566,46 @@ export function DeviceMonitorLiveOps({
     }
   }, [availableDevices, selectedDeviceId]);
 
-  const handleStartSession = useCallback(async () => {
-    if (!token || startSubmitting) return;
-    if (!selectedPatient) {
-      toast.warning(tr(language, "Select a patient first", "เลือกผู้ป่วยก่อน"), {
-        description: tr(language, "Search and choose the patient this device is about to examine.", "ค้นหาและเลือกผู้ป่วยที่จะตรวจด้วยเครื่องนี้"),
-      });
-      return;
-    }
-    if (!selectedDeviceId) {
-      toast.warning(tr(language, "Select an idle device", "เลือกเครื่องที่ว่างก่อน"), {
-        description: tr(language, "Only idle active devices can start a new session from this board.", "เริ่ม session ใหม่จากหน้านี้ได้เฉพาะเครื่อง active ที่ยังว่างอยู่"),
-      });
+  const executeStartSession = useCallback(async (isConfirmed = false) => {
+    if (!token || startSubmitting || !selectedPatient || !selectedDeviceId) return;
+
+    const currentDevice = availableDevices.find(d => d.device_id === selectedDeviceId);
+    
+    // Check if we need confirmation
+    if (!isConfirmed && currentDevice?.session_id) {
+      setActiveSessionToClose(currentDevice);
+      setShowSwitchConfirm(true);
       return;
     }
 
     setStartSubmitting(true);
+    setShowSwitchConfirm(false);
     try {
+      // Auto-switch logic: if device has any session, complete it first
+      if (currentDevice?.session_id) {
+        try {
+          await completeDeviceExamSession(token, currentDevice.session_id, {
+            notes: tr(language, "Automatically completed for patient transition.", "จบการตรวจอัตโนมัติเนื่องจากสลับคนไข้"),
+          });
+        } catch (e) {
+          console.error("Failed to auto-complete previous session:", e);
+          toast.error(tr(language, "Could not close previous session", "ไม่สามารถปิดรอบตรวจเดิมได้"), {
+            description: tr(language, "Please try finishing it manually or check connection.", "โปรดลองกดจบงานด้วยตนเอง หรือตรวจสอบการเชื่อมต่อ")
+          });
+          setStartSubmitting(false);
+          return; // Stop here if we can't clear the device
+        }
+      }
+
       const session = await createDeviceExamSession(token, {
         patient_id: selectedPatient.id,
         device_id: selectedDeviceId,
         measurement_type: measurementType,
         notes: sessionNotes.trim() || null,
-        activate_now: activateNow,
+        activate_now: true,
       });
       toast.success(
-        activateNow
-          ? tr(language, "Session started", "เริ่มรอบตรวจแล้ว")
-          : tr(language, "Pairing session created", "สร้างรอบรอจับคู่แล้ว"),
+        tr(language, "Session started", "เริ่มรอบตรวจแล้ว"),
         {
           description: tr(
             language,
@@ -642,9 +629,9 @@ export function DeviceMonitorLiveOps({
       );
     } finally {
       setStartSubmitting(false);
+      setActiveSessionToClose(null);
     }
   }, [
-    activateNow,
     language,
     loadSnapshot,
     measurementType,
@@ -653,40 +640,12 @@ export function DeviceMonitorLiveOps({
     sessionNotes,
     startSubmitting,
     token,
+    availableDevices,
   ]);
 
-  const handleSessionAction = useCallback(
-    async (session: DeviceLiveSessionItem, action: "activate" | "complete" | "cancel") => {
-      if (!token || sessionActionId) return;
-      setSessionActionId(`${action}:${session.session_id}`);
-      try {
-        if (action === "activate") {
-          await activateDeviceExamSession(token, session.session_id);
-          toast.success(tr(language, "Session activated", "เปิดใช้งาน session แล้ว"));
-        } else if (action === "complete") {
-          await completeDeviceExamSession(token, session.session_id, {
-            notes: tr(language, "Completed from live device operations.", "จบการตรวจจากหน้า live device operations"),
-          });
-          toast.success(tr(language, "Session completed", "จบรอบตรวจแล้ว"));
-        } else {
-          await cancelDeviceExamSession(token, session.session_id, {
-            notes: tr(language, "Cancelled from live device operations.", "ยกเลิกจากหน้า live device operations"),
-          });
-          toast.success(tr(language, "Session cancelled", "ยกเลิก session แล้ว"));
-        }
-        await loadSnapshot();
-      } catch (error) {
-        toast.apiError(
-          tr(language, "Session update failed", "อัปเดต session ไม่สำเร็จ"),
-          error,
-          tr(language, "Unable to update this device session.", "ไม่สามารถอัปเดต session อุปกรณ์นี้ได้"),
-        );
-      } finally {
-        setSessionActionId(null);
-      }
-    },
-    [language, loadSnapshot, sessionActionId, token],
-  );
+  const handleStartSession = useCallback(async () => {
+    void executeStartSession(false);
+  }, [executeStartSession]);
 
   const filteredReviewItems = useMemo(() => {
     const items = reviewData?.items ?? [];
@@ -789,6 +748,7 @@ export function DeviceMonitorLiveOps({
   }
 
   return (
+    <>
     <section className="space-y-4">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="space-y-1">
@@ -798,8 +758,8 @@ export function DeviceMonitorLiveOps({
           <p className="text-sm text-muted-foreground">
             {tr(
               language,
-              "See which device is paired to which patient right now, plus whether each cart is idle, in use, or busy.",
-              "ดูว่าอุปกรณ์ตัวไหนกำลังผูกกับผู้ป่วยคนใดอยู่ตอนนี้ พร้อมสถานะว่าเครื่องว่าง กำลังใช้งาน หรือถูกใช้อยู่โดยเคสอื่น",
+              "Monitor real-time device usage and patient assignments, plus device inventory status.",
+              "ตรวจสอบความเคลื่อนไหวการใช้งานเครื่องกับคนไข้ รวมถึงสถานะของแต่ละอุปกรณ์",
             )}
           </p>
           {lastUpdated && (
@@ -816,7 +776,7 @@ export function DeviceMonitorLiveOps({
           <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 shadow-xs">
             <Switch id="live-include-pending" checked={includePending} onCheckedChange={setIncludePending} />
             <Label htmlFor="live-include-pending" className="text-sm">
-              {tr(language, "Include pending", "รวมรายการที่รอจับคู่")}
+              {tr(language, "Include inactive sessions", "รวมรายการที่ไม่ได้เคลื่อนไหว")}
             </Label>
           </div>
           <Select
@@ -847,6 +807,30 @@ export function DeviceMonitorLiveOps({
             <RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />
             {tr(language, "Refresh", "รีเฟรช")}
           </Button>
+
+          {/* Dev Simulator Button */}
+          {process.env.NODE_ENV === "development" && (
+            <Button 
+              variant="secondary" 
+              size="sm" 
+              className="bg-amber-100 text-amber-800 hover:bg-amber-200 border-amber-200"
+              onClick={async () => {
+                if (!availableDevices.length || !patientResults.length) {
+                  toast.warning("Needs available devices and patients to simulate.");
+                  return;
+                }
+                const devPatient = patientResults[0];
+                const devDevice = availableDevices[0];
+                setSelectedPatient(devPatient);
+                setSelectedDeviceId(devDevice.device_id);
+                setPatientQuery(formatPatientName(devPatient));
+                toast.info(`Simulated selection: ${devDevice.device_id} for ${devPatient.first_name}`);
+              }}
+            >
+              <Cpu className="mr-2 h-4 w-4" />
+              Dev Sim
+            </Button>
+          )}
         </div>
       </div>
 
@@ -868,13 +852,13 @@ export function DeviceMonitorLiveOps({
               <CardDescription>
                 {tr(
                   language,
-                  "Pick an idle device, choose the patient, and create the live pairing before examination starts.",
-                  "เลือกเครื่องที่ว่าง เลือกผู้ป่วย แล้วสร้างการจับคู่สดก่อนเริ่มตรวจ",
+                  "Pick a device, choose the patient, and start the examination session immediately.",
+                  "เลือกเครื่อง เลือกผู้ป่วย แล้วเริ่มรอบการตรวจได้ทันที",
                 )}
               </CardDescription>
             </div>
             <Badge variant="outline" className="w-fit rounded-full border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">
-              {availableDevices.length} {tr(language, "idle", "เครื่องว่าง")}
+              {availableDevices.length} {tr(language, "available", "เครื่องที่พร้อมใช้")}
             </Badge>
           </div>
         </CardHeader>
@@ -940,10 +924,10 @@ export function DeviceMonitorLiveOps({
 
           <div className="grid gap-3">
             <div className="grid gap-2">
-              <Label>{tr(language, "Idle device", "เครื่องที่ว่าง")}</Label>
+              <Label>{tr(language, "Select device", "เลือกเครื่อง")}</Label>
               <Select value={selectedDeviceId} onValueChange={(value) => setSelectedDeviceId(value ?? "")}>
                 <SelectTrigger>
-                  <SelectValue placeholder={tr(language, "Choose an idle device", "เลือกเครื่องที่ว่าง")} />
+                  <SelectValue placeholder={tr(language, "Choose a device", "เลือกเครื่อง")} />
                 </SelectTrigger>
                 <SelectContent>
                   {availableDevices.map((device) => (
@@ -953,21 +937,57 @@ export function DeviceMonitorLiveOps({
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>{tr(language, "Measurement mode", "โหมดการตรวจ")}</Label>
-              <Select value={measurementType} onValueChange={(value) => setMeasurementType(value as DeviceExamMeasurementType)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MEASUREMENT_OPTIONS.map((option) => (
-                    <SelectItem key={option} value={option}>
-                      {measurementLabel(option, language)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              
+              {/* Active Status Display and Finish Button inside the form */}
+              {selectedDeviceId && (
+                (() => {
+                  const dev = inventoryData?.items.find(d => d.device_id === selectedDeviceId);
+                  // Show if there is any active session linked to this device
+                  if (dev?.session_id) {
+                    return (
+                      <div className="mt-2 flex items-center justify-between rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 shadow-sm animate-in fade-in slide-in-from-top-1 duration-300">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="relative flex h-2 w-2 shrink-0">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-medium uppercase tracking-wider text-sky-600/80">
+                              {tr(language, "Device is Busy", "เครื่องกำลังถูกใช้งาน")}
+                            </p>
+                            <p className="text-sm font-semibold text-sky-900 truncate">
+                              {dev.patient_name || tr(language, "Active Session", "มีรอบตรวจค้างอยู่")}
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-lg border-sky-200 bg-white px-3 text-xs font-medium text-sky-700 hover:bg-sky-100 hover:text-sky-800 shadow-xs"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!dev.session_id || !token) return;
+                            try {
+                              await completeDeviceExamSession(token, dev.session_id, {
+                                notes: tr(language, "Manually finished from start session form.", "จบการตรวจจากฟอร์มเริ่มรอบตรวจ"),
+                              });
+                              toast.success(tr(language, "Session finished", "จบการตรวจเรียบร้อย"));
+                              void loadSnapshot();
+                            } catch (err) {
+                              toast.error("Failed to finish session");
+                            }
+                          }}
+                        >
+                          <Square className="mr-1.5 size-3 fill-current" />
+                          {tr(language, "Finish", "จบงานนี้")}
+                        </Button>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()
+              )}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="device-session-notes">{tr(language, "Notes", "หมายเหตุ")}</Label>
@@ -979,16 +999,10 @@ export function DeviceMonitorLiveOps({
                 placeholder={tr(language, "Optional context for this examination", "บริบทเพิ่มเติมสำหรับรอบตรวจนี้ ถ้ามี")}
               />
             </div>
-            <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-              <Label htmlFor="device-session-activate-now" className="text-sm">
-                {tr(language, "Activate immediately", "เปิดใช้งานทันที")}
-              </Label>
-              <Switch id="device-session-activate-now" checked={activateNow} onCheckedChange={setActivateNow} />
-            </div>
             <Button
               type="button"
               onClick={() => void handleStartSession()}
-              disabled={startSubmitting || !token || availableDevices.length === 0}
+              disabled={startSubmitting || !token || availableDevices.length === 0 || !selectedPatient || !selectedDeviceId}
               className="w-full"
             >
               {startSubmitting ? (
@@ -1008,8 +1022,8 @@ export function DeviceMonitorLiveOps({
             <CardDescription>
               {tr(
                 language,
-                "Your role can monitor device-patient pairing, while starting or ending sessions is limited to doctors and admins.",
-                "บทบาทของคุณดูการจับคู่เครื่องกับผู้ป่วยได้ แต่การเริ่มหรือจบ session จำกัดเฉพาะแพทย์และแอดมิน",
+                "Your role can monitor device usage, while starting or ending sessions is limited to admins.",
+                "บทบาทของคุณดูสถานะการใช้งานเครื่องได้ แต่การเริ่มหรือจบงานจำกัดเฉพาะแอดมิน",
               )}
             </CardDescription>
           </CardHeader>
@@ -1031,8 +1045,8 @@ export function DeviceMonitorLiveOps({
         </Card>
         <Card size="sm" className="border-emerald-200/80 bg-emerald-50/70">
           <CardHeader>
-            <CardDescription>{tr(language, "Idle devices", "เครื่องที่พร้อมใช้งาน")}</CardDescription>
-            <CardTitle className="text-2xl font-semibold">{inventoryData?.idle_count ?? 0}</CardTitle>
+            <CardDescription>{tr(language, "Available devices", "เครื่องที่พร้อมใช้งาน")}</CardDescription>
+            <CardTitle className="text-2xl font-semibold">{inventoryData ? inventoryData.idle_count + inventoryData.in_use_count : 0}</CardTitle>
           </CardHeader>
         </Card>
         <Card size="sm" className="border-violet-200/80 bg-violet-50/70">
@@ -1043,8 +1057,9 @@ export function DeviceMonitorLiveOps({
         </Card>
       </div>
 
-      {canManageSessions && (
-        <Card>
+      {/* Review Queue with Animation */}
+      {canManageSessions && reviewData?.items && reviewData.items.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/20 animate-in fade-in slide-in-from-top-2 duration-500">
           <CardHeader>
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
@@ -1195,7 +1210,7 @@ export function DeviceMonitorLiveOps({
               {tr(
                 language,
                 "Real-time patient-device assignments for sessions that are active now.",
-                "การจับคู่ผู้ป่วยกับอุปกรณ์แบบเรียลไทม์สำหรับ session ที่กำลังใช้งานอยู่ตอนนี้",
+                "ข้อมูลการใช้เครื่องกับผู้ป่วยแบบเรียลไทม์สำหรับรายการที่กำลังตรวจอยู่",
               )}
             </CardDescription>
           </CardHeader>
@@ -1207,21 +1222,20 @@ export function DeviceMonitorLiveOps({
                   <TableHead>{tr(language, "Patient", "ผู้ป่วย")}</TableHead>
                   <TableHead>{tr(language, "Mode", "โหมด")}</TableHead>
                   <TableHead>{tr(language, "Freshness", "ความสดของสัญญาณ")}</TableHead>
-                  {canManageSessions && (
-                    <TableHead className="text-right">{tr(language, "Actions", "จัดการ")}</TableHead>
-                  )}
+                  <TableHead className="text-right">{tr(language, "View", "ดูผล")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredSessions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={canManageSessions ? 5 : 4} className="py-10 text-center text-muted-foreground">
+                    <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
                       {tr(language, "No live sessions match this filter.", "ไม่พบ session ที่ตรงกับตัวกรองนี้")}
                     </TableCell>
                   </TableRow>
                 ) : (
                   filteredSessions.map((session) => {
                     const MeasurementIcon = measurementIcon(session.measurement_type);
+                    const isVeryFresh = (session.seconds_since_last_seen ?? 999) < 15;
                     return (
                       <TableRow key={session.session_id}>
                         <TableCell className="align-top">
@@ -1230,11 +1244,6 @@ export function DeviceMonitorLiveOps({
                               {session.device_display_name || session.device_id}
                             </div>
                             <div className="text-xs text-muted-foreground">{session.device_id}</div>
-                            {session.pairing_code && (
-                              <div className="text-xs text-muted-foreground">
-                                {tr(language, "Pair", "รหัสจับคู่")} {session.pairing_code}
-                              </div>
-                            )}
                           </div>
                         </TableCell>
                         <TableCell className="align-top">
@@ -1253,87 +1262,39 @@ export function DeviceMonitorLiveOps({
                         </TableCell>
                         <TableCell className="align-top">
                           <div className="space-y-2">
-                            <Badge
-                              variant="outline"
-                              className={cn("rounded-full border px-2.5 py-1 text-[0.72rem] font-medium", freshnessBadgeClass(session.freshness_status))}
-                            >
-                              {session.freshness_status === "fresh"
-                                ? tr(language, "Fresh", "สด")
-                                : session.freshness_status === "stale"
-                                  ? tr(language, "Stale", "ขาดช่วง")
-                                  : tr(language, "Unknown", "ไม่ทราบ")}
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <Badge
+                                variant="outline"
+                                className={cn("rounded-full border px-2.5 py-1 text-[0.72rem] font-medium", freshnessBadgeClass(session.freshness_status))}
+                              >
+                                {session.freshness_status === "fresh"
+                                  ? tr(language, "Fresh", "สด")
+                                  : session.freshness_status === "stale"
+                                    ? tr(language, "Stale", "ขาดช่วง")
+                                    : tr(language, "Unknown", "ไม่ทราบ")}
+                              </Badge>
+                              {isVeryFresh && (
+                                <div className="relative flex h-2 w-2">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                </div>
+                              )}
+                            </div>
                             <div className="text-xs text-muted-foreground">
                               {formatRelativeSeconds(session.seconds_since_last_seen, language)}
                             </div>
                           </div>
                         </TableCell>
-                        {canManageSessions && (
-                        <TableCell className="align-top">
-                          <div className="flex justify-end gap-2">
-                            {session.pairing_code && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setPairingSession(session)}
-                              >
-                                <Monitor className="mr-2 size-3.5" />
-                                {tr(language, "Pair", "จับคู่")}
-                              </Button>
-                            )}
-                            {session.status === "pending_pair" && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={Boolean(sessionActionId)}
-                                onClick={() => void handleSessionAction(session, "activate")}
-                              >
-                                {sessionActionId === `activate:${session.session_id}` ? (
-                                  <Loader2 className="mr-2 size-3.5 animate-spin" />
-                                ) : (
-                                  <Play className="mr-2 size-3.5" />
-                                )}
-                                {tr(language, "Activate", "เปิด")}
-                              </Button>
-                            )}
-                            {(session.status === "active" || session.status === "stale") && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={Boolean(sessionActionId)}
-                                onClick={() => void handleSessionAction(session, "complete")}
-                              >
-                                {sessionActionId === `complete:${session.session_id}` ? (
-                                  <Loader2 className="mr-2 size-3.5 animate-spin" />
-                                ) : (
-                                  <Square className="mr-2 size-3.5" />
-                                )}
-                                {tr(language, "Complete", "จบ")}
-                              </Button>
-                            )}
-                            {(session.status === "active" || session.status === "pending_pair" || session.status === "stale") && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="text-destructive hover:text-destructive"
-                                disabled={Boolean(sessionActionId)}
-                                onClick={() => void handleSessionAction(session, "cancel")}
-                              >
-                                {sessionActionId === `cancel:${session.session_id}` ? (
-                                  <Loader2 className="mr-2 size-3.5 animate-spin" />
-                                ) : (
-                                  <XCircle className="mr-2 size-3.5" />
-                                )}
-                                {tr(language, "Cancel", "ยกเลิก")}
-                              </Button>
-                            )}
-                          </div>
+                        <TableCell className="text-right align-top">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="rounded-full hover:bg-sky-50 hover:text-sky-600"
+                            onClick={() => window.open(`/patients/${session.patient_id}/heart-sound`, '_blank')}
+                          >
+                            <ExternalLink className="size-4" />
+                          </Button>
                         </TableCell>
-                        )}
                       </TableRow>
                     );
                   })
@@ -1427,50 +1388,136 @@ export function DeviceMonitorLiveOps({
             </Table>
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>{tr(language, "Recently completed", "รายการที่ตรวจเสร็จล่าสุด")}</CardTitle>
+                <CardDescription>
+                  {tr(
+                    language,
+                    "Last 5 sessions that were automatically or manually finished.",
+                    "5 รายการล่าสุดที่จบการตรวจ (ทั้งแบบอัตโนมัติและแบบปกติ)",
+                  )}
+                </CardDescription>
+              </div>
+              <CheckCircle2 className="size-5 text-emerald-600" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{tr(language, "Patient", "ผู้ป่วย")}</TableHead>
+                  <TableHead>{tr(language, "Device", "อุปกรณ์")}</TableHead>
+                  <TableHead>{tr(language, "Completed at", "จบการตรวจเมื่อ")}</TableHead>
+                  <TableHead className="text-right">{tr(language, "View", "ดูผล")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {recentCompletedData.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
+                      {tr(language, "No completed sessions yet.", "ยังไม่มีรายการที่ตรวจเสร็จ")}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  recentCompletedData.map((session) => {
+                    const MeasurementIcon = measurementIcon(session.measurement_type);
+                    return (
+                      <TableRow key={session.id}>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="font-medium text-slate-900">{session.patient_name || session.patient_id}</div>
+                            <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <MeasurementIcon className="size-3" />
+                              {measurementLabel(session.measurement_type, language)}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className="text-sm font-medium text-slate-900">{session.device_id}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatDateTime(session.ended_at, language)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="rounded-full hover:bg-sky-50 hover:text-sky-600"
+                            onClick={() => window.open(`/patients/${session.patient_id}/heart-sound`, '_blank')}
+                          >
+                            <ExternalLink className="size-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       </div>
 
-      <Dialog open={Boolean(pairingSession)} onOpenChange={(open) => !open && setPairingSession(null)}>
-        <DialogContent className="sm:max-w-[440px]">
+    </section>
+
+      {/* Confirmation Dialog for switching patient on a busy device */}
+      <Dialog open={showSwitchConfirm} onOpenChange={setShowSwitchConfirm}>
+        <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
-            <DialogTitle>{tr(language, "Device pairing", "จับคู่อุปกรณ์")}</DialogTitle>
-            <DialogDescription>
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+              <CircleAlert className="size-6" />
+            </div>
+            <DialogTitle className="text-center text-xl">
+              {tr(language, "Device is currently busy", "เครื่องกำลังถูกใช้งานอยู่")}
+            </DialogTitle>
+            <DialogDescription className="pt-2 text-center text-slate-600">
               {tr(
                 language,
-                "Show this code to the device flow or scan it from a supported device app.",
-                "นำรหัสนี้ให้เครื่องหรือสแกนจากแอปอุปกรณ์ที่รองรับ",
+                `This device is still active for ${activeSessionToClose?.patient_name || 'another patient'}.`,
+                `เครื่องนี้กำลังใช้ตรวจคุณ ${activeSessionToClose?.patient_name || 'คนไข้อื่น'} อยู่`,
+              )}
+              <br />
+              {tr(
+                language,
+                "Starting a new session will automatically close the current one. Any delayed data will be sent to the Review Queue.",
+                "การเริ่มรอบใหม่จะจบเคสปัจจุบันทันที ข้อมูลที่ส่งมาเลทจะถูกส่งไปที่คิวตรวจสอบ",
               )}
             </DialogDescription>
           </DialogHeader>
-          {pairingSession && (
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-                <div className="font-medium text-slate-900">
-                  {pairingSession.device_display_name || pairingSession.device_id}
-                </div>
-                <div className="mt-1 text-muted-foreground">{pairingSession.patient_name}</div>
-                <div className="mt-3 rounded-xl bg-white px-3 py-2 font-mono text-lg font-semibold tracking-[0.18em] text-slate-950">
-                  {pairingSession.pairing_code}
-                </div>
-              </div>
-              <div className="flex justify-center rounded-2xl border border-slate-200 bg-white p-4">
-                {pairingQrDataUrl ? (
-                  <Image
-                    src={pairingQrDataUrl}
-                    alt={tr(language, "Pairing QR code", "คิวอาร์โค้ดสำหรับจับคู่")}
-                    className="size-60"
-                    width={240}
-                    height={240}
-                  />
-                ) : (
-                  <div className="flex size-60 items-center justify-center text-sm text-muted-foreground">
-                    {tr(language, "QR unavailable", "ยังสร้าง QR ไม่ได้")}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          <div className="mt-4 flex flex-col gap-2">
+            <Button
+              variant="default"
+              className="w-full bg-amber-600 hover:bg-amber-700"
+              onClick={() => void executeStartSession(true)}
+              disabled={startSubmitting}
+            >
+              {startSubmitting ? (
+                <Loader2 className="mr-2 size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 size-4" />
+              )}
+              {tr(language, "Confirm and Switch", "ยืนยันและสลับคนไข้")}
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => {
+                setShowSwitchConfirm(false);
+                setActiveSessionToClose(null);
+              }}
+              disabled={startSubmitting}
+            >
+              {tr(language, "Cancel", "ยกเลิก")}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
-    </section>
+    </>
   );
 }

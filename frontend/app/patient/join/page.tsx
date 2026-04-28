@@ -498,7 +498,7 @@ function PatientJoinPageContent() {
         zegoInstanceRef.current.destroy();
       }
       if (containerRef.current) {
-        containerRef.current.innerHTML = "";
+        containerRef.current.textContent = "";
       }
 
       const kitToken = zego.generateKitTokenForProduction(
@@ -576,7 +576,7 @@ function PatientJoinPageContent() {
         zegoInstanceRef.current = null;
       }
       if (containerRef.current) {
-        containerRef.current.innerHTML = "";
+        containerRef.current.textContent = "";
       }
       setCallState("prejoin");
       setError(message);

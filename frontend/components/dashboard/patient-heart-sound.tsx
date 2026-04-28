@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   AudioLines,
+  Activity,
   CircleAlert,
   CloudUpload,
   Files,
+  Square,
   Stethoscope,
   UserRound,
   Volume2,
@@ -18,9 +20,14 @@ import type { AppLanguage } from "@/store/language-config";
 import {
   fetchPatient,
   fetchPatientHeartSounds,
+  fetchDeviceLiveSessions,
+  fetchDeviceInventory,
+  completeDeviceExamSession,
   getErrorMessage,
+  API_BASE_URL,
   type HeartSoundRecord,
   type Patient,
+  type DeviceLiveSessionItem,
   uploadPatientHeartSound,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -483,6 +490,8 @@ export function PatientHeartSoundContent({
     () => cachedSnapshot?.patient ?? null
   );
   const [records, setRecords] = useState<HeartSoundRecord[]>(() => cachedRecords);
+  const [simulatedRecords, setSimulatedRecords] = useState<HeartSoundRecord[]>([]);
+  const [activeSession, setActiveSession] = useState<DeviceLiveSessionItem | null>(null);
   const [draftRecords, setDraftRecords] = useState<DisplayHeartSoundRecord[]>([]);
   const [loading, setLoading] = useState(
     () => !(cachedSnapshot?.patient && hasCachedRecords)
@@ -499,6 +508,7 @@ export function PatientHeartSoundContent({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [activeRowId, setActiveRowId] = useState<string | null>(null);
   const [playingRecordId, setPlayingRecordId] = useState<string | null>(null);
+  const [isFinishingSession, setIsFinishingSession] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
@@ -556,7 +566,39 @@ export function PatientHeartSoundContent({
 
       refreshInFlightRef.current = true;
       try {
-        const soundData = await fetchPatientHeartSounds(patientId, token);
+        const [soundData, liveData, inventoryData] = await Promise.all([
+          fetchPatientHeartSounds(patientId, token),
+          fetchDeviceLiveSessions(token, { staleAfterSeconds: 300 }),
+          fetchDeviceInventory(token, { staleAfterSeconds: 600 }),
+        ]);
+
+        // Check if there is an active session for this specific patient
+        // AND ensure the device still exists in inventory
+        const currentActive = liveData.items.find(
+          (s) => {
+            const isTargetPatient = s.patient_id === patientId && (s.status === "active" || s.status === "stale");
+            const deviceExists = inventoryData.items.some(d => d.device_id === s.device_id);
+            return isTargetPatient && deviceExists;
+          }
+        );
+        setActiveSession(currentActive || null);
+
+        // Auto-highlight position if we have a live session and its position changed
+        if (currentActive && currentActive.measurement_type === "heart_sound") {
+          const latestRecord = soundData.items[0];
+          // CRITICAL: Must match BOTH device_id AND session_id to be considered live for THIS patient
+          if (latestRecord && 
+              latestRecord.device_id === currentActive.device_id && 
+              latestRecord.device_exam_session_id === currentActive.session_id) {
+            
+            const isRecent = Date.now() - new Date(latestRecord.recorded_at).getTime() < 30000;
+            if (isRecent && activePosition !== latestRecord.position && !playingRecordId) {
+              setActivePosition(latestRecord.position);
+              shouldScrollRef.current = true;
+            }
+          }
+        }
+
         applyFetchedHeartSounds(soundData.items);
       } catch (err) {
         const status = (err as { status?: number }).status;
@@ -584,7 +626,7 @@ export function PatientHeartSoundContent({
         refreshInFlightRef.current = false;
       }
     },
-    [applyFetchedHeartSounds, clearToken, language, patientId, router, token]
+    [applyFetchedHeartSounds, clearToken, language, patientId, router, token, activePosition, playingRecordId]
   );
 
   useEffect(() => {
@@ -657,6 +699,29 @@ export function PatientHeartSoundContent({
       return;
     }
 
+    // Phase 3: Real-time SSE Connection
+    const streamUrl = `${API_BASE_URL}/patients/${patientId}/stream?token=${token}`;
+    const eventSource = new EventSource(streamUrl);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        const eventData = typeof payload.data === 'string' ? JSON.parse(payload.data) : payload.data;
+        
+        if (eventData.type === "new_heart_sound") {
+          console.log("Phase 3: Real-time notification received via SSE!");
+          // Immediately refresh to show the new record
+          void refreshHeartSounds({ clearRecordsOnError: false });
+        }
+      } catch (e) {
+        console.error("Failed to parse SSE message:", e);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.warn("SSE Connection lost. Reconnecting or falling back to polling...", err);
+    };
+
     const refreshVisibleRecords = () => {
       if (document.visibilityState !== "visible") {
         return;
@@ -664,9 +729,10 @@ export function PatientHeartSoundContent({
       void refreshHeartSounds({ clearRecordsOnError: false });
     };
 
+    // Polling is now a slow fallback (30s) because we have real-time SSE
     const intervalId = window.setInterval(
       refreshVisibleRecords,
-      HEART_SOUND_AUTO_REFRESH_INTERVAL_MS
+      30000 
     );
 
     const handleVisibilityChange = () => {
@@ -679,17 +745,18 @@ export function PatientHeartSoundContent({
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      eventSource.close();
       window.clearInterval(intervalId);
       window.removeEventListener("focus", refreshVisibleRecords);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [patientId, refreshHeartSounds, token]);
+  }, [patientId, refreshHeartSounds, token, activeSession]);
 
   const displayRecords = useMemo<DisplayHeartSoundRecord[]>(() => {
-    return [...draftRecords, ...records].sort((left, right) => {
+    return [...draftRecords, ...simulatedRecords, ...records].sort((left, right) => {
       return new Date(right.recorded_at).getTime() - new Date(left.recorded_at).getTime();
     });
-  }, [draftRecords, records]);
+  }, [draftRecords, simulatedRecords, records]);
 
   const positionCounts = useMemo(() => buildPositionCounts(displayRecords), [displayRecords]);
 
@@ -741,6 +808,24 @@ export function PatientHeartSoundContent({
       }, 1800);
     });
   }, [activePosition, visibleRecords]);
+
+  const handleFinishSession = useCallback(async () => {
+    if (!token || !activeSession || isFinishingSession) return;
+    
+    setIsFinishingSession(true);
+    try {
+      await completeDeviceExamSession(token, activeSession.session_id, {
+        notes: tr(language, "Finished by clinician from patient page.", "จบการตรวจโดยคุณหมอจากหน้าคนไข้"),
+      });
+      toast.success(tr(language, "Examination finished", "จบการตรวจเรียบร้อย"));
+      setActiveSession(null);
+      void refreshHeartSounds();
+    } catch (e) {
+      toast.error(tr(language, "Failed to finish session", "ไม่สามารถจบการตรวจได้"));
+    } finally {
+      setIsFinishingSession(false);
+    }
+  }, [token, activeSession, isFinishingSession, language, refreshHeartSounds]);
 
   const clearPositionSelection = () => {
     setActivePosition(null);
@@ -872,6 +957,48 @@ export function PatientHeartSoundContent({
 
   return (
     <div className="flex-1 min-h-0 space-y-5 overflow-y-auto py-2">
+      {activeSession && (
+        <div className="flex items-center justify-between rounded-2xl border border-sky-200 bg-sky-50 px-5 py-3 shadow-sm animate-in fade-in slide-in-from-top-4 duration-500">
+          <div className="flex items-center gap-3">
+            <div className="relative flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+            </div>
+            <div className="space-y-0.5">
+              <p className="text-sm font-semibold text-slate-900">
+                {tr(language, "Live Examination in Progress", "กำลังดำเนินการตรวจสด")}
+              </p>
+              <p className="text-xs text-slate-600">
+                {tr(
+                  language,
+                  `Connected to device ${activeSession.device_display_name || activeSession.device_id}. New recordings will appear automatically.`,
+                  `เชื่อมต่อกับเครื่อง ${activeSession.device_display_name || activeSession.device_id} แล้ว ไฟล์เสียงใหม่จะปรากฏโดยอัตโนมัติ`
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Badge className="bg-[#0891B2] text-white animate-pulse">
+              {tr(language, "LIVE", "สด")}
+            </Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-xl border-sky-200 bg-white text-sky-700 hover:bg-sky-100"
+              onClick={handleFinishSession}
+              disabled={isFinishingSession}
+            >
+              {isFinishingSession ? (
+                <div className="size-3.5 animate-spin rounded-full border-2 border-sky-700 border-t-transparent" />
+              ) : (
+                <Square className="size-3.5 fill-current" />
+              )}
+              <span className="ml-2">{tr(language, "Finish", "จบการตรวจ")}</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
       <section className="rounded-[28px] border border-slate-200/80 bg-white/95 shadow-[0_16px_38px_rgba(15,23,42,0.05)]">
         <div className="flex flex-col gap-5 px-5 py-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-3">
@@ -916,6 +1043,57 @@ export function PatientHeartSoundContent({
           </div>
 
           <div className="flex flex-col gap-2.5 lg:min-w-[240px] lg:items-end">
+            {/* Dev Simulator Button */}
+            {process.env.NODE_ENV === "development" && (
+              <Button
+                variant="secondary"
+                className="w-full bg-amber-100 text-amber-800 hover:bg-amber-200 border-amber-200 rounded-2xl"
+                onClick={async () => {
+                  if (!token) return;
+                  setIsUploading(true);
+                  try {
+                    console.log("Dev Sim: Simulating real-time signal...");
+                    
+                    // 1. Create a Mock Record that looks like a real one
+                    const now = new Date().toISOString();
+                    const mockId = `sim-${Date.now()}`;
+                    const mockRecord: HeartSoundRecord = {
+                      id: mockId,
+                      patient_id: patientId,
+                      device_id: activeSession?.device_id || "DEV-HEART-01",
+                      mac_address: "SIM-ADDR-001",
+                      position: activePosition || 1,
+                      blob_url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", // Use a real public mp3 for testing
+                      storage_key: `simulated/${mockId}.mp3`,
+                      mime_type: "audio/mpeg",
+                      duration_seconds: 5.0,
+                      recorded_at: now,
+                      created_at: now,
+                    };
+
+                    // 2. Inject directly into simulated state so it's not overwritten by API refresh
+                    setSimulatedRecords(current => [mockRecord, ...current]);
+                    
+                    // 3. Trigger UI effects (Map pulse and Auto-scroll)
+                    setActivePosition(mockRecord.position);
+                    shouldScrollRef.current = true;
+
+                    toast.success("Dev Sim: Real-time signal injected!", {
+                      description: `Simulated data added to position ${mockRecord.position} (Bypassing Azure)`
+                    });
+                  } catch (e) {
+                    console.error("Dev Sim Error:", e);
+                    toast.error("Dev Sim failed to inject data");
+                  } finally {
+                    setIsUploading(false);
+                  }
+                }}
+              >
+                <Activity className="size-4" />
+                Dev Sim: Send Pulse
+              </Button>
+            )}
+
             <Button
               className="min-h-11 min-w-[240px] rounded-2xl"
               onClick={() => setUploadOpen((current) => !current)}

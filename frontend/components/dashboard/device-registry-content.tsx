@@ -146,7 +146,10 @@ function MeasurementTypeBadge({
   language: AppLanguage;
 }) {
   return (
-    <Badge className="bg-sky-50 text-sky-700 ring-1 ring-sky-200 hover:bg-sky-50">
+    <Badge 
+      variant="outline" 
+      className="inline-flex w-fit items-center rounded-full px-2.5 py-0.5 text-xs font-medium border-0 bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-200/50 hover:bg-sky-50"
+    >
       {measurementLabel(value, language)}
     </Badge>
   );
@@ -197,17 +200,18 @@ function DeviceStatusBadge({
 }) {
   return (
     <Badge
+      variant="outline"
       className={cn(
-        "inline-flex w-fit items-center rounded-full px-3 py-1 text-sm",
+        "inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium border-0",
         device.is_active
-          ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-50"
-          : "bg-slate-100 text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100",
+          ? "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200/50 hover:bg-emerald-50"
+          : "bg-slate-100 text-slate-700 ring-1 ring-inset ring-slate-200/50 hover:bg-slate-100",
         className,
       )}
     >
       <span
         className={cn(
-          "mr-2 size-2 rounded-full",
+          "size-1.5 rounded-full",
           device.is_active ? "bg-emerald-500" : "bg-slate-400"
         )}
       />
@@ -690,7 +694,7 @@ export function DeviceRegistryContent() {
       {
         accessorKey: "is_active",
         header: () => <div>{tr(language, "Status", "สถานะ")}</div>,
-        cell: ({ row }) => <DeviceStatusBadge device={row.original} language={language} className="whitespace-normal" />,
+        cell: ({ row }) => <DeviceStatusBadge device={row.original} language={language} className="whitespace-nowrap" />,
       },
       {
         accessorKey: "last_seen_at",

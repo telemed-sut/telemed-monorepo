@@ -384,6 +384,7 @@ def _generate_mock_token(
 def _generate_zego_token(
     *,
     user_id: str,
+    room_id: str,
     expires_in_seconds: int,
 ) -> str:
     settings = get_settings()
@@ -398,13 +399,25 @@ def _generate_zego_token(
             ),
         ) from exc
 
+    # ZEGO Token04 for Room Login requires a specific JSON payload
+    # to grant login (1) and publish (2) privileges.
+    payload_dict = {
+        "room_id": room_id,
+        "privilege": {
+            1: 1,  # PrivilegeKeyLogin = 1, PrivilegeValueAllow = 1
+            2: 1,  # PrivilegeKeyPublish = 2, PrivilegeValueAllow = 1
+        },
+        "stream_id_list": None,
+    }
+    payload = json.dumps(payload_dict)
+
     try:
         return generate_token04(
             app_id=settings.zego_app_id,
             user_id=user_id,
             server_secret=settings.zego_server_secret,
             effective_time_in_seconds=expires_in_seconds,
-            payload="",
+            payload=payload,
         )
     except HTTPException:
         raise
@@ -470,6 +483,7 @@ def _issue_video_token_for_participant(
 
     token = _generate_zego_token(
         user_id=participant_id,
+        room_id=room_id,
         expires_in_seconds=ttl,
     )
     return {

@@ -201,8 +201,8 @@ check_backend_env() {
   fi
 
   if ((${#missing[@]} > 0 || ${#invalid[@]} > 0)); then
-    echo "This repo expects Docker Compose runtime secrets to come from Infisical or exported shell variables." >&2
-    echo "Add the missing keys to your Infisical environment, or export them before running ./scripts/dev-backend.sh." >&2
+    echo "This repo expects Docker Compose runtime secrets to come from local .env files, exported shell variables, or Infisical." >&2
+    echo "Add the missing keys to your .env file, or export them before running ./scripts/dev-backend.sh." >&2
     echo >&2
     echo "Heart-sound uploads require AZURE_BLOB_STORAGE_CONNECTION_STRING and AZURE_BLOB_STORAGE_CONTAINER at startup." >&2
     echo >&2
@@ -229,7 +229,7 @@ check_identity_env() {
       echo "  - $item" >&2
     done
     echo >&2
-    echo "Set these keys in Infisical before running with COMPOSE_PROFILES=identity." >&2
+    echo "Set these keys in your .env file or Infisical before running with COMPOSE_PROFILES=identity." >&2
     exit 1
   fi
 }

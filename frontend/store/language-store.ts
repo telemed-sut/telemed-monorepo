@@ -53,3 +53,19 @@ export const useLanguageStore = create<LanguageState>((set, get) => ({
     set({ language, hydrated: true });
   },
 }));
+
+// Cross-tab synchronization for language
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === APP_LANGUAGE_STORAGE_KEY) {
+      const newLang = event.newValue as AppLanguage;
+      if (newLang && ["th", "en"].includes(newLang)) {
+        const currentLang = useLanguageStore.getState().language;
+        if (newLang !== currentLang) {
+          applyDocumentLanguage(newLang);
+          useLanguageStore.setState({ language: newLang });
+        }
+      }
+    }
+  });
+}

@@ -19,7 +19,7 @@ main() {
     exec ./scripts/start-compose.sh "$@"
   fi
 
-  if is_enabled "${USE_INFISICAL:-true}"; then
+  if is_enabled "${USE_INFISICAL:-false}"; then
     if ! command -v infisical >/dev/null 2>&1; then
       echo "infisical CLI is required when USE_INFISICAL=true" >&2
       echo "Install and login first, or run with USE_INFISICAL=false for fallback mode." >&2

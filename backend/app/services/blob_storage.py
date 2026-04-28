@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import re
+import os
+import shutil
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
@@ -70,7 +73,68 @@ def _sanitize_filename(filename: str) -> str:
     return f"{stem}{suffix}" if suffix else stem
 
 
-class AzureBlobStorageService:
+class BlobStorageService(ABC):
+    @abstractmethod
+    def is_configured(self) -> bool:
+        ...
+
+    @abstractmethod
+    def assert_ready(self) -> None:
+        ...
+
+    @abstractmethod
+    def upload_heart_sound(
+        self,
+        *,
+        patient_id: UUID,
+        filename: str,
+        content: bytes,
+        content_type: str | None,
+    ) -> UploadedBlob:
+        ...
+
+    @abstractmethod
+    def prepare_heart_sound_upload(
+        self,
+        *,
+        patient_id: UUID,
+        filename: str,
+        ttl_seconds: int | None = None,
+    ) -> PreparedBlobUpload:
+        ...
+
+    @abstractmethod
+    def delete_blob(self, storage_key: str | None) -> None:
+        ...
+
+    @abstractmethod
+    def copy_blob(
+        self,
+        *,
+        source_key: str,
+        destination_key: str,
+        overwrite: bool = False,
+    ) -> UploadedBlob:
+        ...
+
+    @abstractmethod
+    def build_read_url(self, storage_key: str | None, fallback_url: str) -> str:
+        ...
+
+    @abstractmethod
+    def normalize_legacy_storage_key(self, storage_key: str | None) -> str | None:
+        ...
+
+    @abstractmethod
+    def build_blob_url(self, storage_key: str) -> str:
+        ...
+
+    @abstractmethod
+    def blob_exists(self, storage_key: str | None) -> bool:
+        ...
+
+
+class AzureBlobStorageService(BlobStorageService):
     def __init__(self) -> None:
         self.settings = get_settings()
 
@@ -300,4 +364,117 @@ class AzureBlobStorageService:
             return fallback_url
 
 
-azure_blob_storage_service = AzureBlobStorageService()
+class LocalStorageService(BlobStorageService):
+    def __init__(self) -> None:
+        self.settings = get_settings()
+        self.base_dir = Path("storage/uploads")
+
+    def is_configured(self) -> bool:
+        return True
+
+    def assert_ready(self) -> None:
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+
+    def _build_storage_key(self, *, patient_id: UUID, filename: str) -> str:
+        now = datetime.now(timezone.utc)
+        safe_name = _sanitize_filename(filename)
+        segments = [
+            str(patient_id),
+            now.strftime("%Y"),
+            now.strftime("%m"),
+            f"{uuid4().hex}-{safe_name}",
+        ]
+        return "/".join(segment for segment in segments if segment)
+
+    def upload_heart_sound(
+        self,
+        *,
+        patient_id: UUID,
+        filename: str,
+        content: bytes,
+        content_type: str | None,
+    ) -> UploadedBlob:
+        self.assert_ready()
+        storage_key = self._build_storage_key(patient_id=patient_id, filename=filename)
+        file_path = self.base_dir / storage_key
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_bytes(content)
+        
+        # In local mode, the URL is just a path that the backend can serve or proxy
+        blob_url = f"/api/heart-sounds/local/{storage_key}"
+        return UploadedBlob(blob_url=blob_url, storage_key=storage_key)
+
+    def prepare_heart_sound_upload(
+        self,
+        *,
+        patient_id: UUID,
+        filename: str,
+        ttl_seconds: int | None = None,
+    ) -> PreparedBlobUpload:
+        self.assert_ready()
+        storage_key = self._build_storage_key(patient_id=patient_id, filename=filename)
+        blob_url = f"/api/heart-sounds/local/{storage_key}"
+        # For local, we redirect the frontend to use a special backend proxy upload endpoint
+        upload_url = f"/api/patients/{patient_id}/heart-sounds/upload-local-proxy"
+        
+        return PreparedBlobUpload(
+            blob_url=blob_url,
+            storage_key=storage_key,
+            upload_url=upload_url,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+
+    def delete_blob(self, storage_key: str | None) -> None:
+        if not storage_key:
+            return
+        file_path = self.base_dir / storage_key
+        if file_path.exists():
+            file_path.unlink()
+
+    def copy_blob(
+        self,
+        *,
+        source_key: str,
+        destination_key: str,
+        overwrite: bool = False,
+    ) -> UploadedBlob:
+        self.assert_ready()
+        source_path = self.base_dir / source_key
+        dest_path = self.base_dir / destination_key
+        
+        if not source_path.exists():
+            raise FileNotFoundError(f"Source blob {source_key} not found.")
+            
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        if dest_path.exists() and not overwrite:
+             raise FileExistsError(f"Destination blob {destination_key} already exists.")
+             
+        shutil.copy2(source_path, dest_path)
+        blob_url = f"/api/heart-sounds/local/{destination_key}"
+        return UploadedBlob(blob_url=blob_url, storage_key=destination_key)
+
+    def build_read_url(self, storage_key: str | None, fallback_url: str) -> str:
+        if not storage_key:
+            return fallback_url
+        return f"/api/heart-sounds/local/{storage_key}"
+
+    def normalize_legacy_storage_key(self, storage_key: str | None) -> str | None:
+        return storage_key
+
+    def build_blob_url(self, storage_key: str) -> str:
+        return f"/api/heart-sounds/local/{storage_key}"
+
+    def blob_exists(self, storage_key: str | None) -> bool:
+        if not storage_key:
+            return False
+        return (self.base_dir / storage_key).exists()
+
+
+def get_blob_storage_service() -> BlobStorageService:
+    settings = get_settings()
+    if settings.storage_provider == "local" or not settings.azure_blob_storage_connection_string:
+        return LocalStorageService()
+    return AzureBlobStorageService()
+
+
+azure_blob_storage_service = get_blob_storage_service()

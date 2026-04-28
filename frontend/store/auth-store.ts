@@ -12,6 +12,7 @@ import {
 const REFRESH_BUFFER_SECONDS = 300;
 const COOKIE_SESSION_TOKEN = "__cookie_session__";
 const AUTH_SNAPSHOT_STORAGE_KEY = "telemed.auth.snapshot.v3";
+const REFRESH_MUTEX_STORAGE_KEY = "telemed.auth.refresh_mutex";
 const LEGACY_AUTH_SNAPSHOT_STORAGE_KEY = "telemed.auth.snapshot";
 const PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY = "telemed.auth.snapshot.v2";
 const AUTH_SNAPSHOT_REVALIDATE_AFTER_MS = 5 * 60 * 1000;
@@ -122,12 +123,16 @@ function createPersistedSnapshot(state: {
   sessionExpiresAt: number | null;
   lastVerifiedAt: number | null;
 }): PersistedAuthSnapshot | null {
-  if (!state.token) {
+  // We no longer persist the raw token (JWT) to localStorage for security.
+  // Instead, we persist a static placeholder "__cookie_session__" to indicate
+  // that a session exists in the HttpOnly cookie. This allows other tabs to 
+  // know they should attempt hydration via /me without exposing the real token to XSS.
+  if (!state.userId || !state.token) {
     return null;
   }
 
   return {
-    token: state.token,
+    token: COOKIE_SESSION_TOKEN,
     role: state.role,
     userId: state.userId,
     mfaVerified: state.mfaVerified,
@@ -145,14 +150,14 @@ function persistAuthSnapshot(snapshot: PersistedAuthSnapshot | null) {
     return;
   }
 
-  if (!snapshot?.token) {
-    window.sessionStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
+  if (!snapshot?.userId || !snapshot?.token) {
+    window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
     window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
     window.localStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
     return;
   }
 
-  window.sessionStorage.setItem(
+  window.localStorage.setItem(
     AUTH_SNAPSHOT_STORAGE_KEY,
     JSON.stringify(snapshot)
   );
@@ -166,7 +171,7 @@ function readPersistedAuthSnapshot(): PersistedAuthSnapshot | null {
   }
 
   const raw =
-    window.sessionStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY) ??
+    window.localStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY) ??
     window.localStorage.getItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY) ??
     window.localStorage.getItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
   if (!raw) {
@@ -178,7 +183,7 @@ function readPersistedAuthSnapshot(): PersistedAuthSnapshot | null {
     const verifiedAt = parsed.lastVerifiedAt ?? 0;
 
     if (!parsed.token || Date.now() - verifiedAt > AUTH_SNAPSHOT_RETENTION_MS) {
-      window.sessionStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
+      window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
       window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
       window.localStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
       return null;
@@ -197,12 +202,12 @@ function readPersistedAuthSnapshot(): PersistedAuthSnapshot | null {
       lastVerifiedAt: parsed.lastVerifiedAt ?? verifiedAt,
     };
 
-    window.sessionStorage.setItem(AUTH_SNAPSHOT_STORAGE_KEY, JSON.stringify(sanitized));
+    window.localStorage.setItem(AUTH_SNAPSHOT_STORAGE_KEY, JSON.stringify(sanitized));
     window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
     window.localStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
     return sanitized;
   } catch {
-    window.sessionStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
+    window.localStorage.removeItem(AUTH_SNAPSHOT_STORAGE_KEY);
     window.localStorage.removeItem(PREVIOUS_AUTH_SNAPSHOT_STORAGE_KEY);
     window.localStorage.removeItem(LEGACY_AUTH_SNAPSHOT_STORAGE_KEY);
     return null;
@@ -286,13 +291,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       hydrated: true,
     });
   },
+  /**
+   * Initializes the auth state from persistence or server.
+   * If a persisted snapshot exists, it hydrates immediately to avoid flicker,
+   * then optionally re-verifies with the server.
+   */
   hydrate: async () => {
     const persistedSnapshot = readPersistedAuthSnapshot();
     const currentState = get();
+    
+    // Hydrate from localStorage first if available to provide immediate UI state
+    if (persistedSnapshot && !currentState.hydrated) {
+       set({
+         ...currentState,
+         ...persistedSnapshot,
+         hydrated: true,
+       });
+    }
+
     const hasKnownSession = Boolean(persistedSnapshot?.token || currentState.token);
 
     if (!hasKnownSession) {
-      if (!currentState.hydrated) {
+      if (!get().hydrated) {
         set({
           ...getEmptyAuthState(),
           hydrated: true,
@@ -301,21 +321,45 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       return;
     }
 
+    // Skip re-verification if recently verified
     if (
-      currentState.hydrated &&
-      currentState.token &&
-      currentState.lastVerifiedAt &&
-      Date.now() - currentState.lastVerifiedAt < AUTH_SNAPSHOT_REVALIDATE_AFTER_MS
+      get().hydrated &&
+      get().token &&
+      get().lastVerifiedAt &&
+      Date.now() - get().lastVerifiedAt < AUTH_SNAPSHOT_REVALIDATE_AFTER_MS
     ) {
       return;
     }
+    
     if (hydratePromise) return hydratePromise;
 
     hydratePromise = (async () => {
+      // Phase 2 Mutex: Prevent concurrent refreshes from multiple tabs
+      const acquireLock = () => {
+        const now = Date.now();
+        const lock = window.localStorage.getItem(REFRESH_MUTEX_STORAGE_KEY);
+        if (lock) {
+          try {
+            const { ts } = JSON.parse(lock);
+            // Lock is considered stale after 15 seconds
+            if (now - ts < 15000) return false;
+          } catch {
+             return true;
+          }
+        }
+        window.localStorage.setItem(REFRESH_MUTEX_STORAGE_KEY, JSON.stringify({ ts: now }));
+        return true;
+      };
+
+      const releaseLock = () => {
+        window.localStorage.removeItem(REFRESH_MUTEX_STORAGE_KEY);
+      };
+
       try {
         const { fetchCurrentUser, refreshToken } = await import("@/lib/api");
 
         try {
+          // Attempt to fetch user using the HttpOnly cookie
           const currentUser = await fetchCurrentUser();
           if (currentUser) {
             const nextState = { ...getCookieSessionState(currentUser), hydrated: true };
@@ -330,20 +374,36 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           // Fall back to refresh-only hydration when /auth/me is unavailable.
         }
 
-        const refreshed = await refreshToken();
-        if (refreshed?.user) {
-          const nextState = { ...getSessionState(refreshed), hydrated: true };
-          if (shouldClearProtectedStateForUserSwitch(get().userId, nextState.userId)) {
-            clearProtectedClientState();
+        // Try to acquire lock for refresh if /me failed
+        if (!acquireLock()) {
+          // Wait a bit and check if another tab already succeeded
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          const freshSnapshot = readPersistedAuthSnapshot();
+          if (freshSnapshot?.token) {
+            set({ ...getEmptyAuthState(), ...freshSnapshot, hydrated: true });
+            return;
           }
-          persistAuthSnapshot(createPersistedSnapshot(nextState));
-          set(nextState);
-          return;
+        }
+
+        try {
+          const refreshed = await refreshToken();
+          if (refreshed?.user) {
+            const nextState = { ...getSessionState(refreshed), hydrated: true };
+            if (shouldClearProtectedStateForUserSwitch(get().userId, nextState.userId)) {
+              clearProtectedClientState();
+            }
+            persistAuthSnapshot(createPersistedSnapshot(nextState));
+            set(nextState);
+            return;
+          }
+        } finally {
+          releaseLock();
         }
       } catch {
         // No valid session cookie or refresh failed.
       }
 
+      // If all attempts fail, the user is definitely not logged in.
       clearProtectedClientState();
       set({
         ...getEmptyAuthState(),
@@ -365,3 +425,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 }));
 
+// Cross-tab synchronization logic
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === AUTH_SNAPSHOT_STORAGE_KEY) {
+      // Something changed in another tab (Login or Logout)
+      // Re-hydrate the state to match the new reality
+      void useAuthStore.getState().hydrate();
+    }
+  });
+}

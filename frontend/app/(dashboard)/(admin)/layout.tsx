@@ -26,7 +26,7 @@ export default async function AdminLayout({
     redirect("/overview");
   }
 
-  if (!session.mfaVerified && !trustedDeviceToken) {
+  if (!session.mfaVerified) {
     redirect("/login");
   }
 

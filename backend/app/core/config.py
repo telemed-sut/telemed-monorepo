@@ -170,6 +170,7 @@ class Settings(BaseSettings):
     meeting_signing_allow_jwt_secret_fallback: bool = False
     meeting_video_room_prefix: str = "telemed"
     meeting_presence_reconcile_interval_seconds: int = 30
+    storage_provider: Literal["azure", "local"] = "azure"
     azure_blob_storage_connection_string: str | None = None
     azure_blob_storage_container: str | None = None
     azure_blob_storage_path_prefix: str = ""

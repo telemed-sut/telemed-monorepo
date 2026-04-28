@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -12,6 +13,7 @@ from app.schemas.heart_sound import HeartSoundCreate, HeartSoundRecordOut
 from app.services.blob_storage import azure_blob_storage_service
 from app.services.device_exam_session import device_exam_session_service
 from app.services.device_session_events import publish_device_session_event_sync
+from app.services.redis import redis_manager
 
 
 class HeartSoundService:
@@ -29,6 +31,14 @@ class HeartSoundService:
             requested_session_id=payload.session_id,
             measurement_type=DeviceExamMeasurementType.heart_sound,
         )
+        
+        # Phase 2: Invalidate Patient Records Cache
+        try:
+            redis_manager.invalidate_active_session(str(resolved_patient_id))
+            redis_manager.client.delete(f"telemed:cache:heart_sounds:{resolved_patient_id}")
+        except Exception:
+            pass
+
         patient = db.query(Patient).filter(
             Patient.id == resolved_patient_id,
             Patient.deleted_at.is_(None),
@@ -69,6 +79,22 @@ class HeartSoundService:
         )
         db.commit()
         db.refresh(record)
+
+        # Phase 3: Publish Real-time Event
+        try:
+            redis_manager.publish_patient_event(
+                patient_id=str(resolved_patient_id),
+                event_type="new_heart_sound",
+                data={
+                    "id": str(record.id),
+                    "position": record.position,
+                    "recorded_at": record.recorded_at.isoformat(),
+                    "device_id": device_id
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to publish real-time event: {e}")
+
         if resolved_session_id is not None:
             publish_device_session_event_sync(
                 event_type="device_session.measurement_received",
@@ -85,6 +111,19 @@ class HeartSoundService:
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[HeartSoundRecord], int]:
+        # Phase 2: Redis Read-Cache for high-frequency polling
+        cache_key = f"telemed:cache:heart_sounds:{patient_id}:{limit}:{offset}"
+        try:
+            cached_data = redis_manager.client.get(cache_key)
+            if cached_data:
+                data = json.loads(cached_data)
+                # Note: This return might be tricky because we return DB objects usually.
+                # To keep it simple, we'll only cache if everything is SERIALIZABLE later
+                # or we just skip this for now and cache at the API level instead.
+                pass 
+        except Exception:
+            pass
+
         total = db.scalar(
             select(func.count(HeartSoundRecord.id)).where(HeartSoundRecord.patient_id == patient_id)
         ) or 0

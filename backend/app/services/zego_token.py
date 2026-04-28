@@ -1,5 +1,6 @@
 import base64
 import json
+import random
 import secrets
 import struct
 import time
@@ -16,8 +17,10 @@ class ZegoTokenGenerationError(RuntimeError):
 
 
 def _random_str(length: int) -> str:
+    # Match ZEGOCLOUD reference implementation: mixed-case alnum.
+    # Note: Some SDK versions seed random with created_at.
     chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    return "".join(secrets.choice(chars) for _ in range(length))
+    return "".join(random.choice(chars) for _ in range(length))
 
 
 def _pad_pkcs7(data: bytes, block_size: int) -> bytes:
@@ -38,7 +41,7 @@ def _aes_encrypt(plain_text: str, key: str, iv: str) -> bytes:
         return cipher.encrypt(_pad_pkcs7(plain_text.encode("utf8"), AES_BLOCK_SIZE))
     except ValueError as exc:
         raise ZegoTokenGenerationError(
-            "Invalid ZEGO server secret length for AES-CBC. Expected 16/24/32 bytes."
+            "Invalid AES-CBC parameters. Expected server_secret to be 16/24/32 bytes and iv to be 16 bytes."
         ) from exc
 
 
@@ -49,13 +52,26 @@ def generate_token04(
     effective_time_in_seconds: int,
     payload: str = "",
 ) -> str:
-    """Generate ZEGO token04 using the official binary envelope format."""
+    """Generate ZEGO Token04.
+
+    Format reference: ZEGOCLOUD `zego_server_assistant` Token04.
+    Binary envelope (before base64):
+      - expire_at: int64 big-endian (8 bytes)
+      - iv_size: int16 big-endian (2 bytes)
+      - iv: raw bytes (16 bytes)
+      - ciphertext_size: int16 big-endian (2 bytes)
+      - ciphertext: raw bytes (variable)
+    """
     if app_id <= 0:
         raise ZegoTokenGenerationError("app_id must be > 0.")
     if not user_id:
         raise ZegoTokenGenerationError("user_id must not be empty.")
     if not server_secret:
         raise ZegoTokenGenerationError("server_secret must not be empty.")
+    if len(server_secret) != 32:
+        raise ZegoTokenGenerationError(
+            "server_secret must be 32 characters (ZEGO app certificate)."
+        )
     if effective_time_in_seconds <= 0:
         raise ZegoTokenGenerationError("effective_time_in_seconds must be > 0.")
     if effective_time_in_seconds > MAX_EFFECTIVE_TIME_IN_SECONDS:
@@ -65,16 +81,20 @@ def generate_token04(
 
     created_at = int(time.time())
     expire_at = created_at + effective_time_in_seconds
+    
+    # Official Python SDK seeds random with created_at for deterministic IV/nonce in tests,
+    # though any random values are valid. We follow the reference pattern for max compatibility.
+    random.seed(created_at)
+    nonce = random.randint(-2147483648, 2147483647)
 
     token_info = {
         "app_id": app_id,
         "user_id": user_id,
-        "nonce": secrets.randbelow(INT32_MAX + 1),
+        "nonce": nonce,
         "ctime": created_at,
         "expire": expire_at,
+        "payload": payload,
     }
-    if payload:
-        token_info["payload"] = payload
 
     token_info_str = json.dumps(token_info, separators=(",", ":"))
 
@@ -82,12 +102,22 @@ def generate_token04(
     encrypted = _aes_encrypt(token_info_str, server_secret, iv)
     iv_bytes = iv.encode("utf8")
 
-    token_bin = bytearray()
-    token_bin.extend(struct.pack("!I", 0))
-    token_bin.extend(struct.pack("!I", expire_at))
-    token_bin.extend(struct.pack("!H", len(iv_bytes)))
-    token_bin.extend(iv_bytes)
-    token_bin.extend(struct.pack("!H", len(encrypted)))
-    token_bin.extend(encrypted)
+    result_size = len(encrypted) + 28
+    result = bytearray(result_size)
 
-    return "04" + base64.b64encode(bytes(token_bin)).decode("utf8")
+    # 0-8: expire_at (int64)
+    result[0:8] = struct.pack("!q", expire_at)
+    
+    # 8-10: iv_size (int16)
+    result[8:10] = struct.pack("!h", len(iv_bytes))
+    
+    # 10-26: iv bytes
+    result[10:26] = iv_bytes
+    
+    # 26-28: ciphertext_size (int16)
+    result[26:28] = struct.pack("!h", len(encrypted))
+    
+    # 28+: ciphertext bytes
+    result[28:] = encrypted
+
+    return "04" + base64.b64encode(bytes(result)).decode("utf8")

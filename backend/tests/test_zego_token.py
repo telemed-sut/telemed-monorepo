@@ -7,9 +7,10 @@ from app.services import zego_token
 
 
 def test_generate_token04_binary_layout(monkeypatch):
-    monkeypatch.setattr(zego_token.secrets, "randbelow", lambda _upper: 7)
+    monkeypatch.setattr(zego_token.random, "seed", lambda _s: None)
+    monkeypatch.setattr(zego_token.random, "randint", lambda _a, _b: 7)
+    monkeypatch.setattr(zego_token.random, "choice", lambda _c: "A")
     monkeypatch.setattr(zego_token.time, "time", lambda: 1_700_000_000)
-    monkeypatch.setattr(zego_token, "_random_str", lambda _length: "A" * 16)
     monkeypatch.setattr(
         zego_token,
         "_aes_encrypt",
@@ -28,19 +29,16 @@ def test_generate_token04_binary_layout(monkeypatch):
     raw = base64.b64decode(token[2:])
 
     cursor = 0
-    reserved, = struct.unpack_from("!I", raw, cursor)
-    cursor += 4
-    expire, = struct.unpack_from("!I", raw, cursor)
-    cursor += 4
-    iv_len, = struct.unpack_from("!H", raw, cursor)
+    expire, = struct.unpack_from("!q", raw, cursor)
+    cursor += 8
+    iv_len, = struct.unpack_from("!h", raw, cursor)
     cursor += 2
     iv = raw[cursor:cursor + iv_len]
     cursor += iv_len
-    cipher_len, = struct.unpack_from("!H", raw, cursor)
+    cipher_len, = struct.unpack_from("!h", raw, cursor)
     cursor += 2
     cipher = raw[cursor:cursor + cipher_len]
 
-    assert reserved == 0
     assert expire == 1_700_000_900
     assert iv == b"AAAAAAAAAAAAAAAA"
     assert cipher == b"CIPHERTEXT"

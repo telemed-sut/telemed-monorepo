@@ -135,10 +135,16 @@ export async function uploadPatientHeartSound(
 
   let uploadResponse: Response;
   try {
+    // When using local proxy upload, we need to send the session cookie 
+    // to authenticate with our own backend. Azure ignores these headers,
+    // so it's safe to include for both cases when the URL is relative.
+    const isLocalProxy = uploadSession.upload_url.startsWith("/") || uploadSession.upload_url.includes(window.location.host);
+    
     uploadResponse = await fetch(uploadSession.upload_url, {
       method: "PUT",
       headers: uploadSession.upload_headers,
       body: payload.file,
+      credentials: isLocalProxy ? "include" : "same-origin",
     });
   } catch (error) {
     throw new Error(AZURE_DIRECT_UPLOAD_CORS_ERROR);

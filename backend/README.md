@@ -36,8 +36,8 @@ http://localhost:3000 and http://localhost:8080, backend runs on port 8000.
 - DEVICE_API_NONCE_TTL_SECONDS: nonce replay window retention
 - DEVICE_API_MAX_BODY_BYTES: max accepted request payload size in bytes
 
-Primary source should be Infisical secrets at runtime.  
-`.env.example` documents required keys only. `backend/.env` is not an official runtime source anymore.
+Primary source should be local `.env` files or Infisical secrets at runtime.  
+`.env.example` documents required keys.
 
 ### Heart-sound upload secrets
 Heart-sound direct upload depends on Azure Blob Storage runtime secrets. Keep
@@ -60,7 +60,7 @@ flow in the browser.
 - Backend URL: `http://localhost:8000`
 - Frontend Env: `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`
 - Allowed Origins: Frontend must run on port **3000** or **8080** (e.g. `http://localhost:3000`).
-  - Note: Other ports (like 3001) will fail CORS checks unless added to runtime config / Infisical secrets.
+  - Note: Other ports (like 3001) will fail CORS checks unless added to runtime config.
 
 ### Backend environment bootstrap
 Use the bootstrap script to create or refresh the backend virtual environment
@@ -105,14 +105,12 @@ Optional environment overrides:
 ### Running locally (without Docker)
 1) Bootstrap the environment with `./scripts/bootstrap_backend_env.sh`.
 2) Activate the virtual environment: `source venv/bin/activate`.
-3) Load env vars via Infisical (`infisical run -- ...`) or by exporting env vars
-   in your shell.
+3) Load env vars via local `.env` file or by exporting env vars in your shell.
 4) Run migrations: `alembic upgrade head`.
 5) Optional: seed local demo data: `python -m scripts.seed`.
-6) Start API: `infisical run -- uvicorn app.main:app --reload` (defaults to
-   8000).
+6) Start API: `uvicorn app.main:app --reload` (defaults to 8000).
 
-From the repo root you can use the Infisical-aware wrappers instead:
+From the repo root you can use the environment-aware wrappers instead:
 
 ```bash
 ./scripts/dev-api.sh
