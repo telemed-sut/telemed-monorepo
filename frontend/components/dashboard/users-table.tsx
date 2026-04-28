@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
     ColumnDef,
     ColumnFiltersState,
@@ -17,6 +17,7 @@ import {
     fetchUsers,
     deleteUser,
     restoreUser,
+    purgeDeletedUser,
     bulkDeleteUsers,
     bulkRestoreUsers,
     purgeDeletedUsers,
@@ -28,10 +29,13 @@ import {
     getErrorMessage,
     createUser,
     updateUser,
+    fetchPatientWards,
     UserCreate,
     UserUpdate,
     User,
+    UserCreateResponse,
     UserInviteItem,
+    getPrivilegedRoleLabel,
 } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import {
@@ -59,6 +63,7 @@ import {
     Users,
     RotateCcw,
     RefreshCw,
+    Check,
 } from "lucide-react";
 
 
@@ -117,6 +122,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DataTableViewOptions } from "./data-table-view-options";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
+import { getLocalizedDashboardErrorMessage } from "./dashboard-error-message";
 
 
 
@@ -128,16 +134,8 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 const ROLE_OPTIONS = [
     { value: "admin", label: "Administrator" },
     { value: "doctor", label: "Doctor" },
-    { value: "nurse", label: "Nurse" },
-    { value: "pharmacist", label: "Pharmacist" },
-    { value: "medical_technologist", label: "Medical Technologist" },
-    { value: "psychologist", label: "Psychologist" },
-    { value: "staff", label: "Staff" },
+    { value: "medical_student", label: "Medical Student" },
 ];
-
-const CLINICAL_ROLE_OPTIONS = ROLE_OPTIONS.filter((option) =>
-    ["doctor", "nurse", "pharmacist", "medical_technologist", "psychologist"].includes(option.value)
-);
 
 const ROLE_LABEL_MAP: Record<string, string> = ROLE_OPTIONS.reduce(
     (acc, curr) => ({ ...acc, [curr.value]: curr.label }),
@@ -147,12 +145,26 @@ const ROLE_LABEL_MAP: Record<string, string> = ROLE_OPTIONS.reduce(
 const ROLE_LABEL_MAP_TH: Record<string, string> = {
     admin: "ผู้ดูแลระบบ",
     doctor: "แพทย์",
-    nurse: "พยาบาล",
-    pharmacist: "เภสัชกร",
-    medical_technologist: "นักเทคนิคการแพทย์",
-    psychologist: "นักจิตวิทยา",
-    staff: "เจ้าหน้าที่",
+    medical_student: "นักศึกษาแพทย์",
 };
+
+const USER_FORM_DEFAULTS = {
+    email: "",
+    first_name: "",
+    last_name: "",
+    password: "",
+    role: "doctor",
+    is_active: true,
+    specialty: "",
+    department: "",
+    license_no: "",
+    license_expiry: "",
+    verification_status: "unverified",
+    patient_assignment_scope: "none" as const,
+    target_ward: "",
+};
+
+const buildDefaultUserFormData = () => ({ ...USER_FORM_DEFAULTS });
 
 const STATUS_LABEL_MAP_TH: Record<string, string> = {
     verified: "ยืนยันแล้ว",
@@ -161,8 +173,11 @@ const STATUS_LABEL_MAP_TH: Record<string, string> = {
 };
 
 const isClinicalRole = (role: string) => {
-    return CLINICAL_ROLE_OPTIONS.some((option) => option.value === role);
+    return role === "doctor";
 };
+
+const isSupportedRole = (role: string) =>
+    ROLE_OPTIONS.some((option) => option.value === role);
 
 const TEAM_MEMBER_COLORS = [
     "bg-emerald-200 text-emerald-800",
@@ -268,15 +283,28 @@ const getInviteStatusFilterLabel = (
     return getInviteStatusLabel(status, language);
 };
 
+const getPrivilegeBadgeClass = (role: string) => {
+    if (role === "platform_super_admin") {
+        return "border-amber-500/25 bg-amber-500/10 text-amber-600";
+    }
+    if (role === "security_admin") {
+        return "border-rose-500/25 bg-rose-500/10 text-rose-600";
+    }
+    if (role === "hospital_admin") {
+        return "border-sky-500/25 bg-sky-500/10 text-sky-600";
+    }
+    return "border-border bg-muted text-foreground";
+};
+
 const INVITE_ERROR_MESSAGE_RULES: Array<{
     pattern: RegExp;
     en: string;
     th: string;
 }> = [
     {
-        pattern: /invite onboarding is restricted to clinical specialist roles in this phase|clinical specialist roles/i,
-        en: "Invites are currently limited to clinical specialist roles.",
-        th: "ขณะนี้ระบบอนุญาตส่งคำเชิญเฉพาะบทบาทสายคลินิกเท่านั้น",
+        pattern: /invite onboarding is restricted to supported roles in this phase|supported invite roles/i,
+        en: "Invites are currently limited to supported roles.",
+        th: "ขณะนี้ระบบอนุญาตส่งคำเชิญเฉพาะบทบาทที่รองรับเท่านั้น",
     },
     {
         pattern: /invite.*expired|expired invite|link.*expired/i,
@@ -321,7 +349,23 @@ const formatInviteTimestamp = (value?: string | null, language: AppLanguage = "e
 
 // --- Component ---
 
-export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
+export function UsersTable({
+    refreshKey = 0,
+    inviteRequestKey = 0,
+    initialUsers = [],
+    initialTotal = 0,
+    initialSeedKey = 0,
+    initialSeedReady = false,
+    onUsersMutated,
+}: {
+    refreshKey?: number;
+    inviteRequestKey?: number;
+    initialUsers?: User[];
+    initialTotal?: number;
+    initialSeedKey?: number;
+    initialSeedReady?: boolean;
+    onUsersMutated?: () => void;
+}) {
     const { role: currentUserRole, token } = useAuthStore();
     const language = useLanguageStore((state) => state.language);
 
@@ -354,7 +398,7 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
 
     const [isBulkDeleting, setIsBulkDeleting] = useState(false);
     const [isBulkRestoring, setIsBulkRestoring] = useState(false);
-    const [roleFilter, setRoleFilter] = useState("clinical");
+    const [roleFilter, setRoleFilter] = useState("all");
     const [statusFilterLocal, setStatusFilterLocal] = useState("all");
     const [accountView, setAccountView] = useState<"active" | "all" | "deleted">("active");
     const [searchLocal, setSearchLocal] = useState("");
@@ -368,34 +412,63 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
     const [purgeOlderThanDays, setPurgeOlderThanDays] = useState(90);
     const [isPurging, setIsPurging] = useState(false);
     const [hasExportedForPurge, setHasExportedForPurge] = useState(false);
+    const [locallyPurgedUserIds, setLocallyPurgedUserIds] = useState<Set<string>>(
+        () => new Set()
+    );
+    const lastAppliedSeedKeyRef = useRef<number | null>(null);
 
     // Form Data State
-    interface UserFormData extends Partial<User> {
-        password?: string;
+    interface UserFormData {
+        email: string;
+        first_name: string;
+        last_name: string;
+        password: string;
+        role: string;
+        is_active: boolean;
+        specialty: string;
+        department: string;
+        license_no: string;
+        license_expiry: string;
+        verification_status: string;
+        patient_assignment_scope: NonNullable<UserCreate["patient_assignment_scope"]>;
+        target_ward: string;
     }
 
-    const [formData, setFormData] = useState<UserFormData>({
-        email: "",
-        first_name: "",
-        last_name: "",
-        password: "",
-        role: "doctor",
-        is_active: true,
-        specialty: "",
-        department: "",
-        license_no: "",
-        license_expiry: "",
-        verification_status: "unverified",
-    });
+    const [formData, setFormData] = useState<UserFormData>(() => buildDefaultUserFormData());
+    const [availableWards, setAvailableWards] = useState<string[]>([]);
+    const [isWardListLoading, setIsWardListLoading] = useState(false);
 
     const [inviteFormData, setInviteFormData] = useState({
         email: "",
         role: "doctor",
+        reason: "",
     });
 
     // Load Data
     const loadUsers = useCallback(async () => {
         if (!token) return;
+        const shouldUseInitialSeed =
+            initialSeedReady &&
+            initialSeedKey !== lastAppliedSeedKeyRef.current &&
+            pagination.pageIndex === 0 &&
+            pagination.pageSize === 10 &&
+            sorting.length === 0 &&
+            debouncedSearch.length === 0 &&
+            roleFilter === "all" &&
+            statusFilterLocal === "all" &&
+            accountView === "active";
+
+        if (shouldUseInitialSeed) {
+            const visibleSeedUsers = initialUsers.filter(
+                (user) => !locallyPurgedUserIds.has(user.id)
+            );
+            setUsers(visibleSeedUsers);
+            setTotal(Math.max(initialTotal - (initialUsers.length - visibleSeedUsers.length), 0));
+            setLoading(false);
+            lastAppliedSeedKeyRef.current = initialSeedKey;
+            return;
+        }
+
         setLoading(true);
         try {
             const sortField =
@@ -410,16 +483,19 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                 q: debouncedSearch.trim() || undefined,
                 sort: sortField,
                 order: sorting.length > 0 && sorting[0].desc ? "desc" : "asc",
-                clinical_only: true,
-                role: roleFilter !== "clinical" ? roleFilter : undefined,
+                role: roleFilter !== "all" ? roleFilter : undefined,
                 verification_status: statusFilterLocal !== "all" ? statusFilterLocal : undefined,
                 include_deleted: accountView !== "active",
                 deleted_only: accountView === "deleted",
+                skipCache: true,
             }, token);
 
             // Ensure type compatibility by handling nulls if necessary, though User from API should match User in state
-            setUsers(res.items || []);
-            setTotal(res.total || 0);
+            const nextUsers = (res.items || []).filter(
+                (user) => !locallyPurgedUserIds.has(user.id)
+            );
+            setUsers(nextUsers);
+            setTotal(Math.max((res.total || 0) - ((res.items || []).length - nextUsers.length), 0));
         } catch {
             toast.error(tr(language, "Error", "ข้อผิดพลาด"), {
                 description: tr(language, "Failed to load users.", "โหลดข้อมูลผู้ใช้ไม่สำเร็จ"),
@@ -437,6 +513,11 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
         statusFilterLocal,
         accountView,
         language,
+        initialUsers,
+        initialTotal,
+        initialSeedKey,
+        initialSeedReady,
+        locallyPurgedUserIds,
     ]);
 
     const loadInviteItems = useCallback(async () => {
@@ -448,6 +529,7 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                     page: 1,
                     limit: 50,
                     status_filter: inviteStatusFilter,
+                    skipCache: true,
                 },
                 token
             );
@@ -487,13 +569,191 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
         setPagination((prev) => ({ ...prev, pageIndex: 0 }));
     }, [debouncedSearch, roleFilter, statusFilterLocal, accountView]);
 
+    const handleOpenInvite = useCallback(() => {
+        setGeneratedInviteUrl("");
+        setInviteFormData({
+            email: "",
+            role: "doctor",
+            reason: "",
+        });
+        setInviteSheetOpen(true);
+    }, []);
+
+    const handleCloseInvite = useCallback((open: boolean) => {
+        if (!open) {
+            // Reset form and generated link when closing the sheet
+            setInviteFormData({
+                email: "",
+                role: "doctor",
+                reason: "",
+            });
+            setGeneratedInviteUrl("");
+        }
+        setInviteSheetOpen(open);
+    }, []);
+
+    useEffect(() => {
+        if (inviteRequestKey === 0) return;
+        handleOpenInvite();
+    }, [inviteRequestKey, handleOpenInvite]);
+
+    const getLocalizedErrorMessage = useCallback(
+        (error: unknown, fallbackEn: string, fallbackTh: string) =>
+            getLocalizedDashboardErrorMessage(error, language, fallbackEn, fallbackTh),
+        [language]
+    );
+
+    const loadWardOptions = useCallback(async () => {
+        if (!token || isWardListLoading) return;
+
+        setIsWardListLoading(true);
+        try {
+            const response = await fetchPatientWards(token);
+            setAvailableWards(response.wards);
+        } catch (error) {
+            toast.error(tr(language, "Unable to load wards", "ไม่สามารถโหลดรายชื่อวอร์ดได้"), {
+                description: getLocalizedErrorMessage(
+                    error,
+                    "We couldn't load the current ward list for patient assignment.",
+                    "ไม่สามารถโหลดรายชื่อวอร์ดสำหรับการมอบหมายผู้ป่วยได้"
+                ),
+            });
+        } finally {
+            setIsWardListLoading(false);
+        }
+    }, [getLocalizedErrorMessage, isWardListLoading, language, token]);
+
+    useEffect(() => {
+        if (!isSheetOpen || editingUser || formData.role !== "doctor") return;
+        if (availableWards.length > 0 || isWardListLoading) return;
+        void loadWardOptions();
+    }, [availableWards.length, editingUser, formData.role, isSheetOpen, isWardListLoading, loadWardOptions]);
+
+    const syncParentUsers = useCallback(() => {
+        onUsersMutated?.();
+    }, [onUsersMutated]);
+
+    const removeRowSelection = useCallback((userId: string) => {
+        setRowSelection((prev) => {
+            const next = { ...prev };
+            delete next[userId as keyof typeof next];
+            return next;
+        });
+    }, []);
+
+    const applyVerifiedUserLocally = useCallback((user: User) => {
+        setUsers((prev) => {
+            const shouldRemoveFromCurrentView =
+                statusFilterLocal !== "all" && statusFilterLocal !== "verified";
+
+            if (shouldRemoveFromCurrentView) {
+                return prev.filter((candidate) => candidate.id !== user.id);
+            }
+
+            return prev.map((candidate) =>
+                candidate.id === user.id
+                    ? { ...candidate, verification_status: "verified" as const }
+                    : candidate
+            );
+        });
+        if (statusFilterLocal !== "all" && statusFilterLocal !== "verified") {
+            setTotal((prev) => Math.max(prev - 1, 0));
+        }
+    }, [statusFilterLocal]);
+
+    const applyDeletedUserLocally = useCallback((user: User) => {
+        removeRowSelection(user.id);
+        setUsers((prev) => {
+            if (accountView === "active") {
+                return prev.filter((candidate) => candidate.id !== user.id);
+            }
+
+            if (accountView === "all") {
+                const deletedAt = new Date().toISOString();
+                return prev.map((candidate) =>
+                    candidate.id === user.id
+                        ? {
+                            ...candidate,
+                            is_active: false,
+                            deleted_at: deletedAt,
+                        }
+                        : candidate
+                );
+            }
+
+            return prev;
+        });
+        if (accountView === "active") {
+            setTotal((prev) => Math.max(prev - 1, 0));
+        }
+    }, [accountView, removeRowSelection]);
+
+    const applyRestoredUserLocally = useCallback((user: User, restoredEmail?: string) => {
+        removeRowSelection(user.id);
+        setUsers((prev) => {
+            if (accountView === "deleted") {
+                return prev.filter((candidate) => candidate.id !== user.id);
+            }
+
+            if (accountView === "all") {
+                return prev.map((candidate) =>
+                    candidate.id === user.id
+                        ? {
+                            ...candidate,
+                            email: restoredEmail ?? candidate.email,
+                            is_active: true,
+                            deleted_at: null,
+                            deleted_by: null,
+                            restored_at: new Date().toISOString(),
+                        }
+                        : candidate
+                );
+            }
+
+            return prev;
+        });
+        if (accountView === "deleted") {
+            setTotal((prev) => Math.max(prev - 1, 0));
+        }
+    }, [accountView, removeRowSelection]);
+
+    const applyPurgedUserLocally = useCallback((user: User) => {
+        setLocallyPurgedUserIds((prev) => {
+            const next = new Set(prev);
+            next.add(user.id);
+            return next;
+        });
+        removeRowSelection(user.id);
+        setUsers((prev) => prev.filter((candidate) => candidate.id !== user.id));
+        setTotal((prev) => Math.max(prev - 1, 0));
+    }, [removeRowSelection]);
 
     // --- Handlers from Original ---
 
     const handleOpenEdit = useCallback((user: User) => {
         setEditingUser(user);
-        setFormData({ ...user, password: "" }); // Clear password for security
+        setFormData({
+            email: user.email,
+            first_name: user.first_name ?? "",
+            last_name: user.last_name ?? "",
+            password: "",
+            role: user.role,
+            is_active: user.is_active,
+            specialty: user.specialty ?? "",
+            department: user.department ?? "",
+            license_no: user.license_no ?? "",
+            license_expiry: user.license_expiry ?? "",
+            verification_status: user.verification_status ?? "unverified",
+            patient_assignment_scope: "none",
+            target_ward: "",
+        });
         setSheetOpen(true);
+    }, []);
+
+    const closeUserSheet = useCallback(() => {
+        setSheetOpen(false);
+        setEditingUser(null);
+        setFormData(buildDefaultUserFormData());
     }, []);
 
     const confirmDelete = useCallback(async (user: User) => {
@@ -506,16 +766,21 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
 
         try {
             await deleteUser(user.id, token);
+            applyDeletedUserLocally(user);
             toast.success(tr(language, "Success", "สำเร็จ"), {
                 description: tr(language, "User deleted successfully", "ลบผู้ใช้สำเร็จ"),
             });
-            loadUsers();
+            syncParentUsers();
         } catch (error) {
             toast.error(tr(language, "Delete failed", "ลบไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถลบผู้ใช้ได้"),
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to delete user",
+                    "ไม่สามารถลบผู้ใช้ได้"
+                ),
             });
         }
-    }, [token, language, loadUsers]);
+    }, [token, language, applyDeletedUserLocally, syncParentUsers, getLocalizedErrorMessage]);
 
     const handleDelete = useCallback((user: User) => {
         const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
@@ -545,20 +810,24 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
 
         try {
             const restored = await restoreUser(user.id, token);
+            applyRestoredUserLocally(user, restored.email);
             const usingRetiredEmail = restored.email.startsWith("deleted+");
             toast.success(tr(language, "User restored", "กู้คืนผู้ใช้แล้ว"), {
                 description: usingRetiredEmail
                     ? tr(language, "Account restored. Please edit email before giving access to this user.", "กู้คืนบัญชีแล้ว กรุณาแก้ไขอีเมลก่อนให้สิทธิ์ผู้ใช้นี้")
                     : tr(language, "User restored successfully.", "กู้คืนผู้ใช้สำเร็จ"),
             });
-            setRowSelection({});
-            loadUsers();
+            syncParentUsers();
         } catch (error) {
             toast.error(tr(language, "Restore failed", "กู้คืนไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถกู้คืนผู้ใช้ได้"),
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to restore user",
+                    "ไม่สามารถกู้คืนผู้ใช้ได้"
+                ),
             });
         }
-    }, [token, language, loadUsers]);
+    }, [token, language, applyRestoredUserLocally, syncParentUsers, getLocalizedErrorMessage]);
 
     const requestRestore = useCallback((user: User) => {
         const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
@@ -578,6 +847,66 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
         });
     }, [language, confirmRestore]);
 
+    const confirmPurgeDeletedUser = useCallback(async (user: User) => {
+        if (!token) {
+            toast.error(tr(language, "Purge failed", "ลบถาวรไม่สำเร็จ"), {
+                description: tr(language, "Not authenticated. Please sign in again.", "ยังไม่ได้ยืนยันตัวตน กรุณาเข้าสู่ระบบอีกครั้ง"),
+            });
+            return;
+        }
+
+        try {
+            await purgeDeletedUser(user.id, token);
+            applyPurgedUserLocally(user);
+            toast.success(tr(language, "Deleted permanently", "ลบถาวรแล้ว"), {
+                description: tr(language, "Medical student account removed permanently.", "ลบบัญชีนักศึกษาแพทย์ถาวรแล้ว"),
+            });
+            syncParentUsers();
+        } catch (error) {
+            const status =
+                typeof error === "object" && error !== null && "status" in error
+                    ? (error as { status?: number }).status
+                    : undefined;
+            if (status === 404) {
+                applyPurgedUserLocally(user);
+                syncParentUsers();
+                toast.info(tr(language, "Already removed", "รายการนี้ถูกลบไปแล้ว"), {
+                    description: tr(
+                        language,
+                        "This user no longer exists in the backend, so the stale row was removed from the table.",
+                        "ผู้ใช้นี้ไม่มีอยู่ในระบบแล้ว จึงลบแถวที่ค้างอยู่ในตารางออกให้เรียบร้อย"
+                    ),
+                });
+                return;
+            }
+            toast.error(tr(language, "Purge failed", "ลบถาวรไม่สำเร็จ"), {
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to permanently delete this user",
+                    "ไม่สามารถลบผู้ใช้นี้แบบถาวรได้"
+                ),
+            });
+        }
+    }, [token, language, applyPurgedUserLocally, syncParentUsers, getLocalizedErrorMessage]);
+
+    const requestPurgeDeletedUser = useCallback((user: User) => {
+        const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.email;
+        toast.destructiveAction(tr(language, "Delete permanently?", "ลบถาวรถูกไหม?"), {
+            description: tr(
+                language,
+                `This will permanently remove ${fullName}. This cannot be undone.`,
+                `การดำเนินการนี้จะลบ ${fullName} แบบถาวร และไม่สามารถย้อนกลับได้`
+            ),
+            button: {
+                title: tr(language, "Delete Permanently", "ลบถาวร"),
+                onClick: () => {
+                    void confirmPurgeDeletedUser(user);
+                },
+            },
+            duration: 9000,
+        });
+    }, [language, confirmPurgeDeletedUser]);
+
     const handleVerifyUser = useCallback(async (user: User) => {
         if (!token) {
             toast.error(tr(language, "Verification failed", "ยืนยันไม่สำเร็จ"), {
@@ -588,6 +917,8 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
 
         try {
             await verifyUser(user.id, token);
+            applyVerifiedUserLocally(user);
+
             const displayName = getDisplayName(
                 user.first_name,
                 user.last_name,
@@ -603,13 +934,17 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                     `${displayName} ได้รับการยืนยันแล้วและพร้อมสำหรับการมอบหมายงาน`
                 ),
             });
-            loadUsers();
+            syncParentUsers();
         } catch (err) {
             toast.error(tr(language, "Verification failed", "ยืนยันไม่สำเร็จ"), {
-                description: getErrorMessage(err, "ไม่สามารถยืนยันผู้ใช้ได้"),
+                description: getLocalizedErrorMessage(
+                    err,
+                    "Unable to verify user",
+                    "ไม่สามารถยืนยันผู้ใช้ได้"
+                ),
             });
         }
-    }, [token, language, loadUsers]);
+    }, [token, language, applyVerifiedUserLocally, syncParentUsers, getLocalizedErrorMessage]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -648,6 +983,8 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                 verification_status: formData.verification_status || undefined,
             };
 
+            let createdUserResponse: UserCreateResponse | null = null;
+
             if (editingUser) {
                 const updatePayload: UserUpdate = { ...basePayload };
                 if (normalizedPassword) {
@@ -655,11 +992,30 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                 }
                 await updateUser(editingUser.id, updatePayload, token);
             } else {
+                const normalizedAssignmentScope = formData.role === "doctor"
+                    ? (formData.patient_assignment_scope ?? "none")
+                    : "none";
+                const normalizedTargetWard = normalizedAssignmentScope === "ward"
+                    ? formData.target_ward?.trim()
+                    : undefined;
+
+                if (normalizedAssignmentScope === "ward" && !normalizedTargetWard) {
+                    throw new Error(
+                        tr(
+                            language,
+                            "Please select a ward for patient assignment.",
+                            "กรุณาเลือกวอร์ดสำหรับการมอบหมายผู้ป่วย"
+                        )
+                    );
+                }
+
                 const createPayload: UserCreate = {
                     ...basePayload,
                     password: normalizedPassword!,
+                    patient_assignment_scope: normalizedAssignmentScope,
+                    target_ward: normalizedTargetWard,
                 };
-                await createUser(createPayload, token);
+                createdUserResponse = await createUser(createPayload, token);
             }
 
             const roleLabel = ROLE_LABEL_MAP[String(basePayload.role ?? "doctor")] ?? "Doctor";
@@ -674,16 +1030,34 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                     description: tr(language, `${displayName} details were saved successfully.`, `บันทึกข้อมูลของ ${displayName} สำเร็จ`),
                 });
             } else {
-                showTeamUpdateToast({
-                    title: tr(language, "Team Update", "อัปเดตทีม"),
-                    members: [displayName],
-                    message: tr(language, `${displayName} joined as ${roleLabel}.`, `${displayName} เข้าร่วมในบทบาท ${getRoleLabelByLanguage(String(basePayload.role ?? "doctor"), language)}`),
-                });
+                if ((basePayload.role ?? "doctor") === "doctor") {
+                    toast.success(
+                        tr(language, "Doctor created successfully!", "สร้างบัญชีแพทย์สำเร็จ!"),
+                        {
+                            description: tr(
+                                language,
+                                `Assigned ${createdUserResponse?.assigned_patient_count ?? 0} patients automatically.`,
+                                `มอบหมายผู้ป่วยให้อัตโนมัติ ${createdUserResponse?.assigned_patient_count ?? 0} ราย`
+                            ),
+                        }
+                    );
+                } else {
+                    showTeamUpdateToast({
+                        title: tr(language, "Team Update", "อัปเดตทีม"),
+                        members: [displayName],
+                        message: tr(language, `${displayName} joined as ${roleLabel}.`, `${displayName} เข้าร่วมในบทบาท ${getRoleLabelByLanguage(String(basePayload.role ?? "doctor"), language)}`),
+                    });
+                }
             }
-            setSheetOpen(false);
-            loadUsers();
+            closeUserSheet();
+            syncParentUsers();
+            await loadUsers();
         } catch (error: unknown) {
-            const message = getErrorMessage(error, "ไม่สามารถบันทึกข้อมูลผู้ใช้ได้");
+            const message = getLocalizedErrorMessage(
+                error,
+                "Unable to save user details",
+                "ไม่สามารถบันทึกข้อมูลผู้ใช้ได้"
+            );
             toast.error(tr(language, "Save failed", "บันทึกไม่สำเร็จ"), { description: message, duration: 10000 });
         } finally {
             setIsSubmitting(false);
@@ -719,8 +1093,18 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
 
         setIsInviteSubmitting(true);
         try {
+            const inviteReason =
+                inviteFormData.role === "admin"
+                    ? inviteFormData.reason.trim()
+                    : undefined;
+            if (inviteFormData.role === "admin" && (!inviteReason || inviteReason.length < 8)) {
+                toast.error(tr(language, "Invite failed", "คำเชิญไม่สำเร็จ"), {
+                    description: tr(language, "Admin invites require a reason with at least 8 characters.", "คำเชิญแอดมินต้องระบุเหตุผลอย่างน้อย 8 ตัวอักษร"),
+                });
+                return;
+            }
             const data = await createUserInvite(
-                { email: inviteFormData.email, role: inviteFormData.role },
+                { email: inviteFormData.email, role: inviteFormData.role, reason: inviteReason },
                 token
             );
             setGeneratedInviteUrl(data.invite_url);
@@ -849,10 +1233,15 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
             setBulkDeleteDialogOpen(false);
             setBulkDeleteConfirmText("");
             setPendingBulkDeleteUsers([]);
-            loadUsers();
+            syncParentUsers();
+            await loadUsers();
         } catch (error) {
             toast.error(tr(language, "Delete failed", "ลบไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถลบผู้ใช้แบบกลุ่มได้"),
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to delete selected users",
+                    "ไม่สามารถลบผู้ใช้แบบกลุ่มได้"
+                ),
             });
         } finally {
             setIsBulkDeleting(false);
@@ -934,10 +1323,15 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                 });
             }
             setRowSelection({});
-            loadUsers();
+            syncParentUsers();
+            await loadUsers();
         } catch (error) {
             toast.error(tr(language, "Restore failed", "กู้คืนไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถกู้คืนผู้ใช้แบบกลุ่มได้"),
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to restore selected users",
+                    "ไม่สามารถกู้คืนผู้ใช้แบบกลุ่มได้"
+                ),
             });
         } finally {
             setIsBulkRestoring(false);
@@ -995,7 +1389,7 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                         limit,
                         include_deleted: true,
                         deleted_only: true,
-                        clinical_only: true,
+                        skipCache: true,
                     },
                     token
                 );
@@ -1042,7 +1436,11 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
             });
         } catch (error) {
             toast.error(tr(language, "Export failed", "ส่งออกไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถส่งออก snapshot ผู้ใช้ที่ถูกลบได้"),
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to export deleted user snapshot",
+                    "ไม่สามารถส่งออก snapshot ผู้ใช้ที่ถูกลบได้"
+                ),
             });
         }
     };
@@ -1067,10 +1465,15 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
             setPurgeReason("");
             setPurgeOlderThanDays(90);
             setHasExportedForPurge(false);
-            loadUsers();
+            syncParentUsers();
+            await loadUsers();
         } catch (error) {
             toast.error(tr(language, "Purge failed", "ลบถาวรไม่สำเร็จ"), {
-                description: getErrorMessage(error, "ไม่สามารถ purge ผู้ใช้ที่ถูกลบได้"),
+                description: getLocalizedErrorMessage(
+                    error,
+                    "Unable to permanently delete archived users",
+                    "ไม่สามารถ purge ผู้ใช้ที่ถูกลบได้"
+                ),
             });
         } finally {
             setIsPurging(false);
@@ -1185,19 +1588,30 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
             header: tr(language, "Role", "บทบาท"),
             cell: ({ row }) => {
                 const role = row.original.role;
+                const privilegedRoles = row.original.privileged_roles ?? [];
                 return (
-                    <Badge
-                        variant={role === "admin" ? "default" : "secondary"}
-                        className={cn(
-                            "capitalize",
-                            role === "admin" && "bg-amber-500/10 text-amber-500 hover:bg-amber-500/20",
-                            role === "doctor" && "bg-blue-500/10 text-blue-500 hover:bg-blue-500/20",
-                            role === "nurse" && "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20",
-                            role === "staff" && "bg-slate-500/10 text-slate-500 hover:bg-slate-500/20"
-                        )}
-                    >
-                        {getRoleLabelByLanguage(role, language)}
-                    </Badge>
+                    <div className="flex max-w-[240px] flex-wrap gap-1">
+                        <Badge
+                            variant={role === "admin" ? "default" : "secondary"}
+                            className={cn(
+                                "capitalize",
+                                role === "admin" && "bg-amber-500/10 text-amber-500 hover:bg-amber-500/20",
+                                role === "doctor" && "bg-blue-500/10 text-blue-500 hover:bg-blue-500/20",
+                                role === "medical_student" && "bg-violet-500/10 text-violet-500 hover:bg-violet-500/20"
+                            )}
+                        >
+                            {getRoleLabelByLanguage(role, language)}
+                        </Badge>
+                        {privilegedRoles.map((privilegedRole) => (
+                            <Badge
+                                key={privilegedRole}
+                                variant="outline"
+                                className={cn("text-[11px]", getPrivilegeBadgeClass(privilegedRole))}
+                            >
+                                {getPrivilegedRoleLabel(privilegedRole, language)}
+                            </Badge>
+                        ))}
+                    </div>
                 );
             },
         },
@@ -1277,12 +1691,25 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                             <DropdownMenuGroup>
                                 <DropdownMenuLabel>{tr(language, "Actions", "การทำงาน")}</DropdownMenuLabel>
                                 {user.deleted_at ? (
-                                    <DropdownMenuItem
-                                        onClick={() => requestRestore(user)}
-                                        className="text-emerald-600 focus:text-emerald-600 focus:bg-emerald-50"
-                                    >
-                                        <RotateCcw className="mr-2 h-4 w-4" /> {tr(language, "Restore", "กู้คืน")}
-                                    </DropdownMenuItem>
+                                    <>
+                                        <DropdownMenuItem
+                                            onClick={() => requestRestore(user)}
+                                            className="text-emerald-600 focus:text-emerald-600 focus:bg-emerald-50"
+                                        >
+                                            <RotateCcw className="mr-2 h-4 w-4" /> {tr(language, "Restore", "กู้คืน")}
+                                        </DropdownMenuItem>
+                                        {user.role === "medical_student" && (
+                                            <>
+                                                <DropdownMenuSeparator />
+                                                <DropdownMenuItem
+                                                    onClick={() => requestPurgeDeletedUser(user)}
+                                                    className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                                                >
+                                                    <Trash2 className="mr-2 h-4 w-4" /> {tr(language, "Delete Permanently", "ลบถาวร")}
+                                                </DropdownMenuItem>
+                                            </>
+                                        )}
+                                    </>
                                 ) : (
                                     <>
                                         <DropdownMenuItem onClick={() => handleOpenEdit(user)}>
@@ -1314,6 +1741,7 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
         handleDelete,
         handleVerifyUser,
         requestRestore,
+        requestPurgeDeletedUser,
         isBulkDeleting,
         isBulkRestoring,
         language,
@@ -1360,11 +1788,18 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
     const selectedActiveUsers = selectedUsers.filter((user) => !user.deleted_at);
     const selectedDeletedUsers = selectedUsers.filter((user) => Boolean(user.deleted_at));
     const selectedIds = selectedUsers.map((user) => user.id);
+    const isPurgeReasonValid = purgeReason.trim().length >= 8;
+    const isPurgeConfirmValid = purgeConfirmText === "PURGE";
+    const canPurgeDeletedUsers =
+        !isPurging &&
+        hasExportedForPurge &&
+        isPurgeConfirmValid &&
+        isPurgeReasonValid;
 
     const hasActiveFilters =
-        roleFilter !== "clinical" || statusFilterLocal !== "all" || accountView !== "active";
+        roleFilter !== "all" || statusFilterLocal !== "all" || accountView !== "active";
     const clearLocalFilters = () => {
-        setRoleFilter("clinical");
+        setRoleFilter("all");
         setStatusFilterLocal("all");
         setAccountView("active");
     };
@@ -1439,12 +1874,12 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                                 <DropdownMenuGroup>
                                     <DropdownMenuLabel>{tr(language, "Filter by Role", "กรองตามบทบาท")}</DropdownMenuLabel>
                                     <DropdownMenuCheckboxItem
-                                        checked={roleFilter === "clinical"}
-                                        onCheckedChange={() => setRoleFilter("clinical")}
+                                        checked={roleFilter === "all"}
+                                        onCheckedChange={() => setRoleFilter("all")}
                                     >
-                                        {tr(language, "All Clinical Roles", "ทุกบทบาทสายคลินิก")}
+                                        {tr(language, "All Roles", "ทุกบทบาท")}
                                     </DropdownMenuCheckboxItem>
-                                    {CLINICAL_ROLE_OPTIONS.map((r) => (
+                                    {ROLE_OPTIONS.map((r) => (
                                         <DropdownMenuCheckboxItem
                                             key={r.value}
                                             checked={roleFilter === r.value}
@@ -1579,11 +2014,11 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                 {hasActiveFilters && (
                     <div className="flex flex-wrap items-center gap-2 px-3 sm:px-6 pb-3">
                         <span className="text-sm text-muted-foreground">{tr(language, "Filters:", "ตัวกรอง:")}</span>
-                        {roleFilter !== "clinical" && (
+                        {roleFilter !== "all" && (
                             <Badge
                                 variant="secondary"
                                 className="h-6 cursor-pointer gap-1 text-sm"
-                                onClick={() => setRoleFilter("clinical")}
+                                onClick={() => setRoleFilter("all")}
                             >
                                 {getRoleLabelByLanguage(roleFilter, language)}
                                 <X className="size-2.5 sm:size-3" />
@@ -1846,13 +2281,27 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="purge_reason">{tr(language, "Reason", "เหตุผล")}</Label>
+                            <Label htmlFor="purge_reason">
+                                {tr(language, "Reason", "เหตุผล")}{" "}
+                                <span className="text-muted-foreground">
+                                    {tr(language, "(at least 8 characters)", "(อย่างน้อย 8 ตัวอักษร)")}
+                                </span>
+                            </Label>
                             <Input
                                 id="purge_reason"
                                 value={purgeReason}
                                 onChange={(event) => setPurgeReason(event.target.value)}
-                                placeholder="เช่น retention policy รอบไตรมาส"
+                                placeholder={tr(language, "e.g. quarterly retention policy", "เช่น retention policy รอบไตรมาส")}
                             />
+                            {!isPurgeReasonValid && (
+                                <p className="text-sm text-amber-600">
+                                    {tr(
+                                        language,
+                                        `Enter at least 8 characters. ${Math.max(8 - purgeReason.trim().length, 0)} more to go.`,
+                                        `กรอกเหตุผลอย่างน้อย 8 ตัวอักษร ตอนนี้ยังขาดอีก ${Math.max(8 - purgeReason.trim().length, 0)} ตัวอักษร`
+                                    )}
+                                </p>
+                            )}
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="purge_confirm_text">{tr(language, "Confirm text", "ข้อความยืนยัน")}</Label>
@@ -1863,17 +2312,54 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                                 placeholder={tr(language, 'Type "PURGE"', 'พิมพ์ "PURGE"')}
                             />
                         </div>
-                        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-muted-foreground">
-                            ระบบบังคับให้ export รายการบัญชีที่ถูกลบก่อน purge ทุกครั้ง
+                        <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-muted-foreground">
+                            <p>ระบบบังคับให้ export รายการบัญชีที่ถูกลบก่อน purge ทุกครั้ง</p>
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                    {hasExportedForPurge ? (
+                                        <Check className="h-4 w-4 text-emerald-600" />
+                                    ) : (
+                                        <XCircle className="h-4 w-4 text-amber-600" />
+                                    )}
+                                    <span>
+                                        {tr(language, "Export snapshot completed", "ส่งออก snapshot แล้ว")}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {isPurgeReasonValid ? (
+                                        <Check className="h-4 w-4 text-emerald-600" />
+                                    ) : (
+                                        <XCircle className="h-4 w-4 text-amber-600" />
+                                    )}
+                                    <span>
+                                        {tr(language, "Reason is at least 8 characters", "เหตุผลครบอย่างน้อย 8 ตัวอักษร")}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {isPurgeConfirmValid ? (
+                                        <Check className="h-4 w-4 text-emerald-600" />
+                                    ) : (
+                                        <XCircle className="h-4 w-4 text-amber-600" />
+                                    )}
+                                    <span>
+                                        {tr(language, 'Typed "PURGE" correctly', 'พิมพ์ "PURGE" ถูกต้อง')}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                         <Button
                             type="button"
                             variant="outline"
-                            className="w-full"
+                            className={cn(
+                                "w-full",
+                                hasExportedForPurge && "border-emerald-300/50 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15"
+                            )}
                             onClick={() => void handleExportDeletedSnapshot()}
                         >
                             <FileDown className="mr-2 h-4 w-4" />
-                            {tr(language, "Export deleted users snapshot", "ส่งออก snapshot ผู้ใช้ที่ถูกลบ")}
+                            {hasExportedForPurge
+                                ? tr(language, "Snapshot exported", "ส่งออก snapshot แล้ว")
+                                : tr(language, "Export deleted users snapshot", "ส่งออก snapshot ผู้ใช้ที่ถูกลบ")}
                         </Button>
                     </div>
                     <DialogFooter>
@@ -1888,12 +2374,7 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                         </Button>
                         <Button
                             variant="destructive"
-                            disabled={
-                                isPurging ||
-                                !hasExportedForPurge ||
-                                purgeConfirmText !== "PURGE" ||
-                                purgeReason.trim().length < 8
-                            }
+                            disabled={!canPurgeDeletedUsers}
                             onClick={() => {
                                 void handlePurgeDeletedUsers();
                             }}
@@ -1907,7 +2388,16 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
             </Dialog>
 
             {/* Create/Edit Sheet */}
-            <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
+            <Sheet
+                open={isSheetOpen}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        closeUserSheet();
+                        return;
+                    }
+                    setSheetOpen(true);
+                }}
+            >
                 <SheetContent
                     side="center"
                     className="w-[min(94vw,680px)] max-h-[88vh] p-0 overflow-hidden rounded-2xl border border-border/60 bg-background/95"
@@ -1930,22 +2420,28 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                         </SheetDescription>
                     </SheetHeader>
 
-                    <form onSubmit={handleSubmit} className="p-6 space-y-5 overflow-y-auto max-h-[calc(88vh-120px)]">
+                    <form
+                        onSubmit={handleSubmit}
+                        autoComplete="off"
+                        className="p-6 space-y-5 overflow-y-auto max-h-[calc(88vh-120px)]"
+                    >
                         <div className="space-y-5">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                <Label htmlFor="first_name">{tr(language, "First Name", "ชื่อจริง")}</Label>
+                                <Label htmlFor={editingUser ? "edit_user_first_name" : "create_user_first_name"}>{tr(language, "First Name", "ชื่อจริง")}</Label>
                                 <Input
-                                    id="first_name"
+                                    id={editingUser ? "edit_user_first_name" : "create_user_first_name"}
+                                    autoComplete={editingUser ? "off" : "given-name"}
                                     placeholder={tr(language, "John", "สมชาย")}
                                     value={formData.first_name || ""}
                                     onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
                                 />
                             </div>
                                 <div className="space-y-2">
-                                <Label htmlFor="last_name">{tr(language, "Last Name", "นามสกุล")}</Label>
+                                <Label htmlFor={editingUser ? "edit_user_last_name" : "create_user_last_name"}>{tr(language, "Last Name", "นามสกุล")}</Label>
                                 <Input
-                                    id="last_name"
+                                    id={editingUser ? "edit_user_last_name" : "create_user_last_name"}
+                                    autoComplete={editingUser ? "off" : "family-name"}
                                     placeholder={tr(language, "Doe", "ใจดี")}
                                     value={formData.last_name || ""}
                                     onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
@@ -1954,22 +2450,32 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                             </div>
                             {/* ... (Other form fields - mostly identical to logic above but reconstructed) ... */}
                             <div className="space-y-2">
-                                <Label htmlFor="email">{tr(language, "Email Address", "อีเมล")} <span className="text-red-500">*</span></Label>
+                                <Label htmlFor={editingUser ? "edit_user_email" : "create_user_email"}>{tr(language, "Email Address", "อีเมล")} <span className="text-red-500">*</span></Label>
                                 <Input
-                                    id="email" type="email" placeholder={tr(language, "john.doe@example.com", "somchai@example.com")}
+                                    id={editingUser ? "edit_user_email" : "create_user_email"}
+                                    type="email"
+                                    autoComplete={editingUser ? "off" : "email"}
+                                    data-1p-ignore={editingUser ? "true" : undefined}
+                                    data-lpignore={editingUser ? "true" : undefined}
+                                    placeholder={tr(language, "john.doe@example.com", "somchai@example.com")}
                                     required value={formData.email}
                                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="password">
+                                <Label htmlFor={editingUser ? "edit_user_password" : "create_user_password"}>
                                     {editingUser
                                         ? tr(language, "Password (leave blank to keep)", "รหัสผ่าน (เว้นว่างเพื่อคงเดิม)")
                                         : tr(language, "Password", "รหัสผ่าน")}
                                     {!editingUser && <span className="text-red-500">*</span>}
                                 </Label>
                                 <Input
-                                    id="password" type="password" placeholder={tr(language, "••••••••", "••••••••")}
+                                    id={editingUser ? "edit_user_password" : "create_user_password"}
+                                    type="password"
+                                    autoComplete="new-password"
+                                    data-1p-ignore={editingUser ? "true" : undefined}
+                                    data-lpignore={editingUser ? "true" : undefined}
+                                    placeholder={tr(language, "••••••••", "••••••••")}
                                     required={!editingUser} minLength={8}
                                     value={formData.password}
                                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
@@ -1979,11 +2485,22 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                                 <Label htmlFor="role">{tr(language, "Role", "บทบาท")}</Label>
                                 <Select
                                     value={formData.role}
-                                    onValueChange={(val) => setFormData({ ...formData, role: val || "doctor" })}
+                                    onValueChange={(val) =>
+                                        setFormData({
+                                            ...formData,
+                                            role: val || "doctor",
+                                            patient_assignment_scope: (val || "doctor") === "doctor"
+                                                ? (formData.patient_assignment_scope ?? "none")
+                                                : "none",
+                                            target_ward: (val || "doctor") === "doctor"
+                                                ? (formData.target_ward ?? "")
+                                                : "",
+                                        })
+                                    }
                                 >
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                        {CLINICAL_ROLE_OPTIONS.map((r) => (
+                                        {ROLE_OPTIONS.map((r) => (
                                             <SelectItem key={r.value} value={r.value}>{getRoleLabelByLanguage(r.value, language)}</SelectItem>
                                         ))}
                                     </SelectContent>
@@ -2011,28 +2528,28 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                                     <p className="text-sm font-medium text-muted-foreground">{tr(language, "Professional Information", "ข้อมูลวิชาชีพ")}</p>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <Label htmlFor="specialty">{tr(language, "Specialty", "สาขา")}</Label>
-                                            <Input id="specialty" value={formData.specialty || ""} onChange={e => setFormData({ ...formData, specialty: e.target.value })} />
+                                            <Label htmlFor="user_specialty">{tr(language, "Specialty", "สาขา")}</Label>
+                                            <Input id="user_specialty" autoComplete="off" value={formData.specialty || ""} onChange={e => setFormData({ ...formData, specialty: e.target.value })} />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label htmlFor="department">{tr(language, "Department", "แผนก")}</Label>
-                                            <Input id="department" value={formData.department || ""} onChange={e => setFormData({ ...formData, department: e.target.value })} />
+                                            <Label htmlFor="user_department">{tr(language, "Department", "แผนก")}</Label>
+                                            <Input id="user_department" autoComplete="off" value={formData.department || ""} onChange={e => setFormData({ ...formData, department: e.target.value })} />
                                         </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <Label htmlFor="license_no">{tr(language, "License No.", "เลขใบอนุญาต")} <span className="text-red-500">*</span></Label>
-                                            <Input id="license_no" required value={formData.license_no || ""} onChange={e => setFormData({ ...formData, license_no: e.target.value })} />
+                                            <Label htmlFor="user_license_no">{tr(language, "License No.", "เลขใบอนุญาต")} <span className="text-red-500">*</span></Label>
+                                            <Input id="user_license_no" autoComplete="off" required value={formData.license_no || ""} onChange={e => setFormData({ ...formData, license_no: e.target.value })} />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label htmlFor="license_expiry">{tr(language, "License Expiry", "วันหมดอายุใบอนุญาต")}</Label>
-                                            <Input type="date" id="license_expiry" value={formData.license_expiry || ""} onChange={e => setFormData({ ...formData, license_expiry: e.target.value })} />
+                                            <Label htmlFor="user_license_expiry">{tr(language, "License Expiry", "วันหมดอายุใบอนุญาต")}</Label>
+                                            <Input type="date" id="user_license_expiry" autoComplete="off" value={formData.license_expiry || ""} onChange={e => setFormData({ ...formData, license_expiry: e.target.value })} />
                                         </div>
                                     </div>
                                     {editingUser && (
                                         <div className="space-y-2">
                                             <Label htmlFor="verification_status">{tr(language, "Verification Status", "สถานะการยืนยัน")}</Label>
-                                            <Select value={formData.verification_status || "unverified"} onValueChange={val => setFormData({ ...formData, verification_status: val })}>
+                                            <Select value={formData.verification_status || "unverified"} onValueChange={val => setFormData({ ...formData, verification_status: val ?? "unverified" })}>
                                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="unverified">{tr(language, "Unverified", "ยังไม่ยืนยัน")}</SelectItem>
@@ -2044,9 +2561,98 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                                     )}
                                 </div>
                             )}
+
+                            {!editingUser && formData.role === "doctor" && (
+                                <div className="space-y-4 rounded-lg border border-border/60 bg-muted/10 p-4">
+                                    <div className="space-y-1">
+                                        <p className="text-sm font-medium text-muted-foreground">
+                                            {tr(language, "Assign Patients Immediately", "มอบหมายผู้ป่วยทันที")}
+                                        </p>
+                                        <p className="text-sm text-muted-foreground/80">
+                                            {tr(
+                                                language,
+                                                "Choose whether this doctor should start with no patients, all active patients, or one ward.",
+                                                "เลือกว่าบัญชีแพทย์ใหม่นี้ควรเริ่มต้นโดยไม่มีผู้ป่วย รับผู้ป่วยทั้งหมด หรือเฉพาะหนึ่งวอร์ด"
+                                            )}
+                                        </p>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <Label htmlFor="patient_assignment_scope">
+                                            {tr(language, "Patient Assignment Scope", "ขอบเขตการมอบหมายผู้ป่วย")}
+                                        </Label>
+                                        <Select
+                                            value={formData.patient_assignment_scope || "none"}
+                                            onValueChange={(value) =>
+                                                setFormData({
+                                                    ...formData,
+                                                    patient_assignment_scope: value ?? "none",
+                                                    target_ward: value === "ward" ? formData.target_ward || "" : "",
+                                                })
+                                            }
+                                        >
+                                            <SelectTrigger id="patient_assignment_scope">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="none">
+                                                    {tr(language, "No patients", "ไม่มีผู้ป่วย")}
+                                                </SelectItem>
+                                                <SelectItem value="all">
+                                                    {tr(language, "All available patients", "ผู้ป่วยที่พร้อมทั้งหมด")}
+                                                </SelectItem>
+                                                <SelectItem value="ward">
+                                                    {tr(language, "Specific Ward", "เฉพาะวอร์ด")}
+                                                </SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    {formData.patient_assignment_scope === "ward" && (
+                                        <div className="space-y-2">
+                                            <Label htmlFor="target_ward">
+                                                {tr(language, "Target Ward", "วอร์ดเป้าหมาย")}
+                                            </Label>
+                                            <Select
+                                                value={formData.target_ward || undefined}
+                                                onValueChange={(value) =>
+                                                    setFormData({ ...formData, target_ward: value ?? "" })
+                                                }
+                                                disabled={isWardListLoading || availableWards.length === 0}
+                                            >
+                                                <SelectTrigger id="target_ward">
+                                                    <SelectValue
+                                                        placeholder={tr(
+                                                            language,
+                                                            isWardListLoading ? "Loading wards..." : "Select a ward",
+                                                            isWardListLoading ? "กำลังโหลดวอร์ด..." : "เลือกวอร์ด"
+                                                        )}
+                                                    />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {availableWards.map((ward) => (
+                                                        <SelectItem key={ward} value={ward}>
+                                                            {ward}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            {availableWards.length === 0 && !isWardListLoading && (
+                                                <p className="text-xs text-muted-foreground">
+                                                    {tr(
+                                                        language,
+                                                        "No active wards were found from current patient records.",
+                                                        "ไม่พบวอร์ดที่ใช้งานอยู่จากข้อมูลผู้ป่วยปัจจุบัน"
+                                                    )}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                         <SheetFooter className="px-0 pt-2 pb-0 sm:justify-end sm:flex-row">
-                            <Button type="button" variant="outline" onClick={() => setSheetOpen(false)}>{tr(language, "Cancel", "ยกเลิก")}</Button>
+                            <Button type="button" variant="outline" onClick={closeUserSheet}>{tr(language, "Cancel", "ยกเลิก")}</Button>
                             <Button type="submit" disabled={isSubmitting}>
                                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 {editingUser
@@ -2059,24 +2665,39 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
             </Sheet>
 
             {/* Invite Sheet */}
-            <Sheet open={isInviteSheetOpen} onOpenChange={setInviteSheetOpen}>
+            <Sheet open={isInviteSheetOpen} onOpenChange={handleCloseInvite}>
                 <SheetContent side="center" className="w-[min(94vw,620px)] max-h-[84vh] p-0 overflow-hidden rounded-2xl border border-border/60 bg-background/95">
                     <SheetHeader className="px-6 pt-6 pb-3 border-b bg-muted/20">
                         <SheetTitle className="flex items-center gap-2"><Link2 className="w-5 h-5 text-primary" /> {tr(language, "Create Invite Link", "สร้างลิงก์เชิญ")}</SheetTitle>
                         <SheetDescription>{tr(language, "Only admins can generate registration links for approved healthcare users.", "เฉพาะผู้ดูแลระบบเท่านั้นที่สร้างลิงก์ลงทะเบียนสำหรับบุคลากรที่ได้รับอนุมัติได้")}</SheetDescription>
                     </SheetHeader>
-                    <form onSubmit={handleCreateInviteRequest} className="p-6 space-y-5 overflow-y-auto max-h-[calc(84vh-120px)]">
+                    <form
+                        onSubmit={handleCreateInviteRequest}
+                        autoComplete="off"
+                        className="p-6 space-y-5 overflow-y-auto max-h-[calc(84vh-120px)]"
+                    >
                         <div className="space-y-2">
                             <Label htmlFor="invite_email">{tr(language, "Email", "อีเมล")} <span className="text-red-500">*</span></Label>
-                            <Input id="invite_email" type="email" required value={inviteFormData.email || ""} onChange={e => setInviteFormData({ ...inviteFormData, email: e.target.value })} placeholder="doctor@hospital.org" />
+                            <Input id="invite_email" type="email" autoComplete="email" required value={inviteFormData.email || ""} onChange={e => setInviteFormData({ ...inviteFormData, email: e.target.value })} placeholder="doctor@hospital.org" />
                         </div>
                         <div className="space-y-2">
                             <Label>{tr(language, "Role", "บทบาท")}</Label>
                             <Select value={inviteFormData.role} onValueChange={val => setInviteFormData({ ...inviteFormData, role: val ?? "" })}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>{CLINICAL_ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{getRoleLabelByLanguage(r.value, language)}</SelectItem>)}</SelectContent>
+                                <SelectContent>{ROLE_OPTIONS.map(r => <SelectItem key={r.value} value={r.value}>{getRoleLabelByLanguage(r.value, language)}</SelectItem>)}</SelectContent>
                             </Select>
                         </div>
+                        {inviteFormData.role === "admin" && (
+                            <div className="space-y-2">
+                                <Label htmlFor="invite_reason">{tr(language, "Reason (required)", "เหตุผล (จำเป็น)")}</Label>
+                                <Input
+                                    id="invite_reason"
+                                    value={inviteFormData.reason || ""}
+                                    onChange={e => setInviteFormData({ ...inviteFormData, reason: e.target.value })}
+                                    placeholder={tr(language, "Approval or onboarding reference", "เลขอ้างอิงการอนุมัติหรือ onboarding")}
+                                />
+                            </div>
+                        )}
                         <div className="rounded-md border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">{tr(language, "Invite link expires in 24 hours (fixed by system policy).", "ลิงก์เชิญจะหมดอายุใน 24 ชั่วโมง (ตามนโยบายระบบ)")}</div>
                         {generatedInviteUrl && (
                             <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 space-y-2">
@@ -2139,13 +2760,13 @@ export function UsersTable({ refreshKey = 0 }: { refreshKey?: number }) {
                                                         type="button"
                                                         variant="outline"
                                                         size="sm"
-                                                        disabled={isInviteSubmitting || !isClinicalRole(invite.role)}
+                                                        disabled={isInviteSubmitting || !isSupportedRole(invite.role)}
                                                         title={
-                                                            !isClinicalRole(invite.role)
+                                                            !isSupportedRole(invite.role)
                                                                 ? tr(
                                                                     language,
-                                                                    "Resend is currently available only for clinical specialist roles.",
-                                                                    "ขณะนี้การส่งซ้ำใช้ได้เฉพาะบทบาทสายคลินิก"
+                                                                    "Resend is currently available only for supported roles.",
+                                                                    "ขณะนี้การส่งซ้ำใช้ได้เฉพาะบทบาทที่ระบบรองรับ"
                                                                 )
                                                                 : undefined
                                                         }

@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -30,18 +29,24 @@ import {
   ChevronRight,
   Activity,
   Cpu,
+  Stethoscope,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, startTransition } from "react";
 import { Logo } from "@/components/ui/logo";
+import { useSessionLogout } from "@/hooks/use-session-logout";
 import { useAuthStore } from "@/store/auth-store";
-import { fetchCurrentUser, logout, UserMe, ROLE_LABEL_MAP } from "@/lib/api";
+import {
+  canManageUsers,
+  canViewClinicalData,
+  fetchCurrentUser,
+  UserMe,
+} from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
 import { type AppLanguage } from "@/store/language-config";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Logout01Icon,
-  Settings01Icon,
   UserIcon,
 } from "@hugeicons/core-free-icons";
 
@@ -50,7 +55,6 @@ interface NavItem {
   icon: React.ElementType;
   link: string;
 }
-
 const baseRoutes: NavItem[] = [
   { id: "overview", icon: Home, link: "/overview" },
   { id: "patients", icon: Users, link: "/patients" },
@@ -60,6 +64,12 @@ const meetingsRoute: NavItem = {
   id: "meetings",
   icon: CalendarDays,
   link: "/meetings",
+};
+
+const deviceOperationsRoute: NavItem = {
+  id: "device-operations",
+  icon: Stethoscope,
+  link: "/device-operations",
 };
 
 const adminOnlyRoutes: NavItem[] = [
@@ -77,6 +87,7 @@ const SIDEBAR_LABELS: Record<
     helpCenter: string;
     loading: string;
     account: string;
+    accountSettings: string;
     profile: string;
     settings: string;
     logOut: string;
@@ -87,6 +98,7 @@ const SIDEBAR_LABELS: Record<
       overview: "Overview",
       patients: "Patients",
       meetings: "Meetings",
+      "device-operations": "Device Operations",
       users: "Users",
       "device-monitor": "Device Monitor",
       "device-registry": "Device Registry",
@@ -96,6 +108,7 @@ const SIDEBAR_LABELS: Record<
     helpCenter: "Help Center",
     loading: "Loading...",
     account: "Account",
+    accountSettings: "Account & settings",
     profile: "Profile",
     settings: "Settings",
     logOut: "Log out",
@@ -105,6 +118,7 @@ const SIDEBAR_LABELS: Record<
       overview: "ภาพรวม",
       patients: "ผู้ป่วย",
       meetings: "การนัดหมาย",
+      "device-operations": "ปฏิบัติการอุปกรณ์",
       users: "ผู้ใช้",
       "device-monitor": "มอนิเตอร์อุปกรณ์",
       "device-registry": "ทะเบียนอุปกรณ์",
@@ -114,6 +128,7 @@ const SIDEBAR_LABELS: Record<
     helpCenter: "ศูนย์ช่วยเหลือ",
     loading: "กำลังโหลด...",
     account: "บัญชีผู้ใช้",
+    accountSettings: "บัญชีและตั้งค่า",
     profile: "โปรไฟล์",
     settings: "ตั้งค่า",
     logOut: "ออกจากระบบ",
@@ -122,27 +137,6 @@ const SIDEBAR_LABELS: Record<
 
 function getRouteTitle(routeId: string, language: AppLanguage): string {
   return SIDEBAR_LABELS[language].routes[routeId] || routeId;
-}
-
-const ROLE_LABELS_BY_LANGUAGE: Record<AppLanguage, Record<string, string>> = {
-  en: ROLE_LABEL_MAP,
-  th: {
-    admin: "ผู้ดูแลระบบ",
-    doctor: "แพทย์",
-    staff: "เจ้าหน้าที่",
-    nurse: "พยาบาล",
-    pharmacist: "เภสัชกร",
-    medical_technologist: "นักเทคนิคการแพทย์",
-    psychologist: "นักจิตวิทยา",
-  },
-};
-
-function getRoleLabel(role: string, language: AppLanguage): string {
-  return (
-    ROLE_LABELS_BY_LANGUAGE[language][role] ||
-    ROLE_LABEL_MAP[role] ||
-    role.charAt(0).toUpperCase() + role.slice(1)
-  );
 }
 
 function getUserDisplayName(user: UserMe): string {
@@ -160,29 +154,25 @@ function getUserInitials(user: UserMe): string {
   return user.email.slice(0, 2).toUpperCase();
 }
 
-type ProfileMenuItem = "profile" | "settings" | "logout";
+type ProfileMenuItem = "settings" | "logout";
 
 function SidebarUserMenu({
   isCollapsed,
   currentUser,
-  roleLabel,
   labels,
   activeItem,
-  onProfile,
   onSettings,
   onLogout,
 }: {
   isCollapsed: boolean;
   currentUser: UserMe | null;
-  roleLabel: string;
   labels: {
     loading: string;
-    profile: string;
+    accountSettings: string;
     settings: string;
     logOut: string;
   };
   activeItem: ProfileMenuItem | null;
-  onProfile: () => void;
   onSettings: () => void;
   onLogout: () => void;
 }) {
@@ -228,8 +218,7 @@ function SidebarUserMenu({
         id: "divider";
       }
   )[] = [
-    { id: "profile", label: labels.profile, icon: UserIcon, onSelect: onProfile },
-    { id: "settings", label: labels.settings, icon: Settings01Icon, onSelect: onSettings },
+    { id: "settings", label: labels.accountSettings, icon: UserIcon, onSelect: onSettings },
     { id: "divider" },
     { id: "logout", label: labels.logOut, icon: Logout01Icon, onSelect: onLogout, destructive: true },
   ];
@@ -256,18 +245,18 @@ function SidebarUserMenu({
                 : undefined
             }
           />
-          <AvatarFallback className="text-[0.82rem]">
+          <AvatarFallback
+            className="text-[0.82rem]"
+            seed={currentUser ? `${currentUser.id}|${currentUser.email}|${getUserDisplayName(currentUser)}` : "sidebar-user"}
+          >
             {currentUser ? getUserInitials(currentUser) : "??"}
           </AvatarFallback>
         </Avatar>
         {!isCollapsed && (
           <>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex flex-1 items-center gap-2">
               <p className="truncate text-sm font-semibold sm:text-[0.95rem]">
                 {currentUser ? getUserDisplayName(currentUser) : labels.loading}
-              </p>
-              <p className="truncate text-[0.82rem] text-muted-foreground sm:text-[0.88rem]">
-                {currentUser?.email || ""}
               </p>
             </div>
             <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
@@ -288,7 +277,18 @@ function SidebarUserMenu({
               isCollapsed ? "bottom-0 left-full ml-2" : "bottom-full left-0 mb-2"
             )}
           >
-            <div className="px-3 py-2 text-[0.82rem] text-muted-foreground">{roleLabel}</div>
+            <div className="px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">
+                  {currentUser ? getUserDisplayName(currentUser) : labels.loading}
+                </p>
+                {currentUser?.email ? (
+                  <p className="truncate text-[0.82rem] text-muted-foreground">
+                    {currentUser.email}
+                  </p>
+                ) : null}
+              </div>
+            </div>
             <ul className="space-y-0.5 px-2 pb-2">
               {menuItems.map((item) => {
                 if (item.id === "divider") {
@@ -350,48 +350,101 @@ function SidebarUserMenu({
 }
 
 export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
-  const { state } = useSidebar();
+  const { state, isMobile, setOpenMobile } = useSidebar();
   const pathname = usePathname();
   const router = useRouter();
   const language = useLanguageStore((state) => state.language);
   const t = SIDEBAR_LABELS[language];
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.userId);
+  const currentUser = useAuthStore((state) => state.currentUser);
   const userRole = useAuthStore((state) => state.role);
-  const clearToken = useAuthStore((state) => state.clearToken);
-  const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
+  const setCurrentUser = useAuthStore((state) => state.setCurrentUser);
+  const logoutSession = useSessionLogout();
+  const resolvedCurrentUser =
+    userId && currentUser?.id === userId ? currentUser : null;
 
   useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    fetchCurrentUser(token)
-      .then((user) => { if (!cancelled) setCurrentUser(user); })
-      .catch(() => { /* silent */ });
-    return () => { cancelled = true; };
-  }, [token]);
+    if (!token || !userId) {
+      return;
+    }
 
-  const showMeetings = userRole === "admin" || userRole === "doctor";
-  const navRoutes = [
-    ...baseRoutes,
-    ...(showMeetings ? [meetingsRoute] : []),
-    ...(userRole === "admin" ? adminOnlyRoutes : []),
-  ];
+    let cancelled = false;
+    const loadCurrentUser = () => {
+      fetchCurrentUser(token)
+        .then((user) => {
+          if (!cancelled && user.id === userId) {
+            setCurrentUser(user);
+          }
+        })
+        .catch(() => {
+          // silent
+        });
+    };
+
+    loadCurrentUser();
+    const handleProfileUpdated = () => {
+      loadCurrentUser();
+    };
+
+    window.addEventListener("telemed-profile-updated", handleProfileUpdated);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("telemed-profile-updated", handleProfileUpdated);
+    };
+  }, [setCurrentUser, token, userId]);
+
+  useEffect(() => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  }, [isMobile, pathname, setOpenMobile]);
+
+  const showMeetings = canViewClinicalData(userRole);
+  const isAdmin = userRole === "admin";
+  const navRoutes = useMemo(
+    () => [
+      ...baseRoutes,
+      ...(showMeetings ? [meetingsRoute] : []),
+      ...(isAdmin ? [deviceOperationsRoute] : []),
+      ...(canManageUsers(userRole) ? adminOnlyRoutes : []),
+    ],
+    [isAdmin, showMeetings, userRole]
+  );
+
+  useEffect(() => {
+    navRoutes.forEach((route) => {
+      router.prefetch(route.link);
+    });
+  }, [navRoutes, router]);
 
   const isActive = (link: string) => {
     if (link === "/overview") return pathname === "/overview" || pathname === "/";
     return pathname.startsWith(link);
   };
 
-  const handleLogout = () => {
-    void logout(token || undefined).catch(() => undefined).finally(() => {
-      clearToken();
-      router.replace("/login");
+  const closeMobileSidebar = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
+
+  const handleRouteChange = (link: string) => {
+    closeMobileSidebar();
+    startTransition(() => {
+      router.push(link);
     });
   };
+
+  const handleLogout = () => {
+    closeMobileSidebar();
+    logoutSession();
+  };
   const isCollapsed = state === "collapsed";
-  const activeProfileMenuItem: ProfileMenuItem | null = pathname.startsWith("/settings")
-    ? "settings"
-    : pathname.startsWith("/profile")
-      ? "profile"
+  const activeProfileMenuItem: ProfileMenuItem | null =
+    pathname.startsWith("/settings") || pathname.startsWith("/profile")
+      ? "settings"
       : null;
 
   return (
@@ -427,27 +480,21 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                       id={`sidebar-item-${route.id}`}
                       isActive={active}
                       tooltip={getRouteTitle(route.id, language)}
+                      onFocus={() => router.prefetch(route.link)}
+                      onMouseEnter={() => router.prefetch(route.link)}
+                      onClick={() => handleRouteChange(route.link)}
                       className={cn(
                         "h-9 border border-sidebar-border/60 transition-[padding,border-color,background-color] duration-200 hover:border-sidebar-border sm:h-[38px] data-[active=true]:border-sidebar-border data-[active=true]:shadow-[0_0_0_1px_hsl(var(--sidebar-border))]",
                         isCollapsed && "justify-center px-0"
                       )}
                     >
-                      <Link
-                        href={route.link}
-                        prefetch={false}
-                        className={cn(
-                          "flex w-full items-center",
-                          isCollapsed ? "justify-center" : "gap-2.5"
-                        )}
-                      >
-                        <Icon className="size-4 sm:size-5" />
-                        {!isCollapsed && (
-                          <span className="text-[0.95rem]">{getRouteTitle(route.id, language)}</span>
-                        )}
-                        {!isCollapsed && active && (
-                          <ChevronRight className="ml-auto size-4 text-muted-foreground opacity-60" />
-                        )}
-                      </Link>
+                      <Icon className="size-4 sm:size-5" />
+                      {!isCollapsed && (
+                        <span className="text-[0.95rem]">{getRouteTitle(route.id, language)}</span>
+                      )}
+                      {!isCollapsed && active && (
+                        <ChevronRight className="ml-auto size-4 text-muted-foreground opacity-60" />
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -477,12 +524,15 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
 
         <SidebarUserMenu
           isCollapsed={isCollapsed}
-          currentUser={currentUser}
-          roleLabel={currentUser ? getRoleLabel(currentUser.role, language) : t.account}
+          currentUser={resolvedCurrentUser}
           labels={t}
           activeItem={activeProfileMenuItem}
-          onProfile={() => router.push("/profile")}
-          onSettings={() => router.push("/settings")}
+          onSettings={() => {
+            closeMobileSidebar();
+            startTransition(() => {
+              router.push("/settings?panel=account");
+            });
+          }}
           onLogout={handleLogout}
         />
       </SidebarFooter>

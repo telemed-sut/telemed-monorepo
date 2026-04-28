@@ -1,827 +1,413 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Image from "next/image";
-import { useRouter } from "next/navigation";
-import QRCode from "qrcode";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Settings2, ShieldCheck, UserRound, Wrench, X } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  adminEmergencyUnlock,
-  disable2FA,
-  fetch2FAStatus,
-  fetchTrustedDevices,
-  getErrorMessage,
-  logout,
-  regenerateBackupCodes,
-  resolveSecurityUserByEmail,
-  reset2FA,
-  revokeAllTrustedDevices,
-  revokeTrustedDevice,
-  superAdminResetUser2FA,
-  superAdminResetUserPassword,
-  verify2FA,
-  type AdminSecurityUserLookup,
-  type Admin2FAStatus,
-  type TrustedDevice,
-} from "@/lib/api";
-import { toast } from "@/components/ui/toast";
+import { SensitiveActionReauthDialog } from "@/components/dashboard/sensitive-action-reauth-dialog";
+import { useSessionLogout } from "@/hooks/use-session-logout";
+import { getRoleLabel, type UserMe } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
-import type { AppLanguage } from "@/store/language-config";
-import {
-  applyUITone,
-  getStoredUITone,
-  type UITone,
-} from "@/lib/ui-tone";
 
-const tr = (language: AppLanguage, en: string, th: string) =>
-  language === "th" ? th : en;
+import { DASHBOARD_HOME_HREF } from "./dashboard-route-utils";
+import { AccountSettingsPanel } from "./settings/account-settings-panel";
+import { AdminSettingsPanel } from "./settings/admin-settings-panel";
+import { GeneralSettingsPanel } from "./settings/general-settings-panel";
+import { SecuritySettingsPanel } from "./settings/security-settings-panel";
+import { SettingsPanelNavButton } from "./settings/settings-panel-nav-button";
+import type { SettingsPanelId } from "./settings/settings-types";
+import { getAppearanceSummary, isSettingsPanelId, tr } from "./settings/settings-utils";
+import { useSettingsAdmin } from "./settings/use-settings-admin";
+import { useSettingsAppearance } from "./settings/use-settings-appearance";
+import { useSettingsProfile } from "./settings/use-settings-profile";
+import { useSettingsSecurity } from "./settings/use-settings-security";
+import { useSettingsSensitiveReauth } from "./settings/use-settings-sensitive-reauth";
+import { useSettingsValidationToasts } from "./settings/use-settings-validation-toasts";
 
-const UI_TONE_OPTIONS: UITone[] = [
-  "ffffff",
-  "ece7d1",
-  "f7f8f0",
-  "fff4ea",
-  "fffdf1",
-  "faf3e1",
-];
-
-const ROLE_LABEL_MAP_TH: Record<string, string> = {
-  admin: "ผู้ดูแลระบบ",
-  doctor: "แพทย์",
-  staff: "เจ้าหน้าที่",
-  nurse: "พยาบาล",
-  pharmacist: "เภสัชกร",
-  medical_technologist: "นักเทคนิคการแพทย์",
-  psychologist: "นักจิตวิทยา",
-};
-
-const getRoleLabel = (role: string, language: AppLanguage): string => {
-  if (language === "th") return ROLE_LABEL_MAP_TH[role] || role;
-  return role;
-};
-
-function extractSetupKey(uri: string | null | undefined): string | null {
-  if (!uri) return null;
-  try {
-    const parsed = new URL(uri);
-    return parsed.searchParams.get("secret");
-  } catch {
-    return null;
-  }
+interface SettingsContentProps {
+  presentation?: "page" | "modal";
+  onRequestClose?: () => void;
 }
 
-function formatDateTime(
-  value: string | null | undefined,
-  language: AppLanguage
-): string {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(language === "th" ? "th-TH" : "en-US", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-export function SettingsContent() {
+export function SettingsContent({
+  presentation = "page",
+  onRequestClose,
+}: SettingsContentProps = {}) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const language = useLanguageStore((state) => state.language);
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.userId);
   const role = useAuthStore((state) => state.role);
-  const hydrated = useAuthStore((state) => state.hydrated);
+  const authCurrentUser = useAuthStore((state) => state.currentUser as UserMe | null);
+  const setAuthCurrentUser = useAuthStore((state) => state.setCurrentUser);
   const clearToken = useAuthStore((state) => state.clearToken);
+  const ssoProvider = useAuthStore((state) => state.ssoProvider);
+  const mfaVerified = useAuthStore((state) => state.mfaVerified);
+  const mfaAuthenticatedAt = useAuthStore((state) => state.mfaAuthenticatedAt);
+  const hydrated = useAuthStore((state) => state.hydrated);
   const getTokenTTL = useAuthStore((state) => state.getTokenTTL);
-
-  const [tokenTTL, setTokenTTL] = useState(() => getTokenTTL());
-  const [uiTone, setUiTone] = useState<UITone>("ffffff");
-  const [twoFA, setTwoFA] = useState<Admin2FAStatus | null>(null);
-  const [twoFALoading, setTwoFALoading] = useState(false);
-  const [twoFABusy, setTwoFABusy] = useState(false);
-  const [verifyCode, setVerifyCode] = useState("");
-  const [resetCode, setResetCode] = useState("");
-  const [disableCode, setDisableCode] = useState("");
-  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
-  const [backupCodes, setBackupCodes] = useState<string[]>([]);
-  const [trustedDevices, setTrustedDevices] = useState<TrustedDevice[]>([]);
-  const [trustedLoading, setTrustedLoading] = useState(false);
-  const [emergencyBusy, setEmergencyBusy] = useState(false);
-  const [targetEmail, setTargetEmail] = useState("");
-  const [resolvedUser, setResolvedUser] = useState<AdminSecurityUserLookup | null>(null);
-  const [emergencyReason, setEmergencyReason] = useState("");
-  const [generatedResetToken, setGeneratedResetToken] = useState("");
-  const [generatedResetTokenTTL, setGeneratedResetTokenTTL] = useState<number | null>(null);
+  const logout = useSessionLogout();
 
   const isAdmin = role === "admin";
+  const isModalPresentation = presentation === "modal";
 
-  useEffect(() => {
-    if (hydrated && !token) {
-      router.replace("/login");
-    }
-  }, [hydrated, token, router]);
+  const [activePanel, setActivePanel] = useState<SettingsPanelId>("general");
 
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      setTokenTTL(getTokenTTL());
-    }, 30000);
+  const { dismissValidationToast, showValidationToastOnce } =
+    useSettingsValidationToasts();
+  const {
+    sensitiveReauthRequest,
+    closeSensitiveReauth,
+    handleSensitiveActionError,
+    handleSensitiveReauthSuccess,
+  } = useSettingsSensitiveReauth();
 
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [getTokenTTL]);
+  const profile = useSettingsProfile({
+    token,
+    userId,
+    hydrated,
+    authCurrentUser,
+    setAuthCurrentUser,
+    clearToken,
+    getTokenTTL,
+    router,
+    language,
+    ssoProvider,
+    mfaVerified,
+    mfaAuthenticatedAt,
+  });
 
-  useEffect(() => {
-    setUiTone(getStoredUITone());
-  }, []);
+  const appearance = useSettingsAppearance(language);
 
-  const load2FAStatus = useCallback(async () => {
-    if (!token) return;
-    setTwoFALoading(true);
-    try {
-      const status = await fetch2FAStatus(token);
-      setTwoFA(status);
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
-    } finally {
-      setTwoFALoading(false);
-    }
-  }, [token, language]);
+  const security = useSettingsSecurity({
+    token,
+    hydrated,
+    language,
+    isAdmin,
+    mfaAuthenticatedAt,
+    sensitiveReauthOpen: Boolean(sensitiveReauthRequest),
+    dismissValidationToast,
+    showValidationToastOnce,
+    handleSensitiveActionError,
+  });
 
-  const loadTrustedDevices = useCallback(async () => {
-    if (!token) return;
-    setTrustedLoading(true);
-    try {
-      const response = await fetchTrustedDevices(token);
-      setTrustedDevices(response.items);
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
-    } finally {
-      setTrustedLoading(false);
-    }
-  }, [token, language]);
+  const admin = useSettingsAdmin({
+    token,
+    language,
+    isAdmin,
+    canManagePrivilegedAdmins: profile.canManagePrivilegedAdmins,
+    canManageSecurityRecovery: profile.canManageSecurityRecovery,
+    sensitiveReauthOpen: Boolean(sensitiveReauthRequest),
+    dismissValidationToast,
+    showValidationToastOnce,
+    handleSensitiveActionError,
+  });
 
-  useEffect(() => {
-    if (!hydrated || !token) return;
-    void load2FAStatus();
-    void loadTrustedDevices();
-  }, [hydrated, token, load2FAStatus, loadTrustedDevices]);
+  const generalSummary = useMemo(
+    () => getAppearanceSummary(language, appearance.savedAppearance),
+    [appearance.savedAppearance, language],
+  );
+  const setAppearanceExpanded = appearance.setAppearanceExpanded;
+  const setAdminToolsExpanded = admin.setAdminToolsExpanded;
 
-  useEffect(() => {
-    let cancelled = false;
-    async function buildQr() {
-      if (!twoFA?.provisioning_uri) {
-        setQrCodeDataUrl(null);
-        return;
-      }
-      try {
-        const dataUrl = await QRCode.toDataURL(twoFA.provisioning_uri, {
-          width: 220,
-          margin: 1,
-          errorCorrectionLevel: "M",
-        });
-        if (!cancelled) {
-          setQrCodeDataUrl(dataUrl);
-        }
-      } catch {
-        if (!cancelled) {
-          setQrCodeDataUrl(null);
-        }
-      }
-    }
-    void buildQr();
-    return () => {
-      cancelled = true;
-    };
-  }, [twoFA?.provisioning_uri]);
-
-  const ttlLabel = useMemo(() => {
-    if (!tokenTTL) return tr(language, "Expired", "หมดอายุแล้ว");
-    const minutes = Math.floor(tokenTTL / 60);
-    const seconds = tokenTTL % 60;
-    return `${minutes}m ${seconds}s`;
-  }, [tokenTTL, language]);
-
-  const handleVerify2FA = async () => {
-    if (!token) return;
-    if (!verifyCode.trim()) {
-      toast.error(tr(language, "Please enter 2FA code", "กรุณากรอกรหัส 2FA"));
-      return;
-    }
-
-    setTwoFABusy(true);
-    try {
-      await verify2FA(verifyCode, token);
-      toast.success(tr(language, "2FA verified successfully", "ยืนยัน 2FA สำเร็จ"));
-      setVerifyCode("");
-      await load2FAStatus();
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
-    } finally {
-      setTwoFABusy(false);
-    }
-  };
-
-  const handleReset2FA = async () => {
-    if (!token) return;
-    if (twoFA?.enabled && !resetCode.trim()) {
-      toast.error(tr(language, "Please enter current 2FA code", "กรุณากรอกรหัส 2FA ปัจจุบัน"));
-      return;
-    }
-
-    setTwoFABusy(true);
-    try {
-      const status = await reset2FA(token, {
-        current_otp_code: twoFA?.enabled ? resetCode : undefined,
-        reason: tr(language, "Reset from settings page", "รีเซ็ตจากหน้าการตั้งค่า"),
-      });
-      setTwoFA(status);
-      setResetCode("");
-      setVerifyCode("");
-      setBackupCodes([]);
-      await loadTrustedDevices();
-      toast.success(
-        tr(
+  const settingsPanels = useMemo(
+    () => [
+      {
+        id: "general" as const,
+        title: tr(language, "General", "ทั่วไป"),
+        summary: generalSummary,
+        description: tr(
           language,
-          "2FA has been reset. Please scan new QR and verify.",
-          "รีเซ็ต 2FA แล้ว กรุณาสแกน QR ใหม่และยืนยัน"
-        )
-      );
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
-    } finally {
-      setTwoFABusy(false);
-    }
-  };
-
-  const handleDisable2FA = async () => {
-    if (!token) return;
-    if (!disableCode.trim()) {
-      toast.error(tr(language, "Please enter current 2FA code to disable", "กรุณากรอกรหัส 2FA ปัจจุบันเพื่อปิดระบบ"));
-      return;
-    }
-
-    setTwoFABusy(true);
-    try {
-      await disable2FA(disableCode, token);
-      setDisableCode("");
-      setBackupCodes([]);
-      await load2FAStatus();
-      await loadTrustedDevices();
-      toast.success(tr(language, "2FA disabled", "ปิด 2FA เรียบร้อย"));
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
-    } finally {
-      setTwoFABusy(false);
-    }
-  };
-
-  const handleRegenerateBackupCodes = async () => {
-    if (!token) return;
-    setTwoFABusy(true);
-    try {
-      const response = await regenerateBackupCodes(token);
-      setBackupCodes(response.codes);
-      toast.success(
-        tr(
+          "Set the visual tone and daily workspace feel.",
+          "กำหนดหน้าตาและบรรยากาศการใช้งานประจำวัน",
+        ),
+        icon: <Settings2 className="size-4" />,
+      },
+      {
+        id: "account" as const,
+        title: tr(language, "Account", "บัญชี"),
+        summary: `${profile.loginMethodSummary} • ${profile.ttlLabel}`,
+        description: tr(
           language,
-          "Backup codes regenerated. Save them now.",
-          "สร้าง Backup Codes ใหม่แล้ว กรุณาบันทึกไว้ทันที"
-        )
-      );
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
-    } finally {
-      setTwoFABusy(false);
-    }
-  };
+          "Review sign-in details and the active session.",
+          "ดูวิธีเข้าสู่ระบบและสถานะเซสชันปัจจุบัน",
+        ),
+        icon: <UserRound className="size-4" />,
+      },
+      {
+        id: "security" as const,
+        title: tr(language, "Security", "ความปลอดภัย"),
+        summary: security.securityHeaderSummary,
+        description: tr(
+          language,
+          "Manage MFA, backup codes, and trusted devices.",
+          "จัดการ MFA, รหัสสำรอง และอุปกรณ์ที่เชื่อถือ",
+        ),
+        icon: <ShieldCheck className="size-4" />,
+      },
+      ...(profile.canManagePrivilegedAdmins ||
+      (isAdmin && profile.canManageSecurityRecovery)
+        ? [
+            {
+              id: "admin" as const,
+              title: tr(language, "Admin Tools", "เครื่องมือผู้ดูแลระบบ"),
+              summary:
+                admin.adminToolsSummary ||
+                tr(language, "Advanced access", "เครื่องมือขั้นสูง"),
+              description: tr(
+                language,
+                "Open onboarding and emergency actions in one place.",
+                "รวมงานเชิญแอดมินและงานฉุกเฉินไว้ในจุดเดียว",
+              ),
+              icon: <Wrench className="size-4" />,
+            },
+          ]
+        : []),
+    ],
+    [
+      admin.adminToolsSummary,
+      generalSummary,
+      isAdmin,
+      language,
+      profile.canManagePrivilegedAdmins,
+      profile.canManageSecurityRecovery,
+      profile.loginMethodSummary,
+      profile.ttlLabel,
+      security.securityHeaderSummary,
+    ],
+  );
 
-  const handleCopyBackupCodes = async () => {
-    if (backupCodes.length === 0) {
-      toast.error(tr(language, "No backup codes yet", "ยังไม่มี Backup Codes"));
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(backupCodes.join("\n"));
-      toast.success(tr(language, "Backup codes copied", "คัดลอก Backup Codes แล้ว"));
-    } catch {
-      toast.error(tr(language, "Copy failed", "คัดลอกไม่สำเร็จ"));
-    }
-  };
+  useEffect(() => {
+    if (isModalPresentation) return;
 
-  const handleDownloadBackupCodes = () => {
-    if (backupCodes.length === 0) {
-      toast.error(tr(language, "No backup codes yet", "ยังไม่มี Backup Codes"));
-      return;
-    }
-    const blob = new Blob([backupCodes.join("\n")], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = tr(language, "backup-codes.txt", "รหัสสำรอง-2fa.txt");
-    link.click();
-    URL.revokeObjectURL(url);
-    toast.success(tr(language, "Backup codes downloaded", "ดาวน์โหลด Backup Codes แล้ว"));
-  };
+    const requestedPanel = searchParams.get("panel");
+    if (!isSettingsPanelId(requestedPanel)) return;
 
-  const handleRevokeTrustedDevice = async (deviceId: string) => {
-    if (!token) return;
-    setTwoFABusy(true);
-    try {
-      await revokeTrustedDevice(deviceId, token);
-      await loadTrustedDevices();
-      toast.success(tr(language, "Trusted device revoked", "ยกเลิกอุปกรณ์ที่เชื่อถือแล้ว"));
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
-    } finally {
-      setTwoFABusy(false);
-    }
-  };
+    queueMicrotask(() => {
+      setActivePanel(requestedPanel);
+      if (requestedPanel === "general") {
+        setAppearanceExpanded(true);
+      }
+      if (requestedPanel === "admin") {
+        setAdminToolsExpanded(true);
+      }
+    });
+  }, [
+    isModalPresentation,
+    searchParams,
+    setAdminToolsExpanded,
+    setAppearanceExpanded,
+  ]);
 
-  const handleRevokeAllTrustedDevices = async () => {
-    if (!token) return;
-    setTwoFABusy(true);
-    try {
-      await revokeAllTrustedDevices(token);
-      await loadTrustedDevices();
-      toast.success(tr(language, "All trusted devices revoked", "ยกเลิกอุปกรณ์ทั้งหมดแล้ว"));
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
-    } finally {
-      setTwoFABusy(false);
-    }
-  };
+  useEffect(() => {
+    if (settingsPanels.some((panel) => panel.id === activePanel)) return;
+    queueMicrotask(() => {
+      setActivePanel(settingsPanels[0]?.id ?? "general");
+    });
+  }, [activePanel, settingsPanels]);
 
-  const resolveEmergencyTarget = async () => {
-    if (!token) return;
-    const normalizedEmail = targetEmail.trim().toLowerCase();
-    if (!normalizedEmail) {
-      toast.error(tr(language, "Please enter user email", "กรุณากรอกอีเมลผู้ใช้งาน"));
-      return;
-    }
-
-    setEmergencyBusy(true);
-    try {
-      const user = await resolveSecurityUserByEmail(normalizedEmail, token);
-      setResolvedUser(user);
-      toast.success(tr(language, "User found", "พบผู้ใช้แล้ว"));
-    } catch (error: unknown) {
-      setResolvedUser(null);
-      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
-    } finally {
-      setEmergencyBusy(false);
-    }
-  };
-
-  const handleEmergencyUnlock = async () => {
-    if (!token) return;
-    const normalizedEmail = targetEmail.trim().toLowerCase();
-    if (!normalizedEmail) {
-      toast.error(tr(language, "Please enter user email", "กรุณากรอกอีเมลผู้ใช้งาน"));
-      return;
-    }
-    if (emergencyReason.trim().length < 8) {
-      toast.error(tr(language, "Please enter reason with at least 8 characters", "กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร"));
+  const handleCloseSettings = useCallback(() => {
+    if (onRequestClose) {
+      onRequestClose();
       return;
     }
 
-    setEmergencyBusy(true);
-    try {
-      await adminEmergencyUnlock(
-        { email: normalizedEmail, reason: emergencyReason.trim() },
-        token
-      );
-      toast.success(tr(language, "Account unlocked", "ปลดล็อกบัญชีเรียบร้อย"));
-      await resolveEmergencyTarget();
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
-    } finally {
-      setEmergencyBusy(false);
-    }
-  };
-
-  const handleEmergencyReset2FA = async () => {
-    if (!token || !resolvedUser) return;
-    if (emergencyReason.trim().length < 8) {
-      toast.error(tr(language, "Please enter reason with at least 8 characters", "กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร"));
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
       return;
     }
 
-    setEmergencyBusy(true);
-    try {
-      await superAdminResetUser2FA(resolvedUser.user_id, emergencyReason.trim(), token);
-      toast.success(tr(language, "User 2FA reset successfully", "รีเซ็ต 2FA ให้ผู้ใช้แล้ว"));
-      await resolveEmergencyTarget();
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
-    } finally {
-      setEmergencyBusy(false);
-    }
-  };
+    router.push(DASHBOARD_HOME_HREF);
+  }, [onRequestClose, router]);
 
-  const handleEmergencyResetPassword = async () => {
-    if (!token || !resolvedUser) return;
-    if (emergencyReason.trim().length < 8) {
-      toast.error(tr(language, "Please enter reason with at least 8 characters", "กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร"));
-      return;
-    }
-
-    setEmergencyBusy(true);
-    try {
-      const response = await superAdminResetUserPassword(
-        resolvedUser.user_id,
-        emergencyReason.trim(),
-        token
-      );
-      setGeneratedResetToken(response.reset_token);
-      setGeneratedResetTokenTTL(response.reset_token_expires_in);
-      toast.success(tr(language, "Password reset token generated", "สร้างโทเคนรีเซ็ตรหัสผ่านแล้ว"));
-      await resolveEmergencyTarget();
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error, tr(language, "Something went wrong. Please try again.", "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")));
-    } finally {
-      setEmergencyBusy(false);
-    }
-  };
-
-  const handleCopyGeneratedResetToken = async () => {
-    if (!generatedResetToken) return;
-    try {
-      await navigator.clipboard.writeText(generatedResetToken);
-      toast.success(tr(language, "Reset token copied", "คัดลอกโทเคนรีเซ็ตรหัสผ่านแล้ว"));
-    } catch {
-      toast.error(tr(language, "Copy failed", "คัดลอกไม่สำเร็จ"));
-    }
-  };
+  const activePanelMeta =
+    settingsPanels.find((panel) => panel.id === activePanel) ?? settingsPanels[0];
 
   return (
-    <main className="w-full flex-1 overflow-auto p-4 sm:p-6 space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>{tr(language, "Appearance", "การแสดงผล")}</CardTitle>
-          <CardDescription>
-            {tr(
-              language,
-              "Pick a background tone. White is the default main color.",
-              "เลือกโทนพื้นหลังตามต้องการ โดยสีหลักเริ่มต้นเป็นสีขาว"
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          {UI_TONE_OPTIONS.map((tone) => (
-            <Button
-              key={tone}
-              variant="outline"
-              onClick={() => {
-                applyUITone(tone);
-                setUiTone(tone);
-              }}
-              className={`gap-2 bg-card text-foreground hover:bg-accent hover:text-accent-foreground ${
-                uiTone === tone
-                  ? "border-primary ring-2 ring-ring/30"
-                  : "border-border"
-              }`}
-            >
-              <span
-                className="inline-flex size-3 rounded-full border border-slate-300"
-                style={{ backgroundColor: `#${tone}` }}
-              />
-              {`#${tone.toUpperCase()}`}
-            </Button>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{tr(language, "Account", "บัญชี")}</CardTitle>
-          <CardDescription>{tr(language, "Manage your profile and session.", "จัดการโปรไฟล์และเซสชันของคุณ")}</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => router.push("/profile")}>
-            {tr(language, "Open profile", "เปิดโปรไฟล์")}
-          </Button>
-          <Button
-            variant="destructive"
-            onClick={() => {
-              void logout(token || undefined).catch(() => undefined).finally(() => {
-                clearToken();
-                router.replace("/login");
-              });
-            }}
-          >
-            {tr(language, "Log out", "ออกจากระบบ")}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{tr(language, "Two-Factor Authentication", "การยืนยันตัวตนสองชั้น")}</CardTitle>
-          <CardDescription>
-            {tr(
-              language,
-              "Manage account security with Authenticator, Backup Codes and Trusted Devices",
-              "จัดการความปลอดภัยบัญชีด้วย Authenticator, Backup Codes และ Trusted Devices"
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {twoFALoading ? (
-            <p className="text-sm text-muted-foreground">{tr(language, "Loading 2FA status...", "กำลังโหลดสถานะ 2FA...")}</p>
-          ) : twoFA ? (
-            <>
-              <div className="space-y-1">
-                <p className="text-sm">
-                  {tr(language, "Status", "สถานะ")}:{" "}
-                  <span className="font-medium">
-                    {twoFA.enabled
-                      ? tr(language, "Enabled", "เปิดใช้งาน")
-                      : tr(language, "Not enabled", "ยังไม่เปิดใช้งาน")}
-                  </span>
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {twoFA.required
-                    ? tr(
-                      language,
-                      `Required by policy${isAdmin ? " (Admin)" : ""}`,
-                      `บังคับตามนโยบาย${isAdmin ? " (ผู้ดูแลระบบ)" : ""}`
-                    )
-                    : tr(language, "Optional for your role", "ไม่บังคับสำหรับบทบาทของคุณ")}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {tr(language, "Trusted device expires in", "อุปกรณ์ที่เชื่อถือจะหมดอายุใน")} {twoFA.trusted_device_days ?? (isAdmin ? 7 : 30)} {tr(language, "days", "วัน")}
-                </p>
-              </div>
-
-              {(twoFA.setup_required || twoFA.provisioning_uri) && twoFA.provisioning_uri && (
-                <div className="space-y-2 rounded-lg border border-border p-3">
-                  <p className="text-sm text-muted-foreground">
-                    {tr(language, "Scan QR with your authenticator app and enter 6-digit code to verify", "สแกน QR ด้วยแอป Authenticator แล้วกรอกรหัส 6 หลักเพื่อยืนยัน")}
-                  </p>
-                  <div className="flex justify-center rounded-md bg-white p-2">
-                    {qrCodeDataUrl ? (
-                      <Image
-                        src={qrCodeDataUrl}
-                        alt={tr(language, "2FA QR code", "คิวอาร์โค้ด 2FA")}
-                        width={220}
-                        height={220}
-                        unoptimized
-                        className="h-[220px] w-[220px]"
-                      />
-                    ) : (
-                      <p className="py-8 text-sm text-muted-foreground">{tr(language, "Generating QR code...", "กำลังสร้าง QR code...")}</p>
-                    )}
-                  </div>
-                  <p className="break-all text-sm text-muted-foreground">
-                    {tr(language, "Setup key", "รหัสตั้งค่า")}: {extractSetupKey(twoFA.provisioning_uri) ?? "-"}
-                  </p>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="two_fa_verify">{tr(language, "2FA Verification Code", "รหัสยืนยัน 2FA")}</Label>
-                <Input
-                  id="two_fa_verify"
-                  inputMode="numeric"
-                  maxLength={12}
-                  placeholder={tr(language, "123456", "123456")}
-                  value={verifyCode}
-                  onChange={(event) => setVerifyCode(event.target.value)}
-                />
-                <Button type="button" onClick={handleVerify2FA} disabled={twoFABusy}>
-                  {twoFABusy
-                    ? tr(language, "Verifying...", "กำลังยืนยัน...")
-                    : tr(language, "Verify 2FA", "ยืนยัน 2FA")}
-                </Button>
-              </div>
-
-              <div className="space-y-2 border-t border-border pt-4">
-                <p className="text-sm font-medium">{tr(language, "Reset Authenticator", "รีเซ็ต Authenticator")}</p>
-                {twoFA.enabled && (
-                  <>
-                    <Label htmlFor="two_fa_reset_code">{tr(language, "Current 2FA code", "รหัส 2FA ปัจจุบัน")}</Label>
-                    <Input
-                      id="two_fa_reset_code"
-                      inputMode="numeric"
-                      maxLength={12}
-                      placeholder={tr(language, "123456", "123456")}
-                      value={resetCode}
-                      onChange={(event) => setResetCode(event.target.value)}
-                    />
-                  </>
-                )}
-                <Button type="button" variant="outline" onClick={handleReset2FA} disabled={twoFABusy}>
-                  {twoFABusy
-                    ? tr(language, "Resetting...", "กำลังรีเซ็ต...")
-                    : tr(language, "Reset 2FA and generate new QR", "รีเซ็ต 2FA และสร้าง QR ใหม่")}
-                </Button>
-              </div>
-
-              {!isAdmin && twoFA.enabled && (
-                <div className="space-y-2 border-t border-border pt-4">
-                  <p className="text-sm font-medium">{tr(language, "Disable 2FA", "ปิดใช้งาน 2FA")}</p>
-                  <Label htmlFor="two_fa_disable_code">{tr(language, "Current 2FA code", "รหัส 2FA ปัจจุบัน")}</Label>
-                  <Input
-                    id="two_fa_disable_code"
-                    inputMode="numeric"
-                    maxLength={12}
-                    placeholder={tr(language, "123456", "123456")}
-                    value={disableCode}
-                    onChange={(event) => setDisableCode(event.target.value)}
-                  />
-                  <Button type="button" variant="destructive" onClick={handleDisable2FA} disabled={twoFABusy}>
-                    {tr(language, "Disable 2FA", "ปิดใช้งาน 2FA")}
-                  </Button>
-                </div>
-              )}
-
-              <div className="space-y-2 border-t border-border pt-4">
-                <p className="text-sm font-medium">{tr(language, "Backup Codes", "รหัสสำรอง")}</p>
-                <p className="text-sm text-muted-foreground">
-                  {tr(language, "Use one code at a time when you cannot access authenticator app", "ใช้แทนรหัส 2FA ได้ครั้งละ 1 โค้ดเมื่อเข้า Authenticator ไม่ได้")}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" onClick={handleRegenerateBackupCodes} disabled={twoFABusy || !twoFA.enabled}>
-                    {tr(language, "Generate / Regenerate", "สร้าง / สร้างใหม่")}
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={handleCopyBackupCodes} disabled={backupCodes.length === 0}>
-                    {tr(language, "Copy", "คัดลอก")}
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={handleDownloadBackupCodes} disabled={backupCodes.length === 0}>
-                    {tr(language, "Download", "ดาวน์โหลด")}
-                  </Button>
-                </div>
-                {backupCodes.length > 0 && (
-                  <pre className="rounded-md border border-border bg-muted p-3 text-sm leading-6">
-                    {backupCodes.join("\n")}
-                  </pre>
-                )}
-              </div>
-
-              <div className="space-y-2 border-t border-border pt-4">
-                <p className="text-sm font-medium">{tr(language, "Trusted Devices", "อุปกรณ์ที่เชื่อถือ")}</p>
-                <div className="flex flex-wrap gap-2">
-                  <Button type="button" variant="outline" onClick={() => void loadTrustedDevices()} disabled={twoFABusy || trustedLoading}>
-                    {tr(language, "Refresh", "รีเฟรช")}
-                  </Button>
-                  <Button type="button" variant="destructive" onClick={handleRevokeAllTrustedDevices} disabled={twoFABusy || trustedDevices.length === 0}>
-                    {tr(language, "Revoke All", "เพิกถอนทั้งหมด")}
-                  </Button>
-                </div>
-                {trustedLoading ? (
-                  <p className="text-sm text-muted-foreground">{tr(language, "Loading trusted devices...", "กำลังโหลดอุปกรณ์ที่เชื่อถือ...")}</p>
-                ) : trustedDevices.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">{tr(language, "No trusted devices.", "ไม่มีอุปกรณ์ที่เชื่อถือ")}</p>
-                ) : (
-                  <div className="space-y-2">
-                    {trustedDevices.map((device) => (
-                      <div key={device.id} className="rounded-md border border-border p-3 text-sm">
-                        <p className="font-medium">
-                          {device.current_device
-                            ? tr(language, "Current device", "อุปกรณ์ปัจจุบัน")
-                            : tr(language, "Trusted device", "อุปกรณ์ที่เชื่อถือ")}
-                        </p>
-                        <p className="text-sm text-muted-foreground">{tr(language, "IP", "ไอพี")}: {device.ip_address || tr(language, "unknown", "ไม่ทราบ")}</p>
-                        <p className="text-sm text-muted-foreground">{tr(language, "Created", "สร้างเมื่อ")}: {formatDateTime(device.created_at, language)}</p>
-                        <p className="text-sm text-muted-foreground">{tr(language, "Last used", "ใช้งานล่าสุด")}: {formatDateTime(device.last_used_at, language)}</p>
-                        <p className="text-sm text-muted-foreground">{tr(language, "Expires", "หมดอายุ")}: {formatDateTime(device.expires_at, language)}</p>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="mt-2"
-                          onClick={() => void handleRevokeTrustedDevice(device.id)}
-                          disabled={twoFABusy}
-                        >
-                          {tr(language, "Revoke", "เพิกถอน")}
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">{tr(language, "Unable to load 2FA status.", "ไม่สามารถโหลดสถานะ 2FA ได้")}</p>
-          )}
-        </CardContent>
-      </Card>
-
-      {isAdmin && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{tr(language, "Admin Emergency Toolkit", "ชุดเครื่องมือฉุกเฉินผู้ดูแลระบบ")}</CardTitle>
-            <CardDescription>
-              {tr(language, "Emergency tools for account unlock / reset 2FA / reset password with audit log", "เครื่องมือฉุกเฉินสำหรับปลดล็อกบัญชี / รีเซ็ต 2FA / รีเซ็ตรหัสผ่าน พร้อมบันทึก audit log")}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="target_email">{tr(language, "Target user email", "อีเมลผู้ใช้เป้าหมาย")}</Label>
-              <div className="flex flex-wrap gap-2">
-                <Input
-                  id="target_email"
-                  placeholder={tr(language, "user@hospital.org", "user@hospital.org")}
-                  value={targetEmail}
-                  onChange={(event) => {
-                    setTargetEmail(event.target.value);
-                    setResolvedUser(null);
-                    setGeneratedResetToken("");
-                    setGeneratedResetTokenTTL(null);
-                  }}
-                />
-                <Button type="button" variant="outline" onClick={resolveEmergencyTarget} disabled={emergencyBusy}>
-                  {tr(language, "Resolve user", "ค้นหาผู้ใช้")}
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="emergency_reason">{tr(language, "Reason (required)", "เหตุผล (จำเป็น)")}</Label>
-              <Input
-                id="emergency_reason"
-                placeholder={tr(language, "Reason for emergency action", "เหตุผลสำหรับการทำรายการฉุกเฉิน")}
-                value={emergencyReason}
-                onChange={(event) => setEmergencyReason(event.target.value)}
-              />
-            </div>
-
-            {resolvedUser ? (
-              <div className="rounded-md border border-border/60 p-3 text-sm space-y-1">
-                <p><span className="text-muted-foreground">{tr(language, "User", "ผู้ใช้")}:</span> {resolvedUser.email}</p>
-                <p><span className="text-muted-foreground">{tr(language, "Role", "บทบาท")}:</span> {getRoleLabel(resolvedUser.role, language)}</p>
-                <p><span className="text-muted-foreground">{tr(language, "Locked", "ล็อกอยู่")}:</span> {resolvedUser.is_locked ? tr(language, "Yes", "ใช่") : tr(language, "No", "ไม่")}</p>
-                <p><span className="text-muted-foreground">{tr(language, "2FA Enabled", "เปิดใช้งาน 2FA")}:</span> {resolvedUser.two_factor_enabled ? tr(language, "Yes", "ใช่") : tr(language, "No", "ไม่")}</p>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">{tr(language, "Resolve user first to confirm target account", "ค้นหาผู้ใช้ก่อน เพื่อยืนยันบัญชีเป้าหมาย")}</p>
-            )}
-
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" disabled={emergencyBusy} onClick={handleEmergencyUnlock}>
-                {tr(language, "Unlock account", "ปลดล็อกบัญชี")}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={emergencyBusy || !resolvedUser}
-                onClick={handleEmergencyReset2FA}
-              >
-                {tr(language, "Reset 2FA", "รีเซ็ต 2FA")}
-              </Button>
-            </div>
-
-            <div className="space-y-2 border-t border-border pt-4">
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={emergencyBusy || !resolvedUser}
-                onClick={handleEmergencyResetPassword}
-              >
-                {tr(language, "Reset password", "รีเซ็ตรหัสผ่าน")}
-              </Button>
-              {generatedResetToken && (
-                <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
-                  <p className="text-sm text-muted-foreground">
-                    {tr(language, "One-time reset token (shown once):", "โทเคนรีเซ็ตรหัสผ่านแบบครั้งเดียว (แสดงครั้งเดียว):")}
-                  </p>
-                  <Input value={generatedResetToken} readOnly />
-                  <p className="text-sm text-muted-foreground">
-                    {tr(language, "Expires in", "หมดอายุใน")} {generatedResetTokenTTL ?? "-"} {tr(language, "seconds", "วินาที")}
-                  </p>
-                  <Button type="button" variant="outline" onClick={handleCopyGeneratedResetToken}>
-                    {tr(language, "Copy reset token", "คัดลอกโทเคนรีเซ็ต")}
-                  </Button>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+    <main
+      className={cn(
+        "relative flex w-full flex-1",
+        isModalPresentation
+          ? "overflow-hidden bg-transparent p-0"
+          : "min-h-0 overflow-hidden bg-[radial-gradient(circle_at_top,_rgba(140,180,212,0.18),_transparent_32%),linear-gradient(180deg,_rgba(255,255,255,0.92),_rgba(246,248,251,0.96))] p-3 sm:p-4 lg:p-6",
       )}
+    >
+      <div
+        className={cn(
+          "mx-auto flex h-full w-full min-h-0 justify-center",
+          isModalPresentation ? "items-center" : "items-start",
+        )}
+      >
+        <div
+          className={cn(
+            "flex min-h-0 w-full flex-col overflow-hidden border border-border/70 bg-background/95 shadow-[0_28px_80px_rgba(15,23,42,0.12)] backdrop-blur",
+            isModalPresentation
+              ? "max-h-[min(90vh,820px)] min-h-0 rounded-[1.7rem] md:flex md:flex-row"
+              : "h-full max-w-[1120px] rounded-[2rem] md:grid md:grid-cols-[260px_minmax(0,1fr)] lg:grid-cols-[260px_minmax(0,1fr)]",
+          )}
+        >
+          <aside
+            className={cn(
+              "border-b border-border/70 bg-muted/25 px-3 py-3 sm:px-4 sm:py-4 md:px-5 md:py-5",
+              isModalPresentation
+                ? "md:flex md:w-[260px] lg:w-[280px] md:flex-none md:flex-col md:overflow-y-auto md:border-r md:border-b-0"
+                : "md:overflow-y-auto md:border-r md:border-b-0",
+            )}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleCloseSettings}
+                className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-2xl border border-border bg-background text-muted-foreground transition-[background-color,color,border-color] hover:bg-muted hover:text-foreground"
+                aria-label={tr(language, "Close settings", "ปิดการตั้งค่า")}
+              >
+                <X className="size-4" />
+              </button>
+              <div className="text-right md:hidden">
+                <p className="text-sm font-medium text-foreground">
+                  {tr(language, "Settings", "ตั้งค่า")}
+                </p>
+              </div>
+            </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{tr(language, "Session", "เซสชัน")}</CardTitle>
-          <CardDescription>{tr(language, "Current access token status.", "สถานะ access token ปัจจุบัน")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm">
-            {tr(language, "Token TTL", "อายุโทเคนคงเหลือ")}: <span className="font-medium">{ttlLabel}</span>
-          </p>
-        </CardContent>
-      </Card>
+            <div className={cn("hidden md:block", isModalPresentation ? "mt-2" : "mt-4")}>
+              <p className="text-base font-semibold text-foreground">
+                {tr(language, "Settings", "ตั้งค่า")}
+              </p>
+              {!isModalPresentation ? (
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  {tr(
+                    language,
+                    "Keep the essentials in a focused panel.",
+                    "รวมการตั้งค่าหลักไว้ในแผงเดียวที่โฟกัสง่าย",
+                  )}
+                </p>
+              ) : null}
+            </div>
+
+            <div
+              className={cn(
+                "flex overflow-x-auto pb-1",
+                isModalPresentation
+                  ? "mt-2 gap-1 md:flex-col md:overflow-visible"
+                  : "mt-4 gap-2 md:flex-col md:overflow-visible",
+              )}
+            >
+              {settingsPanels.map((panel) => (
+                <div
+                  key={panel.id}
+                  className={cn(
+                    isModalPresentation ? "min-w-[140px] md:min-w-0" : "md:min-w-0 min-w-[220px]",
+                  )}
+                >
+                  <SettingsPanelNavButton
+                    title={panel.title}
+                    summary={panel.summary}
+                    active={activePanel === panel.id}
+                    icon={panel.icon}
+                    isModalPresentation={isModalPresentation}
+                    onClick={() => {
+                      setActivePanel(panel.id);
+                      if (panel.id === "general") {
+                        appearance.setAppearanceExpanded(true);
+                      }
+                      if (panel.id === "admin") {
+                        admin.setAdminToolsExpanded(true);
+                      }
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </aside>
+
+          <section
+            className={cn(
+              "flex min-w-0 flex-col bg-background",
+              isModalPresentation
+                ? "min-h-0 md:min-w-[320px] md:flex-[1_1_320px] md:overflow-y-auto"
+                : "min-h-0",
+            )}
+          >
+            <div className="border-b border-border/70 px-4 py-4 sm:px-6 sm:py-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="break-words text-[1.15rem] font-semibold text-foreground">
+                    {activePanelMeta.title}
+                  </p>
+                  <p
+                    className={cn(
+                      "mt-1 break-words text-sm leading-6 text-muted-foreground",
+                      isModalPresentation ? "max-w-[48ch]" : "max-w-[56ch]",
+                    )}
+                  >
+                    {activePanelMeta.description}
+                  </p>
+                </div>
+                <div
+                  className={cn(
+                    "hidden rounded-full border border-border/70 bg-muted/20 px-3 py-1 text-xs text-muted-foreground",
+                    isModalPresentation ? "xl:hidden" : "sm:block",
+                  )}
+                >
+                  {activePanelMeta.summary}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto min-h-0 px-4 py-4 sm:px-6 sm:py-5">
+              {activePanel === "general" ? (
+                <GeneralSettingsPanel
+                  language={language}
+                  isModalPresentation={isModalPresentation}
+                  appearance={appearance}
+                  onOpenSecurity={() => setActivePanel("security")}
+                />
+              ) : null}
+
+              {activePanel === "account" ? (
+                <AccountSettingsPanel
+                  language={language}
+                  isAdmin={isAdmin}
+                  logout={logout}
+                  profile={profile}
+                  getRoleLabel={getRoleLabel}
+                />
+              ) : null}
+
+              {activePanel === "security" ? (
+                <SecuritySettingsPanel
+                  language={language}
+                  isAdmin={isAdmin}
+                  security={security}
+                />
+              ) : null}
+
+              {activePanel === "admin" &&
+              (profile.canManagePrivilegedAdmins ||
+                (isAdmin && profile.canManageSecurityRecovery)) ? (
+                <AdminSettingsPanel
+                  language={language}
+                  isAdmin={isAdmin}
+                  canManagePrivilegedAdmins={profile.canManagePrivilegedAdmins}
+                  canManageSecurityRecovery={profile.canManageSecurityRecovery}
+                  admin={admin}
+                  getRoleLabel={getRoleLabel}
+                />
+              ) : null}
+            </div>
+          </section>
+        </div>
+      </div>
+      <SensitiveActionReauthDialog
+        open={Boolean(sensitiveReauthRequest)}
+        onOpenChange={closeSensitiveReauth}
+        actionLabel={sensitiveReauthRequest?.actionLabel}
+        onSuccess={handleSensitiveReauthSuccess}
+      />
     </main>
   );
 }

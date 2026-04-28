@@ -12,6 +12,7 @@ on:
 permissions:
   contents: read
   packages: write
+  security-events: write
 
 concurrency:
   group: publish-images-${{ github.ref }}
@@ -58,6 +59,7 @@ jobs:
           type=sha,prefix=sha-
 
     - name: Build and push ${{ matrix.name }} image
+      id: build-and-push
       uses: docker/build-push-action@v6
       with:
         context: ${{ matrix.context }}
@@ -67,3 +69,19 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha,scope=${{ matrix.name }}
         cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+    - name: Run Trivy scan for ${{ matrix.name }} image
+      uses: aquasecurity/trivy-action@0.33.1
+      with:
+        image-ref: ${{ matrix.image }}:sha-${{ github.sha }}
+        format: sarif
+        output: trivy-${{ matrix.name }}.sarif
+        severity: CRITICAL,HIGH
+        ignore-unfixed: true
+        exit-code: "1"
+
+    - name: Upload Trivy scan results for ${{ matrix.name }}
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: trivy-${{ matrix.name }}.sarif

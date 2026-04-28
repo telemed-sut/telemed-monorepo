@@ -5,7 +5,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { EyeIcon } from "@/components/ui/eye-icon";
 import { toast } from "@/components/ui/toast";
+import { getLocalizedDashboardErrorMessage } from "@/components/dashboard/dashboard-error-message";
+import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -66,9 +69,19 @@ import {
   ArrowUp01Icon,
   ArrowDown01Icon,
   FilterHorizontalIcon,
-  Stethoscope02Icon,
 } from "@hugeicons/core-free-icons";
-import { fetchPatients, createPatient, updatePatient, deletePatient, generatePatientRegistrationCode, type Patient } from "@/lib/api";
+import {
+  canManageUsers,
+  canWriteClinicalData,
+  createPatient,
+  deletePatient,
+  fetchPatientContactDetails,
+  fetchPatients,
+  type Patient,
+  type PatientContactDetails,
+  updatePatient,
+} from "@/lib/api";
+import { preloadPatientWorkspaceBundles } from "@/lib/patient-workspace-prefetch";
 import { buildProfileSeed, getProfileOrbStyle } from "@/components/ui/profile-avatar-orb";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
@@ -77,6 +90,49 @@ import type { AppLanguage } from "@/store/language-config";
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50, 100, 200];
 const PAGE_PREFETCH_DELAY_MS = 300;
+const PATIENTS_CACHE_MAX_ENTRIES = 24;
+
+interface PatientsCacheEntry {
+  items: Patient[];
+  total: number;
+}
+
+interface PatientsTableProps {
+  showStats?: boolean;
+  showTable?: boolean;
+}
+
+const patientsListCache = new Map<string, PatientsCacheEntry>();
+
+function getPatientsListCacheEntry(key: string) {
+  const entry = patientsListCache.get(key);
+  if (!entry) {
+    return null;
+  }
+
+  patientsListCache.delete(key);
+  patientsListCache.set(key, entry);
+  return entry;
+}
+
+function setPatientsListCacheEntry(key: string, entry: PatientsCacheEntry) {
+  if (patientsListCache.has(key)) {
+    patientsListCache.delete(key);
+  }
+  patientsListCache.set(key, entry);
+
+  while (patientsListCache.size > PATIENTS_CACHE_MAX_ENTRIES) {
+    const oldestKey = patientsListCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    patientsListCache.delete(oldestKey);
+  }
+}
+
+function clearPatientsListCache() {
+  patientsListCache.clear();
+}
 
 const AnimatedCalendar = dynamic(
   () =>
@@ -87,17 +143,6 @@ const AnimatedCalendar = dynamic(
     loading: () => (
       <div className="h-11 w-full rounded-md border bg-muted/60 animate-pulse" />
     ),
-    ssr: false,
-  }
-);
-
-const PatientAssignmentsDialog = dynamic(
-  () =>
-    import("./patient-assignments-dialog").then((module) => ({
-      default: module.PatientAssignmentsDialog,
-    })),
-  {
-    loading: () => null,
     ssr: false,
   }
 );
@@ -125,7 +170,10 @@ const emptyForm: PatientFormState = {
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
 
-export function PatientsTable() {
+export function PatientsTable({
+  showStats = true,
+  showTable = true,
+}: PatientsTableProps = {}) {
   const token = useAuthStore((state) => state.token);
   const role = useAuthStore((state) => state.role);
   const clearToken = useAuthStore((state) => state.clearToken);
@@ -146,11 +194,21 @@ export function PatientsTable() {
   const [editing, setEditing] = useState<Patient | null>(null);
   const [formData, setFormData] = useState<PatientFormState>(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [assignmentPatient, setAssignmentPatient] = useState<Patient | null>(null);
-  const [regCodeDialogOpen, setRegCodeDialogOpen] = useState(false);
-  const [regCode, setRegCode] = useState<string | null>(null);
-  const [regCodePatientName, setRegCodePatientName] = useState("");
-  const [regCodeLoading, setRegCodeLoading] = useState(false);
+  const [revealedContactDetails, setRevealedContactDetails] = useState<
+    Record<string, PatientContactDetails>
+  >({});
+  const [rowContactDetailsVisible, setRowContactDetailsVisible] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [rowContactDetailsLoading, setRowContactDetailsLoading] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [contactDetailsVisible, setContactDetailsVisible] = useState(false);
+  const [revealingContactDetails, setRevealingContactDetails] = useState(false);
+  const [contactDetailsError, setContactDetailsError] = useState<string | null>(null);
+  const canManagePatients = canWriteClinicalData(role);
+  const canDeletePatients = canManageUsers(role);
+  const isAssignmentScopedRole = role === "doctor" || role === "medical_student";
 
   const isInitialLoading = loading && patients.length === 0;
   const isRefetching = loading && patients.length > 0;
@@ -161,8 +219,8 @@ export function PatientsTable() {
   // Statistics for overview cards
   const stats = useMemo(() => {
     const totalPatients = total;
-    const activePatients = patients.filter(p => !!p.phone || !!p.email).length;
-    const recentPatients = patients.filter(p => {
+    const documentedProfiles = patients.filter((patient) => !!patient.gender).length;
+    const recentPatients = patients.filter((p) => {
       if (!p.created_at) return false;
       const created = new Date(p.created_at);
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -171,10 +229,12 @@ export function PatientsTable() {
 
     return {
       total: totalPatients,
-      active: activePatients,
+      documented: documentedProfiles,
       recent: recentPatients,
     };
   }, [total, patients]);
+  const documentedProfileRate =
+    stats.total > 0 ? Math.round((stats.documented / stats.total) * 100) : 0;
 
   const totalPages = useMemo(() => {
     return Math.max(1, Math.ceil(total / limit));
@@ -185,13 +245,35 @@ export function PatientsTable() {
     return () => clearTimeout(id);
   }, [search]);
 
-  // Cache for pages to enable instant navigation
-  const cacheRef = useRef<Map<string, { items: Patient[]; total: number }>>(new Map());
+  // Cache for pages to enable instant navigation across tab switches.
   const prefetchTimeoutRef = useRef<number | null>(null);
+  const lastRevealRequestKeyRef = useRef<string | null>(null);
 
   const getCacheKey = useCallback(
     (p: number) => `${p}-${limit}-${debouncedSearch}-${sort}-${order}`,
     [limit, debouncedSearch, sort, order]
+  );
+
+  const getRevealRequestKey = useCallback(
+    () => `${page}-${limit}-${debouncedSearch}-${sort}-${order}-${patients.map((patient) => patient.id).join("|")}`,
+    [debouncedSearch, limit, order, page, patients, sort],
+  );
+
+  const openPatientWorkspace = useCallback(
+    (patientId: string) => {
+      router.push(`/patients/${patientId}`);
+    },
+    [router]
+  );
+
+  const prefetchPatientWorkspace = useCallback(
+    (patientId: string) => {
+      getPatientWorkspaceHrefs(patientId).forEach((href) => {
+        router.prefetch(href);
+      });
+      void preloadPatientWorkspaceBundles();
+    },
+    [router]
   );
 
   useEffect(() => {
@@ -199,7 +281,7 @@ export function PatientsTable() {
     let cancelled = false;
 
     const cacheKey = getCacheKey(page);
-    const cached = cacheRef.current.get(cacheKey);
+    const cached = getPatientsListCacheEntry(cacheKey);
 
     // If we have cached data, show it immediately
     if (cached) {
@@ -223,7 +305,7 @@ export function PatientsTable() {
           setPatients(res.items);
           setTotal(res.total);
           // Cache this page
-          cacheRef.current.set(cacheKey, { items: res.items, total: res.total });
+          setPatientsListCacheEntry(cacheKey, { items: res.items, total: res.total });
 
           if (prefetchTimeoutRef.current !== null) {
             window.clearTimeout(prefetchTimeoutRef.current);
@@ -238,7 +320,7 @@ export function PatientsTable() {
               if (cancelled) return;
 
               const prefetchCacheKey = getCacheKey(nextPage);
-              if (cacheRef.current.has(prefetchCacheKey)) {
+              if (patientsListCache.has(prefetchCacheKey)) {
                 return;
               }
 
@@ -247,7 +329,7 @@ export function PatientsTable() {
                 token
               )
                 .then((prefetchRes) => {
-                  cacheRef.current.set(prefetchCacheKey, {
+                  setPatientsListCacheEntry(prefetchCacheKey, {
                     items: prefetchRes.items,
                     total: prefetchRes.total,
                   });
@@ -264,7 +346,12 @@ export function PatientsTable() {
             router.replace("/login");
             return;
           }
-          const message = err instanceof Error ? err.message : tr(language, "Failed to load patients", "โหลดข้อมูลผู้ป่วยไม่สำเร็จ");
+          const message = getLocalizedDashboardErrorMessage(
+            err,
+            language,
+            "Failed to load patients",
+            "โหลดข้อมูลผู้ป่วยไม่สำเร็จ"
+          );
           setError(message);
           setPatients([]);
           setTotal(0);
@@ -285,24 +372,221 @@ export function PatientsTable() {
     };
   }, [token, page, limit, debouncedSearch, sort, order, clearToken, getCacheKey, language, router]);
 
-  const resetForm = (patient?: Patient) => {
-    if (patient) {
+  useEffect(() => {
+    patients.slice(0, 3).forEach((patient) => {
+      prefetchPatientWorkspace(patient.id);
+    });
+  }, [patients, prefetchPatientWorkspace]);
+
+  const resetRevealedContactState = useCallback(() => {
+    setContactDetailsVisible(false);
+    setRevealedContactDetails({});
+    setRowContactDetailsVisible({});
+    setRowContactDetailsLoading({});
+    setContactDetailsError(null);
+    lastRevealRequestKeyRef.current = null;
+  }, []);
+
+  const hideRevealedContactDetails = useCallback(() => {
+    setContactDetailsVisible(false);
+    setRowContactDetailsVisible({});
+    setContactDetailsError(null);
+  }, []);
+
+  const revealRowContactDetails = useCallback(async (patientId: string) => {
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    if (revealedContactDetails[patientId]) {
+      setRowContactDetailsVisible((current) => ({
+        ...current,
+        [patientId]: true,
+      }));
+      return;
+    }
+
+    setRowContactDetailsLoading((current) => ({
+      ...current,
+      [patientId]: true,
+    }));
+    setContactDetailsError(null);
+
+    try {
+      const details = await fetchPatientContactDetails(patientId, token);
+      setRevealedContactDetails((current) => ({
+        ...current,
+        [patientId]: details,
+      }));
+      setRowContactDetailsVisible((current) => ({
+        ...current,
+        [patientId]: true,
+      }));
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 401) {
+        clearToken();
+        router.replace("/login");
+        return;
+      }
+
+      const message = getLocalizedDashboardErrorMessage(
+        err,
+        language,
+        "Protected patient details could not be revealed on this page.",
+        "ยังไม่สามารถแสดงข้อมูลผู้ป่วยที่ถูกปกป้องในหน้านี้ได้",
+      );
+      setContactDetailsError(message);
+      toast.error(message);
+    } finally {
+      setRowContactDetailsLoading((current) => ({
+        ...current,
+        [patientId]: false,
+      }));
+    }
+  }, [clearToken, language, revealedContactDetails, router, token]);
+
+  const handleToggleRowContactDetails = useCallback(async (patientId: string) => {
+    if (contactDetailsVisible) {
+      return;
+    }
+
+    if (rowContactDetailsVisible[patientId]) {
+      setRowContactDetailsVisible((current) => ({
+        ...current,
+        [patientId]: false,
+      }));
+      return;
+    }
+
+    await revealRowContactDetails(patientId);
+  }, [contactDetailsVisible, revealRowContactDetails, rowContactDetailsVisible]);
+
+  const revealVisibleContactDetails = useCallback(async () => {
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    if (patients.length === 0) {
+      return;
+    }
+
+    setRevealingContactDetails(true);
+    setContactDetailsError(null);
+
+    try {
+      const detailsEntries = await Promise.all(
+        patients.map(async (patient) => {
+          const details = await fetchPatientContactDetails(patient.id, token);
+          return [patient.id, details] as const;
+        }),
+      );
+
+      setRevealedContactDetails((current) => ({
+        ...current,
+        ...Object.fromEntries(detailsEntries),
+      }));
+      setContactDetailsVisible(true);
+      lastRevealRequestKeyRef.current = getRevealRequestKey();
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 401) {
+        clearToken();
+        router.replace("/login");
+        return;
+      }
+
+      const message = getLocalizedDashboardErrorMessage(
+        err,
+        language,
+        "Protected patient details could not be revealed on this page.",
+        "ยังไม่สามารถแสดงข้อมูลผู้ป่วยที่ถูกปกป้องในหน้านี้ได้",
+      );
+      setContactDetailsError(message);
+      setContactDetailsVisible(false);
+      toast.error(message);
+    } finally {
+      setRevealingContactDetails(false);
+    }
+  }, [clearToken, getRevealRequestKey, language, patients, router, token]);
+
+  useEffect(() => {
+    if (!contactDetailsVisible) {
+      return;
+    }
+
+    if (patients.length === 0) {
+      hideRevealedContactDetails();
+      return;
+    }
+
+    const revealRequestKey = getRevealRequestKey();
+    if (lastRevealRequestKeyRef.current === revealRequestKey) {
+      return;
+    }
+
+    void revealVisibleContactDetails();
+  }, [
+    contactDetailsVisible,
+    getRevealRequestKey,
+    hideRevealedContactDetails,
+    patients.length,
+    revealVisibleContactDetails,
+  ]);
+
+  const handleToggleContactDetailsVisibility = useCallback(async () => {
+    if (contactDetailsVisible) {
+      hideRevealedContactDetails();
+      return;
+    }
+
+    await revealVisibleContactDetails();
+  }, [contactDetailsVisible, hideRevealedContactDetails, revealVisibleContactDetails]);
+
+  const resetForm = () => {
+    setFormData(emptyForm);
+    setEditing(null);
+    setFormErrors({});
+    setFormOpen(true);
+  };
+
+  const openEditForm = async (patient: Patient) => {
+    if (!token) return;
+
+    setError(null);
+    setFormErrors({});
+
+    try {
+      const contactDetails = await fetchPatientContactDetails(patient.id, token);
       setFormData({
         first_name: patient.first_name,
         last_name: patient.last_name,
         date_of_birth: patient.date_of_birth,
         gender: patient.gender ?? "",
-        phone: patient.phone ?? "",
-        email: patient.email ?? "",
-        address: patient.address ?? "",
+        phone: contactDetails.phone ?? "",
+        email: contactDetails.email ?? "",
+        address: contactDetails.address ?? "",
       });
       setEditing(patient);
-    } else {
-      setFormData(emptyForm);
-      setEditing(null);
+      setFormOpen(true);
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 401) {
+        clearToken();
+        router.replace("/login");
+        return;
+      }
+      const message = getLocalizedDashboardErrorMessage(
+        err,
+        language,
+        "Protected patient details could not be loaded for editing.",
+        "ยังไม่สามารถโหลดข้อมูลติดต่อผู้ป่วยเพื่อแก้ไขได้",
+      );
+      setError(message);
+      toast.error(message);
     }
-    setFormErrors({});
-    setFormOpen(true);
   };
 
   const validateForm = () => {
@@ -340,19 +624,12 @@ export function PatientsTable() {
     setSaving(false);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const savePatientRecord = useCallback(async () => {
     if (!token) return;
-
-    if (!validateForm()) {
-      toast.error(tr(language, "Please fix the errors in the form", "กรุณาแก้ไขข้อมูลในฟอร์มให้ถูกต้อง"));
-      return;
-    }
 
     setSaving(true);
     setError(null);
 
-    // Clean up optional fields - send undefined instead of empty strings
     const cleanedData = {
       first_name: formData.first_name,
       last_name: formData.last_name,
@@ -369,6 +646,8 @@ export function PatientsTable() {
       } else {
         await createPatient(cleanedData, token);
       }
+      clearPatientsListCache();
+      resetRevealedContactState();
       toast.success(
         editing
           ? tr(language, "Patient updated successfully", "อัปเดตผู้ป่วยสำเร็จ")
@@ -389,9 +668,9 @@ export function PatientsTable() {
       }
 
       // Try to parse backend validation errors and map them to form fields
-      const message = err instanceof Error ? err.message : tr(language, "Save failed", "บันทึกไม่สำเร็จ");
+      const rawMessage = err instanceof Error ? err.message : "";
       try {
-        const parsed = JSON.parse(message);
+        const parsed = JSON.parse(rawMessage);
         if (Array.isArray(parsed)) {
           const newFormErrors: Record<string, string> = {};
           parsed.forEach((item: { loc?: string[]; msg?: string }) => {
@@ -401,21 +680,55 @@ export function PatientsTable() {
             }
           });
           if (Object.keys(newFormErrors).length > 0) {
-            setFormErrors(prev => ({ ...prev, ...newFormErrors }));
+            setFormErrors((prev) => ({ ...prev, ...newFormErrors }));
             toast.error(tr(language, "Please fix the validation errors", "กรุณาแก้ไขข้อผิดพลาดการตรวจสอบข้อมูล"));
           } else {
             toast.error(tr(language, "Validation failed. Please check your input.", "การตรวจสอบข้อมูลไม่ผ่าน กรุณาตรวจสอบข้อมูลที่กรอก"));
           }
         } else {
-          toast.error(message);
+          toast.error(
+            getLocalizedDashboardErrorMessage(err, language, "Save failed", "บันทึกไม่สำเร็จ")
+          );
         }
       } catch {
         // If parsing fails, show a generic toast error instead of setting error state
-        toast.error(message);
+        toast.error(
+          getLocalizedDashboardErrorMessage(err, language, "Save failed", "บันทึกไม่สำเร็จ")
+        );
       }
     } finally {
       setSaving(false);
     }
+  }, [
+    clearToken,
+    debouncedSearch,
+    editing,
+    formData.address,
+    formData.date_of_birth,
+    formData.email,
+    formData.first_name,
+    formData.gender,
+    formData.last_name,
+    formData.phone,
+    language,
+    limit,
+    order,
+    resetRevealedContactState,
+    router,
+    sort,
+    token,
+  ]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+
+    if (!validateForm()) {
+      toast.error(tr(language, "Please fix the errors in the form", "กรุณาแก้ไขข้อมูลในฟอร์มให้ถูกต้อง"));
+      return;
+    }
+
+    await savePatientRecord();
   };
 
   const confirmDelete = async (id: string) => {
@@ -423,6 +736,8 @@ export function PatientsTable() {
     setError(null);
     try {
       await deletePatient(id, token);
+      clearPatientsListCache();
+      resetRevealedContactState();
       toast.success(tr(language, "Patient deleted successfully", "ลบข้อมูลผู้ป่วยสำเร็จ"));
       const res = await fetchPatients({ page, limit, q: debouncedSearch, sort, order }, token);
       setPatients(res.items);
@@ -437,7 +752,12 @@ export function PatientsTable() {
         router.replace("/login");
         return;
       }
-      const message = err instanceof Error ? err.message : tr(language, "Delete failed", "ลบข้อมูลไม่สำเร็จ");
+      const message = getLocalizedDashboardErrorMessage(
+        err,
+        language,
+        "Delete failed",
+        "ลบข้อมูลไม่สำเร็จ"
+      );
       setError(message);
       toast.error(message);
     }
@@ -454,23 +774,6 @@ export function PatientsTable() {
       },
       duration: 9000,
     });
-  };
-
-  const handleGenerateRegCode = async (patient: Patient) => {
-    if (!token) return;
-    setRegCodeLoading(true);
-    setRegCodePatientName(`${patient.first_name} ${patient.last_name}`);
-    setRegCodeDialogOpen(true);
-    setRegCode(null);
-    try {
-      const res = await generatePatientRegistrationCode(patient.id, token);
-      setRegCode(res.code);
-    } catch {
-      toast.error(tr(language, "Failed to generate registration code", "ไม่สามารถสร้างรหัสลงทะเบียนได้"));
-      setRegCodeDialogOpen(false);
-    } finally {
-      setRegCodeLoading(false);
-    }
   };
 
   const getAgeFromDOB = (dateOfBirth: string) => {
@@ -492,20 +795,67 @@ export function PatientsTable() {
     return value;
   };
 
+  const emptyStateTitle = search
+    ? tr(language, "No patients found", "ไม่พบผู้ป่วย")
+    : isAssignmentScopedRole
+      ? tr(language, "No assigned patients yet", "ยังไม่มีผู้ป่วยในความดูแล")
+      : tr(language, "No patients found", "ไม่พบผู้ป่วย");
+
+  const directoryDescription = role === "doctor"
+    ? tr(
+        language,
+        "This list shows only patients assigned to your account. Open this page to reveal contact details, or open a workspace for the full record.",
+        "รายการนี้จะแสดงเฉพาะผู้ป่วยที่มอบหมายให้บัญชีของคุณ เปิดดูหน้านี้เพื่อแสดงข้อมูลติดต่อ หรือเข้า workspace เพื่อดูข้อมูลเต็ม",
+      )
+    : role === "medical_student"
+      ? tr(
+          language,
+          "This list shows only patients assigned to your account. Open a workspace to review the full record you are allowed to access.",
+          "รายการนี้จะแสดงเฉพาะผู้ป่วยที่มอบหมายให้บัญชีของคุณ เข้า workspace เพื่อดูข้อมูลผู้ป่วยตามสิทธิ์ที่ได้รับ",
+        )
+      : tr(
+          language,
+          "Patient directory shows masked contact details by default. Use this page to reveal contact details, or open a workspace for the full record.",
+          "รายชื่อผู้ป่วยจะแสดงข้อมูลติดต่อแบบปกปิดเป็นค่าเริ่มต้น เปิดดูหน้านี้เพื่อแสดงข้อมูลติดต่อ หรือเข้า workspace เพื่อดูข้อมูลเต็ม",
+        );
+
+  const emptyStateDescription = search
+    ? tr(
+        language,
+        "We couldn't find any patients matching your search query. Try adjusting your filters.",
+        "ไม่พบผู้ป่วยที่ตรงกับคำค้นหา ลองปรับตัวกรองแล้วค้นหาอีกครั้ง",
+      )
+    : role === "doctor"
+      ? tr(
+          language,
+          "This doctor account only shows assigned patients. Ask an admin to grant access, or add a new patient here to assign one automatically.",
+          "บัญชีแพทย์นี้จะแสดงเฉพาะผู้ป่วยที่ได้รับมอบหมายให้ดูแล หากยังไม่พบข้อมูล โปรดให้ผู้ดูแลระบบมอบหมายสิทธิ์ หรือเพิ่มผู้ป่วยใหม่เพื่อผูกเข้าบัญชีนี้อัตโนมัติ",
+        )
+      : role === "medical_student"
+        ? tr(
+            language,
+            "This medical student account can view only assigned patients. Ask an admin to assign access before reviewing records.",
+            "บัญชีนักศึกษาแพทย์นี้จะเห็นได้เฉพาะผู้ป่วยที่มอบหมายให้เท่านั้น ขอให้ผู้ดูแลระบบมอบหมายสิทธิ์ก่อนจึงจะเริ่มดูข้อมูลผู้ป่วยได้",
+          )
+        : tr(
+            language,
+            "Get started by adding your first patient to the system.",
+            "เริ่มต้นโดยเพิ่มผู้ป่วยคนแรกเข้าสู่ระบบ",
+          );
+
   const emptyStateContent = (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="relative mb-6 group">
+    <div className="flex flex-col items-center justify-center px-6 py-24 text-center">
+      <div className="flex w-full max-w-xl flex-col items-center">
+      <div className="relative mb-7 group">
         <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl scale-150 animate-pulse opacity-50 group-hover:opacity-100 transition-opacity"></div>
         <div className="relative p-6 bg-background rounded-full border border-border shadow-lg group-hover:scale-110 transition-transform duration-300">
           <HugeiconsIcon icon={UserGroupIcon} className="size-10 text-primary/80" />
         </div>
       </div>
-      <div className="space-y-2 max-w-sm mx-auto">
-        <h3 className="font-bold text-xl tracking-tight text-foreground">{tr(language, "No patients found", "ไม่พบผู้ป่วย")}</h3>
-        <p className="text-sm text-muted-foreground leading-relaxed">
-          {search
-            ? tr(language, "We couldn't find any patients matching your search query. Try adjusting your filters.", "ไม่พบผู้ป่วยที่ตรงกับคำค้นหา ลองปรับตัวกรองแล้วค้นหาอีกครั้ง")
-            : tr(language, "Get started by adding your first patient to the system.", "เริ่มต้นโดยเพิ่มผู้ป่วยคนแรกเข้าสู่ระบบ")}
+      <div className="space-y-3">
+        <h3 className="font-bold text-xl tracking-tight text-foreground">{emptyStateTitle}</h3>
+        <p className="mx-auto max-w-2xl text-sm leading-relaxed text-muted-foreground">
+          {emptyStateDescription}
         </p>
       </div>
       {search && (
@@ -518,12 +868,13 @@ export function PatientsTable() {
           {tr(language, "Clear Search", "ล้างการค้นหา")}
         </Button>
       )}
-      {!search && (
+      {!search && canManagePatients && (
         <Button onClick={() => resetForm()} size="lg" className="mt-6 shadow-md hover:shadow-lg transition-all rounded-full">
           <HugeiconsIcon icon={Add01Icon} className="size-4 mr-2" />
           {tr(language, "Add first patient", "เพิ่มผู้ป่วยคนแรก")}
         </Button>
       )}
+      </div>
     </div>
   );
 
@@ -531,6 +882,7 @@ export function PatientsTable() {
     <LazyMotion features={domAnimation}>
     <div className="space-y-5">
       {/* Stats Cards */}
+      {showStats ? (
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <Card className="group relative overflow-hidden border-none bg-gradient-to-br from-background via-background to-primary/5 shadow-sm transition-all duration-300 hover:shadow-md">
           <div className="absolute top-0 right-0 p-3 opacity-10 transition-opacity group-hover:opacity-20">
@@ -552,18 +904,18 @@ export function PatientsTable() {
 
         <Card className="group relative overflow-hidden border-none bg-gradient-to-br from-background via-background to-emerald-500/5 shadow-sm transition-all duration-300 hover:shadow-md">
           <div className="absolute top-0 right-0 p-3 opacity-10 transition-opacity group-hover:opacity-20">
-            <HugeiconsIcon icon={AiPhone01Icon} className="h-20 w-20 translate-x-3 -translate-y-3 rotate-12 text-emerald-500" />
+            <HugeiconsIcon icon={UserIcon} className="h-20 w-20 translate-x-3 -translate-y-3 rotate-12 text-emerald-500" />
           </div>
           <CardHeader className="relative z-10 flex flex-row items-center justify-between space-y-0 px-5 pb-2 pt-5">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{tr(language, "Active Contacts", "ผู้ติดต่อที่ใช้งานอยู่")}</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{tr(language, "Profile Coverage", "ความครบถ้วนโปรไฟล์")}</CardTitle>
             <div className="rounded-lg bg-emerald-500/10 p-1.5 transition-colors group-hover:bg-emerald-500/20">
-              <HugeiconsIcon icon={AiPhone01Icon} className="h-4 w-4 text-emerald-500" />
+              <HugeiconsIcon icon={UserIcon} className="h-4 w-4 text-emerald-500" />
             </div>
           </CardHeader>
           <CardContent className="relative z-10 px-5 pb-5 pt-0">
-            <div className="text-[1.75rem] font-bold tracking-tight text-foreground">{stats.active}</div>
+            <div className="text-[1.75rem] font-bold tracking-tight text-foreground">{stats.documented}</div>
             <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-              <span className="text-emerald-500 font-medium">{(stats.active / stats.total * 100).toFixed(0)}%</span> {tr(language, "response rate", "อัตราการตอบกลับ")}
+              <span className="text-emerald-500 font-medium">{documentedProfileRate}%</span> {tr(language, "records include profile markers", "ของระเบียนมีตัวบ่งชี้โปรไฟล์")}
             </p>
           </CardContent>
         </Card>
@@ -586,8 +938,10 @@ export function PatientsTable() {
           </CardContent>
         </Card>
       </div>
+      ) : null}
 
       {/* Main Patient Table */}
+      {showTable ? (
       <Card className="flex flex-col overflow-hidden">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -599,11 +953,49 @@ export function PatientsTable() {
                 {tr(language, "Patient Directory", "รายชื่อผู้ป่วย")}
               </CardTitle>
               <CardDescription className="ml-9 text-sm">
-                {tr(language, "Manage your patient records, appointments, and contact details.", "จัดการข้อมูลผู้ป่วย การนัดหมาย และข้อมูลติดต่อ")}
+                {directoryDescription}
               </CardDescription>
+              {contactDetailsError ? (
+                <p className="ml-9 text-sm text-amber-700 dark:text-amber-300">
+                  {contactDetailsError}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant={contactDetailsVisible ? "default" : "outline"}
+                className={cn(
+                  "h-9 gap-2 px-3.5 shadow-sm",
+                  contactDetailsVisible && "bg-black text-white hover:bg-black/90 dark:bg-black dark:text-white dark:hover:bg-black/90",
+                )}
+                aria-pressed={contactDetailsVisible}
+                disabled={patients.length === 0 || revealingContactDetails}
+                title={tr(
+                  language,
+                  contactDetailsVisible ? "Hide protected details on this page" : "Reveal protected details on this page",
+                  contactDetailsVisible ? "ซ่อนข้อมูลที่ถูกปกป้องในหน้านี้" : "แสดงข้อมูลที่ถูกปกป้องในหน้านี้",
+                )}
+                onClick={() => {
+                  void handleToggleContactDetailsVisibility();
+                }}
+              >
+                <span
+                  className={cn(
+                    "flex size-5 items-center justify-center rounded-full transition-colors",
+                    contactDetailsVisible ? "bg-white/10 text-white" : "text-primary",
+                  )}
+                >
+                  <EyeIcon size={16} className="size-4" aria-hidden="true" />
+                </span>
+                {revealingContactDetails
+                  ? tr(language, "Opening this page", "กำลังเปิดดูหน้านี้")
+                  : contactDetailsVisible
+                    ? tr(language, "Hide this page", "ซ่อนหน้านี้")
+                    : tr(language, "Open this page", "เปิดดูหน้านี้")}
+              </Button>
+
               <div className="relative flex-1 sm:flex-none group">
                 <HugeiconsIcon
                   icon={Search01Icon}
@@ -619,14 +1011,16 @@ export function PatientsTable() {
                   className="h-9 w-full bg-background/50 pl-9 shadow-sm transition-all hover:border-input focus-visible:ring-primary/20 sm:w-[240px]"
                 />
               </div>
-              <Button
-                variant="default"
-                className="h-9 gap-2 bg-black px-3.5 text-sm text-white hover:bg-black/90 dark:bg-black dark:text-white dark:hover:bg-black/90"
-                onClick={() => resetForm()}
-              >
-                <HugeiconsIcon icon={Add01Icon} className="size-4" />
-                {tr(language, "Add Patient", "เพิ่มผู้ป่วย")}
-              </Button>
+              {canManagePatients ? (
+                <Button
+                  variant="default"
+                  className="h-9 gap-2 bg-black px-3.5 text-sm text-white hover:bg-black/90 dark:bg-black dark:text-white dark:hover:bg-black/90"
+                  onClick={() => resetForm()}
+                >
+                  <HugeiconsIcon icon={Add01Icon} className="size-4" />
+                  {tr(language, "Add Patient", "เพิ่มผู้ป่วย")}
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 size="icon"
@@ -653,9 +1047,12 @@ export function PatientsTable() {
                         clearToken();
                         router.replace("/login");
                       } else {
-                        const message = err instanceof Error
-                          ? err.message
-                          : tr(language, "Unable to reset filters", "ไม่สามารถรีเซ็ตตัวกรองได้");
+                        const message = getLocalizedDashboardErrorMessage(
+                          err,
+                          language,
+                          "Unable to reset filters",
+                          "ไม่สามารถรีเซ็ตตัวกรองได้"
+                        );
                         toast.error(message);
                       }
                     } finally {
@@ -761,17 +1158,22 @@ export function PatientsTable() {
                     <TableCell colSpan={7}>{emptyStateContent}</TableCell>
                   </TableRow>
                 ) : (
-                  <AnimatePresence mode="wait">
+                  <AnimatePresence initial={false}>
                     {patients.map((patient, index) => {
                       const age = getAgeFromDOB(patient.date_of_birth);
-                      const hasContact = !!(patient.phone || patient.email);
                       const rowNumber = (page - 1) * limit + index + 1;
                       const profileSeed = buildProfileSeed(
                         patient.id,
                         patient.first_name,
                         patient.last_name,
-                        patient.email
+                        null
                       );
+                      const rowContactDetails = revealedContactDetails[patient.id];
+                      const isRowContactVisible =
+                        contactDetailsVisible || Boolean(rowContactDetailsVisible[patient.id]);
+                      const isRevealedRowPending =
+                        Boolean(rowContactDetailsLoading[patient.id]) ||
+                        (contactDetailsVisible && revealingContactDetails && !rowContactDetails);
 
                       return (
                         <m.tr
@@ -779,7 +1181,7 @@ export function PatientsTable() {
                           initial={{ opacity: 0, y: 5 }}
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0 }}
-                          transition={{ duration: 0.12, delay: index * 0.02 }}
+                          transition={{ duration: 0.08 }}
                           className="border-b transition-colors hover:bg-muted/40 data-[state=selected]:bg-muted group"
                         >
                           <TableCell className="p-3 align-middle text-center font-medium text-muted-foreground">
@@ -798,9 +1200,20 @@ export function PatientsTable() {
                                 </AvatarFallback>
                               </Avatar>
                               <div>
-                                <div className="text-sm font-semibold text-foreground">
+                                <button
+                                  type="button"
+                                  onClick={() => openPatientWorkspace(patient.id)}
+                                  onFocus={() => prefetchPatientWorkspace(patient.id)}
+                                  onMouseEnter={() => prefetchPatientWorkspace(patient.id)}
+                                  className="text-left text-sm font-semibold text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-sm"
+                                  aria-label={tr(
+                                    language,
+                                    `Open ${patient.first_name} ${patient.last_name} workspace`,
+                                    `เปิดพื้นที่ทำงานของ ${patient.first_name} ${patient.last_name}`
+                                  )}
+                                >
                                   {patient.first_name} {patient.last_name}
-                                </div>
+                                </button>
                               </div>
                             </div>
                           </TableCell>
@@ -826,79 +1239,170 @@ export function PatientsTable() {
                             )}
                           </TableCell>
 
-                          <TableCell className="hidden p-3 align-middle lg:table-cell">
-                            <div className="space-y-1">
-                              {patient.phone ? (
-                                <div className="flex items-center gap-2 text-sm text-foreground/90">
-                                  <div className="p-1 rounded-sm bg-primary/5 text-primary">
+                          <TableCell className="hidden p-3 align-middle whitespace-normal lg:table-cell">
+                            {isRowContactVisible ? (
+                              <div className="space-y-1">
+                                <div className="flex items-start gap-2 text-sm">
+                                  <div className="rounded-sm bg-primary/5 p-1 text-primary">
                                     <HugeiconsIcon icon={AiPhone01Icon} className="size-3" />
                                   </div>
-                                  {patient.phone}
+                                  <span
+                                    className={cn(
+                                      "min-w-0 break-all text-foreground",
+                                      !rowContactDetails?.phone && "text-muted-foreground",
+                                    )}
+                                  >
+                                    {isRevealedRowPending
+                                      ? tr(language, "Loading protected details...", "กำลังโหลดข้อมูลที่ถูกปกป้อง...")
+                                      : rowContactDetails?.phone
+                                        ? rowContactDetails.phone
+                                        : tr(language, "No phone recorded", "ยังไม่มีเบอร์โทร")}
+                                  </span>
                                 </div>
-                              ) : null}
-                              {patient.email ? (
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                  <div className="p-1 rounded-sm bg-muted text-muted-foreground">
+                                <div className="flex items-start gap-2 text-sm">
+                                  <div className="rounded-sm bg-muted p-1 text-muted-foreground">
                                     <HugeiconsIcon icon={Mail01Icon} className="size-3" />
                                   </div>
-                                  {patient.email}
+                                  <span
+                                    className={cn(
+                                      "min-w-0 break-all text-foreground",
+                                      !rowContactDetails?.email && "text-muted-foreground",
+                                    )}
+                                  >
+                                    {isRevealedRowPending
+                                      ? tr(language, "Loading protected details...", "กำลังโหลดข้อมูลที่ถูกปกป้อง...")
+                                      : rowContactDetails?.email
+                                        ? rowContactDetails.email
+                                        : tr(language, "No email recorded", "ยังไม่มีอีเมล")}
+                                  </span>
                                 </div>
-                              ) : null}
-                              {!hasContact && <span className="text-muted-foreground text-sm">—</span>}
-                            </div>
+                              </div>
+                            ) : (
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <div className="rounded-sm bg-primary/5 p-1 text-primary">
+                                    <HugeiconsIcon icon={AiPhone01Icon} className="size-3" />
+                                  </div>
+                                  {tr(language, "Protected in workspace", "ข้อมูลถูกปกป้องใน workspace")}
+                                </div>
+                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                  <div className="rounded-sm bg-muted p-1 text-muted-foreground">
+                                    <HugeiconsIcon icon={Mail01Icon} className="size-3" />
+                                  </div>
+                                  {tr(language, "Protected until secure reveal", "ข้อมูลถูกปกป้องจนกว่าจะยืนยันเพิ่ม")}
+                                </div>
+                              </div>
+                            )}
                           </TableCell>
 
-                          <TableCell className="hidden p-3 align-middle xl:table-cell">
-                            <div className="text-sm text-muted-foreground max-w-[200px] truncate" title={patient.address || undefined}>
-                              {patient.address || <span className="text-muted-foreground/50">—</span>}
-                            </div>
+                          <TableCell className="hidden p-3 align-middle whitespace-normal xl:table-cell">
+                            {isRowContactVisible ? (
+                              <div
+                                className={cn(
+                                  "max-w-[240px] text-sm leading-5 text-foreground",
+                                  !rowContactDetails?.address && "text-muted-foreground",
+                                )}
+                              >
+                                {isRevealedRowPending
+                                  ? tr(language, "Loading protected details...", "กำลังโหลดข้อมูลที่ถูกปกป้อง...")
+                                  : rowContactDetails?.address
+                                    ? rowContactDetails.address
+                                    : tr(language, "No address recorded", "ไม่มีที่อยู่ที่บันทึกไว้")}
+                              </div>
+                            ) : (
+                              <div className="max-w-[200px] truncate text-sm text-muted-foreground">
+                                {tr(language, "Protected in workspace", "ข้อมูลถูกปกป้องใน workspace")}
+                              </div>
+                            )}
                           </TableCell>
 
                           <TableCell className="p-3 align-middle text-right">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background transition-colors data-[state=open]:bg-muted">
-                                <span className="sr-only">{tr(language, "Open menu", "เปิดเมนู")}</span>
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4 text-muted-foreground">
-                                  <circle cx="12" cy="12" r="1" />
-                                  <circle cx="19" cy="12" r="1" />
-                                  <circle cx="5" cy="12" r="1" />
-                                </svg>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-40">
-                                <DropdownMenuItem onClick={() => {
-                                  navigator.clipboard.writeText(patient.id);
-                                  toast.success(tr(language, "ID copied to clipboard", "คัดลอก ID แล้ว"));
-                                }}>
-                                  <HugeiconsIcon icon={Copy01Icon} className="size-4 mr-2" />
-                                  {tr(language, "Copy ID", "คัดลอก ID")}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => resetForm(patient)}>
-                                  <HugeiconsIcon icon={Edit01Icon} className="size-4 mr-2" />
-                                  {tr(language, "Edit Patient", "แก้ไขผู้ป่วย")}
-                                </DropdownMenuItem>
-                                {role === "admin" && (
-                                  <DropdownMenuItem onClick={() => setAssignmentPatient(patient)}>
-                                    <HugeiconsIcon icon={Stethoscope02Icon} className="size-4 mr-2" />
-                                    {tr(language, "Manage Doctors", "จัดการแพทย์")}
-                                  </DropdownMenuItem>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                type="button"
+                                variant={isRowContactVisible ? "default" : "ghost"}
+                                size="icon-xs"
+                                className={cn(
+                                  "rounded-full",
+                                  isRowContactVisible && "bg-black text-white hover:bg-black/90 dark:bg-black dark:text-white dark:hover:bg-black/90",
                                 )}
-                                {(role === "admin" || role === "doctor") && (
-                                  <DropdownMenuItem onClick={() => { void handleGenerateRegCode(patient); }}>
-                                    <HugeiconsIcon icon={AiPhone01Icon} className="size-4 mr-2" />
-                                    {tr(language, "App Reg Code", "รหัสลงทะเบียนแอป")}
-                                  </DropdownMenuItem>
+                                aria-label={tr(
+                                  language,
+                                  contactDetailsVisible
+                                    ? `${patient.first_name} ${patient.last_name} details are opened by the page toggle`
+                                    : isRowContactVisible
+                                      ? `Hide protected details for ${patient.first_name} ${patient.last_name}`
+                                      : `Reveal protected details for ${patient.first_name} ${patient.last_name}`,
+                                  contactDetailsVisible
+                                    ? `ข้อมูลของ ${patient.first_name} ${patient.last_name} ถูกเปิดโดยปุ่มของทั้งหน้าอยู่`
+                                    : isRowContactVisible
+                                      ? `ซ่อนข้อมูลที่ถูกปกป้องของ ${patient.first_name} ${patient.last_name}`
+                                      : `แสดงข้อมูลที่ถูกปกป้องของ ${patient.first_name} ${patient.last_name}`,
                                 )}
-                                {role === "admin" && (
+                                title={tr(
+                                  language,
+                                  contactDetailsVisible
+                                    ? "This row is open because the whole page is revealed"
+                                    : isRowContactVisible
+                                      ? "Hide this patient's protected details"
+                                      : "Reveal this patient's protected details",
+                                  contactDetailsVisible
+                                    ? "แถวนี้เปิดอยู่เพราะทั้งหน้าถูกเปิดดู"
+                                    : isRowContactVisible
+                                      ? "ซ่อนข้อมูลที่ถูกปกป้องของผู้ป่วยคนนี้"
+                                      : "แสดงข้อมูลที่ถูกปกป้องของผู้ป่วยคนนี้",
+                                )}
+                                disabled={contactDetailsVisible || isRevealedRowPending}
+                                onClick={() => {
+                                  void handleToggleRowContactDetails(patient.id);
+                                }}
+                              >
+                                <EyeIcon size={14} className="size-3.5" aria-hidden="true" />
+                              </Button>
+
+                              <DropdownMenu>
+                                <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background transition-colors data-[state=open]:bg-muted">
+                                  <span className="sr-only">{tr(language, "Open menu", "เปิดเมนู")}</span>
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4 text-muted-foreground">
+                                    <circle cx="12" cy="12" r="1" />
+                                    <circle cx="19" cy="12" r="1" />
+                                    <circle cx="5" cy="12" r="1" />
+                                  </svg>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-40">
                                   <DropdownMenuItem
-                                    onClick={() => handleDelete(patient.id)}
-                                    className="text-destructive focus:text-destructive"
+                                    onFocus={() => prefetchPatientWorkspace(patient.id)}
+                                    onMouseEnter={() => prefetchPatientWorkspace(patient.id)}
+                                    onClick={() => openPatientWorkspace(patient.id)}
                                   >
-                                    <HugeiconsIcon icon={Delete01Icon} className="size-4 mr-2" />
-                                    {tr(language, "Delete", "ลบ")}
+                                    <HugeiconsIcon icon={UserIcon} className="size-4 mr-2" />
+                                    {tr(language, "Open Workspace", "เปิดพื้นที่ทำงาน")}
                                   </DropdownMenuItem>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                                  <DropdownMenuItem onClick={() => {
+                                    navigator.clipboard.writeText(patient.id);
+                                    toast.success(tr(language, "ID copied to clipboard", "คัดลอก ID แล้ว"));
+                                  }}>
+                                    <HugeiconsIcon icon={Copy01Icon} className="size-4 mr-2" />
+                                    {tr(language, "Copy ID", "คัดลอก ID")}
+                                  </DropdownMenuItem>
+                                  {canManagePatients ? (
+                                    <DropdownMenuItem onClick={() => { void openEditForm(patient); }}>
+                                      <HugeiconsIcon icon={Edit01Icon} className="size-4 mr-2" />
+                                      {tr(language, "Edit Patient", "แก้ไขผู้ป่วย")}
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  {canDeletePatients ? (
+                                    <DropdownMenuItem
+                                      onClick={() => handleDelete(patient.id)}
+                                      className="text-destructive focus:text-destructive"
+                                    >
+                                      <HugeiconsIcon icon={Delete01Icon} className="size-4 mr-2" />
+                                      {tr(language, "Delete", "ลบ")}
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
                           </TableCell>
                         </m.tr>
                       );
@@ -919,6 +1423,8 @@ export function PatientsTable() {
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1 || loading}
                 className="size-7 rounded-full shadow-sm"
+                aria-label={tr(language, "Previous page", "หน้าก่อนหน้า")}
+                title={tr(language, "Previous page", "หน้าก่อนหน้า")}
               >
                 <HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
               </Button>
@@ -974,6 +1480,8 @@ export function PatientsTable() {
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages || loading}
                 className="size-7 rounded-full shadow-sm"
+                aria-label={tr(language, "Next page", "หน้าถัดไป")}
+                title={tr(language, "Next page", "หน้าถัดไป")}
               >
                 <HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />
               </Button>
@@ -982,7 +1490,7 @@ export function PatientsTable() {
 
           <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
             <span className="rounded-full bg-muted/30 px-3 py-1 text-sm font-medium text-muted-foreground">
-              {startEntry}-{endEntry} {tr(language, "of", "จาก")} {total}
+              {tr(language, "Showing", "แสดง")} {startEntry}-{endEntry} {tr(language, "of", "จาก")} {total}
             </span>
 
             <div className="flex items-center gap-2">
@@ -1066,6 +1574,7 @@ export function PatientsTable() {
           </div>
         </div>
       </Card>
+      ) : null}
 
       {/* Patient Form Dialog */}
       <Dialog
@@ -1323,59 +1832,6 @@ export function PatientsTable() {
                 </Button>
               </div>
             </form>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {assignmentPatient ? (
-        <PatientAssignmentsDialog
-          open
-          patientId={assignmentPatient.id}
-          patientName={`${assignmentPatient.first_name} ${assignmentPatient.last_name}`}
-          onOpenChange={(open) => {
-            if (!open) {
-              setAssignmentPatient(null);
-            }
-          }}
-        />
-      ) : null}
-
-      {/* Registration Code Dialog */}
-      <Dialog open={regCodeDialogOpen} onOpenChange={setRegCodeDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{tr(language, "App Registration Code", "รหัสลงทะเบียนแอป")}</DialogTitle>
-            <DialogDescription>
-              {tr(
-                language,
-                `Registration code for ${regCodePatientName}. The patient enters this code in the mobile app together with their phone number to set a PIN.`,
-                `รหัสลงทะเบียนสำหรับ ${regCodePatientName} ให้คนไข้กรอกรหัสนี้ในแอปมือถือพร้อมเบอร์โทรเพื่อตั้ง PIN`,
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col items-center gap-4 py-4">
-            {regCodeLoading ? (
-              <Skeleton className="h-14 w-48" />
-            ) : regCode ? (
-              <>
-                <div className="text-4xl font-mono font-bold tracking-[0.3em] text-primary select-all">
-                  {regCode}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {tr(language, "Valid for 72 hours", "ใช้ได้ภายใน 72 ชั่วโมง")}
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    navigator.clipboard.writeText(regCode);
-                    toast.success(tr(language, "Code copied!", "คัดลอกรหัสแล้ว!"));
-                  }}
-                >
-                  <HugeiconsIcon icon={Copy01Icon} className="size-4 mr-2" />
-                  {tr(language, "Copy Code", "คัดลอกรหัส")}
-                </Button>
-              </>
-            ) : null}
           </div>
         </DialogContent>
       </Dialog>

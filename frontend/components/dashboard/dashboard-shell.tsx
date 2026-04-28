@@ -9,6 +9,7 @@ import { useAuthStore } from "@/store/auth-store";
 import { DashboardHeader } from "@/components/dashboard/header";
 import { PageTransition } from "@/components/dashboard/page-transition";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
+import { WorkspaceTabs } from "@/components/dashboard/workspace-tabs";
 import { SidebarProvider } from "@/components/ui/sidebar";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
@@ -46,7 +47,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <DashboardSidebar />
       <div className="h-svh overflow-hidden lg:p-2 w-full">
         <div className="lg:border lg:rounded-md overflow-hidden flex flex-col items-center justify-start bg-container h-full w-full bg-background">
-          <DashboardHeader />
+          <div className="sticky top-0 z-30 w-full bg-background/95 supports-backdrop-filter:backdrop-blur-md">
+            <WorkspaceTabs />
+            <DashboardHeader />
+          </div>
           <PageTransition>{children}</PageTransition>
         </div>
       </div>

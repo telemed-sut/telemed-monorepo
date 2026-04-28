@@ -107,22 +107,34 @@ class TestAssignmentGate:
         resp = client.get(f"/patients/{patient.id}/summary", headers=_auth_headers(token))
         assert resp.status_code == 200
 
-    def test_staff_blocked_from_clinical_data(self, client: TestClient, db: Session):
-        staff = _create_user(db, "staff@test.com", UserRole.staff)
+    def test_assigned_medical_student_can_access_read_endpoints(self, client: TestClient, db: Session):
+        medical_student = _create_user(db, "medical-student@test.com", UserRole.medical_student)
+        patient = _create_patient(db)
+        _assign_doctor(db, medical_student.id, patient.id)
+
+        token = _login(client, "medical-student@test.com")
+        headers = _auth_headers(token)
+
+        summary_resp = client.get(f"/patients/{patient.id}/summary", headers=headers)
+        assert summary_resp.status_code == 200
+
+        timeline_resp = client.get(f"/patients/{patient.id}/timeline", headers=headers)
+        assert timeline_resp.status_code == 200
+
+        orders_resp = client.get(f"/patients/{patient.id}/active-orders", headers=headers)
+        assert orders_resp.status_code == 200
+
+        trends_resp = client.get(f"/patients/{patient.id}/results/trends", headers=headers)
+        assert trends_resp.status_code == 200
+
+    def test_unassigned_medical_student_is_blocked(self, client: TestClient, db: Session):
+        medical_student = _create_user(db, "medical-student-blocked@test.com", UserRole.medical_student)
         patient = _create_patient(db)
 
-        token = _login(client, "staff@test.com")
+        token = _login(client, "medical-student-blocked@test.com")
         resp = client.get(f"/patients/{patient.id}/summary", headers=_auth_headers(token))
         assert resp.status_code == 403
-
-    def test_non_doctor_clinical_roles_are_blocked(self, client: TestClient, db: Session):
-        nurse = _create_user(db, "nurse@test.com", UserRole.nurse)
-        patient = _create_patient(db)
-        _assign_doctor(db, nurse.id, patient.id)
-
-        token = _login(client, "nurse@test.com")
-        resp = client.get(f"/patients/{patient.id}/summary", headers=_auth_headers(token))
-        assert resp.status_code == 403
+        assert "not assigned" in resp.json()["detail"].lower()
 
     def test_unassigned_doctor_blocked_on_timeline_orders_and_trends(self, client: TestClient, db: Session):
         doctor = _create_user(db, "doc3@test.com", UserRole.doctor)
@@ -238,12 +250,12 @@ class TestAlertAcknowledge:
         )
         assert resp.status_code == 200
 
-    def test_staff_cannot_acknowledge_alert(self, client: TestClient, db: Session):
-        staff = _create_user(db, "ack-staff@test.com", UserRole.staff)
+    def test_medical_student_cannot_acknowledge_alert(self, client: TestClient, db: Session):
+        medical_student = _create_user(db, "ack-medical-student@test.com", UserRole.medical_student)
         patient = _create_patient(db)
         alert = _create_alert(db, patient.id)
 
-        token = _login(client, "ack-staff@test.com")
+        token = _login(client, "ack-medical-student@test.com")
         resp = client.post(
             f"/alerts/{alert.id}/acknowledge",
             json={"reason": "No permission"},

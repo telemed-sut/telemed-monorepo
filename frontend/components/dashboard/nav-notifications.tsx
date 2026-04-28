@@ -48,7 +48,7 @@ export function NotificationsPopover({
                         <DropdownMenuItem key={id} className="flex items-start gap-3">
                             <Avatar className="size-8">
                                 <AvatarImage src={avatar} alt={tr(language, "Avatar", "รูปโปรไฟล์")} />
-                                <AvatarFallback>{fallback}</AvatarFallback>
+                                <AvatarFallback seed={`${id}|${fallback}|${text}`}>{fallback}</AvatarFallback>
                             </Avatar>
                             <div className="flex flex-col">
                                 <span className="text-sm font-medium">{text}</span>

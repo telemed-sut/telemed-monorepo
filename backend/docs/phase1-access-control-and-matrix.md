@@ -2,8 +2,8 @@
 
 ## Scope
 - Assignment-based patient access only.
-- Roles enforced: `admin`, `doctor`, `staff` (staff denied for patient data).
-- Invite-only onboarding for clinical specialists.
+- Roles enforced: `admin`, `doctor`, `medical_student` (`medical_student` is read-only and assignment-scoped).
+- Invite-only onboarding for doctor and `medical_student` accounts.
 - Break-glass disabled by policy.
 
 ## Doctor-Patient Assignment Integrity

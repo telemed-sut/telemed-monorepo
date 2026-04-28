@@ -17,6 +17,47 @@ has_runtime_env() {
     || [[ -n "${NEXT_SERVER_API_BASE_URL:-}" ]]
 }
 
+load_env_file_if_present() {
+  local env_file="$1"
+  [[ -f "$env_file" ]] || return 0
+
+  local line key value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    [[ -n "${line//[[:space:]]/}" ]] || continue
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" == *"="* ]] || continue
+
+    key="${line%%=*}"
+    value="${line#*=}"
+
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+    # Only export if not already set by shell
+    if [[ -z "${!key+x}" ]]; then
+      export "$key=$value"
+    fi
+  done < "$env_file"
+}
+
+load_default_runtime_env() {
+  # Priority: .env.local > .env
+  load_env_file_if_present "$ROOT_DIR/.env"
+  load_env_file_if_present "$ROOT_DIR/.env.local"
+
+  # Also try dir-specific env files if we are in a sub-project
+  if [[ "$target_dir" == "$ROOT_DIR/backend" ]]; then
+    load_env_file_if_present "$ROOT_DIR/backend/.env"
+    load_env_file_if_present "$ROOT_DIR/backend/.env.local"
+  elif [[ "$target_dir" == "$ROOT_DIR/frontend" ]]; then
+    load_env_file_if_present "$ROOT_DIR/frontend/.env"
+    load_env_file_if_present "$ROOT_DIR/frontend/.env.local"
+  fi
+}
+
 main() {
   local target_dir="$ROOT_DIR"
 
@@ -37,7 +78,8 @@ main() {
 
   cd "$target_dir"
 
-  if ! is_enabled "${USE_INFISICAL:-true}"; then
+  if ! is_enabled "${USE_INFISICAL:-false}"; then
+    load_default_runtime_env
     exec "$@"
   fi
 

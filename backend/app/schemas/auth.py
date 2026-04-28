@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -12,6 +13,12 @@ class LoginRequest(BaseModel):
     remember_device: bool = False
 
 
+class StepUpAuthRequest(BaseModel):
+    password: str = Field(min_length=8)
+    otp_code: str | None = Field(default=None, min_length=6, max_length=32)
+    remember_device: bool = False
+
+
 class UserMeResponse(BaseModel):
     id: str
     email: str
@@ -20,6 +27,42 @@ class UserMeResponse(BaseModel):
     role: str
     verification_status: str | None = None
     two_factor_enabled: bool = False
+    mfa_verified: bool = False
+    mfa_authenticated_at: datetime | None = None
+    mfa_recent_for_privileged_actions: bool = False
+    auth_source: str = "local"
+    sso_provider: str | None = None
+    passkey_onboarding_dismissed: bool = False
+    passkey_count: int = 0
+
+
+class AccessProfileResponse(BaseModel):
+    has_privileged_access: bool = False
+    access_class: str | None = None
+    access_class_revealed: bool = False
+    can_manage_privileged_admins: bool = False
+    can_manage_security_recovery: bool = False
+    can_bootstrap_privileged_roles: bool = False
+
+
+class AdminSSOStatusResponse(BaseModel):
+    enabled: bool
+    provider: str | None = None
+    enforced_for_admin: bool = False
+    login_path: str | None = None
+    logout_path: str | None = None
+
+
+class AdminSSOHealthResponse(BaseModel):
+    status: Literal["disabled", "healthy", "misconfigured", "unreachable"]
+    provider: str | None = None
+    issuer: str | None = None
+    details: str | None = None
+    metadata_endpoint: str | None = None
+
+
+class AdminSSOLogoutResponse(BaseModel):
+    redirect_url: str
 
 
 class TokenResponse(BaseModel):

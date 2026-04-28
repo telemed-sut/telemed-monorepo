@@ -6,6 +6,7 @@ import type { DeviceRegistration } from "@/lib/api";
 const {
   mockPush,
   mockReplace,
+  mockToastDismiss,
   mockToastError,
   mockToastSuccess,
   mockToastWarning,
@@ -20,6 +21,7 @@ const {
     mockPush: vi.fn(),
     mockReplace: vi.fn(),
     mockClearToken: clearToken,
+    mockToastDismiss: vi.fn(),
     mockToastError: vi.fn(),
     mockToastSuccess: vi.fn(),
     mockToastWarning: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock("@/store/language-store", () => ({
 
 vi.mock("@/components/ui/toast", () => ({
   toast: {
+    dismiss: mockToastDismiss,
     error: mockToastError,
     success: mockToastSuccess,
     warning: mockToastWarning,
@@ -76,6 +79,7 @@ function makeDevice(overrides: Partial<DeviceRegistration> = {}): DeviceRegistra
     device_id: "ward-bp-001",
     display_name: "Ward BP Device 01",
     notes: "Near nursing station",
+    default_measurement_type: "lung_sound",
     is_active: true,
     last_seen_at: "2026-02-25T06:27:00.000Z",
     deactivated_at: null,
@@ -111,11 +115,26 @@ afterEach(() => {
 });
 
 describe("DeviceRegistryContent", () => {
-  it("renders registered device list after loading", async () => {
+  it("renders the device registry shell and requests device data on load", async () => {
     await renderDeviceRegistry();
     await waitFor(() => expect(mockFetchDeviceRegistrations).toHaveBeenCalledTimes(1));
-    expect(await screen.findByRole("button", { name: /^delete$/i })).toBeTruthy();
-    expect(await screen.findByRole("button", { name: /^disable$/i })).toBeTruthy();
+    expect(screen.getByText("Device Operations")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /new device/i })).toBeInTheDocument();
+    expect(screen.queryByText("Active in this page")).toBeNull();
+    expect(screen.queryByRole("button", { name: /auto refresh/i })).toBeNull();
+    expect(screen.queryByText(/Synced|Live sync ready|Syncing live/i)).toBeNull();
+  }, 10000);
+
+  it("uses a wrapping table layout so device rows can fit without horizontal scrolling", async () => {
+    const { container } = await renderDeviceRegistry();
+    await screen.findByText("Ward BP Device 01");
+
+    const table = container.querySelector('table[data-slot="table"]');
+    expect(table).not.toBeNull();
+    expect(table?.className).not.toContain("table-fixed");
+
+    const actionGroup = screen.getByTestId("device-actions-d-1");
+    expect(actionGroup.className).toContain("flex-wrap");
   });
 
   it("shows toast error when refresh fails", async () => {
@@ -131,13 +150,54 @@ describe("DeviceRegistryContent", () => {
     await renderDeviceRegistry();
     await screen.findByText("Ward BP Device 01");
 
-    fireEvent.click(screen.getByRole("button", { name: /^refresh$/i }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^refresh$/i })[0]!);
 
     await waitFor(() => {
       expect(mockToastError).toHaveBeenCalledWith("Unable to load device list", {
-        description: "api error",
+        description: "Unable to load device list",
       });
     });
+  }, 10000);
+
+  it("falls back to English device error copy when API returns Thai text", async () => {
+    mockFetchDeviceRegistrations
+      .mockResolvedValueOnce({
+        items: [makeDevice()],
+        total: 1,
+        page: 1,
+        limit: 20,
+      })
+      .mockRejectedValueOnce(new Error("ไม่สามารถโหลดรายการอุปกรณ์ได้"));
+
+    await renderDeviceRegistry();
+    await screen.findByText("Ward BP Device 01");
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^refresh$/i })[0]!);
+
+    await waitFor(() => {
+      expect(mockToastError).toHaveBeenCalledWith("Unable to load device list", {
+        description: "Unable to load device list",
+      });
+    });
+  }, 10000);
+
+  it("shows one validation toast payload and inline field errors when required fields are missing", async () => {
+    await renderDeviceRegistry();
+    await screen.findByText("Ward BP Device 01");
+
+    fireEvent.click(screen.getByRole("button", { name: /new device/i }));
+    await screen.findByText("Register new device");
+
+    fireEvent.click(screen.getByRole("button", { name: /register device/i }));
+    fireEvent.click(screen.getByRole("button", { name: /register device/i }));
+
+    expect(mockToastWarning).toHaveBeenCalledWith("Please fill Device ID and Device Name", {
+      id: "device-registry-required-fields",
+      description: "Complete the required fields before registering a device.",
+    });
+    expect(screen.getByText("Please enter Device ID")).toBeInTheDocument();
+    expect(screen.getByText("Please enter Device Name")).toBeInTheDocument();
+    expect(mockCreateDeviceRegistration).not.toHaveBeenCalled();
   });
 
 });

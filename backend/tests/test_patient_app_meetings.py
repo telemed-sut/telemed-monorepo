@@ -3,16 +3,17 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core.config import get_settings
-from app.core.security import create_access_token, get_password_hash
+from app.core.security import get_password_hash
 from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
 from app.models.meeting_room_presence import MeetingRoomPresence
 from app.models.meeting_patient_invite_code import MeetingPatientInviteCode
 from app.models.patient import Patient
 from app.models.user import User, UserRole
+from app.services import patient_app as patient_app_service
 from app.services.auth import create_login_response
 
 
@@ -59,20 +60,29 @@ def _create_meeting(
     return meeting
 
 
-def _patient_auth_headers(patient: Patient) -> dict[str, str]:
-    token = create_access_token(
-        {
-            "sub": str(patient.id),
-            "type": "patient",
-            "role": "patient",
-        },
-        expires_in=3_600,
-    )
-    return {"Authorization": f"Bearer {token}"}
+def _patient_auth_headers(
+    patient: Patient,
+    db: Session | None = None,
+    *,
+    user_agent: str = "patient-app-meetings-test/1.0",
+) -> dict[str, str]:
+    session = db or object_session(patient)
+    token = patient_app_service.create_patient_login_response(
+        db=session,
+        patient=patient,
+        user_agent=user_agent,
+    )["access_token"]
+    session.commit()
+    return {
+        "Authorization": f"Bearer {token}",
+        "user-agent": user_agent,
+    }
 
 
-def _doctor_auth_headers(user: User) -> dict[str, str]:
-    token = create_login_response(user)["access_token"]
+def _doctor_auth_headers(user: User, db: Session | None = None) -> dict[str, str]:
+    session = db or object_session(user)
+    token = create_login_response(user, db=session)["access_token"]
+    session.commit()
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -96,7 +106,7 @@ def test_patient_meetings_does_not_generate_invite_when_missing(
 
     response = client.get(
         "/patient-app/me/meetings",
-        headers=_patient_auth_headers(patient),
+        headers=_patient_auth_headers(patient, db),
     )
 
     assert response.status_code == 200
@@ -146,7 +156,7 @@ def test_patient_meetings_hides_expired_invite_from_list(
 
     response = client.get(
         "/patient-app/me/meetings",
-        headers=_patient_auth_headers(patient),
+        headers=_patient_auth_headers(patient, db),
     )
 
     assert response.status_code == 200
@@ -199,7 +209,7 @@ def test_patient_meetings_reuses_any_active_invite_without_regenerating(
 
     response = client.get(
         "/patient-app/me/meetings",
-        headers=_patient_auth_headers(patient),
+        headers=_patient_auth_headers(patient, db),
     )
 
     assert response.status_code == 200
@@ -244,7 +254,7 @@ def test_patient_meetings_show_eager_invite_after_doctor_created_meeting(
 
     response = client.get(
         "/patient-app/me/meetings",
-        headers=_patient_auth_headers(patient),
+        headers=_patient_auth_headers(patient, db),
     )
 
     assert response.status_code == 200
@@ -270,7 +280,7 @@ def test_patient_can_issue_invite_explicitly_for_owned_meeting(
 
     response = client.post(
         f"/patient-app/me/meetings/{meeting.id}/invite",
-        headers=_patient_auth_headers(patient),
+        headers=_patient_auth_headers(patient, db),
     )
 
     assert response.status_code == 200
@@ -320,7 +330,7 @@ def test_patient_explicit_invite_reuses_active_code(
 
     response = client.post(
         f"/patient-app/me/meetings/{meeting.id}/invite",
-        headers=_patient_auth_headers(patient),
+        headers=_patient_auth_headers(patient, db),
     )
 
     assert response.status_code == 200
@@ -370,7 +380,7 @@ def test_patient_meetings_hide_invite_for_cancelled_meeting(
 
     response = client.get(
         "/patient-app/me/meetings",
-        headers=_patient_auth_headers(patient),
+        headers=_patient_auth_headers(patient, db),
     )
 
     assert response.status_code == 200
@@ -404,7 +414,7 @@ def test_patient_meetings_can_delta_sync_by_updated_after(
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
     response = client.get(
         f"/patient-app/me/meetings?updated_after={cutoff}",
-        headers=_patient_auth_headers(patient),
+        headers=_patient_auth_headers(patient, db),
     )
 
     assert response.status_code == 200
@@ -439,7 +449,7 @@ def test_patient_meetings_include_room_presence(
 
     response = client.get(
         "/patient-app/me/meetings",
-        headers=_patient_auth_headers(patient),
+        headers=_patient_auth_headers(patient, db),
     )
 
     assert response.status_code == 200
@@ -479,7 +489,7 @@ def test_patient_meetings_does_not_prune_stale_waiting_status(
 
     response = client.get(
         "/patient-app/me/meetings",
-        headers=_patient_auth_headers(patient),
+        headers=_patient_auth_headers(patient, db),
     )
 
     assert response.status_code == 200

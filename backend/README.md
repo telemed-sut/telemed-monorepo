@@ -1,12 +1,14 @@
 ## Patient Management API (FastAPI)
 
-FastAPI backend with JWT auth, PostgreSQL (Neon/Supabase), patient CRUD, Alembic migrations, and seed data. Default CORS origins are http://localhost:3000 and http://localhost:8080, backend runs on port 8000.
+FastAPI backend with JWT auth, PostgreSQL (Neon/Supabase), patient CRUD,
+Alembic migrations, and local-only demo seed data. Default CORS origins are
+http://localhost:3000 and http://localhost:8080, backend runs on port 8000.
 
 ### Stack
 - FastAPI, Pydantic v2
 - SQLAlchemy 2.x, Alembic
 - PostgreSQL (via psycopg)
-- JWT (python-jose), passlib[bcrypt]
+- JWT (PyJWT), bcrypt
 
 ### Project layout
 - [app/main.py](app/main.py) – FastAPI app and routers
@@ -16,13 +18,14 @@ FastAPI backend with JWT auth, PostgreSQL (Neon/Supabase), patient CRUD, Alembic
 - [app/schemas](app/schemas) – Pydantic schemas
 - [app/core](app/core) – settings and security helpers
 - [alembic](alembic) – migrations (env + versions)
-- [scripts/seed.py](scripts/seed.py) – demo data (users + patients)
+- [scripts/seed.py](scripts/seed.py) – local demo data (users + patients)
 - [backend/Dockerfile](backend/Dockerfile), [docker-compose.yml](docker-compose.yml)
 
 ### Environment variables
 - DATABASE_URL: Postgres connection URL (Neon/Supabase)
 - JWT_SECRET: HMAC secret for HS256 tokens
 - JWT_EXPIRES_IN: token lifetime in seconds (e.g., 3600)
+- ADMIN_JWT_EXPIRES_IN: admin session lifetime in seconds (default 43200)
 - CORS_ORIGINS: comma-separated origins (default http://localhost:3000,http://localhost:8080)
 - DEVICE_API_SECRET: fallback secret for device pressure ingestion signatures (keep for legacy migration)
 - DEVICE_API_SECRETS: per-device secret map (JSON string), recommended for production
@@ -33,19 +36,37 @@ FastAPI backend with JWT auth, PostgreSQL (Neon/Supabase), patient CRUD, Alembic
 - DEVICE_API_NONCE_TTL_SECONDS: nonce replay window retention
 - DEVICE_API_MAX_BODY_BYTES: max accepted request payload size in bytes
 
-Primary source should be Infisical secrets at runtime.  
-`.env.example` documents required keys only. `backend/.env` is not an official runtime source anymore.
+Primary source should be local `.env` files or Infisical secrets at runtime.  
+`.env.example` documents required keys.
+
+### Heart-sound upload secrets
+Heart-sound direct upload depends on Azure Blob Storage runtime secrets. Keep
+these values in Infisical for the target environment, or export them in your
+shell before you start Docker Compose or the backend directly.
+
+- `AZURE_BLOB_STORAGE_CONNECTION_STRING`: required for generating SAS upload
+  URLs
+- `AZURE_BLOB_STORAGE_CONTAINER`: required Blob container name for heart-sound
+  files
+- `AZURE_BLOB_STORAGE_URL_TTL_SECONDS`: optional override for signed URL TTL;
+  defaults to `900`
+- `AZURE_BLOB_STORAGE_PATH_PREFIX`: optional path prefix inside the container
+
+`./scripts/check-compose-env.sh` now fails fast when the required Azure Blob
+secrets are missing, so local startup stops before you reach a broken upload
+flow in the browser.
 
 ### Frontend Integration
 - Backend URL: `http://localhost:8000`
 - Frontend Env: `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000`
 - Allowed Origins: Frontend must run on port **3000** or **8080** (e.g. `http://localhost:3000`).
-  - Note: Other ports (like 3001) will fail CORS checks unless added to runtime config / Infisical secrets.
+  - Note: Other ports (like 3001) will fail CORS checks unless added to runtime config.
 
 ### Backend environment bootstrap
 Use the bootstrap script to create or refresh the backend virtual environment
 before you run tests or start the API. It installs `requirements.txt`, checks
-package integrity, and verifies that the local pytest plugins are present.
+package integrity, and verifies that the local pytest plugins and lint tooling
+are present.
 
 From `backend/`:
 
@@ -59,22 +80,37 @@ If you prefer `make`, run:
 make backend-test-env
 ```
 
+### Dependency locking
+Use the lock workflow when you need a reproducible backend environment with
+hash verification. `requirements.txt` remains the human-maintained top-level
+input, and `requirements.lock` captures the fully resolved, hash-pinned set.
+
+From `backend/`:
+
+```bash
+make deps-lock
+make deps-sync
+```
+
+`./scripts/bootstrap_backend_env.sh` now prefers `requirements.lock` when the
+file exists. Set `REQUIREMENTS_FILE=/path/to/file` if you need to override the
+source explicitly.
+
 Optional environment overrides:
 - `PYTHON_BIN=/path/to/python3.12` picks a specific interpreter.
 - `VENV_DIR=/custom/path/to/venv` installs into a different virtual environment.
 - `UPGRADE_PIP=1` upgrades `pip` before syncing dependencies.
+- `REQUIREMENTS_FILE=/path/to/requirements.txt` overrides the dependency source.
 
 ### Running locally (without Docker)
 1) Bootstrap the environment with `./scripts/bootstrap_backend_env.sh`.
 2) Activate the virtual environment: `source venv/bin/activate`.
-3) Load env vars via Infisical (`infisical run -- ...`) or by exporting env vars
-   in your shell.
+3) Load env vars via local `.env` file or by exporting env vars in your shell.
 4) Run migrations: `alembic upgrade head`.
-5) Seed demo data: `python -m scripts.seed`.
-6) Start API: `infisical run -- uvicorn app.main:app --reload` (defaults to
-   8000).
+5) Optional: seed local demo data: `python -m scripts.seed`.
+6) Start API: `uvicorn app.main:app --reload` (defaults to 8000).
 
-From the repo root you can use the Infisical-aware wrappers instead:
+From the repo root you can use the environment-aware wrappers instead:
 
 ```bash
 ./scripts/dev-api.sh
@@ -91,24 +127,90 @@ INFISICAL_RUN_ARGS="--env=dev" ./scripts/dev-api.sh
 
 ### Running with Docker Compose
 1) Preferred: run the team script from repo root (`./scripts/dev-backend.sh`).
-2) Alternative: export the required env vars in your shell, then run `docker compose up --build`.
-3) Backend runs on port 8000; migrations and seed run automatically before uvicorn starts.
+   If you want to check the exact runtime config first, run
+   `just doctor-backend-env` from the repo root.
+2) Alternative: export the required env vars in your shell, create a local
+   `docker-compose.override.yml`, then run `docker compose up --build`.
+3) Backend runs on port 8000; local Docker Compose can run migrations and demo
+   seed before uvicorn starts.
+4) Keep tracked `docker-compose.yml` production-safe. For local hot reload, add
+   the backend bind mount in `docker-compose.override.yml`:
 
-### Auth and demo users
+```yaml
+services:
+  backend:
+    volumes:
+      - ./backend:/app
+```
+
+5) If you need to debug PostgreSQL from the host, add the port mapping only in
+   your local override and remove it after use:
+
+```yaml
+services:
+  db:
+    ports:
+      - "5432:5432"
+```
+
+The backend runtime preflight now catches the local issues that most often
+cause startup loops:
+- missing `DATABASE_URL`, `JWT_SECRET`, or device ingest secrets
+- placeholder values like `replace_with_*`
+- insecure default `DATABASE_URL` credentials like `user:password@`
+- short JWT or device secrets that backend validation would reject later
+
+### Auth and local demo users
 - Login endpoint: POST /auth/login with {"email", "password"}.
 - Refresh endpoint: POST /auth/refresh (requires valid JWT token).
 - Logout endpoint: POST /auth/logout (stateless JWT - client should discard token).
-- Demo credentials:
-	- admin@example.com / AdminPass123
-	- staff@example.com / StaffPass123
+- Non-admin accounts use `JWT_EXPIRES_IN` for the rolling cookie session.
+- Admin accounts use `ADMIN_JWT_EXPIRES_IN` for the rolling cookie session.
+- Admin secure verification window for routine protected actions uses
+  `PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS` (default 4 hours).
+- Higher-risk admin recovery and privileged-management actions require a fresher
+  MFA check than the general secure window.
+- Local seed creates bootstrap accounts for:
+  - `admin@example.com` (platform admin demo account)
+  - `admin-ops@example.com` (regular admin demo account)
+  - `doctor@example.com`
+  - `medical-student@example.com`
+- For deterministic local passwords, export these env vars before seeding:
+  - `SEED_ADMIN_PASSWORD`
+  - `SEED_REGULAR_ADMIN_PASSWORD`
+  - `SEED_DOCTOR_PASSWORD`
+  - `SEED_MEDICAL_STUDENT_PASSWORD`
+- The seed script refuses to run against non-local database targets unless you
+  set `ALLOW_DEMO_SEED=true` explicitly.
+- For a complete local device demo flow, run
+  `venv/bin/alembic upgrade head`, then
+  `python scripts/seed_device_demo_flow.py`. It creates one demo doctor,
+  patient, registered lung device, assignment, and open device exam session,
+  then prints the simulator command. Redis is optional for this local script.
+- `SUPER_ADMIN_EMAILS` is bootstrap and break-glass fallback only. Production
+  privileged access is assigned in the database.
+- When admin SSO is enabled, the backend uses PKCE and stores OIDC login/logout
+  artifacts server-side. Configure `REDIS_URL` for multi-instance environments
+  and `ADMIN_OIDC_CACHE_TTL_SECONDS` to tune OIDC metadata/JWKS caching.
 
 JWT payload: sub (user id), role, exp. Token type bearer.
 
 ### Role-based Access Control (Phase-1)
 - **Admin users**: Full access to patient operations and assignment management.
 - **Doctor users**: Access only assigned patients (own + explicitly assigned).
-- **Staff users**: No patient clinical access.
+- **Medical student users**: Read-only access to assigned patient data.
 - **Break-glass**: disabled by policy in phase-1.
+
+### Admin operations and recovery
+- Admin onboarding uses invite flow in production-oriented paths.
+- Only `super-admin` users can issue `admin` invites or perform emergency
+  security actions on other admin accounts.
+- Emergency unlock is available through the security toolkit and
+  [scripts/emergency_unlock_admin.py](scripts/emergency_unlock_admin.py).
+- Operational docs:
+  - [docs/security/admin-access-policy.md](/Volumes/P1Back/telemed-monorepo/docs/security/admin-access-policy.md)
+  - [docs/security/admin-emergency-access-runbook.md](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md)
+  - [docs/security/secret-rotation-runbook.md](/Volumes/P1Back/telemed-monorepo/docs/security/secret-rotation-runbook.md)
 
 ### Patients API
 - POST /patients (create) - Admin/Doctor
@@ -215,8 +317,17 @@ python -m scripts.simulate_device_ingest \
 - `--error-rate 0.2`: random error injection (20%) instead of alternating
 
 ### Seeds
-`python -m scripts.seed` inserts demo users and ~15 realistic patients if tables are empty. In Docker Compose this runs automatically after alembic upgrade.
+`python -m scripts.seed` inserts local demo users and around 15 realistic
+patients if tables are empty. The script is blocked for non-local database
+targets unless you opt in with `ALLOW_DEMO_SEED=true`.
+
+Run `venv/bin/alembic upgrade head` before
+`python scripts/seed_device_demo_flow.py` to prepare the no-hardware demo path
+for lung-sound testing. It creates or updates a demo doctor, patient, device
+registration, doctor-patient assignment, and open device exam session without
+deleting existing data. The command output includes the `DEVICE_API_SECRET` and
+`DEVICE_SESSION_ID` values for `tools/simulate_lung_device.py`.
 
 ### Notes
 - CORS allows only configured origins and Authorization header.
-- Role enum scaffold (admin|staff) present; all authenticated users can use CRUD by default.
+- Compatibility enum values still exist for older data, but the active access model is `admin`, `doctor`, and `medical_student`.

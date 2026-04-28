@@ -32,6 +32,9 @@ class Patient(Base):
     # Patient app authentication
     pin_hash = Column(String(255), nullable=True)
     app_registered_at = Column(DateTime(timezone=True), nullable=True)
+    failed_app_login_attempts = Column(Integer, nullable=False, server_default="0", default=0)
+    app_account_locked_until = Column(DateTime(timezone=True), nullable=True)
+    last_app_failed_login_at = Column(DateTime(timezone=True), nullable=True)
 
     # Dense mode clinical columns
     allergies = Column(Text, nullable=True)
@@ -58,3 +61,20 @@ class Patient(Base):
     current_conditions = relationship("CurrentCondition", back_populates="patient")
     treatments = relationship("Treatment", back_populates="patient")
     pressure_records = relationship("PressureRecord", back_populates="patient", order_by="PressureRecord.measured_at.desc()")
+    heart_sound_records = relationship(
+        "HeartSoundRecord",
+        back_populates="patient",
+        order_by="HeartSoundRecord.recorded_at.desc()",
+    )
+    lung_sound_records = relationship(
+        "LungSoundRecord",
+        back_populates="patient",
+        order_by="LungSoundRecord.recorded_at.desc()",
+    )
+    device_exam_sessions = relationship(
+        "DeviceExamSession",
+        back_populates="patient",
+        order_by="DeviceExamSession.created_at.desc()",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

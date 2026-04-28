@@ -3,7 +3,7 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core.config import get_settings
 from app.core.security import get_password_hash
@@ -27,8 +27,10 @@ def _create_user(db: Session, email: str, role: UserRole) -> User:
     return user
 
 
-def _auth_headers(user: User) -> dict[str, str]:
-    token = create_login_response(user)["access_token"]
+def _auth_headers(user: User, db: Session | None = None) -> dict[str, str]:
+    session = db or object_session(user)
+    token = create_login_response(user, db=session)["access_token"]
+    session.commit()
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -321,39 +323,57 @@ def test_doctor_update_meeting_rotates_patient_invite_when_patient_changes(
     get_settings.cache_clear()
 
 
-def test_staff_cannot_access_meetings_endpoints(
+def test_medical_student_has_read_only_meeting_access(
     client: TestClient,
     db: Session,
 ):
-    staff = _create_user(db, "staff-meetings@example.com", UserRole.staff)
-    doctor = _create_user(db, "doctor-staff-check@example.com", UserRole.doctor)
-    patient = _create_patient(db, "Staff", "Forbidden")
-    meeting = _create_meeting(
+    medical_student = _create_user(db, "medical-student-meetings@example.com", UserRole.medical_student)
+    doctor = _create_user(db, "doctor-meeting-check@example.com", UserRole.doctor)
+    patient_assigned = _create_patient(db, "Assigned", "Visible")
+    patient_hidden = _create_patient(db, "Hidden", "Forbidden")
+    _assign_patient(db, doctor_id=medical_student.id, patient_id=patient_assigned.id)
+
+    visible_meeting = _create_meeting(
         db,
         doctor_id=doctor.id,
-        patient_id=patient.id,
-        description="Staff forbidden meeting",
+        patient_id=patient_assigned.id,
+        description="Visible assigned meeting",
+    )
+    hidden_meeting = _create_meeting(
+        db,
+        doctor_id=doctor.id,
+        patient_id=patient_hidden.id,
+        description="Hidden unassigned meeting",
     )
 
-    list_response = client.get("/meetings", headers=_auth_headers(staff))
-    assert list_response.status_code == 403
+    list_response = client.get("/meetings", headers=_auth_headers(medical_student))
+    assert list_response.status_code == 200
+    returned_ids = {item["id"] for item in list_response.json()["items"]}
+    assert str(visible_meeting.id) in returned_ids
+    assert str(hidden_meeting.id) not in returned_ids
+
+    get_response = client.get(
+        f"/meetings/{visible_meeting.id}",
+        headers=_auth_headers(medical_student),
+    )
+    assert get_response.status_code == 200
 
     create_response = client.post(
         "/meetings",
         json={
             "date_time": datetime.now(timezone.utc).isoformat(),
             "doctor_id": str(doctor.id),
-            "user_id": str(patient.id),
+            "user_id": str(patient_assigned.id),
             "description": "No access",
         },
-        headers=_auth_headers(staff),
+        headers=_auth_headers(medical_student),
     )
     assert create_response.status_code == 403
 
     update_response = client.put(
-        f"/meetings/{meeting.id}",
+        f"/meetings/{visible_meeting.id}",
         json={"description": "No access"},
-        headers=_auth_headers(staff),
+        headers=_auth_headers(medical_student),
     )
     assert update_response.status_code == 403
 
@@ -400,18 +420,24 @@ def test_admin_can_manage_all_meetings(
     assert delete_response.status_code == 204
 
 
-def test_doctor_stats_scope_matches_meetings_visibility_and_staff_denied(
+def test_doctor_and_medical_student_stats_scope_matches_meetings_visibility(
     client: TestClient,
     db: Session,
 ):
     doctor = _create_user(db, "doctor-stats@example.com", UserRole.doctor)
     doctor_other = _create_user(db, "doctor-stats-other@example.com", UserRole.doctor)
-    staff = _create_user(db, "staff-stats@example.com", UserRole.staff)
+    medical_student = _create_user(db, "medical-student-stats@example.com", UserRole.medical_student)
 
     patient_assigned = _create_patient(db, "Stats", "Assigned")
     patient_own = _create_patient(db, "Stats", "Own")
     patient_hidden = _create_patient(db, "Stats", "Hidden")
     _assign_patient(db, doctor_id=doctor.id, patient_id=patient_assigned.id)
+    _assign_patient(
+        db,
+        doctor_id=medical_student.id,
+        patient_id=patient_assigned.id,
+        role="consulting",
+    )
 
     _create_meeting(
         db,
@@ -444,8 +470,14 @@ def test_doctor_stats_scope_matches_meetings_visibility_and_staff_denied(
     monthly_total = sum(item["consultations"] for item in stats_data["monthly"])
     assert monthly_total == 2
 
-    staff_stats = client.get(
+    medical_student_stats = client.get(
         f"/stats/overview?year={current_year}",
-        headers=_auth_headers(staff),
+        headers=_auth_headers(medical_student),
     )
-    assert staff_stats.status_code == 403
+    assert medical_student_stats.status_code == 200
+    medical_student_data = medical_student_stats.json()
+    assert medical_student_data["totals"]["meetings"] == 1
+    medical_student_monthly_total = sum(
+        item["consultations"] for item in medical_student_data["monthly"]
+    )
+    assert medical_student_monthly_total == 1

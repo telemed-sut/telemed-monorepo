@@ -2,49 +2,25 @@
 
 import { usePathname } from "next/navigation";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Settings, RefreshCw, Languages, Check } from "lucide-react";
+import { Check, Languages, LayoutTemplate, RefreshCw } from "lucide-react";
 import {
   DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuCheckboxItem,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
+  DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { getDashboardPageTitle } from "@/components/dashboard/dashboard-route-utils";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { APP_LANGUAGE_OPTIONS, type AppLanguage } from "@/store/language-config";
+import {
+  APP_LANGUAGE_OPTIONS,
+  type AppLanguage,
+} from "@/store/language-config";
 import { useLanguageStore } from "@/store/language-store";
 
-const pageTitles: Record<AppLanguage, Record<string, string>> = {
-  en: {
-    "/overview": "Overview",
-    "/": "Overview",
-    "/patients": "Patients",
-    "/users": "Users",
-    "/meetings": "Meetings",
-    "/audit-logs": "Audit Logs",
-    "/security": "Security",
-    "/device-registry": "Device Registry",
-    "/profile": "Profile",
-    "/settings": "Settings",
-    "/device-monitor": "Device Monitor",
-  },
-  th: {
-    "/overview": "ภาพรวม",
-    "/": "ภาพรวม",
-    "/patients": "ผู้ป่วย",
-    "/users": "ผู้ใช้",
-    "/meetings": "การนัดหมาย",
-    "/audit-logs": "บันทึก Audit",
-    "/security": "ความปลอดภัย",
-    "/device-registry": "ทะเบียนอุปกรณ์",
-    "/profile": "โปรไฟล์",
-    "/settings": "ตั้งค่า",
-    "/device-monitor": "มอนิเตอร์อุปกรณ์",
-  },
-};
+const HEADER_LANGUAGE_BUTTON_ID = "header-language-button";
 
 const labels: Record<
   AppLanguage,
@@ -92,6 +68,9 @@ export function DashboardHeader() {
   const language = useLanguageStore((state) => state.language);
   const setLanguage = useLanguageStore((state) => state.setLanguage);
   const t = labels[language];
+  const selectedLanguageLabel =
+    APP_LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ||
+    APP_LANGUAGE_OPTIONS.find((option) => option.value === "en")?.label;
 
   // Overview layout
   const showAlertBanner = useDashboardStore((s) => s.showAlertBanner);
@@ -125,24 +104,57 @@ export function DashboardHeader() {
   const isUsers = pathname === "/users";
   const hasEditLayout = isOverview || isPatients || isUsers;
 
-  const pageTitle = pageTitles[language][pathname] || t.dashboard;
-  const selectedLanguageLabel =
-    APP_LANGUAGE_OPTIONS.find((option) => option.value === language)?.label ||
-    APP_LANGUAGE_OPTIONS.find((option) => option.value === "en")?.label;
+  const pageTitle = getDashboardPageTitle(pathname, language);
 
   return (
-    <header className="sticky top-0 z-30 flex w-full items-center gap-2 border-b bg-card px-3 py-3 sm:gap-3 sm:px-6 sm:py-4">
-      <SidebarTrigger className="-ml-1 sm:-ml-2" />
-      <h1 className="truncate text-lg font-medium sm:text-xl">{pageTitle}</h1>
+    <header className="flex w-full items-center gap-3 border-b border-slate-200/70 bg-white/85 px-3 py-3 sm:px-6">
+      <SidebarTrigger className="-ml-1 rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)] hover:bg-slate-50 sm:-ml-2" />
 
-      <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+      <div className="min-w-0">
+        <h1 className="truncate text-lg font-semibold text-slate-900 sm:text-[1.05rem]">
+          {pageTitle}
+        </h1>
+      </div>
+
+      <div className="ml-auto flex items-center gap-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            id={HEADER_LANGUAGE_BUTTON_ID}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3 text-[0.92rem] font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.06)] outline-none transition-[background-color,color,box-shadow] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-slate-50 hover:text-slate-900 focus-visible:ring-[3px] focus-visible:ring-sky-200 focus-visible:ring-offset-2"
+            type="button"
+          >
+            <Languages className="size-4" />
+            <span className="hidden md:inline">{selectedLanguageLabel}</span>
+            <span className="md:hidden">{language.toUpperCase()}</span>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44 rounded-xl p-1.5">
+            <DropdownMenuLabel>{t.language}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {APP_LANGUAGE_OPTIONS.map((option) => (
+              <DropdownMenuItem
+                key={option.value}
+                className="flex items-center justify-between"
+                onClick={() => setLanguage(option.value)}
+              >
+                <span>{option.label}</span>
+                {option.value === language && (
+                  <Check className="size-4 text-primary" />
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         {hasEditLayout && (
           <DropdownMenu>
-            <DropdownMenuTrigger id="header-edit-layout-button" className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-[0.95rem] font-medium hover:bg-accent hover:text-accent-foreground sm:h-10">
-              <Settings className="size-4" />
-              <span className="hidden sm:inline">{t.editLayout}</span>
+            <DropdownMenuTrigger
+              id="header-edit-layout-button"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3.5 py-1.5 text-[0.95rem] font-medium text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.06)] transition-colors hover:bg-slate-50 hover:text-slate-900"
+            >
+              <LayoutTemplate className="size-4" />
+              <span>{t.editLayout}</span>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuContent align="end" className="w-56 rounded-xl p-1.5">
               {isOverview && (
                 <>
                   <DropdownMenuCheckboxItem
@@ -227,35 +239,6 @@ export function DashboardHeader() {
             </DropdownMenuContent>
           </DropdownMenu>
         )}
-
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            id="header-language-button"
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-input bg-background px-2.5 py-1.5 text-[0.95rem] font-medium hover:bg-accent hover:text-accent-foreground sm:h-10 sm:px-3"
-          >
-            <Languages className="size-4" />
-            <span className="hidden sm:inline">{selectedLanguageLabel}</span>
-            <span className="sm:hidden">{language.toUpperCase()}</span>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>{t.language}</DropdownMenuLabel>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              {APP_LANGUAGE_OPTIONS.map((option) => (
-                <DropdownMenuItem
-                  key={option.value}
-                  onClick={() => setLanguage(option.value)}
-                  className="flex items-center justify-between"
-                >
-                  <span>{option.label}</span>
-                  {option.value === language && <Check className="size-4 text-primary" />}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
     </header>
   );

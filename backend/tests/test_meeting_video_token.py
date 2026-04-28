@@ -2,7 +2,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core.config import get_settings
 from app.core.security import get_password_hash
@@ -12,6 +12,7 @@ from app.models.meeting import Meeting
 from app.models.meeting_room_presence import MeetingRoomPresence
 from app.models.patient import Patient
 from app.models.user import User, UserRole
+from app.services import meeting_presence as meeting_presence_service
 from app.services import meeting_video as meeting_video_service
 from app.services import zego_token
 from app.services.auth import create_login_response
@@ -38,8 +39,10 @@ def _create_user(db: Session, email: str, role: UserRole) -> User:
     return user
 
 
-def _auth_headers(user: User) -> dict[str, str]:
-    token = create_login_response(user)["access_token"]
+def _auth_headers(user: User, db: Session | None = None) -> dict[str, str]:
+    session = db or object_session(user)
+    token = create_login_response(user, db=session)["access_token"]
+    session.commit()
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -53,6 +56,49 @@ def _create_patient(db: Session, first_name: str, last_name: str) -> Patient:
     db.commit()
     db.refresh(patient)
     return patient
+
+
+def test_meeting_signing_uses_dedicated_secret(monkeypatch: pytest.MonkeyPatch):
+    settings = get_settings()
+    payload = "meeting-payload"
+
+    monkeypatch.setattr(settings, "jwt_secret", "jwt_secret_primary_1234567890abcdef")
+    monkeypatch.setattr(
+        settings,
+        "meeting_signing_secret",
+        "meeting_signing_secret_primary_1234567890abcdef",
+    )
+    monkeypatch.setattr(settings, "meeting_signing_allow_jwt_secret_fallback", False)
+
+    first_signature = meeting_video_service._sign_compact_payload(payload)
+
+    monkeypatch.setattr(settings, "jwt_secret", "jwt_secret_secondary_1234567890abcdef")
+    second_signature = meeting_video_service._sign_compact_payload(payload)
+    assert second_signature == first_signature
+
+    monkeypatch.setattr(
+        settings,
+        "meeting_signing_secret",
+        "meeting_signing_secret_secondary_1234567890abcdef",
+    )
+    rotated_signature = meeting_video_service._sign_compact_payload(payload)
+    assert rotated_signature != first_signature
+
+
+def test_meeting_signing_can_explicitly_fallback_to_jwt_secret_outside_production(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings = get_settings()
+    payload = "meeting-payload"
+
+    monkeypatch.setattr(settings, "app_env", "test")
+    monkeypatch.setattr(settings, "meeting_signing_secret", None)
+    monkeypatch.setattr(settings, "meeting_signing_allow_jwt_secret_fallback", True)
+    monkeypatch.setattr(settings, "jwt_secret", "jwt_secret_fallback_1234567890abcdef")
+
+    signature = meeting_video_service._sign_compact_payload(payload)
+
+    assert signature
 
 
 def _create_meeting(
@@ -200,41 +246,21 @@ def test_get_meeting_reconciles_active_status_from_presence(
     assert meeting.status == expected_status
 
 
-@pytest.mark.meeting_presence_regression
-@pytest.mark.parametrize(
-    ("initial_status", "presence_mode", "expected_status", "expected_presence_state"),
-    [
-        (MeetingStatus.scheduled, "patient_only", MeetingStatus.waiting, "doctor_left_patient_waiting"),
-        (MeetingStatus.scheduled, "both_online", MeetingStatus.in_progress, "both_in_room"),
-        (MeetingStatus.waiting, "none_online", MeetingStatus.scheduled, "none"),
-        (MeetingStatus.waiting, "both_online", MeetingStatus.in_progress, "both_in_room"),
-        (MeetingStatus.in_progress, "patient_only", MeetingStatus.waiting, "doctor_left_patient_waiting"),
-        (MeetingStatus.in_progress, "doctor_only", MeetingStatus.scheduled, "doctor_only"),
-        (MeetingStatus.in_progress, "none_online", MeetingStatus.scheduled, "none"),
-    ],
-)
-def test_list_meetings_reconciles_active_status_from_presence(
+def test_list_meetings_does_not_reconcile_active_status_inline(
     client: TestClient,
     db: Session,
     use_mock_video_provider,
-    initial_status: MeetingStatus,
-    presence_mode: str,
-    expected_status: MeetingStatus,
-    expected_presence_state: str,
 ):
-    doctor = _create_user(
-        db,
-        f"doctor-list-{initial_status.value}-{presence_mode}@example.com",
-        UserRole.doctor,
-    )
-    patient = _create_patient(db, "List", f"{initial_status.value}-{presence_mode}")
+    doctor = _create_user(db, "doctor-list-no-inline@example.com", UserRole.doctor)
+    patient = _create_patient(db, "List", "NoInlineReconcile")
     meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
-    meeting.status = initial_status
+    meeting.status = MeetingStatus.scheduled
     db.add(meeting)
     db.commit()
     db.refresh(meeting)
 
-    _set_room_presence(db, meeting, mode=presence_mode)
+    presence = _set_room_presence(db, meeting, mode="patient_only")
+    assert presence.state == "doctor_left_patient_waiting"
 
     response = client.get(
         "/meetings?page=1&limit=20",
@@ -244,11 +270,39 @@ def test_list_meetings_reconciles_active_status_from_presence(
     assert response.status_code == 200
     body = response.json()
     target = next(item for item in body["items"] if item["id"] == str(meeting.id))
-    assert target["status"] == expected_status.value
-    assert target["room_presence"]["state"] == expected_presence_state
+    assert target["status"] == MeetingStatus.scheduled.value
+    assert target["room_presence"]["state"] == "doctor_left_patient_waiting"
 
     db.refresh(meeting)
-    assert meeting.status == expected_status
+    assert meeting.status == MeetingStatus.scheduled
+
+
+def test_list_meetings_uses_background_reconciled_status(
+    client: TestClient,
+    db: Session,
+    use_mock_video_provider,
+):
+    doctor = _create_user(db, "doctor-list-background@example.com", UserRole.doctor)
+    patient = _create_patient(db, "List", "BackgroundReconcile")
+    meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
+    meeting.status = MeetingStatus.scheduled
+    db.add(meeting)
+    db.commit()
+    db.refresh(meeting)
+
+    _set_room_presence(db, meeting, mode="patient_only")
+    meeting_presence_service.reconcile_active_meetings(db)
+
+    response = client.get(
+        "/meetings?page=1&limit=20",
+        headers=_auth_headers(doctor),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    target = next(item for item in body["items"] if item["id"] == str(meeting.id))
+    assert target["status"] == MeetingStatus.waiting.value
+    assert target["room_presence"]["state"] == "doctor_left_patient_waiting"
 
 
 def test_doctor_cannot_issue_video_token_for_hidden_meeting(
@@ -366,20 +420,24 @@ def test_hidden_doctor_cannot_view_reliability_snapshot(
     assert response.status_code == 403
 
 
-def test_staff_cannot_issue_meeting_video_token(
+def test_medical_student_cannot_issue_meeting_video_token(
     client: TestClient,
     db: Session,
     use_mock_video_provider,
 ):
-    staff = _create_user(db, "staff-video@example.com", UserRole.staff)
-    doctor = _create_user(db, "doctor-video-staff@example.com", UserRole.doctor)
-    patient = _create_patient(db, "Staff", "Denied")
+    medical_student = _create_user(
+        db,
+        "medical-student-video@example.com",
+        UserRole.medical_student,
+    )
+    doctor = _create_user(db, "doctor-video-student@example.com", UserRole.doctor)
+    patient = _create_patient(db, "Medical Student", "Denied")
     meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
 
     response = client.post(
         f"/meetings/{meeting.id}/video/token",
         json={},
-        headers=_auth_headers(staff),
+        headers=_auth_headers(medical_student),
     )
     assert response.status_code == 403
 
@@ -646,20 +704,24 @@ def test_doctor_token_promotes_waiting_meeting_to_in_progress(
     assert meeting.status == MeetingStatus.in_progress
 
 
-def test_staff_cannot_create_patient_invite(
+def test_medical_student_cannot_create_patient_invite(
     client: TestClient,
     db: Session,
     use_mock_video_provider,
 ):
-    staff = _create_user(db, "staff-video-patient-invite@example.com", UserRole.staff)
+    medical_student = _create_user(
+        db,
+        "medical-student-video-patient-invite@example.com",
+        UserRole.medical_student,
+    )
     doctor = _create_user(db, "doctor-video-owner2@example.com", UserRole.doctor)
-    patient = _create_patient(db, "Staff", "Blocked")
+    patient = _create_patient(db, "Medical Student", "Blocked")
     meeting = _create_meeting(db, doctor_id=doctor.id, patient_id=patient.id)
 
     response = client.post(
         f"/meetings/{meeting.id}/video/patient-invite",
         json={},
-        headers=_auth_headers(staff),
+        headers=_auth_headers(medical_student),
     )
     assert response.status_code == 403
 

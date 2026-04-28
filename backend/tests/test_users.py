@@ -6,13 +6,15 @@ from uuid import UUID as PyUUID
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
-from app.models.enums import UserRole, VerificationStatus
+from app.models.enums import PrivilegedRole, UserRole, VerificationStatus
 from app.models.invite import UserInvite
 from app.models.user import User
+from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
 
 
 # ──────────────────────────────────────────────────────────
@@ -31,7 +33,7 @@ def _make_user(
     db: Session,
     *,
     email: str,
-    role: UserRole = UserRole.staff,
+    role: UserRole = UserRole.medical_student,
     password: str = "TestPass123",
     first_name: str = "Test",
     last_name: str = "User",
@@ -64,9 +66,9 @@ def _auth(token: str) -> dict:
 # ──────────────────────────────────────────────────────────
 
 class TestRBAC:
-    def test_staff_cannot_list_users(self, client: TestClient, db: Session):
-        _make_user(db, email="staff@example.com", role=UserRole.staff)
-        token = _login(client, "staff@example.com")
+    def test_medical_student_cannot_list_users(self, client: TestClient, db: Session):
+        _make_user(db, email="medical-student@example.com", role=UserRole.medical_student)
+        token = _login(client, "medical-student@example.com")
         resp = client.get("/users", headers=_auth(token))
         assert resp.status_code == 403
 
@@ -79,19 +81,40 @@ class TestRBAC:
         assert "items" in data
         assert data["total"] >= 1
 
-    def test_staff_cannot_create_user(self, client: TestClient, db: Session):
-        _make_user(db, email="staff2@example.com", role=UserRole.staff)
-        token = _login(client, "staff2@example.com")
+    def test_user_list_includes_privileged_roles(self, client: TestClient, db: Session):
+        bootstrap = _make_user(db, email="admin@example.com", role=UserRole.admin)
+        delegated = _make_user(db, email="delegated@example.com", role=UserRole.admin)
+        db.add(
+            UserPrivilegedRoleAssignment(
+                user_id=delegated.id,
+                role=PrivilegedRole.platform_super_admin,
+                created_by=bootstrap.id,
+                reason="List response privilege badge coverage",
+            )
+        )
+        db.commit()
+
+        token = _login(client, "admin@example.com")
+        resp = client.get("/users", headers=_auth(token))
+
+        assert resp.status_code == 200
+        items = resp.json()["items"]
+        delegated_payload = next(item for item in items if item["email"] == "delegated@example.com")
+        assert delegated_payload["privileged_roles"] == ["platform_super_admin"]
+
+    def test_medical_student_cannot_create_user(self, client: TestClient, db: Session):
+        _make_user(db, email="medical-student2@example.com", role=UserRole.medical_student)
+        token = _login(client, "medical-student2@example.com")
         resp = client.post("/users", json={
             "email": "new@example.com",
             "password": "NewPass123",
         }, headers=_auth(token))
         assert resp.status_code == 403
 
-    def test_staff_cannot_delete_user(self, client: TestClient, db: Session):
-        target = _make_user(db, email="target@example.com", role=UserRole.staff)
-        staff = _make_user(db, email="staff3@example.com", role=UserRole.staff)
-        token = _login(client, "staff3@example.com")
+    def test_medical_student_cannot_delete_user(self, client: TestClient, db: Session):
+        target = _make_user(db, email="target@example.com", role=UserRole.medical_student)
+        medical_student = _make_user(db, email="medical-student3@example.com", role=UserRole.medical_student)
+        token = _login(client, "medical-student3@example.com")
         resp = client.delete(f"/users/{target.id}", headers=_auth(token))
         assert resp.status_code == 403
 
@@ -102,21 +125,21 @@ class TestRBAC:
         assert resp.status_code == 403
 
     def test_user_can_read_self(self, client: TestClient, db: Session):
-        user = _make_user(db, email="self@example.com", role=UserRole.staff)
+        user = _make_user(db, email="self@example.com", role=UserRole.medical_student)
         token = _login(client, "self@example.com")
         resp = client.get(f"/users/{user.id}", headers=_auth(token))
         assert resp.status_code == 200
         assert resp.json()["email"] == "self@example.com"
 
     def test_user_cannot_read_other(self, client: TestClient, db: Session):
-        other = _make_user(db, email="other@example.com", role=UserRole.staff)
-        user = _make_user(db, email="me@example.com", role=UserRole.staff)
+        other = _make_user(db, email="other@example.com", role=UserRole.medical_student)
+        user = _make_user(db, email="me@example.com", role=UserRole.medical_student)
         token = _login(client, "me@example.com")
         resp = client.get(f"/users/{other.id}", headers=_auth(token))
         assert resp.status_code == 403
 
     def test_non_admin_cannot_change_role(self, client: TestClient, db: Session):
-        user = _make_user(db, email="norole@example.com", role=UserRole.staff)
+        user = _make_user(db, email="norole@example.com", role=UserRole.medical_student)
         token = _login(client, "norole@example.com")
         resp = client.put(f"/users/{user.id}", json={"role": "admin"}, headers=_auth(token))
         assert resp.status_code == 403
@@ -127,21 +150,39 @@ class TestRBAC:
 # ──────────────────────────────────────────────────────────
 
 class TestCRUD:
-    def test_create_user(self, client: TestClient, db: Session):
-        _make_user(db, email="admin-crud@example.com", role=UserRole.admin)
-        token = _login(client, "admin-crud@example.com")
-        resp = client.post("/users", json={
+    def test_super_admin_can_create_admin_invite(self, client: TestClient, db: Session):
+        _make_user(db, email="admin@example.com", role=UserRole.admin)
+        token = _login(client, "admin@example.com")
+        resp = client.post("/users/invites", json={
             "email": "newuser@example.com",
-            "password": "NewPass123",
-            "first_name": "New",
-            "last_name": "User",
-            "role": "staff",
+            "role": "admin",
+            "reason": "Approved privileged onboarding request",
         }, headers=_auth(token))
         assert resp.status_code == 200
         data = resp.json()
-        assert data["email"] == "newuser@example.com"
-        assert data["role"] == "staff"
-        assert data["is_active"] is True
+        assert "/invite#token=" in data["invite_url"]
+
+    def test_non_super_admin_cannot_create_admin_invite(self, client: TestClient, db: Session):
+        _make_user(db, email="admin-crud@example.com", role=UserRole.admin)
+        token = _login(client, "admin-crud@example.com")
+        resp = client.post("/users/invites", json={
+            "email": "blocked-admin@example.com",
+            "role": "admin",
+            "reason": "This should be blocked for non-privileged admin",
+        }, headers=_auth(token))
+        assert resp.status_code == 403
+        assert "super admin only" in resp.json()["detail"].lower()
+
+    def test_create_admin_directly_requires_invite_flow(self, client: TestClient, db: Session):
+        _make_user(db, email="admin@example.com", role=UserRole.admin)
+        token = _login(client, "admin@example.com")
+        resp = client.post("/users", json={
+            "email": "new-admin-reject@example.com",
+            "password": "NewPass123",
+            "role": "admin",
+        }, headers=_auth(token))
+        assert resp.status_code == 400
+        assert "invite flow" in resp.json()["detail"].lower()
 
     def test_create_duplicate_email_fails(self, client: TestClient, db: Session):
         _make_user(db, email="dup@example.com", role=UserRole.admin)
@@ -155,7 +196,7 @@ class TestCRUD:
 
     def test_update_user(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-upd@example.com", role=UserRole.admin)
-        target = _make_user(db, email="updtarget@example.com", role=UserRole.staff)
+        target = _make_user(db, email="updtarget@example.com", role=UserRole.medical_student)
         token = _login(client, "admin-upd@example.com")
         resp = client.put(f"/users/{target.id}", json={
             "first_name": "Updated",
@@ -170,7 +211,11 @@ class TestCRUD:
     def test_list_users_filters(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-filt@example.com", role=UserRole.admin)
         _make_user(db, email="doc1@example.com", role=UserRole.doctor)
-        _make_user(db, email="nurse1@example.com", role=UserRole.nurse)
+        _make_user(
+            db,
+            email="medical-student1@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-filt@example.com")
 
         # Filter by role
@@ -182,17 +227,14 @@ class TestCRUD:
     def test_list_users_clinical_only_scope(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-scope@example.com", role=UserRole.admin)
         _make_user(db, email="doctor-scope@example.com", role=UserRole.doctor)
-        _make_user(db, email="staff-scope@example.com", role=UserRole.staff)
+        _make_user(db, email="medical-student-scope@example.com", role=UserRole.medical_student)
         token = _login(client, "admin-scope@example.com")
 
         resp = client.get("/users?clinical_only=true", headers=_auth(token))
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["items"]) > 0
-        assert all(
-            item["role"] in {"doctor", "nurse", "pharmacist", "medical_technologist", "psychologist"}
-            for item in data["items"]
-        )
+        assert all(item["role"] == "doctor" for item in data["items"])
 
     def test_list_pagination(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-page@example.com", role=UserRole.admin)
@@ -228,7 +270,7 @@ class TestCRUD:
 
         resp = client.put(
             f"/users/{admin2.id}",
-            json={"role": "staff"},
+            json={"role": "medical_student"},
             headers=_auth(token),
         )
         assert resp.status_code == 400
@@ -242,7 +284,7 @@ class TestCRUD:
 class TestSoftDelete:
     def test_delete_sets_deleted_at(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-del@example.com", role=UserRole.admin)
-        target = _make_user(db, email="delme@example.com", role=UserRole.staff)
+        target = _make_user(db, email="delme@example.com", role=UserRole.medical_student)
         token = _login(client, "admin-del@example.com")
         resp = client.delete(f"/users/{target.id}", headers=_auth(token))
         assert resp.status_code == 204
@@ -278,28 +320,39 @@ class TestSoftDelete:
         assert resp.status_code == 401
 
     def test_can_reuse_email_after_soft_delete(self, client: TestClient, db: Session):
-        admin = _make_user(db, email="admin-reuse@example.com", role=UserRole.admin)
-        target = _make_user(db, email="reuse@example.com", role=UserRole.staff)
-        token = _login(client, "admin-reuse@example.com")
+        admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+        target = _make_user(db, email="reuse@example.com", role=UserRole.medical_student)
+        token = _login(client, "admin@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
         assert delete_resp.status_code == 204
 
-        create_resp = client.post(
-            "/users",
+        invite_resp = client.post(
+            "/users/invites",
             json={
                 "email": "reuse@example.com",
-                "password": "NewPass123",
-                "first_name": "Reuse",
-                "last_name": "Account",
-                "role": "staff",
+                "role": "admin",
+                "reason": "Reuse deleted email for fresh admin onboarding",
             },
             headers=_auth(token),
         )
-        assert create_resp.status_code == 200, create_resp.text
-        created = create_resp.json()
-        assert created["email"] == "reuse@example.com"
-        assert created["id"] != str(target.id)
+        assert invite_resp.status_code == 200, invite_resp.text
+        invite_token = invite_resp.json()["invite_url"].split("#token=", 1)[-1]
+
+        accept_resp = client.post(
+            "/auth/invite/accept",
+            json={
+                "token": invite_token,
+                "first_name": "Reuse",
+                "last_name": "Account",
+                "password": "ReusePass123",
+            },
+        )
+        assert accept_resp.status_code == 200, accept_resp.text
+
+        created = db.scalar(select(User).where(User.email == "reuse@example.com", User.deleted_at.is_(None)))
+        assert created is not None
+        assert str(created.id) != str(target.id)
 
         db.refresh(target)
         assert target.email.startswith("deleted+")
@@ -337,7 +390,11 @@ class TestSoftDelete:
 
     def test_restore_soft_deleted_user(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-restore@example.com", role=UserRole.admin)
-        target = _make_user(db, email="restore-target@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="restore-target@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-restore@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
@@ -352,7 +409,11 @@ class TestSoftDelete:
 
     def test_restore_soft_deleted_user_from_legacy_string_audit_details(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-restore-legacy@example.com", role=UserRole.admin)
-        target = _make_user(db, email="restore-legacy@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="restore-legacy@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-restore-legacy@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
@@ -377,25 +438,39 @@ class TestSoftDelete:
         assert restored["is_active"] is True
 
     def test_restore_keeps_retired_email_when_original_is_taken(self, client: TestClient, db: Session):
-        admin = _make_user(db, email="admin-restore2@example.com", role=UserRole.admin)
-        target = _make_user(db, email="restore-conflict@example.com", role=UserRole.staff)
-        token = _login(client, "admin-restore2@example.com")
+        admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+        target = _make_user(
+            db,
+            email="restore-conflict@example.com",
+            role=UserRole.medical_student,
+        )
+        token = _login(client, "admin@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
         assert delete_resp.status_code == 204
 
-        create_resp = client.post(
-            "/users",
+        invite_resp = client.post(
+            "/users/invites",
             json={
                 "email": "restore-conflict@example.com",
-                "password": "NewPass123",
-                "first_name": "Conflict",
-                "last_name": "Owner",
-                "role": "staff",
+                "role": "admin",
+                "reason": "Recreate admin after soft delete conflict",
             },
             headers=_auth(token),
         )
-        assert create_resp.status_code == 200, create_resp.text
+        assert invite_resp.status_code == 200, invite_resp.text
+
+        invite_token = invite_resp.json()["invite_url"].split("#token=", 1)[-1]
+        accept_resp = client.post(
+            "/auth/invite/accept",
+            json={
+                "token": invite_token,
+                "first_name": "Conflict",
+                "last_name": "Owner",
+                "password": "ConflictPass123",
+            },
+        )
+        assert accept_resp.status_code == 200, accept_resp.text
 
         restore_resp = client.post(f"/users/{target.id}/restore", headers=_auth(token))
         assert restore_resp.status_code == 200, restore_resp.text
@@ -407,10 +482,10 @@ class TestSoftDelete:
     def test_bulk_delete_requires_confirm_text_when_more_than_three(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-bulk-confirm@example.com", role=UserRole.admin)
         users = [
-            _make_user(db, email="bulk-c1@example.com", role=UserRole.staff),
-            _make_user(db, email="bulk-c2@example.com", role=UserRole.staff),
-            _make_user(db, email="bulk-c3@example.com", role=UserRole.staff),
-            _make_user(db, email="bulk-c4@example.com", role=UserRole.staff),
+            _make_user(db, email="bulk-c1@example.com", role=UserRole.medical_student),
+            _make_user(db, email="bulk-c2@example.com", role=UserRole.medical_student),
+            _make_user(db, email="bulk-c3@example.com", role=UserRole.medical_student),
+            _make_user(db, email="bulk-c4@example.com", role=UserRole.medical_student),
         ]
         token = _login(client, "admin-bulk-confirm@example.com")
 
@@ -433,8 +508,8 @@ class TestSoftDelete:
     def test_bulk_restore_users(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-bulk-restore@example.com", role=UserRole.admin)
         users = [
-            _make_user(db, email="bulk-r1@example.com", role=UserRole.staff),
-            _make_user(db, email="bulk-r2@example.com", role=UserRole.staff),
+            _make_user(db, email="bulk-r1@example.com", role=UserRole.medical_student),
+            _make_user(db, email="bulk-r2@example.com", role=UserRole.medical_student),
         ]
         token = _login(client, "admin-bulk-restore@example.com")
 
@@ -479,7 +554,11 @@ class TestSoftDelete:
 
     def test_purge_deleted_hard_deletes_old_soft_deleted_accounts(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-purge@example.com", role=UserRole.admin)
-        target = _make_user(db, email="purge-target@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="purge-target@example.com",
+            role=UserRole.medical_student,
+        )
         target_id = target.id
         token = _login(client, "admin-purge@example.com")
 
@@ -506,12 +585,60 @@ class TestSoftDelete:
         still_exists = db.query(User).filter(User.id == target_id).first()
         assert still_exists is None
 
+    def test_purge_deleted_user_hard_deletes_soft_deleted_medical_student(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-single-purge@example.com", role=UserRole.admin)
+        target = _make_user(
+            db,
+            email="single-purge-target@example.com",
+            role=UserRole.medical_student,
+        )
+        target_id = target.id
+        client.headers.update({"host": "localhost"})
+        token = _login(client, "admin-single-purge@example.com")
+
+        delete_resp = client.delete(f"/users/{target_id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        purge_resp = client.post(f"/users/{target_id}/purge", headers=_auth(token))
+        assert purge_resp.status_code == 200
+        assert purge_resp.json()["purged_user_id"] == str(target_id)
+
+        still_exists = db.query(User).filter(User.id == target_id).first()
+        assert still_exists is None
+
+    def test_purge_deleted_user_rejects_deleted_non_medical_student(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-single-purge-guard@example.com", role=UserRole.admin)
+        target = _make_user(
+            db,
+            email="single-purge-doctor@example.com",
+            role=UserRole.doctor,
+        )
+        client.headers.update({"host": "localhost"})
+        token = _login(client, "admin-single-purge-guard@example.com")
+
+        delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        purge_resp = client.post(f"/users/{target.id}/purge", headers=_auth(token))
+        assert purge_resp.status_code == 403
+        assert "medical students" in purge_resp.json()["detail"].lower()
+
 
 # ──────────────────────────────────────────────────────────
 # Validation – clinical roles
 # ──────────────────────────────────────────────────────────
 
 class TestValidation:
+    def test_direct_create_invalid_role_rejected_by_contract(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-val-legacy@example.com", role=UserRole.admin)
+        token = _login(client, "admin-val-legacy@example.com")
+        resp = client.post("/users", json={
+            "email": "legacy-direct@example.com",
+            "password": "LegacyPass123",
+            "role": "support_agent",
+        }, headers=_auth(token))
+        assert resp.status_code == 422
+
     def test_direct_create_clinical_role_blocked_when_invite_only(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-val@example.com", role=UserRole.admin)
         token = _login(client, "admin-val@example.com")
@@ -524,17 +651,62 @@ class TestValidation:
         assert resp.status_code == 400
         assert "invite flow" in resp.json()["detail"].lower()
 
-    def test_direct_create_non_clinical_role_still_allowed(self, client: TestClient, db: Session):
+    def test_direct_create_admin_without_password_blocked_by_invite_policy(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+        token = _login(client, "admin@example.com")
+        resp = client.post("/users", json={
+            "email": "admin-direct@example.com",
+            "role": "admin",
+        }, headers=_auth(token))
+        assert resp.status_code == 400
+        assert "invite flow" in resp.json()["detail"].lower()
+
+    def test_direct_create_admin_without_password_blocked_for_non_super_admin(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-val2@example.com", role=UserRole.admin)
         token = _login(client, "admin-val2@example.com")
         resp = client.post("/users", json={
-            "email": "staff-direct@example.com",
-            "password": "StaffPass123",
-            "role": "staff",
+            "email": "admin-direct-blocked-no-super@example.com",
+            "role": "admin",
         }, headers=_auth(token))
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["role"] == "staff"
+        assert resp.status_code == 400
+        assert "invite flow" in resp.json()["detail"].lower()
+
+    def test_direct_create_admin_with_password_blocked(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+        token = _login(client, "admin@example.com")
+        resp = client.post("/users", json={
+            "email": "admin-direct-blocked@example.com",
+            "password": "StaffPass123",
+            "role": "admin",
+        }, headers=_auth(token))
+        assert resp.status_code == 400
+        assert "invite flow" in resp.json()["detail"].lower()
+
+    def test_direct_create_medical_student_blocked_when_invite_only(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-val3@example.com", role=UserRole.admin)
+        token = _login(client, "admin-val3@example.com")
+        resp = client.post("/users", json={
+            "email": "medical-student-direct@example.com",
+            "password": "StudentPass123",
+            "role": "medical_student",
+        }, headers=_auth(token))
+        assert resp.status_code == 400
+        assert "invite flow" in resp.json()["detail"].lower()
+
+    def test_update_invalid_role_rejected_by_contract(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-val4@example.com", role=UserRole.admin)
+        target = _make_user(
+            db,
+            email="medical-student-update-legacy@example.com",
+            role=UserRole.medical_student,
+        )
+        token = _login(client, "admin-val4@example.com")
+        resp = client.put(
+            f"/users/{target.id}",
+            json={"role": "support_agent"},
+            headers=_auth(token),
+        )
+        assert resp.status_code == 422
 
 
 # ──────────────────────────────────────────────────────────
@@ -619,6 +791,63 @@ class TestInviteLifecycle:
         assert closed_list.status_code == 200
         assert closed_list.json()["total"] >= 1
 
+    def test_super_admin_can_create_admin_invite(self, client: TestClient, db: Session):
+        _make_user(db, email="admin@example.com", role=UserRole.admin)
+        token = _login(client, "admin@example.com")
+
+        create_resp = client.post(
+            "/users/invites",
+            json={
+                "email": "admin-invite@example.com",
+                "role": "admin",
+                "reason": "Create privileged admin onboarding invite",
+            },
+            headers=_auth(token),
+        )
+        assert create_resp.status_code == 200
+        assert "/invite#token=" in create_resp.json()["invite_url"]
+
+    def test_non_super_admin_cannot_create_admin_invite(self, client: TestClient, db: Session):
+        _make_user(db, email="admin-nonsuper-invite@example.com", role=UserRole.admin)
+        token = _login(client, "admin-nonsuper-invite@example.com")
+
+        create_resp = client.post(
+            "/users/invites",
+            json={
+                "email": "admin-blocked-invite@example.com",
+                "role": "admin",
+                "reason": "This should fail for non-privileged admin",
+            },
+            headers=_auth(token),
+        )
+        assert create_resp.status_code == 403
+        assert "super admin only" in create_resp.json()["detail"].lower()
+
+    def test_non_super_admin_cannot_resend_admin_invite(self, client: TestClient, db: Session):
+        _make_user(db, email="admin@example.com", role=UserRole.admin)
+        super_token = _login(client, "admin@example.com")
+        create_resp = client.post(
+            "/users/invites",
+            json={
+                "email": "resend-admin-invite@example.com",
+                "role": "admin",
+                "reason": "Create admin invite before resend policy check",
+            },
+            headers=_auth(super_token),
+        )
+        assert create_resp.status_code == 200
+
+        invite = db.query(UserInvite).filter(
+            UserInvite.email == "resend-admin-invite@example.com"
+        ).order_by(UserInvite.created_at.desc()).first()
+        assert invite is not None
+
+        _make_user(db, email="admin-resend-nonsuper@example.com", role=UserRole.admin)
+        token = _login(client, "admin-resend-nonsuper@example.com")
+        resend_resp = client.post(f"/users/invites/{invite.id}/resend", headers=_auth(token))
+        assert resend_resp.status_code == 403
+        assert "super admin only" in resend_resp.json()["detail"].lower()
+
     def test_list_expired_invites(self, client: TestClient, db: Session):
         _make_user(db, email="admin-invite-expired@example.com", role=UserRole.admin)
         token = _login(client, "admin-invite-expired@example.com")
@@ -659,10 +888,10 @@ class TestVerify:
         assert resp.status_code == 200
         assert resp.json()["verification_status"] == "verified"
 
-    def test_staff_cannot_verify_user(self, client: TestClient, db: Session):
+    def test_medical_student_cannot_verify_user(self, client: TestClient, db: Session):
         doc = _make_user(db, email="doc-nver@example.com", role=UserRole.doctor)
-        staff = _make_user(db, email="staff-nver@example.com", role=UserRole.staff)
-        token = _login(client, "staff-nver@example.com")
+        medical_student = _make_user(db, email="medical-student-nver@example.com", role=UserRole.medical_student)
+        token = _login(client, "medical-student-nver@example.com")
         resp = client.post(f"/users/{doc.id}/verify", headers=_auth(token))
         assert resp.status_code == 403
 
@@ -672,24 +901,30 @@ class TestVerify:
 # ──────────────────────────────────────────────────────────
 
 class TestAuditLog:
-    def test_create_user_logs_audit(self, client: TestClient, db: Session):
-        admin = _make_user(db, email="admin-aud@example.com", role=UserRole.admin)
-        token = _login(client, "admin-aud@example.com")
-        resp = client.post("/users", json={
+    def test_create_invite_logs_audit(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
+        token = _login(client, "admin@example.com")
+        resp = client.post("/users/invites", json={
             "email": "audited@example.com",
-            "password": "AuditPass123",
+            "role": "admin",
+            "reason": "Audit trail validation for privileged invite",
         }, headers=_auth(token))
         assert resp.status_code == 200
-        new_id = PyUUID(resp.json()["id"])
+
+        invite = db.query(UserInvite).filter(
+            UserInvite.email == "audited@example.com"
+        ).order_by(UserInvite.created_at.desc()).first()
+        assert invite is not None
 
         logs = db.query(AuditLog).filter(
-            AuditLog.action == "user_create",
-            AuditLog.resource_id == new_id,
+            AuditLog.action == "user_invite",
+            AuditLog.resource_id == invite.id,
         ).all()
         assert len(logs) == 1
         assert logs[0].user_id == admin.id
         detail = _parse_details(logs[0].details)
-        assert "after" in detail
+        assert detail["email"] == "audited@example.com"
+        assert detail["role"] == "admin"
 
     def test_update_user_logs_audit(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-audupd@example.com", role=UserRole.admin)
@@ -749,7 +984,11 @@ class TestAuditLog:
 
     def test_bulk_delete_logs_summary_audit(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-bulk-aud@example.com", role=UserRole.admin)
-        target = _make_user(db, email="bulk-aud-target@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="bulk-aud-target@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-bulk-aud@example.com")
 
         invalid_id = "not-a-uuid"
@@ -775,7 +1014,11 @@ class TestAuditLog:
 
     def test_restore_user_logs_audit(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-audrestore@example.com", role=UserRole.admin)
-        target = _make_user(db, email="audrestore-target@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="audrestore-target@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-audrestore@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
@@ -794,7 +1037,11 @@ class TestAuditLog:
 
     def test_bulk_restore_logs_summary_audit(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-audbulkrestore@example.com", role=UserRole.admin)
-        target = _make_user(db, email="audbulkrestore-target@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="audbulkrestore-target@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-audbulkrestore@example.com")
 
         delete_resp = client.post(
@@ -821,7 +1068,11 @@ class TestAuditLog:
 
     def test_purge_deleted_logs_summary_audit(self, client: TestClient, db: Session):
         admin = _make_user(db, email="admin-audpurge@example.com", role=UserRole.admin)
-        target = _make_user(db, email="audpurge-target@example.com", role=UserRole.staff)
+        target = _make_user(
+            db,
+            email="audpurge-target@example.com",
+            role=UserRole.medical_student,
+        )
         token = _login(client, "admin-audpurge@example.com")
 
         delete_resp = client.delete(f"/users/{target.id}", headers=_auth(token))
@@ -850,3 +1101,29 @@ class TestAuditLog:
         detail = _parse_details(logs[-1].details)
         assert detail["older_than_days"] == 90
         assert "retention window" in detail["reason"]
+
+    def test_single_purge_logs_audit(self, client: TestClient, db: Session):
+        admin = _make_user(db, email="admin-audsinglepurge@example.com", role=UserRole.admin)
+        target = _make_user(
+            db,
+            email="audsinglepurge-target@example.com",
+            role=UserRole.medical_student,
+        )
+        target_id = target.id
+        client.headers.update({"host": "localhost"})
+        token = _login(client, "admin-audsinglepurge@example.com")
+
+        delete_resp = client.delete(f"/users/{target_id}", headers=_auth(token))
+        assert delete_resp.status_code == 204
+
+        purge_resp = client.post(f"/users/{target_id}/purge", headers=_auth(token))
+        assert purge_resp.status_code == 200
+
+        logs = db.query(AuditLog).filter(
+            AuditLog.action == "user_purge_single",
+            AuditLog.resource_id == PyUUID(str(target_id)),
+        ).all()
+        assert len(logs) >= 1
+        detail = _parse_details(logs[-1].details)
+        assert detail["mode"] == "single"
+        assert detail["before"]["role"] == "medical_student"

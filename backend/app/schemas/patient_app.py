@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 
-# ---------- Registration code (staff-facing) ----------
+# ---------- Registration code (care-team-facing) ----------
 
 class PatientRegistrationCodeResponse(BaseModel):
     patient_id: UUID
@@ -19,7 +19,7 @@ class PatientRegistrationCodeResponse(BaseModel):
 
 class PatientAppRegisterRequest(BaseModel):
     phone: str = Field(min_length=8, max_length=50, description="Patient phone number as registered by the hospital.")
-    code: str = Field(min_length=4, max_length=10, description="6-character registration code given by staff.")
+    code: str = Field(min_length=4, max_length=10, description="6-character registration code given by the care team.")
     pin: str = Field(min_length=4, max_length=6, pattern=r"^\d{4,6}$", description="4-6 digit PIN chosen by the patient.")
 
 

@@ -137,8 +137,56 @@ class PatientOut(PatientBase):
     model_config = {"from_attributes": True}
 
 
+class PatientProfileOut(BaseModel):
+    id: UUID
+    first_name: str
+    last_name: str
+    name: Optional[str] = None
+    people_id: Optional[str] = None
+    age: Optional[int] = None
+    status: Optional[str] = None
+    doctor: Optional[str] = None
+    date_of_birth: date
+    gender: Optional[str] = None
+    allergies: Optional[str] = None
+    blood_group: Optional[str] = None
+    risk_score: Optional[int] = None
+    primary_diagnosis: Optional[str] = None
+    ward: Optional[str] = None
+    bed_number: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PatientListItemOut(BaseModel):
+    id: UUID
+    first_name: str
+    last_name: str
+    name: Optional[str] = None
+    status: Optional[str] = None
+    ward: Optional[str] = None
+    date_of_birth: date
+    gender: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class PatientListResponse(BaseModel):
-    items: List[PatientOut]
+    items: List[PatientListItemOut]
     page: int
     limit: int
     total: int
+
+
+class PatientWardListResponse(BaseModel):
+    wards: List[str]
+
+
+class PatientContactDetailsResponse(BaseModel):
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+    address: Optional[str] = None

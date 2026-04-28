@@ -4,7 +4,17 @@
  * rendering since the components have heavy UI library dependencies.
  */
 import { describe, it, expect } from "vitest";
-import { CLINICAL_ROLES, ROLE_LABEL_MAP, ROLE_OPTIONS } from "@/lib/api";
+import {
+  CARE_TEAM_ASSIGNMENT_ROLES,
+  CLINICAL_ROLES,
+  ROLE_LABEL_MAP,
+  ROLE_OPTIONS,
+  canManageUsers,
+  canViewClinicalData,
+  canWriteClinicalData,
+  getRoleLabel,
+  isMedicalStudentRole,
+} from "@/lib/api";
 
 // ── Sidebar route visibility logic ──────────────────────────────
 
@@ -24,18 +34,13 @@ describe("Sidebar role-based visibility", () => {
     expect(routes).toContain("users");
   });
 
-  it("staff does NOT see Users link", () => {
-    const routes = getDashboardRoutes("staff");
-    expect(routes).not.toContain("users");
-  });
-
   it("doctor does NOT see Users link", () => {
     const routes = getDashboardRoutes("doctor");
     expect(routes).not.toContain("users");
   });
 
-  it("nurse does NOT see Users link", () => {
-    const routes = getDashboardRoutes("nurse");
+  it("medical_student does NOT see Users link", () => {
+    const routes = getDashboardRoutes("medical_student");
     expect(routes).not.toContain("users");
   });
 
@@ -45,7 +50,7 @@ describe("Sidebar role-based visibility", () => {
   });
 
   it("all roles see base routes", () => {
-    for (const role of ["admin", "staff", "doctor", "nurse", "pharmacist"]) {
+    for (const role of ["admin", "doctor", "medical_student"]) {
       const routes = getDashboardRoutes(role);
       expect(routes).toContain("overview");
       expect(routes).toContain("patients");
@@ -69,8 +74,8 @@ describe("/users page access control", () => {
     expect(shouldAllowUsersPage("admin", "some-token")).toBe(true);
   });
 
-  it("blocks staff with token", () => {
-    expect(shouldAllowUsersPage("staff", "some-token")).toBe(false);
+  it("blocks medical_student with token", () => {
+    expect(shouldAllowUsersPage("medical_student", "some-token")).toBe(false);
   });
 
   it("blocks doctor with token", () => {
@@ -86,7 +91,7 @@ describe("/users page access control", () => {
   });
 
   it("redirects non-admin to overview when hydrated", () => {
-    expect(shouldRedirectToOverview("staff", "token", true)).toBe(true);
+    expect(shouldRedirectToOverview("medical_student", "token", true)).toBe(true);
     expect(shouldRedirectToOverview("doctor", "token", true)).toBe(true);
   });
 
@@ -95,39 +100,65 @@ describe("/users page access control", () => {
   });
 
   it("does NOT redirect before hydration", () => {
-    expect(shouldRedirectToOverview("staff", "token", false)).toBe(false);
+    expect(shouldRedirectToOverview("medical_student", "token", false)).toBe(false);
   });
 });
 
 // ── Role constants ──────────────────────────────────────────────
 
 describe("Role constants", () => {
-  it("ROLE_OPTIONS has all 7 roles", () => {
-    expect(ROLE_OPTIONS).toHaveLength(7);
+  it("ROLE_OPTIONS has all 3 roles", () => {
+    expect(ROLE_OPTIONS).toHaveLength(3);
     const values = ROLE_OPTIONS.map((r) => r.value);
     expect(values).toContain("admin");
-    expect(values).toContain("staff");
     expect(values).toContain("doctor");
-    expect(values).toContain("nurse");
-    expect(values).toContain("pharmacist");
-    expect(values).toContain("medical_technologist");
-    expect(values).toContain("psychologist");
+    expect(values).toContain("medical_student");
   });
 
   it("ROLE_LABEL_MAP maps all roles", () => {
     expect(ROLE_LABEL_MAP["admin"]).toBe("Admin");
     expect(ROLE_LABEL_MAP["doctor"]).toBe("Doctor");
-    expect(ROLE_LABEL_MAP["nurse"]).toBe("Nurse");
-    expect(ROLE_LABEL_MAP["staff"]).toBe("Staff");
+    expect(ROLE_LABEL_MAP["medical_student"]).toBe("Medical Student");
   });
 
-  it("CLINICAL_ROLES includes doctor/nurse/pharmacist but not admin/staff", () => {
+  it("getRoleLabel localizes active roles and humanizes unknown values", () => {
+    expect(getRoleLabel("medical_student", "th")).toBe("นักศึกษาแพทย์");
+    expect(getRoleLabel("support_agent", "th")).toBe("Support Agent");
+    expect(getRoleLabel("support_agent", "en")).toBe("Support Agent");
+  });
+
+  it("CLINICAL_ROLES includes doctor but not admin/medical_student", () => {
     expect(CLINICAL_ROLES.has("doctor")).toBe(true);
-    expect(CLINICAL_ROLES.has("nurse")).toBe(true);
-    expect(CLINICAL_ROLES.has("pharmacist")).toBe(true);
-    expect(CLINICAL_ROLES.has("medical_technologist")).toBe(true);
-    expect(CLINICAL_ROLES.has("psychologist")).toBe(true);
     expect(CLINICAL_ROLES.has("admin")).toBe(false);
-    expect(CLINICAL_ROLES.has("staff")).toBe(false);
+    expect(CLINICAL_ROLES.has("medical_student")).toBe(false);
+  });
+});
+
+describe("Role capability helpers", () => {
+  it("only admin can manage users", () => {
+    expect(canManageUsers("admin")).toBe(true);
+    expect(canManageUsers("doctor")).toBe(false);
+    expect(canManageUsers("medical_student")).toBe(false);
+  });
+
+  it("medical_student can view but not write clinical data", () => {
+    expect(canViewClinicalData("medical_student")).toBe(true);
+    expect(canWriteClinicalData("medical_student")).toBe(false);
+  });
+
+  it("doctor can write clinical data", () => {
+    expect(canWriteClinicalData("doctor")).toBe(true);
+  });
+
+  it("CARE_TEAM_ASSIGNMENT_ROLES includes doctor and medical_student", () => {
+    expect(CARE_TEAM_ASSIGNMENT_ROLES.has("doctor")).toBe(true);
+    expect(CARE_TEAM_ASSIGNMENT_ROLES.has("medical_student")).toBe(true);
+    expect(CARE_TEAM_ASSIGNMENT_ROLES.has("admin")).toBe(false);
+  });
+
+  it("isMedicalStudentRole matches only medical_student", () => {
+    expect(isMedicalStudentRole("medical_student")).toBe(true);
+    expect(isMedicalStudentRole("doctor")).toBe(false);
+    expect(isMedicalStudentRole("admin")).toBe(false);
   });
 });

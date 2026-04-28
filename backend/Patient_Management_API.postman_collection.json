@@ -96,7 +96,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\\n  \\\"email\\\": \\\"staff@example.com\\\",\\n  \\\"password\\\": \\\"StaffPass123\\\"\\n}"
+              "raw": "{\\n  \\\"email\\\": \\\"doctor@example.com\\\",\\n  \\\"password\\\": \\\"DoctorPass123\\\"\\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/login",

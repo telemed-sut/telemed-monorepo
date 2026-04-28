@@ -4,23 +4,28 @@ from typing import List, Literal, Optional, Tuple
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import case, func, literal, or_, select
+from sqlalchemy import case, delete, func, literal, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
 from app.core.search import normalize_search_term
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole
+from app.models.heart_sound_record import HeartSoundRecord
 from app.models.patient import Patient
+from app.models.pressure_record import PressureRecord
 from app.models.user import User
 from app.schemas.patient import PatientCreate, PatientUpdate
 from app.services import audit as audit_service
+from app.services import auth as auth_service
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
 AssignmentRole = Literal["primary", "consulting"]
 ALLOWED_ASSIGNMENT_ROLES = {"primary", "consulting"}
 
+
+from app.services.redis_cache import clear_dashboard_stats_cache
 
 def create_patient(db: Session, payload: PatientCreate, doctor_id: Optional[UUID] = None) -> Patient:
     patient = Patient(**payload.model_dump())
@@ -34,6 +39,10 @@ def create_patient(db: Session, payload: PatientCreate, doctor_id: Optional[UUID
 
     db.commit()
     db.refresh(patient)
+    
+    # Invalidate stats cache
+    clear_dashboard_stats_cache()
+    
     return patient
 
 
@@ -71,8 +80,8 @@ def _validate_patient_and_doctor(db: Session, patient_id: UUID, doctor_id: UUID)
     )
     if not doctor:
         raise ValueError("Doctor account not found.")
-    if doctor.role != UserRole.doctor:
-        raise ValueError("Only doctor accounts can be assigned to patients.")
+    if not auth_service.can_receive_patient_assignments(doctor.role):
+        raise ValueError("Only doctor or medical student accounts can be assigned to patients.")
     return doctor
 
 
@@ -147,7 +156,7 @@ def verify_doctor_patient_access(
     """Enforce phase-1 assignment policy at service layer.
 
     - Admin: full access
-    - Doctor: only assigned patients
+    - Doctor/medical student: only assigned patients
     - Others: forbidden
     """
     if not _patient_exists(db, patient_id):
@@ -159,7 +168,7 @@ def verify_doctor_patient_access(
     if current_user.role == UserRole.admin:
         return
 
-    if current_user.role != UserRole.doctor:
+    if current_user.role not in (UserRole.doctor, UserRole.medical_student):
         _log_patient_access_denied(
             db,
             current_user=current_user,
@@ -169,7 +178,7 @@ def verify_doctor_patient_access(
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. Required roles: ['admin', 'doctor']",
+            detail="Access denied. Required roles: ['admin', 'doctor', 'medical_student']",
         )
 
     if _has_active_assignment(db, current_user.id, patient_id):
@@ -372,12 +381,27 @@ def update_patient(db: Session, patient: Patient, payload: PatientUpdate) -> Pat
     return patient
 
 
-def delete_patient(db: Session, patient: Patient, *, deleted_by: UUID) -> None:
+def delete_patient(
+    db: Session,
+    patient: Patient,
+    *,
+    deleted_by: UUID,
+    commit: bool = True,
+) -> None:
+    db.execute(
+        delete(PressureRecord).where(PressureRecord.patient_id == patient.id)
+    )
+    db.execute(
+        delete(HeartSoundRecord).where(HeartSoundRecord.patient_id == patient.id)
+    )
     patient.is_active = False
     patient.deleted_at = datetime.now(timezone.utc)
     patient.deleted_by = deleted_by
     db.add(patient)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
 
 
 def list_patients(
@@ -414,8 +438,6 @@ def list_patients(
                 Patient.last_name.ilike(pattern),
                 Patient.name.ilike(pattern),
                 full_name.ilike(pattern),
-                Patient.email.ilike(pattern),
-                Patient.phone.ilike(pattern),
             )
         )
 
@@ -450,12 +472,14 @@ def list_patients_for_user(
     order: str,
 ) -> Tuple[List[Patient], int]:
     """List patients with role-aware filtering enforced in service layer."""
-    if current_user.role in (UserRole.admin, UserRole.doctor):
+    if current_user.role == UserRole.admin:
         doctor_id: Optional[UUID] = None
+    elif current_user.role in (UserRole.doctor, UserRole.medical_student):
+        doctor_id = current_user.id
     else:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. Required roles: ['admin', 'doctor']",
+            detail="Access denied. Required roles: ['admin', 'doctor', 'medical_student']",
         )
 
     return list_patients(

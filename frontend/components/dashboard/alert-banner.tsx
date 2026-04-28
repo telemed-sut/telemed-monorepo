@@ -1,64 +1,42 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchOverviewStats } from "@/lib/api";
-import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
+
+import { useOverviewStats } from "@/components/dashboard/overview-stats-context";
 
 const I18N: Record<
   AppLanguage,
   {
-    youHave: string;
-    appointmentsToday: (count: number) => string;
-    and: string;
-    totalScheduled: string;
-    consultations: string;
+    ready: string;
+    summary: string;
+    action: string;
   }
 > = {
   en: {
-    youHave: "You have",
-    appointmentsToday: (count) =>
-      `${count} Appointment${count !== 1 ? "s" : ""} Today,`,
-    and: "and",
-    totalScheduled: "Total Scheduled",
-    consultations: "consultations.",
+    ready: "Today's clinical activity is ready.",
+    summary: "This home screen shows privacy-filtered summaries only.",
+    action: "Open Meetings or Patients for exact details.",
   },
   th: {
-    youHave: "วันนี้คุณมี",
-    appointmentsToday: (count) => `${count} นัดหมาย`,
-    and: "และมี",
-    totalScheduled: "นัดหมายทั้งหมด",
-    consultations: "",
+    ready: "กิจกรรมทางคลินิกของวันนี้พร้อมใช้งานแล้ว",
+    summary: "หน้าหลักนี้จะแสดงเฉพาะข้อมูลสรุปที่กรองเพื่อความเป็นส่วนตัว",
+    action: "เปิดหน้าการนัดหมายหรือหน้าผู้ป่วยเพื่อดูรายละเอียดจริง",
   },
 };
 
 export function AlertBanner() {
-  const token = useAuthStore((state) => state.token);
   const language = useLanguageStore((state) => state.language);
   const t = I18N[language];
-  const [todayCount, setTodayCount] = useState(0);
-  const [pendingCount, setPendingCount] = useState(0);
-
-  useEffect(() => {
-    if (!token) return;
-    fetchOverviewStats(token)
-      .then((res) => {
-        setTodayCount(res.kpis.today_consultations);
-        setPendingCount(res.totals.meetings);
-      })
-      .catch(() => {});
-  }, [token]);
+  const { stats } = useOverviewStats();
 
   return (
     <div className="flex items-start gap-3 sm:items-center">
       <span className="text-3xl">🩺</span>
       <p className="text-sm leading-relaxed sm:text-[0.95rem]">
-        <span className="text-muted-foreground">{t.youHave} </span>
-        <span className="font-semibold">{t.appointmentsToday(todayCount)}</span>
-        <span> {t.and} </span>
-        <span className="font-semibold">{pendingCount} {t.totalScheduled}</span>
-        <span className="text-muted-foreground"> {t.consultations}</span>
+        <span className="font-semibold">{t.ready}</span>{" "}
+        <span className="text-muted-foreground">{t.summary}</span>{" "}
+        {stats ? <span>{t.action}</span> : null}
       </p>
     </div>
   );

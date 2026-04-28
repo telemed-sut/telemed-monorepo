@@ -1,11 +1,11 @@
-import enum
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, Column, DateTime, Enum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
+from app.core.secret_crypto import decrypt_secret_value, encrypt_secret_value
 from app.models.enums import UserRole, VerificationStatus
 
 
@@ -20,7 +20,7 @@ class User(Base):
     role = Column(
         Enum(UserRole, name="user_role", create_type=False),
         nullable=False,
-        default=UserRole.staff,
+        default=UserRole.medical_student,
     )
     is_active = Column(Boolean, nullable=False, server_default="true", default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -51,13 +51,41 @@ class User(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    privileged_role_assignments = relationship(
+        "UserPrivilegedRoleAssignment",
+        foreign_keys="UserPrivilegedRoleAssignment.user_id",
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     # Security: brute force protection
     failed_login_attempts = Column(Integer, nullable=False, server_default="0", default=0)
     account_locked_until = Column(DateTime(timezone=True), nullable=True)
     last_failed_login_at = Column(DateTime(timezone=True), nullable=True)
+    password_changed_at = Column(DateTime(timezone=True), nullable=True)
 
     # Security: admin MFA
     two_factor_enabled = Column(Boolean, nullable=False, server_default="false", default=False)
-    two_factor_secret = Column(String(128), nullable=True)
+    _two_factor_secret_encrypted = Column("two_factor_secret", Text(), nullable=True)
     two_factor_enabled_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Security: Passkey onboarding
+    passkey_onboarding_dismissed = Column(Boolean, nullable=False, server_default="false", default=False)
+    last_onboarding_prompt_at = Column(DateTime(timezone=True), nullable=True)
+
+    @property
+    def two_factor_secret(self) -> str | None:
+        return decrypt_secret_value(
+            self._two_factor_secret_encrypted,
+            config_name="two_factor_secret_encryption_key",
+            purpose="user.two_factor_secret",
+        )
+
+    @two_factor_secret.setter
+    def two_factor_secret(self, value: str | None) -> None:
+        self._two_factor_secret_encrypted = encrypt_secret_value(
+            value,
+            config_name="two_factor_secret_encryption_key",
+            purpose="user.two_factor_secret",
+        )

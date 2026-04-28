@@ -1,28 +1,68 @@
+from contextlib import contextmanager
 import logging
-import time
 from datetime import datetime, timezone
-from typing import Dict, Tuple
+from typing import Iterator
+from urllib.parse import parse_qsl
 from uuid import UUID
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 
 from app.core.config import get_settings
 from app.core.security import decode_token
-from app.db.session import SessionLocal
+from app.db.session import engine
 from app.models.audit_log import AuditLog
-from app.models.ip_ban import IPBan
-from app.services.security import is_ip_whitelisted
+from app.services.auth import get_db
+from app.services import security as security_service
 from app.core.request_utils import get_client_ip as _get_client_ip
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# In-memory IP ban cache: ip -> (banned_until_timestamp, cached_at_timestamp)
-_ip_ban_cache: Dict[str, Tuple[float, float]] = {}
-_CACHE_TTL = 30  # seconds
+
+def _build_sanitized_query_metadata(query: str) -> dict[str, object]:
+    if not query:
+        return {
+            "query_present": False,
+            "query_keys": [],
+        }
+
+    query_keys = sorted(
+        {
+            key.strip()
+            for key, _value in parse_qsl(query, keep_blank_values=True)
+            if key and key.strip()
+        }
+    )
+    return {
+        "query_present": bool(query_keys),
+        "query_keys": query_keys,
+    }
+
+
+@contextmanager
+def _get_middleware_db_session(request: Request) -> Iterator[Session]:
+    override = request.app.dependency_overrides.get(get_db)
+    if override is not None:
+        db_gen = override()
+        db = next(db_gen)
+        try:
+            yield db
+        finally:
+            try:
+                next(db_gen)
+            except StopIteration:
+                pass
+        return
+
+    db = Session(engine)
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 
@@ -30,12 +70,42 @@ _CACHE_TTL = 30  # seconds
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
+        path = request.url.path
+        docs_paths = ("/docs", "/redoc", "/openapi")
+        if path.startswith(docs_paths):
+            csp_policy = (
+                "default-src 'self'; "
+                "base-uri 'self'; "
+                "frame-ancestors 'none'; "
+                "object-src 'none'; "
+                "form-action 'self'; "
+                "img-src 'self' data: https:; "
+                "style-src 'self' 'unsafe-inline' https:; "
+                "script-src 'self' 'unsafe-inline' https:; "
+                "font-src 'self' data: https:; "
+                "connect-src 'self' https:"
+            )
+        else:
+            csp_policy = (
+                "default-src 'none'; "
+                "base-uri 'none'; "
+                "frame-ancestors 'none'; "
+                "object-src 'none'; "
+                "form-action 'none'; "
+                "img-src 'none'; "
+                "style-src 'none'; "
+                "script-src 'none'; "
+                "font-src 'none'; "
+                "manifest-src 'none'; "
+                "connect-src 'self' https://*.blob.core.windows.net"
+            )
 
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["X-XSS-Protection"] = "0"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = csp_policy
 
         content_type = response.headers.get("content-type", "")
         if "application/json" in content_type:
@@ -70,7 +140,8 @@ class SecurityAuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
 
-        if response.status_code != 403:
+        # Log both 401 (Unauthorized) and 403 (Forbidden) to the audit log.
+        if response.status_code not in {401, 403}:
             return response
 
         path = request.url.path
@@ -83,17 +154,18 @@ class SecurityAuditMiddleware(BaseHTTPMiddleware):
             "method": request.method,
             "path": path,
             "status_code": response.status_code,
-            "query": request.url.query,
+            **_build_sanitized_query_metadata(request.url.query),
             "user_agent": request.headers.get("user-agent", "")[:300],
         }
 
+        action_name = "http_403_denied" if response.status_code == 403 else "http_401_unauthorized"
+
         try:
-            db = SessionLocal()
-            try:
+            with _get_middleware_db_session(request) as db:
                 db.add(
                     AuditLog(
                         user_id=actor_id,
-                        action="http_403_denied",
+                        action=action_name,
                         resource_type="http_request",
                         details=details,
                         ip_address=ip_address,
@@ -102,10 +174,8 @@ class SecurityAuditMiddleware(BaseHTTPMiddleware):
                     )
                 )
                 db.commit()
-            finally:
-                db.close()
         except Exception:
-            logger.exception("Failed to write 403 audit log for %s", path)
+            logger.exception("Failed to write %s audit log for %s", action_name, path)
 
         return response
 
@@ -114,52 +184,26 @@ class IPBanMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         ip = _get_client_ip(request)
 
-        if is_ip_whitelisted(ip):
+        if security_service.is_ip_whitelisted(ip):
             return await call_next(request)
 
-        # Check in-memory cache first
-        now = time.time()
-        if ip in _ip_ban_cache:
-            banned_until_ts, cached_at = _ip_ban_cache[ip]
-            if now - cached_at < _CACHE_TTL:
-                if banned_until_ts > now:
-                    return JSONResponse(
-                        status_code=403,
-                        content={"detail": "Access denied. Your IP has been temporarily blocked."},
-                    )
-            else:
-                del _ip_ban_cache[ip]
-
-        # Check DB
         try:
-            db = SessionLocal()
-            try:
-                from sqlalchemy import select as sa_select
-                ban = db.scalar(sa_select(IPBan).where(IPBan.ip_address == ip))
+            with _get_middleware_db_session(request) as db:
+                ban = security_service.check_ip_banned(db, ip)
                 if ban:
-                    if ban.banned_until:
-                        banned_until = ban.banned_until
-                        if banned_until.tzinfo is None:
-                            banned_until = banned_until.replace(tzinfo=timezone.utc)
-
-                        if banned_until > datetime.now(timezone.utc):
-                            _ip_ban_cache[ip] = (banned_until.timestamp(), now)
-                            return JSONResponse(
-                                status_code=403,
-                                content={"detail": "Access denied. Your IP has been temporarily blocked."},
-                            )
-                        else:
-                            db.delete(ban)
-                            db.commit()
-                    else:
-                        # Permanent ban (banned_until is None)
-                        _ip_ban_cache[ip] = (now + 86400, now)  # Cache for 24h
+                    if ban.banned_until is None:
                         return JSONResponse(
                             status_code=403,
                             content={"detail": "Access denied. Your IP has been blocked."},
                         )
-            finally:
-                db.close()
+                    banned_until = ban.banned_until
+                    if banned_until.tzinfo is None:
+                        banned_until = banned_until.replace(tzinfo=timezone.utc)
+                    if banned_until > datetime.now(timezone.utc):
+                        return JSONResponse(
+                            status_code=403,
+                            content={"detail": "Access denied. Your IP has been temporarily blocked."},
+                        )
         except Exception:
             logger.exception("Error checking IP ban for %s", ip)
 

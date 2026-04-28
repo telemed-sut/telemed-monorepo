@@ -30,6 +30,7 @@ def upgrade() -> None:
     if "device_request_nonces" not in tables:
         op.create_table(
             "device_request_nonces",
+            # Primary keys are indexed implicitly; do not add a separate id index.
             sa.Column("id", sa.Integer(), nullable=False),
             sa.Column("device_id", sa.String(length=128), nullable=False),
             sa.Column("nonce_hash", sa.String(length=64), nullable=False),

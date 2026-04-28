@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ComponentProps } from "react";
+import { useMemo, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -10,10 +10,10 @@ import {
   InformationCircleIcon,
   Stethoscope02Icon,
 } from "@hugeicons/core-free-icons";
-import { fetchOverviewStats } from "@/lib/api";
-import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
+
+import { useOverviewStats } from "@/components/dashboard/overview-stats-context";
 
 const I18N: Record<
   AppLanguage,
@@ -22,9 +22,13 @@ const I18N: Record<
     todayAppointments: string;
     thisWeek: string;
     loading: string;
-    thisMonth: (count: number) => string;
-    totalScheduled: (count: number) => string;
-    todayCount: (count: number) => string;
+    low: string;
+    moderate: string;
+    active: string;
+    high: string;
+    patientSummary: string;
+    appointmentsSummary: string;
+    weeklySummary: string;
   }
 > = {
   en: {
@@ -32,18 +36,26 @@ const I18N: Record<
     todayAppointments: "Today's Appointments",
     thisWeek: "This Week",
     loading: "Loading...",
-    thisMonth: (count) => `+${count} this month`,
-    totalScheduled: (count) => `${count} total scheduled`,
-    todayCount: (count) => `${count} today`,
+    low: "Low",
+    moderate: "Moderate",
+    active: "Active",
+    high: "High",
+    patientSummary: "Exact totals stay in the Patients workspace",
+    appointmentsSummary: "Open Meetings to review the live schedule",
+    weeklySummary: "Trend is visible without exposing exact counts",
   },
   th: {
     totalPatients: "ผู้ป่วยทั้งหมด",
     todayAppointments: "นัดหมายวันนี้",
     thisWeek: "สัปดาห์นี้",
     loading: "กำลังโหลด...",
-    thisMonth: (count) => `+${count} เดือนนี้`,
-    totalScheduled: (count) => `นัดหมายทั้งหมด ${count}`,
-    todayCount: (count) => `${count} วันนี้`,
+    low: "น้อย",
+    moderate: "ปานกลาง",
+    active: "ค่อนข้างใช้งาน",
+    high: "สูง",
+    patientSummary: "จำนวนจริงจะดูได้ในหน้าผู้ป่วย",
+    appointmentsSummary: "เปิดหน้าการนัดหมายเพื่อดูตารางจริง",
+    weeklySummary: "เห็นแนวโน้มได้โดยไม่เผยจำนวนละเอียด",
   },
 };
 
@@ -55,77 +67,49 @@ interface StatItem {
   subtitleIcon: ComponentProps<typeof HugeiconsIcon>["icon"];
 }
 
+function getActivityBand(
+  count: number,
+  t: (typeof I18N)[AppLanguage],
+) {
+  if (count <= 0) return t.low;
+  if (count <= 4) return t.moderate;
+  if (count <= 12) return t.active;
+  return t.high;
+}
+
 export function StatsCards() {
-  const token = useAuthStore((state) => state.token);
   const language = useLanguageStore((state) => state.language);
   const t = I18N[language];
-  const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<StatItem[]>([
-    {
-      title: t.totalPatients,
-      value: "—",
-      subtitle: t.loading,
-      icon: UserGroupIcon,
-      subtitleIcon: InformationCircleIcon,
-    },
-    {
-      title: t.todayAppointments,
-      value: "—",
-      subtitle: t.loading,
-      icon: Calendar01Icon,
-      subtitleIcon: InformationCircleIcon,
-    },
-    {
-      title: t.thisWeek,
-      value: "—",
-      subtitle: t.loading,
-      icon: Stethoscope02Icon,
-      subtitleIcon: InformationCircleIcon,
-    },
-  ]);
+  const { loading, stats: overviewStats } = useOverviewStats();
+  const stats = useMemo<StatItem[]>(() => {
+    const todayMeetings = overviewStats?.kpis.today_consultations ?? 0;
+    const thisWeekMeetings = overviewStats?.kpis.this_week_consultations ?? 0;
+    const newThisMonth = overviewStats?.kpis.this_month_new_patients ?? 0;
 
-  useEffect(() => {
-    if (!token) return;
-
-    const loadStats = async () => {
-      try {
-        const statsData = await fetchOverviewStats(token);
-        const todayMeetings = statsData.kpis.today_consultations;
-        const thisWeekMeetings = statsData.kpis.this_week_consultations;
-        const newThisMonth = statsData.kpis.this_month_new_patients;
-
-        setStats([
-          {
-            title: t.totalPatients,
-            value: statsData.totals.patients.toString(),
-            subtitle: t.thisMonth(newThisMonth),
-            icon: UserGroupIcon,
-            subtitleIcon: InformationCircleIcon,
-          },
-          {
-            title: t.todayAppointments,
-            value: todayMeetings.toString(),
-            subtitle: t.totalScheduled(statsData.totals.meetings),
-            icon: Calendar01Icon,
-            subtitleIcon: InformationCircleIcon,
-          },
-          {
-            title: t.thisWeek,
-            value: thisWeekMeetings.toString(),
-            subtitle: t.todayCount(todayMeetings),
-            icon: Stethoscope02Icon,
-            subtitleIcon: InformationCircleIcon,
-          },
-        ]);
-      } catch {
-        // keep defaults
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadStats();
-  }, [token, t]);
+    return [
+      {
+        title: t.totalPatients,
+        value: overviewStats ? getActivityBand(overviewStats.totals.patients, t) : "—",
+        subtitle: overviewStats ? t.patientSummary : t.loading,
+        icon: UserGroupIcon,
+        subtitleIcon: InformationCircleIcon,
+      },
+      {
+        title: t.todayAppointments,
+        value: overviewStats ? getActivityBand(todayMeetings, t) : "—",
+        subtitle: overviewStats ? t.appointmentsSummary : t.loading,
+        icon: Calendar01Icon,
+        subtitleIcon: InformationCircleIcon,
+      },
+      {
+        title: t.thisWeek,
+        value: overviewStats ? getActivityBand(thisWeekMeetings + newThisMonth, t) : "—",
+        subtitle: overviewStats ? t.weeklySummary : t.loading,
+        icon: Stethoscope02Icon,
+        subtitleIcon: InformationCircleIcon,
+      },
+    ];
+  }, [overviewStats, t]);
 
   if (loading) {
     return (

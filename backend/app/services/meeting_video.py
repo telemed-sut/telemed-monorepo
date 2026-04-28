@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import re
 import secrets
 import time
@@ -19,6 +20,14 @@ from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
 from app.models.meeting_patient_invite_code import MeetingPatientInviteCode
 from app.models.user import User
+from app.services.redis_runtime import (
+    decode_cached_value,
+    get_redis_client_or_log,
+    log_redis_operation_failure,
+    parse_cached_datetime,
+)
+
+logger = logging.getLogger(__name__)
 
 URL_ROOM_PATTERN = re.compile(r"^https?://", re.IGNORECASE)
 ZEGO_IDENTIFIER_SANITIZE_PATTERN = re.compile(r"[^a-zA-Z0-9_]")
@@ -35,6 +44,8 @@ PATIENT_INVITE_SHORT_CODE_PATTERN = re.compile(r"^[a-z0-9]{6,24}$")
 PATIENT_INVITE_SHORT_CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 PATIENT_INVITE_SHORT_CODE_LENGTH = 8
 PATIENT_INVITE_SHORT_CODE_MAX_RETRIES = 16
+_PATIENT_SHORT_CODE_REDIS_PREFIX = "meeting_patient_short_code:v1:"
+_MEETING_ACTIVE_SHORT_CODE_REDIS_PREFIX = "meeting_patient_active_short_code:v1:"
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -134,6 +145,158 @@ def normalize_meeting_id_text(value: str) -> str:
     return _normalize_uuid_text(value)
 
 
+def _patient_short_code_cache_key(short_code: str) -> str:
+    normalized = _normalize_patient_short_code(short_code)
+    hashed = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return f"{_PATIENT_SHORT_CODE_REDIS_PREFIX}{hashed}"
+
+
+def _meeting_active_short_code_cache_key(meeting_id: uuid.UUID) -> str:
+    return f"{_MEETING_ACTIVE_SHORT_CODE_REDIS_PREFIX}{meeting_id}"
+
+
+def _get_meeting_video_redis_client():
+    return get_redis_client_or_log(
+        logger,
+        scope="meeting_invite_cache",
+        fallback_label="database",
+    )
+
+
+def _cache_short_code_record(invite_code: MeetingPatientInviteCode) -> None:
+    redis_client = _get_meeting_video_redis_client()
+    if redis_client is None:
+        return
+
+    expires_at = _as_utc(invite_code.expires_at)
+    ttl_seconds = int((expires_at - datetime.now(timezone.utc)).total_seconds())
+    short_code_key = _patient_short_code_cache_key(invite_code.code)
+    active_code_key = _meeting_active_short_code_cache_key(invite_code.meeting_id)
+    if ttl_seconds <= 0:
+        try:
+            redis_client.delete(short_code_key, active_code_key)
+        except Exception:
+            log_redis_operation_failure(
+                logger,
+                scope="meeting_invite_cache",
+                operation="delete_expired_entry",
+                fallback_label="database",
+            )
+        return
+
+    payload = {
+        "meeting_id": str(invite_code.meeting_id),
+        "code": invite_code.code,
+        "expires_at": expires_at.isoformat(),
+    }
+    try:
+        redis_client.hset(short_code_key, mapping=payload)
+        redis_client.expire(short_code_key, ttl_seconds)
+        redis_client.hset(active_code_key, mapping=payload)
+        redis_client.expire(active_code_key, ttl_seconds)
+    except Exception:
+        log_redis_operation_failure(
+            logger,
+            scope="meeting_invite_cache",
+            operation="write",
+            fallback_label="database",
+        )
+
+
+def _clear_short_code_cache(*, short_code: str | None = None, meeting_id: uuid.UUID | None = None) -> None:
+    redis_client = _get_meeting_video_redis_client()
+    if redis_client is None:
+        return
+
+    keys = []
+    if short_code:
+        keys.append(_patient_short_code_cache_key(short_code))
+    if meeting_id:
+        keys.append(_meeting_active_short_code_cache_key(meeting_id))
+    if not keys:
+        return
+    try:
+        redis_client.delete(*keys)
+    except Exception:
+        log_redis_operation_failure(
+            logger,
+            scope="meeting_invite_cache",
+            operation="delete",
+            fallback_label="database",
+        )
+
+
+def _load_cached_short_code_record(*, short_code: str) -> MeetingPatientInviteCode | None:
+    redis_client = _get_meeting_video_redis_client()
+    if redis_client is None:
+        return None
+
+    try:
+        payload = redis_client.hgetall(_patient_short_code_cache_key(short_code))
+    except Exception:
+        log_redis_operation_failure(
+            logger,
+            scope="meeting_invite_cache",
+            operation="read_short_code",
+            fallback_label="database",
+        )
+        return None
+
+    if not payload:
+        return None
+
+    expires_at = parse_cached_datetime(payload.get("expires_at"))
+    meeting_id = _normalize_uuid_text(decode_cached_value(payload.get("meeting_id")) or "")
+    cached_code = decode_cached_value(payload.get("code")) or ""
+    if not expires_at or expires_at <= datetime.now(timezone.utc) or not meeting_id or not cached_code:
+        _clear_short_code_cache(short_code=short_code)
+        return None
+
+    return MeetingPatientInviteCode(
+        meeting_id=uuid.UUID(meeting_id),
+        code=cached_code,
+        expires_at=expires_at,
+    )
+
+
+def _load_cached_active_short_code(*, meeting_id: uuid.UUID) -> MeetingPatientInviteCode | None:
+    redis_client = _get_meeting_video_redis_client()
+    if redis_client is None:
+        return None
+
+    try:
+        payload = redis_client.hgetall(_meeting_active_short_code_cache_key(meeting_id))
+    except Exception:
+        log_redis_operation_failure(
+            logger,
+            scope="meeting_invite_cache",
+            operation="read_active_code",
+            fallback_label="database",
+        )
+        return None
+
+    if not payload:
+        return None
+
+    expires_at = parse_cached_datetime(payload.get("expires_at"))
+    cached_meeting_id = _normalize_uuid_text(decode_cached_value(payload.get("meeting_id")) or "")
+    cached_code = decode_cached_value(payload.get("code")) or ""
+    if (
+        not expires_at
+        or expires_at <= datetime.now(timezone.utc)
+        or cached_meeting_id != str(meeting_id)
+        or not cached_code
+    ):
+        _clear_short_code_cache(meeting_id=meeting_id)
+        return None
+
+    return MeetingPatientInviteCode(
+        meeting_id=meeting_id,
+        code=cached_code,
+        expires_at=expires_at,
+    )
+
+
 def _normalize_patient_short_code(value: str) -> str:
     normalized = (value or "").strip().lower()
     if not PATIENT_INVITE_SHORT_CODE_PATTERN.fullmatch(normalized):
@@ -177,14 +340,18 @@ def _build_patient_invite_token(
 
 def _sign_compact_payload(compact_payload: str) -> str:
     settings = get_settings()
-    if not settings.jwt_secret:
+    signing_secret = (settings.meeting_signing_secret or "").strip()
+    if not signing_secret and settings.app_env != "production" and settings.meeting_signing_allow_jwt_secret_fallback:
+        signing_secret = settings.jwt_secret
+
+    if not signing_secret:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="JWT secret is missing; unable to sign patient invite token.",
+            detail="Meeting signing secret is missing; unable to sign meeting token.",
         )
 
     signature = hmac.new(
-        settings.jwt_secret.encode("utf-8"),
+        signing_secret.encode("utf-8"),
         compact_payload.encode("utf-8"),
         hashlib.sha256,
     ).digest()
@@ -217,6 +384,7 @@ def _generate_mock_token(
 def _generate_zego_token(
     *,
     user_id: str,
+    room_id: str,
     expires_in_seconds: int,
 ) -> str:
     settings = get_settings()
@@ -231,13 +399,25 @@ def _generate_zego_token(
             ),
         ) from exc
 
+    # ZEGO Token04 for Room Login requires a specific JSON payload
+    # to grant login (1) and publish (2) privileges.
+    payload_dict = {
+        "room_id": room_id,
+        "privilege": {
+            1: 1,  # PrivilegeKeyLogin = 1, PrivilegeValueAllow = 1
+            2: 1,  # PrivilegeKeyPublish = 2, PrivilegeValueAllow = 1
+        },
+        "stream_id_list": None,
+    }
+    payload = json.dumps(payload_dict)
+
     try:
         return generate_token04(
             app_id=settings.zego_app_id,
             user_id=user_id,
             server_secret=settings.zego_server_secret,
             effective_time_in_seconds=expires_in_seconds,
-            payload="",
+            payload=payload,
         )
     except HTTPException:
         raise
@@ -303,6 +483,7 @@ def _issue_video_token_for_participant(
 
     token = _generate_zego_token(
         user_id=participant_id,
+        room_id=room_id,
         expires_in_seconds=ttl,
     )
     return {
@@ -343,6 +524,7 @@ def _create_patient_short_code_record(
         try:
             db.commit()
             db.refresh(short_link)
+            _cache_short_code_record(short_link)
             return short_link
         except IntegrityError:
             db.rollback()
@@ -358,6 +540,10 @@ def get_active_patient_invite_code(
     db: Session,
     meeting_id: uuid.UUID,
 ) -> MeetingPatientInviteCode | None:
+    cached_invite_code = _load_cached_active_short_code(meeting_id=meeting_id)
+    if cached_invite_code is not None:
+        return cached_invite_code
+
     now = datetime.now(timezone.utc)
     invite_codes = db.scalars(
         select(MeetingPatientInviteCode)
@@ -370,7 +556,9 @@ def get_active_patient_invite_code(
 
     for invite_code in invite_codes:
         if _as_utc(invite_code.expires_at) > now:
+            _cache_short_code_record(invite_code)
             return invite_code
+        _clear_short_code_cache(short_code=invite_code.code)
     return None
 
 
@@ -380,6 +568,10 @@ def _resolve_patient_short_code_record(
     short_code: str,
 ) -> MeetingPatientInviteCode:
     normalized = _normalize_patient_short_code(short_code)
+    cached_short_link = _load_cached_short_code_record(short_code=normalized)
+    if cached_short_link is not None:
+        return cached_short_link
+
     short_link = db.scalar(
         select(MeetingPatientInviteCode).where(
             MeetingPatientInviteCode.code == normalized
@@ -396,10 +588,12 @@ def _resolve_patient_short_code_record(
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if expires_at <= now:
+        _clear_short_code_cache(short_code=normalized, meeting_id=short_link.meeting_id)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Patient short code expired.",
         )
+    _cache_short_code_record(short_link)
     return short_link
 
 
@@ -467,6 +661,7 @@ def deactivate_patient_join_invites(
         if _as_utc(invite_code.expires_at) > now:
             invite_code.expires_at = now
             db.add(invite_code)
+        _clear_short_code_cache(short_code=invite_code.code, meeting_id=meeting.id)
 
     if clear_meeting_url:
         meeting.patient_invite_url = None
@@ -525,6 +720,7 @@ def create_patient_join_invite(
         db.add(meeting)
         db.commit()
         db.refresh(active_short_link)
+        _cache_short_code_record(active_short_link)
         return _build_patient_invite_response(
             meeting=meeting,
             invite_code=active_short_link,
@@ -542,6 +738,7 @@ def create_patient_join_invite(
     meeting.patient_invite_url = build_patient_short_invite_url(short_link.code)
     db.add(meeting)
     db.commit()
+    _cache_short_code_record(short_link)
 
     return _build_patient_invite_response(
         meeting=meeting,

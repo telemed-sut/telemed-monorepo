@@ -5,11 +5,13 @@ Centralized helpers for extracting information from FastAPI requests,
 ensuring consistent behavior across all API routes and middleware.
 """
 
+from ipaddress import ip_address
+
 from fastapi import Request
 
 from app.core.config import get_settings
 
-__all__ = ["get_client_ip"]
+__all__ = ["get_client_ip", "is_local_development_ip"]
 
 settings = get_settings()
 
@@ -44,3 +46,20 @@ def get_client_ip(request: Request) -> str:
             return forwarded.split(",")[0].strip()
 
     return remote_host
+
+
+def is_local_development_ip(value: str) -> bool:
+    """Return True for loopback/private IPs in development and test environments."""
+    if settings.app_env not in {"development", "test"}:
+        return False
+
+    candidate = (value or "").strip()
+    if not candidate:
+        return False
+
+    try:
+        parsed = ip_address(candidate)
+    except ValueError:
+        return False
+
+    return parsed.is_loopback or parsed.is_private

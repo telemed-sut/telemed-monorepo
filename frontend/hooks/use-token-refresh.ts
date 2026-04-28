@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
-import { refreshToken } from "@/lib/api";
+import { getLoginRedirectPath, refreshToken } from "@/lib/api";
 
 /**
  * Proactively refreshes the JWT token before it expires.
@@ -14,6 +14,7 @@ import { refreshToken } from "@/lib/api";
 export function useTokenRefresh() {
   const router = useRouter();
   const token = useAuthStore((s) => s.token);
+  const sessionExpiresAt = useAuthStore((s) => s.sessionExpiresAt);
   const setSession = useAuthStore((s) => s.setSession);
   const clearToken = useAuthStore((s) => s.clearToken);
   const getTokenTTL = useAuthStore((s) => s.getTokenTTL);
@@ -22,6 +23,7 @@ export function useTokenRefresh() {
 
   useEffect(() => {
     if (!token) return;
+    if (sessionExpiresAt === null) return;
 
     const check = async () => {
       const ttl = getTokenTTL();
@@ -29,7 +31,7 @@ export function useTokenRefresh() {
       // Token already fully expired — force logout
       if (ttl <= 0) {
         clearToken();
-        router.replace("/login");
+        router.replace(getLoginRedirectPath("token_expired"));
         return;
       }
 
@@ -44,7 +46,7 @@ export function useTokenRefresh() {
         } catch {
           // Refresh failed — token may already be expired
           clearToken();
-          router.replace("/login");
+          router.replace(getLoginRedirectPath("refresh_failed"));
         } finally {
           refreshingRef.current = false;
         }
@@ -57,5 +59,5 @@ export function useTokenRefresh() {
     // Then check every 30 seconds
     const interval = setInterval(check, 30_000);
     return () => clearInterval(interval);
-  }, [token, setSession, clearToken, getTokenTTL, isTokenExpiringSoon, router]);
+  }, [token, sessionExpiresAt, setSession, clearToken, getTokenTTL, isTokenExpiringSoon, router]);
 }

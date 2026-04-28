@@ -8,7 +8,7 @@ from app.db.base import Base
 class DeviceErrorLog(Base):
     __tablename__ = "device_error_logs"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     device_id: Mapped[str] = mapped_column(String, index=True, nullable=True)
     error_message: Mapped[str] = mapped_column(Text, nullable=False)
     ip_address: Mapped[str] = mapped_column(String, nullable=True)

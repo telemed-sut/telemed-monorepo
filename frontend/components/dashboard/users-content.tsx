@@ -1,11 +1,12 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
 import { useDashboardStore } from "@/store/dashboard-store";
-import { UsersTable } from "./users-table";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,9 +46,9 @@ import {
 import {
   fetchUsers,
   fetchCurrentUser,
+  getRoleLabel,
   type User,
   type UserMe,
-  ROLE_LABEL_MAP,
 } from "@/lib/api";
 import {
   AreaChart,
@@ -70,9 +71,27 @@ import {
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
 
+const UsersTable = dynamic(
+  () => import("./users-table").then((mod) => mod.UsersTable),
+  {
+    loading: () => (
+      <section className="rounded-[28px] border border-slate-200/80 bg-white/95 p-5 shadow-[0_12px_32px_rgba(15,23,42,0.05)]">
+        <div className="space-y-3">
+          <Skeleton className="h-6 w-44 rounded-full" />
+          <Skeleton className="h-4 w-72 rounded-full" />
+          <Skeleton className="h-[620px] rounded-[24px]" />
+        </div>
+      </section>
+    ),
+  }
+);
+
 function tr(language: AppLanguage, en: string, th: string): string {
   return language === "th" ? th : en;
 }
+
+const USER_REGISTRATION_SIGNAL_KEY = "telemed:user-registered";
+const USER_REGISTRATION_CHANNEL = "telemed-user-events";
 
 type UsersStreamEvent = {
   type?: string;
@@ -114,10 +133,12 @@ function WelcomeSection({
   users,
   currentUser,
   language,
+  onCreateInvite,
 }: {
   users: User[];
   currentUser: UserMe | null;
   language: AppLanguage;
+  onCreateInvite: () => void;
 }) {
   const active = users.filter((u) => u.is_active).length;
   const pending = users.filter(
@@ -175,6 +196,7 @@ function WelcomeSection({
         <Button
           size="sm"
           className="h-9 gap-2 sm:gap-3 text-sm bg-linear-to-b from-foreground to-foreground/90 text-background"
+          onClick={onCreateInvite}
         >
           <Plus className="size-3 sm:size-4" />
           <span className="hidden xs:inline">{tr(language, "Create New", "สร้างใหม่")}</span>
@@ -706,24 +728,6 @@ function MonthlyUserGrowthChart({ users, language }: { users: User[]; language: 
 // ── Users by Role Chart (Donut/Pie — Lead Sources style) ──
 function UsersByRoleChart({ users, language }: { users: User[]; language: AppLanguage }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
-  const getRoleLabel = useCallback(
-    (role: string) => {
-      if (language !== "th") {
-        return ROLE_LABEL_MAP[role] || role.charAt(0).toUpperCase() + role.slice(1);
-      }
-      const labels: Record<string, string> = {
-        admin: "ผู้ดูแลระบบ",
-        doctor: "แพทย์",
-        staff: "เจ้าหน้าที่",
-        nurse: "พยาบาล",
-        pharmacist: "เภสัชกร",
-        medical_technologist: "นักเทคนิคการแพทย์",
-        psychologist: "นักจิตวิทยา",
-      };
-      return labels[role] || role;
-    },
-    [language]
-  );
 
   const roleData = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -733,21 +737,16 @@ function UsersByRoleChart({ users, language }: { users: User[]; language: AppLan
     const colors: Record<string, string> = {
       admin: "var(--med-primary-light)",
       doctor: "var(--med-primary)",
-      staff: "#3d98d0",
-      nurse: "#2d88c0",
-      pharmacist: "#a855f7",
-      medical_technologist: "#06b6d4",
-      psychologist: "#ec4899",
+      medical_student: "#8b5cf6",
     };
     return Object.entries(counts)
       .sort(([, a], [, b]) => b - a)
       .map(([role, count]) => ({
-        name:
-          getRoleLabel(role),
+        name: getRoleLabel(role, language),
         value: count,
         color: colors[role] || "var(--med-primary-light)",
       }));
-  }, [users, getRoleLabel]);
+  }, [users, language]);
 
   const totalUsers = roleData.reduce((acc, item) => acc + item.value, 0);
 
@@ -888,16 +887,24 @@ function UsersByRoleChart({ users, language }: { users: User[]; language: AppLan
 export function UsersContent() {
   const router = useRouter();
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.userId);
+  const authCurrentUser = useAuthStore((state) => state.currentUser);
   const hydrated = useAuthStore((state) => state.hydrated);
   const clearToken = useAuthStore((state) => state.clearToken);
+  const setAuthCurrentUser = useAuthStore((state) => state.setCurrentUser);
   const language = useLanguageStore((state) => state.language);
   const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<UserMe | null>(null);
+  const [usersLoaded, setUsersLoaded] = useState(false);
+  const [tableSeedVersion, setTableSeedVersion] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [inviteRequestKey, setInviteRequestKey] = useState(0);
 
   const showUserStats = useDashboardStore((s) => s.showUserStats);
   const showUserCharts = useDashboardStore((s) => s.showUserCharts);
   const showUserTable = useDashboardStore((s) => s.showUserTable);
+  const initialTableUsers = useMemo(() => users.slice(0, 10), [users]);
+  const initialTableTotal = users.length;
 
   useEffect(() => {
     if (hydrated && !token) {
@@ -905,12 +912,68 @@ export function UsersContent() {
     }
   }, [hydrated, token, router]);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!token || !userId) {
+      setCurrentUser(null);
+      return;
+    }
+
+    if (!authCurrentUser || authCurrentUser.id !== userId) {
+      setCurrentUser(null);
+      return;
+    }
+
+    setCurrentUser(authCurrentUser);
+  }, [authCurrentUser, hydrated, token, userId]);
+
   const triggerRefresh = useCallback(() => {
     setRefreshKey((prev) => prev + 1);
   }, []);
 
+  const triggerCreateInvite = useCallback(() => {
+    setInviteRequestKey((prev) => prev + 1);
+  }, []);
+
   useEffect(() => {
-    if (!token) return;
+    if (typeof window === "undefined") return;
+
+    const handleRefreshSignal = () => {
+      triggerRefresh();
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== USER_REGISTRATION_SIGNAL_KEY || !event.newValue) return;
+      handleRefreshSignal();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        handleRefreshSignal();
+      }
+    };
+
+    window.addEventListener("focus", handleRefreshSignal);
+    window.addEventListener("storage", handleStorage);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof window.BroadcastChannel !== "undefined") {
+      channel = new window.BroadcastChannel(USER_REGISTRATION_CHANNEL);
+      channel.addEventListener("message", handleRefreshSignal);
+    }
+
+    return () => {
+      window.removeEventListener("focus", handleRefreshSignal);
+      window.removeEventListener("storage", handleStorage);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      channel?.removeEventListener("message", handleRefreshSignal);
+      channel?.close();
+    };
+  }, [triggerRefresh]);
+
+  useEffect(() => {
+    if (!token || !userId) return;
     let cancelled = false;
 
     const loadUsersForDashboard = async () => {
@@ -920,7 +983,7 @@ export function UsersContent() {
       const allUsers: User[] = [];
 
       do {
-        const res = await fetchUsers({ page, limit: pageSize, clinical_only: true }, token);
+        const res = await fetchUsers({ page, limit: pageSize, skipCache: true }, token);
         allUsers.push(...res.items);
         total = res.total;
         page += 1;
@@ -928,10 +991,15 @@ export function UsersContent() {
 
       if (!cancelled) {
         setUsers(allUsers);
+        setUsersLoaded(true);
+        setTableSeedVersion((prev) => prev + 1);
       }
     };
 
     void loadUsersForDashboard().catch((err) => {
+      if (!cancelled) {
+        setUsersLoaded(true);
+      }
       if ((err as { status?: number }).status === 401) {
         clearToken();
         router.replace("/login");
@@ -940,14 +1008,17 @@ export function UsersContent() {
 
     void fetchCurrentUser(token)
       .then((me) => {
-        if (!cancelled) setCurrentUser(me);
+        if (!cancelled && me.id === userId) {
+          setAuthCurrentUser(me);
+          setCurrentUser(me);
+        }
       })
       .catch(() => {});
 
     return () => {
       cancelled = true;
     };
-  }, [token, clearToken, router, refreshKey]);
+  }, [token, userId, clearToken, router, refreshKey, setAuthCurrentUser]);
 
   useEffect(() => {
     if (!token) return;
@@ -1019,7 +1090,7 @@ export function UsersContent() {
             }
           }
         }
-      } catch (error) {
+      } catch {
         if (!active) return;
         scheduleReconnect();
       }
@@ -1042,7 +1113,12 @@ export function UsersContent() {
 
   return (
     <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 bg-background w-full">
-      <WelcomeSection users={users} currentUser={currentUser} language={language} />
+      <WelcomeSection
+        users={users}
+        currentUser={currentUser}
+        language={language}
+        onCreateInvite={triggerCreateInvite}
+      />
       {showUserStats && <UserStatsCards users={users} language={language} />}
       {showUserCharts && (
         <div className="flex flex-col xl:flex-row gap-4 sm:gap-6">
@@ -1050,7 +1126,17 @@ export function UsersContent() {
           <UsersByRoleChart users={users} language={language} />
         </div>
       )}
-      {showUserTable && <UsersTable refreshKey={refreshKey} />}
+      {showUserTable && (
+        <UsersTable
+          refreshKey={refreshKey}
+          inviteRequestKey={inviteRequestKey}
+          initialUsers={initialTableUsers}
+          initialTotal={initialTableTotal}
+          initialSeedKey={tableSeedVersion}
+          initialSeedReady={usersLoaded}
+          onUsersMutated={triggerRefresh}
+        />
+      )}
     </main>
   );
 }

@@ -1,3 +1,4 @@
+import secrets
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -13,12 +14,16 @@ from app.core.config import get_settings
 from app.core.search import normalize_search_term
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
+from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole, VerificationStatus
 from app.models.invite import UserInvite
+from app.models.patient import Patient
 from app.models.user import User
+from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
 from app.schemas.user import (
     CLINICAL_ROLES,
     UserCreate,
+    UserCreateResponse,
     UserInviteCreateRequest,
     UserInviteCreateResponse,
     UserListResponse,
@@ -26,12 +31,14 @@ from app.schemas.user import (
     UserUpdate,
 )
 from app.services import auth as auth_service
+from app.services import auth_sessions
 from app.services.audit import log_action
 from app.services.auth import get_admin_user, get_current_user
 
 router = APIRouter(prefix="/users", tags=["users"])
 settings = get_settings()
 logger = logging.getLogger(__name__)
+HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS = 30 * 60
 
 
 # Use shared utility for consistent IP extraction across all routes.
@@ -73,6 +80,16 @@ def _mask_license_no(license_no: str | None) -> str | None:
     if len(cleaned) <= 4:
         return "*" * len(cleaned)
     return f"{'*' * (len(cleaned) - 4)}{cleaned[-4:]}"
+
+
+def _normalize_privileged_reason(raw_reason: str | None) -> str:
+    reason = (raw_reason or "").strip()
+    if len(reason) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Reason must be at least 8 characters.",
+        )
+    return reason
 
 
 def _active_admin_count_for_update(db: Session) -> int:
@@ -182,6 +199,72 @@ def _normalize_utc(dt: datetime) -> datetime:
     return dt
 
 
+def _assign_patients_to_new_doctor(
+    *,
+    db: Session,
+    doctor_id: UUID,
+    scope: str,
+    target_ward: str | None,
+) -> tuple[int, int]:
+    if scope == "none":
+        return 0, 0
+
+    candidate_query = select(Patient.id).where(
+        Patient.deleted_at.is_(None),
+        Patient.is_active == True,  # noqa: E712
+    )
+    if scope == "ward":
+        candidate_query = candidate_query.where(Patient.ward == target_ward)
+
+    primary_assignment_subquery = select(DoctorPatientAssignment.patient_id).where(
+        DoctorPatientAssignment.role == "primary"
+    )
+    eligible_query = candidate_query.where(Patient.id.not_in(primary_assignment_subquery))
+
+    candidate_count = db.scalar(select(func.count()).select_from(candidate_query.subquery())) or 0
+    patient_ids = list(db.scalars(eligible_query))
+    if not patient_ids:
+        skipped_patient_count = candidate_count
+        logger.info(
+            "Doctor onboarding auto-assignment found no eligible patients",
+            extra={
+                "event": "doctor_onboarding_auto_assignment_empty",
+                "doctor_id": str(doctor_id),
+                "scope": scope,
+                "target_ward": target_ward,
+                "candidate_patient_count": candidate_count,
+                "skipped_patient_count": skipped_patient_count,
+            },
+        )
+        return 0, skipped_patient_count
+
+    skipped_patient_count = candidate_count - len(patient_ids)
+
+    db.add_all(
+        [
+            DoctorPatientAssignment(
+                doctor_id=doctor_id,
+                patient_id=patient_id,
+                role="consulting",
+            )
+            for patient_id in patient_ids
+        ]
+    )
+    db.flush()
+    logger.info(
+        "Doctor onboarding auto-assignment prepared consulting assignments",
+        extra={
+            "event": "doctor_onboarding_auto_assignment_prepared",
+            "doctor_id": str(doctor_id),
+            "scope": scope,
+            "target_ward": target_ward,
+            "assigned_patient_count": len(patient_ids),
+            "skipped_patient_count": skipped_patient_count,
+        },
+    )
+    return len(patient_ids), skipped_patient_count
+
+
 # ---------------------------------------------------------------------------
 # LIST  (admin-only)
 # ---------------------------------------------------------------------------
@@ -261,9 +344,27 @@ def get_users(
 
     query = query.offset((page - 1) * limit).limit(limit)
     users = db.scalars(query).all()
+    user_ids = [user.id for user in users]
+    privilege_map: dict[UUID, list[str]] = {}
+    if user_ids:
+        assignments = db.scalars(
+            select(UserPrivilegedRoleAssignment).where(
+                UserPrivilegedRoleAssignment.user_id.in_(user_ids),
+                UserPrivilegedRoleAssignment.revoked_at.is_(None),
+            )
+        ).all()
+        for assignment in assignments:
+            privilege_map.setdefault(assignment.user_id, []).append(assignment.role.value)
+
+    items = [
+        UserOut.model_validate(user).model_copy(
+            update={"privileged_roles": sorted(privilege_map.get(user.id, []))}
+        )
+        for user in users
+    ]
 
     return UserListResponse(
-        items=list(users),
+        items=items,
         page=page,
         limit=limit,
         total=total if total else 0,
@@ -274,7 +375,7 @@ def get_users(
 # CREATE  (admin-only)
 # ---------------------------------------------------------------------------
 
-@router.post("", response_model=UserOut)
+@router.post("", response_model=UserCreateResponse)
 def create_user(
     *,
     request: Request,
@@ -283,10 +384,13 @@ def create_user(
     current_user: User = Depends(get_admin_user),
 ) -> Any:
     """Create a new user. Admin only."""
-    if settings.specialist_invite_only and user_in.role in CLINICAL_ROLES:
+    if user_in.role == UserRole.admin:
+        auth_service.require_recent_privileged_session(request, current_user)
+
+    if settings.specialist_invite_only and auth_service.can_receive_user_invite(user_in.role):
         raise HTTPException(
             status_code=400,
-            detail="Clinical specialist accounts must be onboarded via invite flow.",
+            detail="Accounts for this role must be onboarded via invite flow.",
         )
 
     requested_email = user_in.email.lower()
@@ -310,9 +414,26 @@ def create_user(
             detail="Clinical roles require a license number.",
         )
 
+    normalized_password = user_in.password.strip() if isinstance(user_in.password, str) else None
+    if user_in.role == UserRole.admin and not auth_service.can_manage_privileged_admins(current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin only.",
+        )
+    if user_in.role == UserRole.admin:
+        raise HTTPException(
+            status_code=400,
+            detail="Admin accounts must be created through invite flow.",
+        )
+    if user_in.role != UserRole.admin and not normalized_password:
+        raise HTTPException(
+            status_code=422,
+            detail="Direct user creation requires a password.",
+        )
+
     user = User(
         email=requested_email,
-        password_hash=get_password_hash(user_in.password),
+        password_hash=get_password_hash(normalized_password or secrets.token_urlsafe(32)),
         first_name=user_in.first_name,
         last_name=user_in.last_name,
         role=user_in.role,
@@ -324,6 +445,18 @@ def create_user(
         verification_status=user_in.verification_status,
     )
     db.add(user)
+    db.flush()
+
+    assigned_patient_count = 0
+    skipped_patient_count = 0
+    if user.role == UserRole.doctor:
+        assigned_patient_count, skipped_patient_count = _assign_patients_to_new_doctor(
+            db=db,
+            doctor_id=user.id,
+            scope=user_in.patient_assignment_scope,
+            target_ward=user_in.target_ward,
+        )
+
     db.commit()
     db.refresh(user)
 
@@ -333,17 +466,31 @@ def create_user(
         action="user_create",
         resource_type="user",
         resource_id=user.id,
-        details={"after": _user_snapshot(user)},
+        details={
+            "after": _user_snapshot(user),
+            "patient_assignment_scope": user_in.patient_assignment_scope,
+            "target_ward": user_in.target_ward,
+            "assigned_patient_count": assigned_patient_count,
+            "skipped_patient_count": skipped_patient_count,
+        },
         ip_address=_client_ip(request),
     )
 
     logger.info(
-        "User created: id=%s role=%s actor_id=%s",
-        user.id,
-        user.role.value,
-        current_user.id,
+        "User created",
+        extra={
+            "event": "user_created",
+            "user_id": str(user.id),
+            "role": user.role.value,
+            "actor_user_id": str(current_user.id),
+            "assigned_patient_count": assigned_patient_count,
+            "skipped_patient_count": skipped_patient_count,
+            "patient_assignment_scope": user_in.patient_assignment_scope,
+        },
     )
-    return user
+    return UserCreateResponse.model_validate(user).model_copy(
+        update={"assigned_patient_count": assigned_patient_count}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -359,10 +506,23 @@ def create_user_invite(
     current_user: User = Depends(get_admin_user),
 ) -> Any:
     """Create an invite link. Admin only."""
-    if payload.role not in CLINICAL_ROLES:
+    invite_reason: str | None = None
+    if payload.role == UserRole.admin:
+        auth_service.require_recent_privileged_session(
+            request,
+            current_user,
+            max_age_seconds=HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS,
+        )
+        invite_reason = _normalize_privileged_reason(payload.reason)
+    if payload.role == UserRole.admin and not auth_service.can_manage_privileged_admins(current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin only.",
+        )
+    if not auth_service.can_receive_user_invite(payload.role):
         raise HTTPException(
             status_code=422,
-            detail="Invite onboarding is restricted to clinical specialist roles in this phase.",
+            detail="Invite onboarding is restricted to supported roles in this phase.",
         )
 
     requested_email = payload.email.lower()
@@ -404,7 +564,11 @@ def create_user_invite(
         action="user_invite",
         resource_type="user_invite",
         resource_id=invite.id,
-        details={"email": payload.email, "role": payload.role.value},
+        details={
+            "email": payload.email,
+            "role": payload.role.value,
+            "reason": invite_reason,
+        },
         ip_address=_client_ip(request),
     )
 
@@ -464,9 +628,45 @@ def update_user(
             )
 
     before = _user_snapshot(user)
+    email_change_requested = bool(user_in.email) and user_in.email.lower() != user.email
+    is_self_service_email_change = (
+        current_user.role != UserRole.admin
+        and current_user.id == user_id
+        and email_change_requested
+    )
 
     if user_in.email:
         normalized_email = user_in.email.lower()
+        if is_self_service_email_change:
+            auth_payload = getattr(request.state, "auth_payload", None)
+            auth_payload = auth_payload if isinstance(auth_payload, dict) else {}
+            mfa_authenticated_at = auth_service._coerce_timestamp(auth_payload.get("mfa_authenticated_at"))
+            mfa_max_age = settings.privileged_action_mfa_max_age_seconds
+            if not auth_service.is_recent_mfa_authenticated(
+                mfa_authenticated_at,
+                max_age_seconds=mfa_max_age,
+            ):
+                log_action(
+                    db,
+                    user_id=current_user.id,
+                    action="user_email_change_attempt",
+                    resource_type="user",
+                    resource_id=user.id,
+                    details={
+                        "status": "failure",
+                        "reason": "recent_mfa_required",
+                        "old_email": user.email,
+                        "new_email": normalized_email,
+                        "mfa_max_age_seconds": mfa_max_age,
+                    },
+                    ip_address=_client_ip(request),
+                    status="failure",
+                    commit=False,
+                )
+                raise HTTPException(
+                    status_code=403,
+                    detail="Recent MFA verification required to change email address.",
+                )
         dup = db.scalar(
             select(User).where(
                 User.email == normalized_email,
@@ -474,6 +674,23 @@ def update_user(
             )
         )
         if dup and dup.id != user_id:
+            if is_self_service_email_change:
+                log_action(
+                    db,
+                    user_id=current_user.id,
+                    action="user_email_change_attempt",
+                    resource_type="user",
+                    resource_id=user.id,
+                    details={
+                        "status": "failure",
+                        "reason": "email_already_in_use",
+                        "old_email": user.email,
+                        "new_email": normalized_email,
+                    },
+                    ip_address=_client_ip(request),
+                    status="failure",
+                    commit=False,
+                )
             raise HTTPException(status_code=400, detail="Email already in use.")
 
         legacy_deleted = db.scalar(
@@ -493,7 +710,8 @@ def update_user(
 
     # Hash password if provided
     if "password" in update_data and update_data["password"]:
-        user.password_hash = get_password_hash(update_data.pop("password"))
+        auth_service.reset_user_password(db, user, update_data.pop("password"))
+        auth_sessions.revoke_user_sessions(db, user_id=user.id)
     else:
         update_data.pop("password", None)
 
@@ -518,6 +736,22 @@ def update_user(
     db.refresh(user)
 
     after = _user_snapshot(user)
+    if is_self_service_email_change:
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_email_change_attempt",
+            resource_type="user",
+            resource_id=user.id,
+            details={
+                "status": "success",
+                "old_email": before["email"],
+                "new_email": after["email"],
+                "mfa_max_age_seconds": settings.privileged_action_mfa_max_age_seconds,
+            },
+            ip_address=_client_ip(request),
+            commit=False,
+        )
     log_action(
         db,
         user_id=current_user.id,
@@ -726,6 +960,11 @@ class PurgeDeletedUsersResponse(BaseModel):
     purged: int
 
 
+class PurgeDeletedUserResponse(BaseModel):
+    message: str
+    purged_user_id: UUID
+
+
 class UserInviteOut(BaseModel):
     id: UUID
     email: str
@@ -817,10 +1056,22 @@ def resend_user_invite(
     if not invite:
         raise HTTPException(status_code=404, detail="Invite not found.")
 
-    if invite.role not in CLINICAL_ROLES:
+    if invite.role == UserRole.admin:
+        auth_service.require_recent_privileged_session(
+            request,
+            current_user,
+            max_age_seconds=HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS,
+        )
+    if invite.role == UserRole.admin and not auth_service.can_manage_privileged_admins(current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin only.",
+        )
+
+    if not auth_service.can_receive_user_invite(invite.role):
         raise HTTPException(
             status_code=400,
-            detail="Invite onboarding is restricted to clinical specialist roles in this phase.",
+            detail="Invite onboarding is restricted to supported roles in this phase.",
         )
 
     existing_user = db.scalar(
@@ -873,6 +1124,17 @@ def revoke_user_invite(
     invite = db.scalar(select(UserInvite).where(UserInvite.id == invite_id).with_for_update())
     if not invite:
         raise HTTPException(status_code=404, detail="Invite not found.")
+    if invite.role == UserRole.admin:
+        auth_service.require_recent_privileged_session(
+            request,
+            current_user,
+            max_age_seconds=HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS,
+        )
+    if invite.role == UserRole.admin and not auth_service.can_manage_privileged_admins(current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super admin only.",
+        )
 
     if invite.used_at is not None:
         raise HTTPException(status_code=400, detail="Invite is already closed.")
@@ -1001,7 +1263,6 @@ def bulk_delete_users(
         user.restored_at = None
         user.restored_by = None
         db.add(user)
-        db.commit()
 
         log_action(
             db,
@@ -1013,6 +1274,13 @@ def bulk_delete_users(
             ip_address=_client_ip(request),
         )
         deleted += 1
+
+    # Single commit for all changes — ensures atomicity across the batch
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     log_action(
         db,
@@ -1028,6 +1296,77 @@ def bulk_delete_users(
     )
 
     return BulkDeleteResponse(deleted=deleted, skipped=skipped)
+
+
+@router.post("/{user_id:uuid}/purge", response_model=PurgeDeletedUserResponse)
+def purge_deleted_user(
+    *,
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    user_id: UUID,
+    current_user: User = Depends(get_admin_user),
+) -> Any:
+    """Hard-delete a single soft-deleted medical student. Admin only."""
+    user = db.scalar(select(User).where(User.id == user_id).with_for_update())
+    if not user:
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_purge_single_denied",
+            resource_type="user",
+            details={"target_id": str(user_id), "reason": "not_found"},
+            ip_address=_client_ip(request),
+        )
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.deleted_at is None:
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_purge_single_denied",
+            resource_type="user",
+            resource_id=user.id,
+            details={"reason": "not_deleted"},
+            ip_address=_client_ip(request),
+        )
+        raise HTTPException(status_code=400, detail="Only deleted users can be purged individually.")
+
+    if user.role != UserRole.medical_student:
+        log_action(
+            db,
+            user_id=current_user.id,
+            action="user_purge_single_denied",
+            resource_type="user",
+            resource_id=user.id,
+            details={
+                "reason": "unsupported_role",
+                "role": user.role.value if user.role else None,
+            },
+            ip_address=_client_ip(request),
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Individual purge is limited to deleted medical students.",
+        )
+
+    before = _user_snapshot(user)
+    db.delete(user)
+    db.commit()
+
+    log_action(
+        db,
+        user_id=current_user.id,
+        action="user_purge_single",
+        resource_type="user",
+        resource_id=user_id,
+        details={"before": before, "mode": "single"},
+        ip_address=_client_ip(request),
+    )
+
+    return PurgeDeletedUserResponse(
+        message="Deleted medical student permanently.",
+        purged_user_id=user_id,
+    )
 
 
 @router.post("/bulk-restore", response_model=BulkRestoreResponse)

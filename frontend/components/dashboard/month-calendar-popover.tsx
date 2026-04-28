@@ -40,8 +40,14 @@ import {
   formatLocalDateKey,
   parseLocalDateKey,
 } from "@/lib/meeting-datetime";
+import {
+  readProtectedSessionItem,
+  removeProtectedSessionItem,
+  writeProtectedSessionItem,
+} from "@/lib/protected-client-state";
 import { cn } from "@/lib/utils";
 import {
+  canWriteClinicalData,
   createMeeting,
   deleteMeeting,
   updateMeeting,
@@ -219,22 +225,24 @@ function getInviteesDraftKey(meetingId: string): string {
 }
 
 function readInviteesDraft(meetingId: string): string {
-  if (typeof window === "undefined") return "";
   try {
-    return window.localStorage.getItem(getInviteesDraftKey(meetingId)) ?? "";
+    return (
+      readProtectedSessionItem(getInviteesDraftKey(meetingId), {
+        migrateLegacyLocalStorage: true,
+      }) ?? ""
+    );
   } catch {
     return "";
   }
 }
 
 function writeInviteesDraft(meetingId: string, value: string): void {
-  if (typeof window === "undefined") return;
   try {
     if (value.trim()) {
-      window.localStorage.setItem(getInviteesDraftKey(meetingId), value);
+      writeProtectedSessionItem(getInviteesDraftKey(meetingId), value);
       return;
     }
-    window.localStorage.removeItem(getInviteesDraftKey(meetingId));
+    removeProtectedSessionItem(getInviteesDraftKey(meetingId));
   } catch {
     // no-op: local storage may be blocked
   }
@@ -245,9 +253,8 @@ function getComposerDraftKey(userId: string | null): string {
 }
 
 function readComposerDraft(userId: string | null): ComposerDraft | null {
-  if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(getComposerDraftKey(userId));
+    const raw = readProtectedSessionItem(getComposerDraftKey(userId));
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
@@ -291,18 +298,16 @@ function readComposerDraft(userId: string | null): ComposerDraft | null {
 }
 
 function writeComposerDraft(userId: string | null, draft: ComposerDraft): void {
-  if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(getComposerDraftKey(userId), JSON.stringify(draft));
+    writeProtectedSessionItem(getComposerDraftKey(userId), JSON.stringify(draft));
   } catch {
     // no-op
   }
 }
 
 function clearComposerDraft(userId: string | null): void {
-  if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.removeItem(getComposerDraftKey(userId));
+    removeProtectedSessionItem(getComposerDraftKey(userId));
   } catch {
     // no-op
   }
@@ -334,7 +339,11 @@ function buildIsoFromDateAndMinutes(date: Date, minutesInDay: number): string {
   return combineLocalDateAndTimeToIso(date, hour, minute);
 }
 
-function formatHourOption(hour: number): string {
+function formatHourOption(hour: number, language: AppLanguage): string {
+  if (language === "th") {
+    return `${hour.toString().padStart(2, "0")}:00`;
+  }
+
   const period = hour >= 12 ? "PM" : "AM";
   const twelveHour = hour % 12 || 12;
   return `${twelveHour} ${period}`;
@@ -344,8 +353,16 @@ function formatTimeLabel(dateTime: string, language: AppLanguage): string {
   return new Date(dateTime).toLocaleTimeString(localeOf(language), {
     hour: "numeric",
     minute: "2-digit",
-    hour12: true,
+    hour12: language !== "th",
   });
+}
+
+function formatDoctorDisplayName(
+  doctor: NonNullable<Meeting["doctor"]>,
+  language: AppLanguage
+): string {
+  const fullName = `${doctor.first_name || ""} ${doctor.last_name || ""}`.trim();
+  return fullName || doctor.email || tr(language, "Unassigned doctor", "ยังไม่ระบุแพทย์");
 }
 
 function buildMonthGridDays(activeMonth: Date): Date[] {
@@ -421,11 +438,11 @@ function getMeetingTimeRange(meeting: Meeting, language: AppLanguage): string {
   return `${start.toLocaleTimeString(localeOf(language), {
     hour: "numeric",
     minute: "2-digit",
-    hour12: true,
+    hour12: language !== "th",
   })} - ${end.toLocaleTimeString(localeOf(language), {
     hour: "numeric",
     minute: "2-digit",
-    hour12: true,
+    hour12: language !== "th",
   })}`;
 }
 
@@ -447,7 +464,7 @@ function MeetingPreviewCard({
 }) {
   const title = getMeetingTitle(meeting, language);
   const doctorName = meeting.doctor
-    ? `Dr. ${meeting.doctor.first_name || ""} ${meeting.doctor.last_name || ""}`.trim()
+    ? formatDoctorDisplayName(meeting.doctor, language)
     : tr(language, "Unassigned doctor", "ยังไม่ระบุแพทย์");
   const patientName = meeting.patient
     ? `${meeting.patient.first_name} ${meeting.patient.last_name}`
@@ -822,6 +839,7 @@ export function MonthCalendarPopover({
 }: MonthCalendarPopoverProps) {
   const language = useLanguageStore((state) => state.language);
   const isDoctorUser = userRole === "doctor";
+  const canManageMeetings = canWriteClinicalData(userRole);
 
   const [open, setOpen] = useState(false);
   const [viewMode, setViewMode] = useState<CalendarPopupView>("month");
@@ -1251,7 +1269,7 @@ export function MonthCalendarPopover({
     const start = new Date(meeting.date_time);
     const end = new Date(start.getTime() + 60 * 60 * 1000);
     const doctorName = meeting.doctor
-      ? `Dr. ${meeting.doctor.first_name || ""} ${meeting.doctor.last_name || ""}`.trim()
+      ? formatDoctorDisplayName(meeting.doctor, language)
       : tr(language, "Unassigned doctor", "ยังไม่ระบุแพทย์");
     const patientName = meeting.patient
       ? `${meeting.patient.first_name} ${meeting.patient.last_name}`.trim()
@@ -1268,11 +1286,11 @@ export function MonthCalendarPopover({
       `${tr(language, "Time", "เวลา")}: ${start.toLocaleTimeString(localeOf(language), {
         hour: "numeric",
         minute: "2-digit",
-        hour12: true,
+        hour12: language !== "th",
       })} - ${end.toLocaleTimeString(localeOf(language), {
         hour: "numeric",
         minute: "2-digit",
-        hour12: true,
+        hour12: language !== "th",
       })}`,
       `${tr(language, "Doctor", "แพทย์")}: ${doctorName}`,
       `${tr(language, "Patient", "ผู้ป่วย")}: ${patientName}`,
@@ -1381,6 +1399,12 @@ export function MonthCalendarPopover({
     startHour: number,
     startMinute: number
   ) => {
+    if (!canManageMeetings) {
+      toast.error(
+        tr(language, "This meeting view is read-only for your account", "บัญชีของคุณดูนัดหมายได้อย่างเดียว")
+      );
+      return;
+    }
     const startTotal = startHour * 60 + startMinute;
     const endTotal = Math.min(startTotal + 60, 23 * 60 + 55);
     const positioned = clampInContainer(
@@ -1621,6 +1645,7 @@ export function MonthCalendarPopover({
     meeting: Meeting,
     mode: DraftDragMode
   ) => {
+    if (!canManageMeetings) return;
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -1827,6 +1852,10 @@ export function MonthCalendarPopover({
 
   const handleNewEventAction = () => {
     if (!contextMenu.date) return;
+    if (!canManageMeetings) {
+      setContextMenu(CLOSED_CONTEXT_MENU);
+      return;
+    }
 
     if (viewMode === "day" || viewMode === "week") {
       setFocusedDate(contextMenu.date);
@@ -1946,6 +1975,12 @@ export function MonthCalendarPopover({
 
   const handleCreateEvent = async () => {
     if (!composer) return;
+    if (!canManageMeetings) {
+      toast.error(
+        tr(language, "This meeting view is read-only for your account", "บัญชีของคุณดูนัดหมายได้อย่างเดียว")
+      );
+      return;
+    }
     if (!token) {
       toast.error(tr(language, "Session expired. Please sign in again", "เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่"));
       return;
@@ -2024,6 +2059,12 @@ export function MonthCalendarPopover({
     meetingId: string,
     payload: MeetingUpdatePayload
   ) => {
+    if (!canManageMeetings) {
+      toast.error(
+        tr(language, "This meeting view is read-only for your account", "บัญชีของคุณดูนัดหมายได้อย่างเดียว")
+      );
+      throw new Error("read-only");
+    }
     if (!token) {
       toast.error(
         tr(
@@ -3168,7 +3209,7 @@ export function MonthCalendarPopover({
                       >
                         {TIME_PICKER_HOURS.map((hour) => (
                           <option key={`start-hour-${hour}`} value={hour}>
-                            {formatHourOption(hour)}
+                            {formatHourOption(hour, language)}
                           </option>
                         ))}
                       </select>
@@ -3212,7 +3253,7 @@ export function MonthCalendarPopover({
                       >
                         {TIME_PICKER_HOURS.map((hour) => (
                           <option key={`end-hour-${hour}`} value={hour}>
-                            {formatHourOption(hour)}
+                            {formatHourOption(hour, language)}
                           </option>
                         ))}
                       </select>
@@ -3260,7 +3301,7 @@ export function MonthCalendarPopover({
                     ) : null}
                     {doctors.map((doctor) => (
                       <option key={doctor.id} value={doctor.id}>
-                        Dr. {doctor.first_name || ""} {doctor.last_name || ""}
+                        {formatDoctorDisplayName(doctor, language)}
                       </option>
                     ))}
                   </select>

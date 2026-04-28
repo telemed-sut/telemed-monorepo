@@ -79,6 +79,7 @@ class MeetingRoomPresenceResponse(BaseModel):
     doctor_online: bool
     patient_online: bool
     refreshed_at: datetime | None = None
+    patient_joined_at: datetime | None = None
     doctor_last_seen_at: datetime | None = None
     patient_last_seen_at: datetime | None = None
     doctor_left_at: datetime | None = None

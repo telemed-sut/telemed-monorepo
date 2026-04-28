@@ -51,14 +51,20 @@ All work in this repository should be treated as production-impacting.
 Roles currently supported in the backend:
 
 - `admin`
-- `staff`
 - `doctor`
-- `nurse`
-- `pharmacist`
-- `medical_technologist`
-- `psychologist`
+- `medical_student`
 
 Clinical-role onboarding is enforced through invite flow policies where configured.
+
+## Operational runbooks
+
+Production admin operations now have repo-backed policy and runbook documents:
+
+- [Admin access policy](/Volumes/P1Back/telemed-monorepo/docs/security/admin-access-policy.md)
+- [Admin emergency access runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md)
+- [Admin session validation checklist](/Volumes/P1Back/telemed-monorepo/docs/security/admin-session-validation-checklist.md)
+- [Admin SSO (authentik) runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-sso-authentik-runbook.md)
+- [Secret rotation runbook](/Volumes/P1Back/telemed-monorepo/docs/security/secret-rotation-runbook.md)
 
 ## Tech Stack
 
@@ -118,39 +124,65 @@ telemed-monorepo/
 └── README.md
 ```
 
-## Quick Start (Docker + Infisical, Primary)
+## Quick Start (Local .env, Primary)
 
-Primary backend command:
+1. Copy `.env.example` to `.env` and fill in the values.
+2. Run `./scripts/dev-backend.sh` to start the backend and database.
+3. Run `./scripts/dev-frontend.sh` to start the frontend.
 
-```bash
-./scripts/dev-backend.sh
-```
+## Advanced: Using Infisical (Optional)
 
-Primary frontend command:
-
-```bash
-./scripts/dev-frontend.sh
-```
-
-Primary share-link command:
+If you prefer to use Infisical for secret management, install the CLI and login, then set `USE_INFISICAL=true`:
 
 ```bash
-./scripts/dev-share-link.sh
+USE_INFISICAL=true ./scripts/dev-backend.sh
 ```
 
 Optional (if your Infisical CLI needs explicit runtime args):
 
 ```bash
-INFISICAL_RUN_ARGS="--projectId <project_id> --env <environment> --path /" ./scripts/dev-backend.sh
+USE_INFISICAL=true INFISICAL_RUN_ARGS="--projectId <project_id> --env <environment> --path /" ./scripts/dev-backend.sh
 ```
 
-The same pattern works with every Infisical-aware helper under `scripts/`, for example:
+## Just command runner
+
+You can use `just` as a lightweight command runner at the repository root.
+It wraps the existing project scripts, so it improves command discoverability
+without changing the current backend, frontend, or Infisical workflows.
+
+Install `just` with your platform package manager. For example, on macOS:
 
 ```bash
-INFISICAL_RUN_ARGS="--env=dev" ./scripts/dev-frontend.sh
-INFISICAL_RUN_ARGS="--env=dev" ./scripts/test-backend.sh
-INFISICAL_RUN_ARGS="--env=dev" ./scripts/build-frontend.sh
+brew install just
 ```
+
+Then run common tasks from the repository root:
+
+```bash
+just help
+just doctor
+just doctor-backend-env
+just dev
+just dev-backend
+just dev-frontend
+just ci
+just ci-fast
+just test-backend
+just test-frontend
+just build-frontend
+just migrate-backend
+just seed-backend
+just check
+```
+
+`just doctor` checks whether your local machine has the required CLI tools and
+local dependency directories. `just doctor-backend-env` runs the backend
+runtime preflight with your Infisical-backed environment and catches missing,
+placeholder, or invalid secrets before Docker Compose starts. `just ci` runs the main local backend and
+frontend quality gates that most closely match the core checks in GitHub
+Actions. `just ci-fast` runs a quicker static-check pass, and `just dev`
+starts the backend in the background, waits for `http://localhost:8000/health`
+to respond, and then runs the frontend in the foreground.
 
 Common local commands:
 
@@ -174,8 +206,27 @@ Services:
 
 Notes:
 
-- Official scripts ignore root `.env`; the source of truth is Infisical runtime env.
-- Backend container runs migrations and seed step on startup via `backend/entrypoint.sh`.
+- You can use `.env` files in the root, `backend/`, or `frontend/` directories.
+- If you use Infisical, it will take precedence if `USE_INFISICAL=true` is set.
+- Run `just doctor-backend-env` first if `just dev-backend` fails early. It
+  checks the exact runtime env that Docker Compose will see and calls out:
+  missing secrets, placeholder values like `replace_with_*`, default
+  `DATABASE_URL` credentials (`user:password@`), and short device/JWT secrets.
+- Backend container runs migrations on startup and can run the local demo seed
+  step via `backend/entrypoint.sh`.
+- Keep tracked `docker-compose.yml` free of local-only bind mounts and host DB
+  exposure. Use your gitignored `docker-compose.override.yml` for hot reload
+  (`./backend:/app`) and any temporary `db` port mapping you need for local
+  debugging.
+- To bring up local admin SSO with Authentik, start the identity profile:
+
+```bash
+COMPOSE_PROFILES=identity ./scripts/dev-backend.sh
+```
+
+- Local admin SSO expects the redirect URI
+  `http://localhost:3000/api/auth/admin/sso/callback` and uses the frontend
+  proxy so the browser keeps the session cookie on the frontend origin.
 - Compose includes a local PostgreSQL service.
 - The backend CI workflow in [.github/workflows/backend-tests.yml](/Volumes/P1Back/telemed-monorepo/.github/workflows/backend-tests.yml) already runs the main backend suite against PostgreSQL.
 
@@ -250,6 +301,7 @@ Minimum required:
 - `DATABASE_URL`
 - `JWT_SECRET`
 - `JWT_EXPIRES_IN`
+- `ADMIN_JWT_EXPIRES_IN`
 
 Important for production hardening:
 
@@ -258,7 +310,8 @@ Important for production hardening:
 - `FRONTEND_BASE_URL`
 - `AUTH_COOKIE_SECURE`
 - `ADMIN_2FA_REQUIRED`
-- `SUPER_ADMIN_EMAILS`
+- `SUPER_ADMIN_EMAILS` for bootstrap and break-glass fallback only
+- `PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS`
 
 Reference file: `backend/.env.example`
 
@@ -300,16 +353,27 @@ CI workflow currently validates backend and frontend quality gates on `main` and
 
 ## Local Bootstrap Accounts (Development Only)
 
-`python -m scripts.seed` creates local bootstrap users:
+`python -m scripts.seed` creates local bootstrap users for:
 
-- `admin@example.com` / `AdminPass123`
-- `staff@example.com` / `StaffPass123`
+- `admin@example.com`
+- `doctor@example.com`
+- `medical-student@example.com`
 
-These credentials are for local development only and must never be used in production.
+The seed script is intended for local development only. It refuses to run
+against non-local database targets unless you set `ALLOW_DEMO_SEED=true`
+explicitly. If you want deterministic local passwords, export
+`SEED_ADMIN_PASSWORD`, `SEED_DOCTOR_PASSWORD`, and
+`SEED_MEDICAL_STUDENT_PASSWORD` before seeding.
+
+Production authorization no longer uses seeded users or
+`SUPER_ADMIN_EMAILS` as the daily source of truth. Day-to-day privileged admin
+access is DB-backed and must be assigned explicitly.
 
 ## Additional Documentation
 
 - Backend details: `backend/README.md`
+- Three-role rollout: `docs/three-role-rollout-checklist.md`
+- Privileged admin bootstrap: `docs/security/privileged-admin-bootstrap-runbook.md`
 - Frontend details: `frontend/README.md`
 - Cloud Run deployment guide: `infra/gcp/README.md`
 - Monitoring runbook: `infra/gcp/monitoring-runbook.md`

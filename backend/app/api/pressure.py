@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -15,11 +16,13 @@ from app.services.auth import get_db
 from app.schemas.pressure import PressureCreate, PressureIngestResponse
 from app.services.pressure import pressure_service
 from app.core.config import get_settings
-from app.core.limiter import limiter
+from app.core.limiter import get_device_ingest_rate_limit_key, limiter
 from app.models.device_registration import DeviceRegistration
 from app.models.device_error_log import DeviceErrorLog
 from app.models.device_request_nonce import DeviceRequestNonce
 from app.core.request_utils import get_client_ip
+from app.core.secret_crypto import SecretDecryptionError
+from app.services.redis_runtime import get_redis_client_or_log, log_redis_operation_failure
 
 router = APIRouter()
 settings = get_settings()
@@ -27,6 +30,41 @@ logger = logging.getLogger(__name__)
 
 MAX_TIMESTAMP_DIFF = 300  # 5 minutes
 GENERIC_AUTH_ERROR = "Invalid signature"
+_SAFE_DEVICE_ERROR_TOKEN_RE = re.compile(r"[^a-z0-9_:-]+")
+_MAX_DEVICE_ERROR_MESSAGE_LENGTH = 256
+_DEVICE_NONCE_REDIS_PREFIX = "device_nonce:v1:"
+_REDIS_SCOPE = "device nonce replay cache"
+_FALLBACK_LABEL = "database nonce table"
+
+
+def sanitize_device_error_message(error_msg: str) -> str:
+    normalized = " ".join((error_msg or "").strip().split())
+    if not normalized:
+        return "unknown_error"
+
+    if normalized.startswith("VALIDATION_FAILED:"):
+        return normalized[:_MAX_DEVICE_ERROR_MESSAGE_LENGTH]
+
+    if normalized.startswith("AUTH_FAILED:"):
+        prefix, _, detail = normalized.partition(":")
+        safe_detail = _SAFE_DEVICE_ERROR_TOKEN_RE.sub("_", detail.lower()).strip("_") or "unknown"
+        return f"{prefix}:{safe_detail}"[:_MAX_DEVICE_ERROR_MESSAGE_LENGTH]
+
+    if normalized.startswith("HTTP "):
+        parts = normalized.split(" ", 2)
+        if len(parts) >= 2:
+            status_code = parts[1].rstrip(":")
+            if status_code.isdigit():
+                return f"HTTP_ERROR:{status_code}"[:_MAX_DEVICE_ERROR_MESSAGE_LENGTH]
+        return "HTTP_ERROR:unknown"
+
+    if normalized.startswith("INTERNAL_ERROR:"):
+        prefix, _, detail = normalized.partition(":")
+        safe_detail = _SAFE_DEVICE_ERROR_TOKEN_RE.sub("_", detail.lower()).strip("_") or "unexpected"
+        return f"{prefix}:{safe_detail}"[:_MAX_DEVICE_ERROR_MESSAGE_LENGTH]
+
+    safe_value = _SAFE_DEVICE_ERROR_TOKEN_RE.sub("_", normalized.lower()).strip("_") or "unexpected_error"
+    return safe_value[:_MAX_DEVICE_ERROR_MESSAGE_LENGTH]
 
 
 def log_device_error(db: Session, device_id: str, error_msg: str, request: Request):
@@ -36,7 +74,7 @@ def log_device_error(db: Session, device_id: str, error_msg: str, request: Reque
 
         error_log = DeviceErrorLog(
             device_id=device_id,
-            error_message=error_msg,
+            error_message=sanitize_device_error_message(error_msg),
             ip_address=ip,
             endpoint=endpoint,
         )
@@ -46,26 +84,49 @@ def log_device_error(db: Session, device_id: str, error_msg: str, request: Reque
         logger.exception("Failed to log device error for device=%s", device_id)
 
 
+from app.services.redis_cache import get_cached_device_secret, set_cached_device_secret
+
 def _resolve_device_secret(db: Session, device_id: str) -> tuple[str, DeviceRegistration | None]:
+    # 1. Try to resolve from Redis cache first
+    cached_secret = get_cached_device_secret(device_id)
+    if cached_secret:
+        # If cached, we still might want the registration object if it exists
+        # But to avoid a DB hit just to check existence, we return the secret immediately
+        # if the caller (verify_device_signature) doesn't strictly need the DB object
+        # for authorization, only for secret resolution.
+        # However, verify_device_signature uses registered_device to update last_seen_at.
+        # So we only skip DB if it's not a registered device or if we accept delayed last_seen_at.
+        # For now, let's look up DB but only if secret is NOT in cache or if it's a registered device.
+        pass
+
     registered_device = db.scalar(
         select(DeviceRegistration).where(DeviceRegistration.device_id == device_id)
     )
     if registered_device:
         if not registered_device.is_active:
             raise ValueError("device_inactive")
-        secret = (registered_device.device_secret or "").strip()
+        try:
+            secret = (registered_device.device_secret or "").strip()
+        except SecretDecryptionError as exc:
+            raise ValueError("device_secret_unavailable") from exc
         if not secret:
             raise ValueError("missing_device_secret")
+        
+        # Cache it for next time
+        set_cached_device_secret(device_id, secret)
         return secret, registered_device
 
+    # 2. Check settings (static secrets)
     device_secret = settings.device_api_secrets.get(device_id)
     if device_secret:
+        set_cached_device_secret(device_id, device_secret)
         return device_secret, None
 
     if settings.device_api_require_registered_device:
         raise ValueError("unregistered_device")
 
     if settings.device_api_secret:
+        set_cached_device_secret(device_id, settings.device_api_secret)
         return settings.device_api_secret, None
 
     raise ValueError("missing_device_secret")
@@ -94,7 +155,30 @@ def _compute_signature(
 def _consume_nonce(db: Session, device_id: str, nonce: str) -> None:
     nonce_hash = hashlib.sha256(nonce.encode("utf-8")).hexdigest()
     now_utc = datetime.now(timezone.utc)
-    expires_at = now_utc + timedelta(seconds=settings.device_api_nonce_ttl_seconds)
+    ttl_seconds = max(int(settings.device_api_nonce_ttl_seconds), 1)
+    expires_at = now_utc + timedelta(seconds=ttl_seconds)
+
+    redis_client = get_redis_client_or_log(
+        logger,
+        scope=_REDIS_SCOPE,
+        fallback_label=_FALLBACK_LABEL,
+    )
+    if redis_client is not None:
+        redis_key = f"{_DEVICE_NONCE_REDIS_PREFIX}{device_id}:{nonce_hash}"
+        try:
+            stored = redis_client.set(redis_key, "1", ex=ttl_seconds, nx=True)
+            if not stored:
+                raise ValueError("replay_nonce")
+            return
+        except ValueError:
+            raise
+        except Exception:
+            log_redis_operation_failure(
+                logger,
+                scope=_REDIS_SCOPE,
+                operation="consume_nonce",
+                fallback_label=_FALLBACK_LABEL,
+            )
 
     # Opportunistic cleanup to keep nonce table bounded without a background scheduler.
     db.query(DeviceRequestNonce).filter(DeviceRequestNonce.expires_at <= now_utc).delete(
@@ -134,8 +218,9 @@ async def verify_device_signature(
         normalized_signature = x_signature.strip().lower()
         if not normalized_signature:
             raise ValueError("empty_signature")
+        # Use a consistent failure mode for invalid signature length
         if len(normalized_signature) != 64:
-            raise ValueError("invalid_signature_length")
+            raise ValueError("invalid_signature")
 
         normalized_nonce = x_nonce.strip() if x_nonce else None
         if settings.device_api_require_nonce and not normalized_nonce:
@@ -155,15 +240,16 @@ async def verify_device_signature(
 
         # 2. Read and validate body payload details used in signature checks
         raw_body = await request.body()
-        if not raw_body:
-            raise ValueError("missing_body")
         if len(raw_body) > settings.device_api_max_body_bytes:
             raise ValueError("body_too_large")
 
-        try:
-            payload = json.loads(raw_body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise ValueError("invalid_json")
+        if raw_body:
+            try:
+                payload = json.loads(raw_body.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                raise ValueError("invalid_json")
+        else:
+            payload = {}
 
         payload_device_id = payload.get("device_id")
         if (
@@ -202,7 +288,8 @@ async def verify_device_signature(
 
         if normalized_nonce:
             _consume_nonce(db, normalized_device_id, normalized_nonce)
-        elif registered_device:
+
+        if registered_device or normalized_nonce:
             db.commit()
 
         request.state.device_request_timestamp = ts
@@ -223,7 +310,7 @@ async def verify_device_signature(
 
 
 @router.post("/device/v1/pressure", response_model=PressureIngestResponse, status_code=201)
-@limiter.limit("60/minute")
+@limiter.limit("60/minute", key_func=get_device_ingest_rate_limit_key)
 def create_pressure_record(
     request: Request,
     *,
@@ -247,11 +334,11 @@ def create_pressure_record(
         return {"status": "ok"}
     except HTTPException as e:
         # Log known HTTP exceptions (like Patient not found)
-        log_device_error(db, pressure_in.device_id, f"HTTP {e.status_code}: {e.detail}", request)
+        log_device_error(db, pressure_in.device_id, f"HTTP {e.status_code}", request)
         raise
     except Exception as e:
         # Log unexpected errors
-        log_device_error(db, pressure_in.device_id, f"Internal Error: {str(e)}", request)
+        log_device_error(db, pressure_in.device_id, f"INTERNAL_ERROR:{e.__class__.__name__}", request)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
@@ -259,7 +346,7 @@ def create_pressure_record(
 
 
 @router.post("/add_pressure", response_model=PressureIngestResponse, status_code=201, deprecated=True)
-@limiter.limit("60/minute")
+@limiter.limit("60/minute", key_func=get_device_ingest_rate_limit_key)
 def add_pressure_alias(
     request: Request,
     response: Response,

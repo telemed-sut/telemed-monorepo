@@ -1,0 +1,59 @@
+import { describe, expect, it } from "vitest";
+
+import { getAuthErrorMessage, type ApiError } from "@/lib/api";
+
+describe("getAuthErrorMessage", () => {
+  it("maps login credential failures to a consistent localized message", () => {
+    const error = Object.assign(new Error("Incorrect email or password"), {
+      status: 401,
+      detail: { code: "invalid_credentials" },
+    }) as ApiError;
+
+    expect(getAuthErrorMessage("en", error, "login")).toBe("Email or password is incorrect.");
+    expect(getAuthErrorMessage("th", error, "login")).toBe("อีเมลหรือรหัสผ่านไม่ถูกต้อง");
+  });
+
+  it("maps step-up credential failures to a password-specific message", () => {
+    const error = Object.assign(new Error("Password is incorrect."), {
+      status: 401,
+      detail: { code: "invalid_credentials" },
+    }) as ApiError;
+
+    expect(getAuthErrorMessage("en", error, "step-up")).toBe("Password for this account is incorrect.");
+    expect(getAuthErrorMessage("th", error, "step-up")).toBe("รหัสผ่านของบัญชีนี้ไม่ถูกต้อง");
+  });
+
+  it("maps step-up 2FA failures to an authenticator-specific message", () => {
+    const error = Object.assign(new Error("Invalid two-factor authentication code"), {
+      status: 401,
+      detail: { code: "invalid_two_factor_code" },
+    }) as ApiError;
+
+    expect(getAuthErrorMessage("en", error, "step-up")).toBe("Authenticator code or backup code is incorrect.");
+    expect(getAuthErrorMessage("th", error, "step-up")).toBe("รหัสจากแอปยืนยันตัวตนหรือรหัสสำรองไม่ถูกต้อง");
+  });
+
+  it("maps invalid reset tokens to a privacy-safe reset message", () => {
+    const error = Object.assign(new Error("Invalid or expired reset token"), {
+      status: 400,
+      detail: "Invalid or expired reset token",
+    }) as ApiError;
+
+    expect(getAuthErrorMessage("en", error, "reset-password")).toBe(
+      "This reset link is invalid or has expired."
+    );
+    expect(getAuthErrorMessage("th", error, "forgot-password")).toBe(
+      "ลิงก์รีเซ็ตนี้ไม่ถูกต้องหรือหมดอายุแล้ว"
+    );
+  });
+
+  it("maps locked account responses to the standard locked-account message", () => {
+    const error = Object.assign(new Error("Account temporarily locked due to multiple failed login attempts."), {
+      status: 423,
+      detail: { code: "account_locked" },
+    }) as ApiError;
+
+    expect(getAuthErrorMessage("en", error, "login")).toBe("Your account is temporarily locked. Please try again later.");
+    expect(getAuthErrorMessage("th", error, "login")).toBe("บัญชีถูกล็อกชั่วคราว กรุณาลองใหม่อีกครั้งภายหลัง");
+  });
+});

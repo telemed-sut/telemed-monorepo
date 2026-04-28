@@ -11,7 +11,12 @@ from app.models.enums import OrderStatus
 from app.models.lab import Lab
 from app.models.medication import Medication
 from app.models.user import User
-from app.schemas.dense_mode import PatientDenseSummary
+from app.schemas.dense_mode import (
+    ActiveMedicationBrief,
+    ActiveOrdersResponse,
+    PatientDenseSummary,
+    PendingLabBrief,
+)
 from app.schemas.order import NoteCreate, OrderCreate
 from app.schemas.timeline import TimelineListResponse
 from app.services import audit as audit_service
@@ -20,11 +25,10 @@ from app.services import order as order_service
 from app.services import timeline as timeline_service
 from app.core.request_utils import get_client_ip
 from app.services.auth import (
-    get_clinical_user,
     get_db,
     verify_patient_access,
     verify_patient_access_doctor,
-    verify_patient_access_doctor_or_nurse,
+    get_doctor_user,
 )
 
 router = APIRouter(prefix="/patients", tags=["dense-mode"])
@@ -77,7 +81,7 @@ def get_patient_timeline(
     return timeline_service.get_patient_timeline(db, patient_id, cursor, limit)
 
 
-@router.get("/{patient_id}/active-orders")
+@router.get("/{patient_id}/active-orders", response_model=ActiveOrdersResponse)
 @limiter.limit("60/minute")
 def get_active_orders(
     request: Request,
@@ -107,7 +111,10 @@ def get_active_orders(
         ip_address=get_client_ip(request),
     )
 
-    return {"medications": list(meds), "labs": list(labs)}
+    return ActiveOrdersResponse(
+        medications=[ActiveMedicationBrief.model_validate(m) for m in meds],
+        labs=[PendingLabBrief.model_validate(l) for l in labs],
+    )
 
 
 @router.get("/{patient_id}/results/trends")
@@ -187,9 +194,9 @@ def create_note(
     patient_id: UUID,
     payload: NoteCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(verify_patient_access_doctor_or_nurse),
+    current_user: User = Depends(verify_patient_access_doctor),
 ):
-    """Create a SOAP/progress note (doctor/nurse, must be assigned)."""
+    """Create a SOAP/progress note (doctor, must be assigned)."""
     event = order_service.create_progress_note(db, patient_id, payload, current_user.id)
     audit_service.log_action(
         db,
@@ -209,7 +216,7 @@ def break_glass_access(
     patient_id: UUID,
     reason: str | None = Body(default=None, embed=True),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_clinical_user),
+    current_user: User = Depends(get_doctor_user),
 ):
     """Emergency access to unassigned patient with mandatory reason logging.
 

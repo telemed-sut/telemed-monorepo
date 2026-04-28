@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { getLocalizedDashboardErrorMessage } from "@/components/dashboard/dashboard-error-message";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/toast";
 import { Input } from "@/components/ui/input";
@@ -64,9 +65,14 @@ import {
 } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
+import type { AppLanguage } from "@/store/language-config";
+import { useLanguageStore } from "@/store/language-store";
 import { CalendarDays, CalendarPlus, Clock, Stethoscope, DoorOpen, FileText, StickyNote, User } from "lucide-react";
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20, 50];
+
+const tr = (language: AppLanguage, en: string, th: string) =>
+    language === "th" ? th : en;
 
 interface MeetingFormState {
     date_time: string;
@@ -91,6 +97,7 @@ export function MeetingsTable() {
     const role = useAuthStore((state) => state.role);
     const userId = useAuthStore((state) => state.userId);
     const clearToken = useAuthStore((state) => state.clearToken);
+    const language = useLanguageStore((state) => state.language);
     const router = useRouter();
 
     const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -167,7 +174,14 @@ export function MeetingsTable() {
                         router.replace("/login");
                         return;
                     }
-                    setError(err instanceof Error ? err.message : "Failed to load meetings");
+                    setError(
+                        getLocalizedDashboardErrorMessage(
+                            err,
+                            language,
+                            "Failed to load meetings",
+                            "โหลดข้อมูลการนัดหมายไม่สำเร็จ"
+                        )
+                    );
                     setMeetings([]);
                     setTotal(0);
                 }
@@ -177,7 +191,7 @@ export function MeetingsTable() {
         };
         loadMeetings();
         return () => { cancelled = true; };
-    }, [token, page, limit, debouncedSearch, sort, order, clearToken, router]);
+    }, [token, page, limit, debouncedSearch, sort, order, clearToken, language, router]);
 
     const resetForm = (meeting?: Meeting) => {
         if (meeting) {
@@ -200,9 +214,9 @@ export function MeetingsTable() {
 
     const validateForm = () => {
         const errors: Record<string, string> = {};
-        if (!formData.date_time) errors.date_time = "Date & time is required";
-        if (!formData.doctor_id) errors.doctor_id = "Doctor is required";
-        if (!formData.user_id) errors.user_id = "Patient is required";
+        if (!formData.date_time) errors.date_time = tr(language, "Date & time is required", "จำเป็นต้องระบุวันและเวลา");
+        if (!formData.doctor_id) errors.doctor_id = tr(language, "Doctor is required", "จำเป็นต้องระบุแพทย์");
+        if (!formData.user_id) errors.user_id = tr(language, "Patient is required", "จำเป็นต้องระบุผู้ป่วย");
         setFormErrors(errors);
         return Object.keys(errors).length === 0;
     };
@@ -217,7 +231,7 @@ export function MeetingsTable() {
         e.preventDefault();
         if (!token) return;
         if (!validateForm()) {
-            toast.error("Please fix the errors in the form");
+            toast.error(tr(language, "Please fix the errors in the form", "กรุณาแก้ไขข้อมูลในฟอร์มให้ถูกต้อง"));
             return;
         }
 
@@ -235,10 +249,10 @@ export function MeetingsTable() {
 
             if (editing) {
                 await updateMeeting(editing.id, payload as MeetingUpdatePayload, token);
-                toast.success("Meeting updated successfully");
+                toast.success(tr(language, "Meeting updated successfully", "อัปเดตการนัดหมายสำเร็จ"));
             } else {
                 await createMeeting(payload as MeetingCreatePayload, token);
-                toast.success("Meeting created successfully");
+                toast.success(tr(language, "Meeting created successfully", "สร้างการนัดหมายสำเร็จ"));
             }
             closeForm();
             setPage(1);
@@ -252,7 +266,12 @@ export function MeetingsTable() {
                 router.replace("/login");
                 return;
             }
-            const message = err instanceof Error ? err.message : "Save failed";
+            const message = getLocalizedDashboardErrorMessage(
+                err,
+                language,
+                "Save failed",
+                "บันทึกไม่สำเร็จ"
+            );
             toast.error(message);
         } finally {
             setSaving(false);
@@ -263,7 +282,7 @@ export function MeetingsTable() {
         if (!token) return;
         try {
             await deleteMeeting(id, token);
-            toast.success("Meeting deleted successfully");
+            toast.success(tr(language, "Meeting deleted successfully", "ลบการนัดหมายสำเร็จ"));
             const res = await fetchMeetings({ page, limit, q: debouncedSearch, sort, order }, token);
             setMeetings(res.items);
             setTotal(res.total);
@@ -275,15 +294,22 @@ export function MeetingsTable() {
                 router.replace("/login");
                 return;
             }
-            toast.error(err instanceof Error ? err.message : "Delete failed");
+            toast.error(
+                getLocalizedDashboardErrorMessage(
+                    err,
+                    language,
+                    "Delete failed",
+                    "ลบข้อมูลไม่สำเร็จ"
+                )
+            );
         }
     };
 
     const handleDelete = (id: string) => {
-        toast.destructiveAction("Delete meeting?", {
-            description: "This action cannot be undone.",
+        toast.destructiveAction(tr(language, "Delete meeting?", "ลบการนัดหมายนี้ใช่ไหม?"), {
+            description: tr(language, "This action cannot be undone.", "การกระทำนี้ไม่สามารถย้อนกลับได้"),
             button: {
-                title: "Delete",
+                title: tr(language, "Delete", "ลบ"),
                 onClick: () => {
                     void confirmDelete(id);
                 },
@@ -294,9 +320,10 @@ export function MeetingsTable() {
 
     const formatDateTime = (iso: string) => {
         const d = new Date(iso);
-        return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) +
+        const locale = language === "th" ? "th-TH" : "en-GB";
+        return d.toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" }) +
             " · " +
-            d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+            d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
     };
 
     const isUpcoming = (iso: string) => new Date(iso) > new Date();
@@ -310,11 +337,21 @@ export function MeetingsTable() {
                 </div>
             </div>
             <div className="space-y-2 max-w-sm mx-auto">
-                <h3 className="font-bold text-xl tracking-tight text-foreground">No meetings found</h3>
+                <h3 className="font-bold text-xl tracking-tight text-foreground">
+                    {tr(language, "No meetings found", "ไม่พบการนัดหมาย")}
+                </h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
                     {search
-                        ? "We couldn't find any meetings matching your search. Try adjusting your filters."
-                        : "Get started by scheduling your first meeting."}
+                        ? tr(
+                            language,
+                            "We couldn't find any meetings matching your search. Try adjusting your filters.",
+                            "ไม่พบการนัดหมายที่ตรงกับคำค้นหานี้ ลองปรับคำค้นหาหรือตัวกรองดูอีกครั้ง"
+                        )
+                        : tr(
+                            language,
+                            "Get started by scheduling your first meeting.",
+                            "เริ่มต้นด้วยการสร้างการนัดหมายครั้งแรกของคุณ"
+                        )}
                 </p>
             </div>
             {search ? (
@@ -324,12 +361,12 @@ export function MeetingsTable() {
                     onClick={() => setSearch("")}
                 >
                     <HugeiconsIcon icon={RefreshIcon} className="size-4" />
-                    Clear Search
+                    {tr(language, "Clear search", "ล้างคำค้นหา")}
                 </Button>
             ) : (
                 <Button onClick={() => resetForm()} size="lg" className="mt-6 shadow-md hover:shadow-lg transition-all rounded-full bg-violet-600 hover:bg-violet-700">
                     <HugeiconsIcon icon={Add01Icon} className="size-4 mr-2" />
-                    Schedule first meeting
+                    {tr(language, "Schedule first meeting", "สร้างการนัดหมายแรก")}
                 </Button>
             )}
         </div>
@@ -344,8 +381,10 @@ export function MeetingsTable() {
                     <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                         <CalendarDays className="w-24 h-24 text-violet-500 transform rotate-12 translate-x-4 -translate-y-4" />
                     </div>
-                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Total Meetings</CardTitle>
+                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                            {tr(language, "Total meetings", "การนัดหมายทั้งหมด")}
+                        </CardTitle>
                         <div className="p-2 bg-violet-500/10 rounded-lg group-hover:bg-violet-500/20 transition-colors">
                             <CalendarDays className="h-4 w-4 text-violet-500" />
                         </div>
@@ -353,7 +392,8 @@ export function MeetingsTable() {
                     <CardContent className="relative z-10">
                         <div className="text-3xl font-bold tracking-tight text-foreground">{stats.total}</div>
                         <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-                            <span className="text-violet-500 font-medium">All</span> scheduled meetings
+                            <span className="text-violet-500 font-medium">{tr(language, "All", "ทั้งหมด")}</span>{" "}
+                            {tr(language, "scheduled meetings", "รายการนัดหมายที่บันทึกไว้")}
                         </p>
                     </CardContent>
                 </Card>
@@ -363,7 +403,9 @@ export function MeetingsTable() {
                         <Clock className="w-24 h-24 text-emerald-500 transform rotate-12 translate-x-4 -translate-y-4" />
                     </div>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Upcoming</CardTitle>
+                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                            {tr(language, "Upcoming", "กำลังจะมาถึง")}
+                        </CardTitle>
                         <div className="p-2 bg-emerald-500/10 rounded-lg group-hover:bg-emerald-500/20 transition-colors">
                             <Clock className="h-4 w-4 text-emerald-500" />
                         </div>
@@ -371,7 +413,8 @@ export function MeetingsTable() {
                     <CardContent className="relative z-10">
                         <div className="text-3xl font-bold tracking-tight text-foreground">{stats.upcoming}</div>
                         <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-                            <span className="text-emerald-500 font-medium">Future</span> appointments
+                            <span className="text-emerald-500 font-medium">{tr(language, "Future", "ล่วงหน้า")}</span>{" "}
+                            {tr(language, "appointments", "การนัดหมาย")}
                         </p>
                     </CardContent>
                 </Card>
@@ -381,7 +424,9 @@ export function MeetingsTable() {
                         <CalendarPlus className="w-24 h-24 text-amber-500 transform rotate-12 translate-x-4 -translate-y-4" />
                     </div>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Today</CardTitle>
+                        <CardTitle className="text-sm font-medium text-muted-foreground">
+                            {tr(language, "Today", "วันนี้")}
+                        </CardTitle>
                         <div className="p-2 bg-amber-500/10 rounded-lg group-hover:bg-amber-500/20 transition-colors">
                             <CalendarPlus className="h-4 w-4 text-amber-500" />
                         </div>
@@ -389,7 +434,8 @@ export function MeetingsTable() {
                     <CardContent className="relative z-10">
                         <div className="text-3xl font-bold tracking-tight text-foreground">{stats.today}</div>
                         <p className="mt-1 flex items-center gap-1 text-sm text-muted-foreground">
-                            <span className="text-amber-500 font-medium">Scheduled</span> for today
+                            <span className="text-amber-500 font-medium">{tr(language, "Scheduled", "มีนัด")}</span>{" "}
+                            {tr(language, "for today", "สำหรับวันนี้")}
                         </p>
                     </CardContent>
                 </Card>
@@ -404,10 +450,14 @@ export function MeetingsTable() {
                                 <div className="flex items-center justify-center p-2 rounded-lg bg-violet-500/10">
                                     <CalendarDays className="size-5 text-violet-500" />
                                 </div>
-                                Meetings Directory
+                                {tr(language, "Meetings Directory", "รายการการนัดหมาย")}
                             </CardTitle>
                             <CardDescription className="ml-11">
-                                Manage appointments, schedules, and meeting details.
+                                {tr(
+                                    language,
+                                    "Manage appointments, schedules, and meeting details.",
+                                    "จัดการการนัดหมาย ตารางเวลา และรายละเอียดการพบแพทย์"
+                                )}
                             </CardDescription>
                         </div>
 
@@ -418,7 +468,7 @@ export function MeetingsTable() {
                                     className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground group-focus-within:text-violet-500 transition-colors"
                                 />
                                 <Input
-                                    placeholder="Search meetings..."
+                                    placeholder={tr(language, "Search meetings...", "ค้นหาการนัดหมาย...")}
                                     value={search}
                                     onChange={(e) => {
                                         setSearch(e.target.value);
@@ -432,13 +482,13 @@ export function MeetingsTable() {
                                 onClick={() => resetForm()}
                             >
                                 <HugeiconsIcon icon={Add01Icon} className="size-4" />
-                                New Meeting
+                                {tr(language, "New meeting", "สร้างการนัดหมาย")}
                             </Button>
                             <Button
                                 variant="outline"
                                 size="icon"
                                 className="size-10 shadow-sm"
-                                title="Refresh"
+                                title={tr(language, "Refresh", "รีเฟรช")}
                                 onClick={async () => {
                                     if (!token) return;
                                     setLoading(true);
@@ -487,35 +537,35 @@ export function MeetingsTable() {
                                     <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground min-w-[180px]">
                                         <div className="flex items-center gap-2">
                                             <CalendarDays className="size-4" />
-                                            Date & Time
+                                            {tr(language, "Date & time", "วันและเวลา")}
                                         </div>
                                     </TableHead>
                                     <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground min-w-[160px]">
                                         <div className="flex items-center gap-2">
                                             <Stethoscope className="size-4" />
-                                            Doctor
+                                            {tr(language, "Doctor", "แพทย์")}
                                         </div>
                                     </TableHead>
                                     <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground min-w-[160px]">
                                         <div className="flex items-center gap-2">
                                             <User className="size-4" />
-                                            Patient
+                                            {tr(language, "Patient", "ผู้ป่วย")}
                                         </div>
                                     </TableHead>
                                     <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden md:table-cell min-w-[100px]">
                                         <div className="flex items-center gap-2">
                                             <DoorOpen className="size-4" />
-                                            Room
+                                            {tr(language, "Room", "ห้อง")}
                                         </div>
                                     </TableHead>
                                     <TableHead className="h-12 px-4 text-left align-middle font-medium text-muted-foreground hidden lg:table-cell min-w-[200px]">
                                         <div className="flex items-center gap-2">
                                             <FileText className="size-4" />
-                                            Description
+                                            {tr(language, "Description", "รายละเอียด")}
                                         </div>
                                     </TableHead>
                                     <TableHead className="h-12 px-4 align-middle font-medium text-muted-foreground text-right min-w-[100px]">
-                                        Actions
+                                        {tr(language, "Actions", "การจัดการ")}
                                     </TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -547,7 +597,7 @@ export function MeetingsTable() {
                                         <TableCell colSpan={7}>{emptyStateContent}</TableCell>
                                     </TableRow>
                                 ) : (
-                                    <AnimatePresence mode="wait">
+                                    <AnimatePresence>
                                         {meetings.map((meeting, index) => {
                                             const rowNumber = (page - 1) * limit + index + 1;
                                             const upcoming = isUpcoming(meeting.date_time);
@@ -580,7 +630,9 @@ export function MeetingsTable() {
                                                                         : "bg-muted text-muted-foreground"
                                                                 )}
                                                             >
-                                                                {upcoming ? "Upcoming" : "Past"}
+                                                                {upcoming
+                                                                    ? tr(language, "Upcoming", "กำลังจะมาถึง")
+                                                                    : tr(language, "Past", "ผ่านมาแล้ว")}
                                                             </Badge>
                                                         </div>
                                                     </TableCell>
@@ -589,7 +641,14 @@ export function MeetingsTable() {
                                                     <TableCell className="p-4 align-middle">
                                                         <div className="flex items-center gap-2">
                                                             <Avatar className="size-8 ring-2 ring-background transition-shadow group-hover:ring-violet-500/20">
-                                                                <AvatarFallback className="bg-violet-500/10 text-violet-600 dark:text-violet-400 text-xs font-semibold">
+                                                                <AvatarFallback
+                                                                    className="text-xs font-semibold"
+                                                                    seed={
+                                                                        meeting.doctor
+                                                                            ? `${meeting.doctor.id}|${meeting.doctor.first_name ?? ""}|${meeting.doctor.last_name ?? ""}|${meeting.doctor.email ?? ""}`
+                                                                            : `doctor|${meeting.id}`
+                                                                    }
+                                                                >
                                                                     {meeting.doctor
                                                                         ? `${meeting.doctor.first_name?.charAt(0) ?? ""}${meeting.doctor.last_name?.charAt(0) ?? ""}`.toUpperCase() || "DR"
                                                                         : "DR"}
@@ -607,7 +666,14 @@ export function MeetingsTable() {
                                                     <TableCell className="p-4 align-middle">
                                                         <div className="flex items-center gap-2">
                                                             <Avatar className="size-8 ring-2 ring-background transition-shadow group-hover:ring-primary/20">
-                                                                <AvatarFallback className="bg-primary/5 text-primary text-xs font-semibold">
+                                                                <AvatarFallback
+                                                                    className="text-xs font-semibold"
+                                                                    seed={
+                                                                        meeting.patient
+                                                                            ? `${meeting.patient.id}|${meeting.patient.first_name}|${meeting.patient.last_name}`
+                                                                            : `patient|${meeting.id}`
+                                                                    }
+                                                                >
                                                                     {meeting.patient
                                                                         ? `${meeting.patient.first_name.charAt(0)}${meeting.patient.last_name.charAt(0)}`.toUpperCase()
                                                                         : "PA"}
@@ -643,7 +709,7 @@ export function MeetingsTable() {
                                                     <TableCell className="p-4 align-middle text-right">
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 transition-colors data-[state=open]:bg-muted">
-                                                                <span className="sr-only">Open menu</span>
+                                                                <span className="sr-only">{tr(language, "Open menu", "เปิดเมนู")}</span>
                                                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4 text-muted-foreground">
                                                                     <circle cx="12" cy="12" r="1" />
                                                                     <circle cx="19" cy="12" r="1" />
@@ -653,19 +719,19 @@ export function MeetingsTable() {
                                                             <DropdownMenuContent align="end" className="w-40">
                                                                 <DropdownMenuItem onClick={() => {
                                                                     navigator.clipboard.writeText(meeting.id);
-                                                                    toast.success("ID copied to clipboard");
+                                                                    toast.success(tr(language, "ID copied to clipboard", "คัดลอกรหัสแล้ว"));
                                                                 }}>
                                                                     <HugeiconsIcon icon={Copy01Icon} className="size-4 mr-2" />
-                                                                    Copy ID
+                                                                    {tr(language, "Copy ID", "คัดลอกรหัส")}
                                                                 </DropdownMenuItem>
                                                                 <DropdownMenuItem onClick={() => resetForm(meeting)}>
                                                                     <HugeiconsIcon icon={Edit01Icon} className="size-4 mr-2" />
-                                                                    Edit
+                                                                    {tr(language, "Edit", "แก้ไข")}
                                                                 </DropdownMenuItem>
                                                                 {role === "admin" && (
                                                                     <DropdownMenuItem onClick={() => handleDelete(meeting.id)} className="text-destructive focus:text-destructive">
                                                                         <HugeiconsIcon icon={Delete01Icon} className="size-4 mr-2" />
-                                                                        Delete
+                                                                        {tr(language, "Delete", "ลบ")}
                                                                     </DropdownMenuItem>
                                                                 )}
                                                             </DropdownMenuContent>
@@ -685,8 +751,11 @@ export function MeetingsTable() {
                         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4">
                             <div className="flex items-center gap-3 text-sm text-muted-foreground">
                                 <span>
-                                    Showing <span className="font-medium text-foreground">{startEntry}</span> to{" "}
-                                    <span className="font-medium text-foreground">{endEntry}</span> of{" "}
+                                    {tr(language, "Showing", "แสดง")}{" "}
+                                    <span className="font-medium text-foreground">{startEntry}</span>{" "}
+                                    {tr(language, "to", "ถึง")}{" "}
+                                    <span className="font-medium text-foreground">{endEntry}</span>{" "}
+                                    {tr(language, "of", "จากทั้งหมด")}{" "}
                                     <span className="font-medium text-foreground">{total}</span>
                                 </span>
                                 <Select value={limit.toString()} onValueChange={(v) => { setLimit(Number(v)); setPage(1); }}>
@@ -701,7 +770,7 @@ export function MeetingsTable() {
                                         ))}
                                     </SelectContent>
                                 </Select>
-                                <span className="text-sm">per page</span>
+                                <span className="text-sm">{tr(language, "per page", "ต่อหน้า")}</span>
                             </div>
 
                             <div className="flex items-center gap-2">
@@ -713,7 +782,7 @@ export function MeetingsTable() {
                                     className="gap-1 shadow-sm"
                                 >
                                     <HugeiconsIcon icon={ArrowLeft01Icon} className="size-4" />
-                                    Prev
+                                    {tr(language, "Prev", "ก่อนหน้า")}
                                 </Button>
                                 <div className="flex items-center gap-1">
                                     <span className="text-sm font-medium text-foreground px-2">
@@ -727,7 +796,7 @@ export function MeetingsTable() {
                                     onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                                     className="gap-1 shadow-sm"
                                 >
-                                    Next
+                                    {tr(language, "Next", "ถัดไป")}
                                     <HugeiconsIcon icon={ArrowRight01Icon} className="size-4" />
                                 </Button>
                             </div>
@@ -744,10 +813,14 @@ export function MeetingsTable() {
                             <div className="p-2 rounded-lg bg-violet-500/10">
                                 <CalendarDays className="size-5 text-violet-500" />
                             </div>
-                            {editing ? "Edit Meeting" : "Schedule New Meeting"}
+                            {editing
+                                ? tr(language, "Edit meeting", "แก้ไขการนัดหมาย")
+                                : tr(language, "Schedule new meeting", "สร้างการนัดหมายใหม่")}
                         </SheetTitle>
                         <SheetDescription>
-                            {editing ? "Update the meeting details below." : "Fill in the details to schedule a new meeting."}
+                            {editing
+                                ? tr(language, "Update the meeting details below.", "อัปเดตรายละเอียดการนัดหมายด้านล่าง")
+                                : tr(language, "Fill in the details to schedule a new meeting.", "กรอกรายละเอียดเพื่อสร้างการนัดหมายใหม่")}
                         </SheetDescription>
                     </SheetHeader>
 
@@ -758,7 +831,7 @@ export function MeetingsTable() {
                         {/* Date & Time */}
                         <div className="space-y-2">
                             <Label htmlFor="date_time" className="flex items-center gap-2 text-sm font-medium">
-                                <Clock className="size-4 text-violet-500" /> Date & Time *
+                                <Clock className="size-4 text-violet-500" /> {tr(language, "Date & time", "วันและเวลา")} *
                             </Label>
                             <Input
                                 id="date_time"
@@ -773,7 +846,7 @@ export function MeetingsTable() {
                         {/* Doctor */}
                         <div className="space-y-2">
                             <Label htmlFor="doctor_id" className="flex items-center gap-2 text-sm font-medium">
-                                <Stethoscope className="size-4 text-violet-500" /> Doctor *
+                                <Stethoscope className="size-4 text-violet-500" /> {tr(language, "Doctor", "แพทย์")} *
                             </Label>
                             <div className="flex items-center gap-2">
                                 <Input
@@ -791,13 +864,13 @@ export function MeetingsTable() {
                                         className="shrink-0 text-sm"
                                         onClick={() => setFormData({ ...formData, doctor_id: userId })}
                                     >
-                                        Use my ID
+                                        {tr(language, "Use my ID", "ใช้รหัสของฉัน")}
                                     </Button>
                                 )}
                             </div>
                             {userId && formData.doctor_id === userId && (
                                 <p className="flex items-center gap-1 text-sm text-emerald-500">
-                                    <Stethoscope className="size-3" /> Assigned to you (current user)
+                                    <Stethoscope className="size-3" /> {tr(language, "Assigned to you (current user)", "กำหนดให้คุณแล้ว (ผู้ใช้ปัจจุบัน)")}
                                 </p>
                             )}
                             {formErrors.doctor_id && <p className="text-sm text-destructive">{formErrors.doctor_id}</p>}
@@ -806,12 +879,18 @@ export function MeetingsTable() {
                         {/* Patient */}
                         <div className="space-y-2">
                             <Label htmlFor="user_id" className="flex items-center gap-2 text-sm font-medium">
-                                <User className="size-4 text-violet-500" /> Patient *
+                                <User className="size-4 text-violet-500" /> {tr(language, "Patient", "ผู้ป่วย")} *
                             </Label>
                             {patients.length > 0 ? (
                                 <Select value={formData.user_id || ""} onValueChange={(v: string | null) => setFormData({ ...formData, user_id: v ?? "" })}>
                                     <SelectTrigger className={cn(formErrors.user_id && "border-destructive")}>
-                                        <SelectValue />
+                                        {formData.user_id ? (
+                                            <SelectValue />
+                                        ) : (
+                                            <span className="text-muted-foreground">
+                                                {tr(language, "Select a patient", "เลือกผู้ป่วย")}
+                                            </span>
+                                        )}
                                     </SelectTrigger>
                                     <SelectContent>
                                         {patients.map((p) => (
@@ -824,7 +903,7 @@ export function MeetingsTable() {
                             ) : (
                                 <Input
                                     id="user_id"
-                                    placeholder="Enter patient UUID"
+                                    placeholder={tr(language, "Enter patient UUID", "กรอกรหัสผู้ป่วย")}
                                     value={formData.user_id}
                                     onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
                                     className={cn(formErrors.user_id && "border-destructive")}
@@ -836,11 +915,11 @@ export function MeetingsTable() {
                         {/* Room */}
                         <div className="space-y-2">
                             <Label htmlFor="room" className="flex items-center gap-2 text-sm font-medium">
-                                <DoorOpen className="size-4 text-violet-500" /> Room
+                                <DoorOpen className="size-4 text-violet-500" /> {tr(language, "Room", "ห้อง")}
                             </Label>
                             <Input
                                 id="room"
-                                placeholder="e.g. Room 301"
+                                placeholder={tr(language, "e.g. Room 301", "เช่น ห้อง 301")}
                                 value={formData.room}
                                 onChange={(e) => setFormData({ ...formData, room: e.target.value })}
                             />
@@ -849,11 +928,11 @@ export function MeetingsTable() {
                         {/* Description */}
                         <div className="space-y-2">
                             <Label htmlFor="description" className="flex items-center gap-2 text-sm font-medium">
-                                <FileText className="size-4 text-violet-500" /> Description
+                                <FileText className="size-4 text-violet-500" /> {tr(language, "Description", "รายละเอียด")}
                             </Label>
                             <Textarea
                                 id="description"
-                                placeholder="Meeting description..."
+                                placeholder={tr(language, "Meeting description...", "รายละเอียดการนัดหมาย...")}
                                 value={formData.description}
                                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                                 rows={3}
@@ -863,11 +942,11 @@ export function MeetingsTable() {
                         {/* Note */}
                         <div className="space-y-2">
                             <Label htmlFor="note" className="flex items-center gap-2 text-sm font-medium">
-                                <StickyNote className="size-4 text-violet-500" /> Note
+                                <StickyNote className="size-4 text-violet-500" /> {tr(language, "Note", "บันทึกเพิ่มเติม")}
                             </Label>
                             <Textarea
                                 id="note"
-                                placeholder="Additional notes..."
+                                placeholder={tr(language, "Additional notes...", "บันทึกเพิ่มเติม...")}
                                 value={formData.note}
                                 onChange={(e) => setFormData({ ...formData, note: e.target.value })}
                                 rows={3}
@@ -884,17 +963,19 @@ export function MeetingsTable() {
                                 {saving ? (
                                     <>
                                         <div className="size-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                        Saving...
+                                        {tr(language, "Saving...", "กำลังบันทึก...")}
                                     </>
                                 ) : (
                                     <>
                                         <HugeiconsIcon icon={editing ? Edit01Icon : Add01Icon} className="size-4" />
-                                        {editing ? "Update Meeting" : "Create Meeting"}
+                                        {editing
+                                            ? tr(language, "Update meeting", "อัปเดตการนัดหมาย")
+                                            : tr(language, "Create meeting", "สร้างการนัดหมาย")}
                                     </>
                                 )}
                             </Button>
                             <Button type="button" variant="outline" onClick={closeForm}>
-                                Cancel
+                                {tr(language, "Cancel", "ยกเลิก")}
                             </Button>
                         </div>
                     </form>

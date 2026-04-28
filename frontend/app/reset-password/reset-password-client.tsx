@@ -3,12 +3,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { resetPassword } from "@/lib/api";
-import { APP_LANGUAGE_OPTIONS, type AppLanguage } from "@/store/language-config";
+import { AuthMessage } from "@/components/auth/auth-message";
+import { AuthShell } from "@/components/auth/auth-shell";
+import { getAuthErrorMessage, resetPassword } from "@/lib/api";
+import { type AppLanguage } from "@/store/language-config";
 import { useLanguageStore } from "@/store/language-store";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
@@ -17,13 +18,13 @@ const tr = (language: AppLanguage, en: string, th: string) =>
 function ResetPasswordForm({ initialToken }: { initialToken: string }) {
   const router = useRouter();
   const language = useLanguageStore((state) => state.language);
-  const setLanguage = useLanguageStore((state) => state.setLanguage);
 
   const [tokenValue, setTokenValue] = useState(initialToken);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -44,9 +45,24 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
     }
   }, [initialToken]);
 
+  useEffect(() => {
+    if (!successMessage) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      router.replace("/login");
+    }, 1200);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [router, successMessage]);
+
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccessMessage(null);
     const token = tokenValue.trim();
 
     if (!token) {
@@ -65,103 +81,104 @@ function ResetPasswordForm({ initialToken }: { initialToken: string }) {
     setLoading(true);
     try {
       await resetPassword(token, newPassword);
-      router.replace("/login");
+      setSuccessMessage(
+        tr(
+          language,
+          "Password updated. Redirecting to sign in...",
+          "อัปเดตรหัสผ่านแล้ว กำลังพากลับไปหน้าเข้าสู่ระบบ..."
+        )
+      );
     } catch (err) {
-      const message = err instanceof Error
-        ? err.message
-        : tr(language, "Unable to reset password", "ไม่สามารถรีเซ็ตรหัสผ่านได้");
-      setError(message);
+      setError(getAuthErrorMessage(language, err, "reset-password"));
     } finally {
       setLoading(false);
     }
   };
 
+  const hasToken = tokenValue.trim().length > 0;
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-8">
-      <Card className="mx-4 w-full max-w-lg border-border shadow-xl">
-        <CardHeader className="space-y-2 text-center">
-          <div className="flex justify-end">
-            <div className="inline-flex rounded-md border border-input bg-background p-0.5">
-              {APP_LANGUAGE_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`h-8 rounded px-2.5 text-[0.9rem] transition-colors ${option.value === language
-                    ? "bg-foreground text-background"
-                    : "text-muted-foreground hover:bg-muted"
-                    }`}
-                  onClick={() => setLanguage(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+    <AuthShell
+      title={tr(language, "Reset password", "ตั้งรหัสผ่านใหม่")}
+      subtitle={tr(language, "Create a new password to continue.", "ตั้งรหัสผ่านใหม่เพื่อดำเนินการต่อ")}
+      metaText={
+        hasToken
+          ? tr(language, "Your reset link is ready.", "ลิงก์รีเซ็ตของคุณพร้อมใช้งานแล้ว")
+          : tr(language, "Paste your reset token to continue.", "วางโทเคนรีเซ็ตเพื่อดำเนินการต่อ")
+      }
+      contentClassName="space-y-5"
+    >
+      <form onSubmit={onSubmit} className="space-y-4">
+        {!hasToken ? (
+          <div className="space-y-2">
+            <Label htmlFor="token">{tr(language, "Reset token", "รีเซ็ตโทเคน")}</Label>
+            <Input
+              id="token"
+              required
+              autoFocus
+              value={tokenValue}
+              onChange={(event) => setTokenValue(event.target.value)}
+              placeholder={tr(language, "Paste reset token", "วางรีเซ็ตโทเคน")}
+            />
           </div>
-          <h2 className="text-3xl font-semibold tracking-tight">{tr(language, "Reset password", "ตั้งรหัสผ่านใหม่")}</h2>
-          <p className="text-[0.98rem] text-muted-foreground">
-            {tr(language, "Enter your reset token and set a new password.", "กรอกรีเซ็ตโทเคนและตั้งรหัสผ่านใหม่")}
-          </p>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="token">{tr(language, "Reset token", "รีเซ็ตโทเคน")}</Label>
-              <Input
-                id="token"
-                required
-                value={tokenValue}
-                onChange={(event) => setTokenValue(event.target.value)}
-                placeholder={tr(language, "Paste reset token", "วางรีเซ็ตโทเคน")}
-              />
-            </div>
+        ) : (
+          <AuthMessage tone="info" className="text-left text-[0.92rem]">
+            {tr(language, "Reset link detected. You can set a new password below.", "ตรวจพบลิงก์รีเซ็ตแล้ว คุณสามารถตั้งรหัสผ่านใหม่ด้านล่างได้")}
+          </AuthMessage>
+        )}
 
-            <div className="space-y-2">
-              <Label htmlFor="new_password">{tr(language, "New password", "รหัสผ่านใหม่")}</Label>
-              <Input
-                id="new_password"
-                type="password"
-                required
-                minLength={8}
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder={tr(language, "At least 8 characters", "อย่างน้อย 8 ตัวอักษร")}
-              />
-            </div>
+        <div className="space-y-2">
+          <Label htmlFor="new_password">{tr(language, "New password", "รหัสผ่านใหม่")}</Label>
+          <Input
+            id="new_password"
+            type="password"
+            required
+            autoFocus={hasToken}
+            minLength={8}
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder={tr(language, "At least 8 characters", "อย่างน้อย 8 ตัวอักษร")}
+          />
+        </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="confirm_password">{tr(language, "Confirm password", "ยืนยันรหัสผ่าน")}</Label>
-              <Input
-                id="confirm_password"
-                type="password"
-                required
-                minLength={8}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder={tr(language, "Re-enter new password", "กรอกรหัสผ่านใหม่อีกครั้ง")}
-              />
-            </div>
+        <div className="space-y-2">
+          <Label htmlFor="confirm_password">{tr(language, "Confirm password", "ยืนยันรหัสผ่าน")}</Label>
+          <Input
+            id="confirm_password"
+            type="password"
+            required
+            minLength={8}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder={tr(language, "Re-enter new password", "กรอกรหัสผ่านใหม่อีกครั้ง")}
+          />
+        </div>
 
-            {error && (
-              <p className="text-[0.95rem] text-destructive" role="alert">
-                {error}
-              </p>
-            )}
+        {error && (
+          <AuthMessage>
+            {error}
+          </AuthMessage>
+        )}
 
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading
-                ? tr(language, "Resetting...", "กำลังรีเซ็ต...")
-                : tr(language, "Reset password", "รีเซ็ตรหัสผ่าน")}
-            </Button>
-          </form>
+        {successMessage && (
+          <AuthMessage tone="success">
+            {successMessage}
+          </AuthMessage>
+        )}
 
-          <div className="mt-4 text-center text-[0.95rem]">
-            <Link href="/login" className="text-primary hover:underline">
-              {tr(language, "Back to sign in", "กลับไปหน้าเข้าสู่ระบบ")}
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+        <Button type="submit" className="w-full" disabled={loading}>
+          {loading
+            ? tr(language, "Updating password...", "กำลังอัปเดตรหัสผ่าน...")
+            : tr(language, "Update password", "อัปเดตรหัสผ่าน")}
+        </Button>
+      </form>
+
+      <div className="text-center text-[0.92rem]">
+        <Link href="/login" className="text-primary hover:underline">
+          {tr(language, "Back to sign in", "กลับไปหน้าเข้าสู่ระบบ")}
+        </Link>
+      </div>
+    </AuthShell>
   );
 }
 

@@ -2,8 +2,8 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { acceptInvite, getInviteInfo, ROLE_LABEL_MAP, CLINICAL_ROLES } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { acceptInvite, getInviteInfo, getRoleLabel, CLINICAL_ROLES } from "@/lib/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +13,34 @@ import { useLanguageStore } from "@/store/language-store";
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
+
+const USER_REGISTRATION_SIGNAL_KEY = "telemed:user-registered";
+const USER_REGISTRATION_CHANNEL = "telemed-user-events";
+
+function notifyUserRegistered(): void {
+  if (typeof window === "undefined") return;
+
+  const signal = {
+    type: "user.registered",
+    occurredAt: new Date().toISOString(),
+  };
+
+  try {
+    window.localStorage.setItem(USER_REGISTRATION_SIGNAL_KEY, JSON.stringify(signal));
+  } catch {
+    // Best-effort cross-tab refresh signal.
+  }
+
+  if (typeof window.BroadcastChannel !== "undefined") {
+    try {
+      const channel = new window.BroadcastChannel(USER_REGISTRATION_CHANNEL);
+      channel.postMessage(signal);
+      channel.close();
+    } catch {
+      // Ignore broadcast failures and rely on focus/storage fallback.
+    }
+  }
+}
 
 function timingSafeEqualStrings(left: string, right: string): boolean {
   const encoder = new TextEncoder();
@@ -30,12 +58,10 @@ function timingSafeEqualStrings(left: string, right: string): boolean {
 
 export default function InviteRegisterClientPage() {
   const router = useRouter();
-  const params = useParams<{ token?: string }>();
-  const routeToken = Array.isArray(params?.token) ? (params.token[0] ?? "") : (params?.token ?? "");
   const language = useLanguageStore((state) => state.language);
   const setLanguage = useLanguageStore((state) => state.setLanguage);
 
-  const [inviteToken, setInviteToken] = useState(routeToken);
+  const [inviteToken, setInviteToken] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
   const [firstName, setFirstName] = useState("");
@@ -46,6 +72,7 @@ export default function InviteRegisterClientPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [legacyPathTokenDetected, setLegacyPathTokenDetected] = useState(false);
   const isClinicalInvite = CLINICAL_ROLES.has(role);
 
   useEffect(() => {
@@ -68,21 +95,23 @@ export default function InviteRegisterClientPage() {
       return;
     }
 
-    if (routeToken.trim()) {
-      setInviteToken(routeToken.trim());
-      window.history.replaceState(
-        null,
-        "",
-        `/invite#token=${encodeURIComponent(routeToken.trim())}`
-      );
+    if (window.location.pathname.startsWith("/invite/")) {
+      setLegacyPathTokenDetected(true);
+      window.history.replaceState(null, "", "/invite");
     }
-  }, [routeToken]);
+  }, []);
 
   useEffect(() => {
     if (!inviteToken.trim()) {
       setLoading(false);
       setError(
-        tr(language, "Invite link is invalid or expired", "ลิงก์คำเชิญไม่ถูกต้องหรือหมดอายุแล้ว")
+        legacyPathTokenDetected
+          ? tr(
+            language,
+            "This invite link format is no longer supported. Ask an administrator to resend the invite.",
+            "รูปแบบลิงก์คำเชิญนี้เลิกใช้งานแล้ว กรุณาให้ผู้ดูแลระบบส่งคำเชิญใหม่"
+          )
+          : tr(language, "Invite link is invalid or expired", "ลิงก์คำเชิญไม่ถูกต้องหรือหมดอายุแล้ว")
       );
       return;
     }
@@ -103,7 +132,7 @@ export default function InviteRegisterClientPage() {
       }
     };
     void loadInvite();
-  }, [inviteToken, language]);
+  }, [inviteToken, language, legacyPathTokenDetected]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -130,6 +159,7 @@ export default function InviteRegisterClientPage() {
         password,
         license_no: licenseNo || undefined,
       });
+      notifyUserRegistered();
       router.replace("/login");
     } catch (err) {
       const message = err instanceof Error
@@ -197,17 +227,7 @@ export default function InviteRegisterClientPage() {
               <div className="space-y-2">
                 <Label>{tr(language, "Assigned role", "บทบาทที่ได้รับมอบหมาย")}</Label>
                 <Input
-                  value={language === "th"
-                    ? ({
-                      admin: "ผู้ดูแลระบบ",
-                      doctor: "แพทย์",
-                      staff: "เจ้าหน้าที่",
-                      nurse: "พยาบาล",
-                      pharmacist: "เภสัชกร",
-                      medical_technologist: "นักเทคนิคการแพทย์",
-                      psychologist: "นักจิตวิทยา",
-                    }[role] || role)
-                    : (ROLE_LABEL_MAP[role] || role)}
+                  value={getRoleLabel(role, language)}
                   disabled
                 />
               </div>

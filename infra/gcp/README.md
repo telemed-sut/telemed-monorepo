@@ -90,8 +90,15 @@ Auto deploy:
 
 - Scheduled uptime check every 15 minutes:
   - `.github/workflows/cloud-run-uptime-check.yml`
+  - failure summary now includes Cloud Run revision metadata and recent backend
+    error logs
 - Monitoring guide:
   - `infra/gcp/monitoring-runbook.md`
+- Security alert templates:
+  - `infra/gcp/alerts/admin-force-password-reset-log-metric.yaml`
+  - `infra/gcp/alerts/admin-force-password-reset-alert-policy.yaml`
+
+> **Before deploying alerts:** Replace `REPLACE_BACKEND_SERVICE`, `REPLACE_PROJECT_ID`, and `REPLACE_SECURITY_CHANNEL` in `infra/gcp/alerts/*.yaml` before you run the `gcloud` commands.
 
 ## 5) Cloud SQL backup/restore drill
 
@@ -119,3 +126,6 @@ Auto deploy:
 - Restrict `CORS_ORIGINS` to your frontend domain.
 - Rotate `JWT_SECRET` and `DEVICE_API_SECRET` via Secret Manager versions.
 - Use dedicated service accounts per service (backend/frontend/deployer).
+- Treat Alembic migration files as append-only after they have been pushed to a
+  shared branch. The CI pipeline blocks non-additive edits to existing
+  migration files.

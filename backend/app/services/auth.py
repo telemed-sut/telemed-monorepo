@@ -1,25 +1,70 @@
-import hashlib
+"""Core authentication facade and access-control dependencies."""
+
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import List, Optional
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Path, Request, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError
+from jwt.exceptions import PyJWTError as JWTError
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.security import create_access_token, decode_token, get_password_hash, verify_password
+from app.core.security import decode_token
 from app.db.session import SessionLocal
 from app.models.audit_log import AuditLog
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
-from app.models.invite import UserInvite
 from app.models.enums import UserRole
 from app.models.user import User
-from app.services import patient as patient_service
 from app.core.request_utils import get_client_ip
+from app.services.authz import (
+    can_manage_users,
+    can_receive_patient_assignments,
+    can_receive_user_invite,
+    can_view_clinical_data,
+    can_write_clinical_data,
+    is_medical_student_role,
+)
+from app.services.auth_privileges import (
+    backfill_bootstrap_privileged_roles,
+    build_access_profile,
+    can_manage_privileged_admins,
+    can_manage_security_recovery,
+    is_admin_sso_enforced_for_user,
+    requires_token_mfa,
+)
+from app.services import auth_sessions
+from app.services import patient as patient_service
+from .auth_2fa import (
+    get_request_auth_payload,
+    require_recent_privileged_session,
+    require_recent_sensitive_session,
+)
+from .auth_login import (
+    authenticate_user,
+    consume_invite,
+    create_user_invite,
+    get_active_invite_by_token,
+    hash_invite_token,
+    reset_user_password,
+)
+from .auth_tokens import (
+    PasswordResetTokenClaims,
+    _coerce_timestamp,
+    _get_password_changed_marker,
+    _normalize_dt,
+    _now_utc,
+    _validate_token_session,
+    create_login_response,
+    create_password_reset_token,
+    get_access_token_ttl_seconds,
+    is_password_reset_token_stale,
+    is_recent_mfa_authenticated,
+    parse_password_reset_token,
+    verify_password_reset_token,
+)
 
 settings = get_settings()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
@@ -31,138 +76,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
-    stmt = select(User).where(User.email == email, User.deleted_at.is_(None))
-    user = db.scalar(stmt)
-    if user is None:
-        return None
-    if not user.is_active:
-        return None
-    if not verify_password(password, user.password_hash):
-        return None
-    return user
-
-
-def create_login_response(user: User) -> dict:
-    token = create_access_token({"sub": str(user.id), "role": user.role.value})
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "expires_in": settings.jwt_expires_in,
-        "user": {
-            "id": str(user.id),
-            "email": user.email,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "role": user.role.value,
-            "verification_status": user.verification_status.value if user.verification_status else None,
-            "two_factor_enabled": bool(user.two_factor_enabled),
-        },
-    }
-
-
-def create_password_reset_token(user: User) -> str:
-    payload = {
-        "sub": str(user.id),
-        "type": "password_reset",
-    }
-    return create_access_token(payload, expires_in=settings.password_reset_expires_in)
-
-
-def verify_password_reset_token(token: str) -> str:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="Invalid or expired reset token",
-    )
-    try:
-        payload = decode_token(token)
-        token_type = payload.get("type")
-        user_id = payload.get("sub")
-        if token_type != "password_reset" or not user_id:
-            raise credentials_exception
-        return str(user_id)
-    except JWTError:
-        raise credentials_exception
-
-
-def reset_user_password(db: Session, user: User, new_password: str) -> None:
-    user.password_hash = get_password_hash(new_password)
-    db.add(user)
-    db.commit()
-
-
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def hash_invite_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def create_user_invite(
-    db: Session,
-    *,
-    email: str,
-    role: UserRole,
-    expires_in_hours: int,
-    created_by: User,
-) -> tuple[str, UserInvite]:
-    raw_token = secrets.token_urlsafe(32)
-    token_hash = hash_invite_token(raw_token)
-    now = _now_utc()
-    expires_at = now + timedelta(hours=expires_in_hours)
-
-    # Invalidate previous active invites for the same email.
-    existing_invites = db.scalars(
-        select(UserInvite).where(
-            and_(
-                UserInvite.email == email.lower(),
-                UserInvite.used_at.is_(None),
-                UserInvite.expires_at > now,
-            )
-        )
-    ).all()
-    for existing_invite in existing_invites:
-        existing_invite.used_at = now
-        db.add(existing_invite)
-
-    invite = UserInvite(
-        token_hash=token_hash,
-        email=email.lower(),
-        role=role,
-        expires_at=expires_at,
-        created_by=created_by.id,
-    )
-    db.add(invite)
-    db.commit()
-    db.refresh(invite)
-    return raw_token, invite
-
-
-def _normalize_dt(dt: datetime) -> datetime:
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
-def get_active_invite_by_token(db: Session, token: str) -> Optional[UserInvite]:
-    token_hash = hash_invite_token(token)
-    invite = db.scalar(select(UserInvite).where(UserInvite.token_hash == token_hash))
-    if not invite:
-        return None
-    if invite.used_at is not None:
-        return None
-    if _normalize_dt(invite.expires_at) <= _now_utc():
-        return None
-    return invite
-
-
-def consume_invite(db: Session, invite: UserInvite) -> None:
-    invite.used_at = _now_utc()
-    db.add(invite)
-    db.commit()
 
 
 def get_current_user(
@@ -188,8 +101,12 @@ def get_current_user(
 
     try:
         payload = decode_token(raw_token)
+        request.state.auth_payload = payload
+        token_type = payload.get("type")
         user_id: str = payload.get("sub")
         if user_id is None:
+            raise credentials_exception
+        if token_type not in (None, "access"):
             raise credentials_exception
     except JWTError:
         raise credentials_exception
@@ -208,6 +125,13 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated",
         )
+    _validate_token_session(user, payload, credentials_exception)
+    auth_sessions.require_active_session(
+        db,
+        user_id=user.id,
+        session_id=payload.get("session_id") if isinstance(payload, dict) else None,
+        credentials_exception=credentials_exception,
+    )
     return user
 
 
@@ -222,8 +146,12 @@ def get_optional_current_user(
 
     try:
         payload = decode_token(raw_token)
+        request.state.auth_payload = payload
+        token_type = payload.get("type")
         user_id: str = payload.get("sub")
         if user_id is None:
+            return None
+        if token_type not in (None, "access"):
             return None
     except JWTError:
         return None
@@ -236,6 +164,21 @@ def get_optional_current_user(
     user = db.scalar(select(User).where(User.id == uid, User.deleted_at.is_(None)))
     if user is None or not user.is_active:
         return None
+    try:
+        credentials_exception = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        _validate_token_session(user, payload, credentials_exception)
+        auth_sessions.require_active_session(
+            db,
+            user_id=user.id,
+            session_id=payload.get("session_id") if isinstance(payload, dict) else None,
+            credentials_exception=credentials_exception,
+        )
+    except HTTPException:
+        return None
     return user
 
 
@@ -244,8 +187,19 @@ def _validate_cookie_csrf(request: Request) -> None:
     if request.method.upper() in safe_methods:
         return
 
+    def normalize_origin(value: str | None) -> str | None:
+        if not value:
+            return None
+        normalized = value.strip().rstrip("/")
+        if not normalized.startswith(("http://", "https://")):
+            return None
+        return normalized
+
     allowed_origins: set[str] = set()
-    frontend_origin = settings.frontend_base_url.rstrip("/")
+    
+    # Strictly allow ONLY configured origins. 
+    # Do NOT trust incoming X-Forwarded-Host for origin validation.
+    frontend_origin = normalize_origin(settings.frontend_base_url)
     if frontend_origin:
         allowed_origins.add(frontend_origin)
 
@@ -256,77 +210,87 @@ def _validate_cookie_csrf(request: Request) -> None:
         cors_origins = [origin.strip() for origin in raw_cors_origins if origin and origin.strip()]
 
     for origin in cors_origins:
-        normalized = origin.rstrip("/")
-        if normalized.startswith("http://") or normalized.startswith("https://"):
+        normalized = normalize_origin(origin)
+        if normalized:
             allowed_origins.add(normalized)
-
-    if not allowed_origins:
-        return
+    
+    csrf_cookie = request.cookies.get("csrf_token")
+    csrf_header = request.headers.get("x-csrf-token")
+    has_valid_csrf_token = bool(
+        csrf_cookie
+        and csrf_header
+        and secrets.compare_digest(csrf_cookie, csrf_header)
+    )
 
     origin = request.headers.get("origin")
     if origin:
-        if origin.rstrip("/") not in allowed_origins:
+        if allowed_origins and origin.rstrip("/") not in allowed_origins:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="CSRF validation failed.",
             )
-        return
+        # Always require cryptographic token validation even if origin is correct.
+        if has_valid_csrf_token:
+            return
 
     referer = request.headers.get("referer")
     if referer:
         normalized_referer = referer.rstrip("/")
         for allowed_origin in allowed_origins:
             if normalized_referer == allowed_origin or normalized_referer.startswith(f"{allowed_origin}/"):
-                return
+                # Always require cryptographic token validation even if referer is correct.
+                if has_valid_csrf_token:
+                    return
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="CSRF validation failed.",
         )
 
-    # Non-browser clients may omit origin/referer.
-    return
+    if has_valid_csrf_token:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="CSRF validation failed.",
+    )
 
 
-def is_super_admin(user: Optional[User]) -> bool:
-    if not user:
-        return False
-    if user.role != UserRole.admin:
-        return False
-
-    raw_super_admins = settings.super_admin_emails
-    if isinstance(raw_super_admins, str):
-        super_admins = {email.strip().lower() for email in raw_super_admins.split(",") if email.strip()}
-    else:
-        super_admins = {email.strip().lower() for email in raw_super_admins if email and email.strip()}
-
-    return user.email.lower() in super_admins
+def is_super_admin(user: Optional[User], db: Session | None = None) -> bool:
+    return can_manage_privileged_admins(user, db)
 
 
-def require_roles(allowed_roles: List[UserRole]):
-    """Dependency to require specific roles"""
-    def role_checker(current_user: User = Depends(get_current_user)) -> User:
+def require_roles(allowed_roles: List[UserRole], *, require_mfa: bool = False):
+    """Dependency to require specific roles and optionally MFA verification."""
+    def role_checker(
+        request: Request,
+        current_user: User = Depends(get_current_user)
+    ) -> User:
         if current_user.role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Access denied. Required roles: {[role.value for role in allowed_roles]}"
             )
+        
+        if require_mfa:
+            payload = get_request_auth_payload(request)
+            if not payload.get("mfa_verified"):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Multi-factor authentication (MFA) required for this action.",
+                )
+                
         return current_user
     return role_checker
 
 
 # Common role dependencies
-get_admin_user = require_roles([UserRole.admin])
-get_admin_or_staff_user = require_roles([UserRole.admin, UserRole.staff])
+get_admin_user = require_roles([UserRole.admin], require_mfa=True)
 get_clinical_user = require_roles([
     UserRole.admin,
     UserRole.doctor,
-    UserRole.nurse,
-    UserRole.pharmacist,
-    UserRole.medical_technologist,
-    UserRole.psychologist,
+    UserRole.medical_student,
 ])
 get_doctor_user = require_roles([UserRole.admin, UserRole.doctor])
-get_doctor_or_nurse_user = require_roles([UserRole.admin, UserRole.doctor, UserRole.nurse])
 
 # Break-glass session window (hours)
 BREAK_GLASS_WINDOW_HOURS = 8
@@ -366,12 +330,12 @@ def verify_patient_access(
     request: Request,
     patient_id: UUID = Path(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_doctor_user),
+    current_user: User = Depends(get_clinical_user),
 ) -> User:
-    """Verify that the current doctor/admin user is authorized to access this patient.
+    """Verify that the current care-team user is authorized to access this patient.
 
     - Admin: always allowed.
-    - Doctor: must have an active assignment.
+    - Doctor/medical student: must have an active assignment.
     """
     patient_service.verify_doctor_patient_access(
         db,
@@ -389,22 +353,6 @@ def verify_patient_access_doctor(
     current_user: User = Depends(get_doctor_user),
 ) -> User:
     """Same as verify_patient_access but restricted to doctor (+ admin) roles."""
-    patient_service.verify_doctor_patient_access(
-        db,
-        current_user=current_user,
-        patient_id=patient_id,
-        ip_address=get_client_ip(request),
-    )
-    return current_user
-
-
-def verify_patient_access_doctor_or_nurse(
-    request: Request,
-    patient_id: UUID = Path(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_doctor_or_nurse_user),
-) -> User:
-    """Same as verify_patient_access but retained for compatibility."""
     patient_service.verify_doctor_patient_access(
         db,
         current_user=current_user,

@@ -4,12 +4,14 @@ import os
 import time
 from datetime import date
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
 
 from app import main as app_main
 from app.api.device_monitor import _extract_error_code, _hint_for_error_code
+from app.api import pressure as pressure_api
 from app.models.device_error_log import DeviceErrorLog
 from app.models.patient import Patient
 
@@ -47,6 +49,12 @@ def test_extract_error_code_and_hint():
     assert "X-Body-Hash" in hint
 
 
+def test_device_error_messages_are_sanitized():
+    assert pressure_api.sanitize_device_error_message("HTTP 404: Patient not found /srv/app/models.py") == "HTTP_ERROR:404"
+    assert pressure_api.sanitize_device_error_message("INTERNAL_ERROR:RuntimeError") == "INTERNAL_ERROR:runtimeerror"
+    assert pressure_api.sanitize_device_error_message("AUTH_FAILED:invalid signature\nSELECT * FROM users") == "AUTH_FAILED:invalid_signature_select_from_users"
+
+
 def test_validation_errors_are_logged_for_device_ingest(
     client: TestClient, db: Session, monkeypatch
 ):
@@ -82,3 +90,73 @@ def test_validation_errors_are_logged_for_device_ingest(
     assert latest is not None
     assert latest.error_message.startswith("VALIDATION_FAILED:")
     assert "sys_rate" in latest.error_message
+
+
+def test_unexpected_device_ingest_errors_log_only_error_class(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    patient = _create_patient(db)
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": "diag-device-500",
+        "heart_rate": 80,
+        "sys_rate": 120,
+        "dia_rate": 70,
+        "a": None,
+        "b": None,
+    }
+    headers = _sign_headers(device_id="diag-device-500", timestamp=str(int(time.time())))
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("select * from patients at /srv/app/sql.py")
+
+    monkeypatch.setattr(pressure_api.pressure_service, "create_pressure", _boom)
+
+    response = client.post("/device/v1/pressure", json=payload, headers=headers)
+    assert response.status_code == 500
+
+    latest = (
+        db.query(DeviceErrorLog)
+        .filter(DeviceErrorLog.device_id == "diag-device-500")
+        .order_by(DeviceErrorLog.id.desc())
+        .first()
+    )
+    assert latest is not None
+    assert latest.error_message == "INTERNAL_ERROR:runtimeerror"
+
+
+def test_http_device_ingest_errors_log_only_status_code(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    patient = _create_patient(db)
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": "diag-device-404",
+        "heart_rate": 80,
+        "sys_rate": 120,
+        "dia_rate": 70,
+        "a": None,
+        "b": None,
+    }
+    headers = _sign_headers(device_id="diag-device-404", timestamp=str(int(time.time())))
+
+    def _not_found(*_args, **_kwargs):
+        raise HTTPException(status_code=404, detail="patient record missing at /srv/app/path.py")
+
+    monkeypatch.setattr(pressure_api.pressure_service, "create_pressure", _not_found)
+
+    response = client.post("/device/v1/pressure", json=payload, headers=headers)
+    assert response.status_code == 404
+
+    latest = (
+        db.query(DeviceErrorLog)
+        .filter(DeviceErrorLog.device_id == "diag-device-404")
+        .order_by(DeviceErrorLog.id.desc())
+        .first()
+    )
+    assert latest is not None
+    assert latest.error_message == "HTTP_ERROR:404"

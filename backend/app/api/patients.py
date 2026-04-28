@@ -3,14 +3,16 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, BackgroundTasks
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
+from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole
+from app.models.patient import Patient
 from app.models.user import User
 from app.schemas.patient_assignment import (
     PatientAssignmentCreate,
@@ -18,7 +20,14 @@ from app.schemas.patient_assignment import (
     PatientAssignmentOut,
     PatientAssignmentUpdate,
 )
-from app.schemas.patient import PatientCreate, PatientListResponse, PatientOut, PatientUpdate
+from app.schemas.patient import (
+    PatientContactDetailsResponse,
+    PatientCreate,
+    PatientListResponse,
+    PatientProfileOut,
+    PatientWardListResponse,
+    PatientUpdate,
+)
 from app.services import auth as auth_service
 from app.services import patient as patient_service
 from app.services import audit as audit_service
@@ -27,6 +36,7 @@ from app.core.request_utils import get_client_ip
 router = APIRouter(prefix="/patients", tags=["patients"])
 settings = get_settings()
 logger = logging.getLogger(__name__)
+MAX_BULK_DELETE_PATIENTS = 100
 
 
 def _mask_people_id(people_id: Optional[str]) -> Optional[str]:
@@ -48,14 +58,14 @@ def _patient_audit_details(patient) -> dict:
     }
 
 
-def notify_staff(
+def notify_care_team(
     db: Session,
     current_user: User,
     background_tasks: BackgroundTasks,
     action: str,
     patient_id: str,
 ):
-    """Send notification to all staff except the current user.
+    """Send notification to care-team members except the current user.
 
     Uses Novu notification service when enabled. Silently skips if Novu is
     disabled or not configured (``NOVU_ENABLED=false``).
@@ -68,8 +78,19 @@ def notify_staff(
     # Lazy import — only loaded when Novu is actually enabled.
     from app.services import novu as novu_service  # noqa: E402
 
-    stmt = select(User.id).where(User.role.in_([UserRole.admin, UserRole.staff]))
-    user_ids = [str(row[0]) for row in db.execute(stmt).fetchall() if str(row[0]) != str(current_user.id)]
+    patient_uuid = UUID(patient_id)
+
+    assigned_doctor_ids = db.scalars(
+        select(DoctorPatientAssignment.doctor_id)
+        .where(DoctorPatientAssignment.patient_id == patient_uuid)
+        .distinct()
+    ).all()
+    admin_ids = db.scalars(select(User.id).where(User.role == UserRole.admin)).all()
+    user_ids = [
+        str(user_id)
+        for user_id in set(assigned_doctor_ids + admin_ids)
+        if str(user_id) != str(current_user.id)
+    ]
     
     if not user_ids:
         return
@@ -85,7 +106,7 @@ def notify_staff(
         background_tasks.add_task(notify_fn)
 
 
-@router.post("", response_model=PatientOut, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=PatientProfileOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("60/minute")
 def create_patient(
     request: Request,
@@ -108,7 +129,7 @@ def create_patient(
         details={"patient_id": str(patient.id)},
         ip_address=get_client_ip(request),
     )
-    notify_staff(db, current_user, background_tasks, "created", str(patient.id))
+    notify_care_team(db, current_user, background_tasks, "created", str(patient.id))
     return patient
 
 
@@ -127,7 +148,8 @@ def list_patients(
     """List patients with pagination.
 
     - Admin: can list all patients.
-    - Doctor: can list all patients.
+    - Doctor: can list assigned patients.
+    - Medical student: can list assigned patients read-only.
     """
     items, total = patient_service.list_patients_for_user(
         db,
@@ -141,7 +163,28 @@ def list_patients(
     return PatientListResponse(items=items, page=page, limit=min(limit, settings.max_limit), total=total)
 
 
-@router.get("/{patient_id}", response_model=PatientOut)
+@router.get("/wards", response_model=PatientWardListResponse)
+@limiter.limit("120/minute")
+def list_patient_wards(
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_admin_user),
+):
+    """List distinct active wards for admin onboarding flows."""
+    wards = db.scalars(
+        select(Patient.ward)
+        .where(
+            Patient.deleted_at.is_(None),
+            Patient.is_active == True,  # noqa: E712
+            Patient.ward.is_not(None),
+        )
+        .distinct()
+        .order_by(Patient.ward.asc())
+    ).all()
+    return PatientWardListResponse(wards=list(wards))
+
+
+@router.get("/{patient_id}", response_model=PatientProfileOut)
 @limiter.limit("200/minute")
 def get_patient(
     request: Request,
@@ -153,6 +196,7 @@ def get_patient(
 
     - Admin: can access all.
     - Doctor: only assigned.
+    - Medical student: only assigned (read-only).
     """
     patient = patient_service.get_patient(db, patient_id)
     if not patient:
@@ -168,7 +212,42 @@ def get_patient(
     return patient
 
 
-@router.put("/{patient_id}", response_model=PatientOut)
+@router.get("/{patient_id}/contact", response_model=PatientContactDetailsResponse)
+@limiter.limit("120/minute")
+def get_patient_contact_details(
+    request: Request,
+    patient_id: str,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """Reveal patient contact fields for authorized users."""
+    patient = patient_service.get_patient(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient.id,
+        ip_address=get_client_ip(request),
+    )
+    audit_service.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="patient_contact_revealed",
+        resource_type="patient",
+        resource_id=patient.id,
+        details=_patient_audit_details(patient),
+        ip_address=get_client_ip(request),
+    )
+    return PatientContactDetailsResponse(
+        phone=patient.phone,
+        email=patient.email,
+        address=patient.address,
+    )
+
+
+@router.put("/{patient_id}", response_model=PatientProfileOut)
 @limiter.limit("60/minute")
 def update_patient(
     request: Request,
@@ -179,6 +258,9 @@ def update_patient(
     current_user: User = Depends(auth_service.get_current_user),
 ):
     """Update patient (admin or assigned doctor)."""
+    if not auth_service.can_write_clinical_data(current_user.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
     patient = patient_service.get_patient(db, patient_id)
     if not patient:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
@@ -191,7 +273,7 @@ def update_patient(
     )
 
     updated = patient_service.update_patient(db, patient, payload)
-    notify_staff(db, current_user, background_tasks, "updated", str(updated.id))
+    notify_care_team(db, current_user, background_tasks, "updated", str(updated.id))
 
     # Audit: Store only metadata about changed fields (no PHI field values).
     try:
@@ -261,6 +343,7 @@ def create_patient_assignment(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
     except IntegrityError:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Assignment violates uniqueness constraints.")
 
     audit_service.log_action(
@@ -298,6 +381,7 @@ def update_patient_assignment(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=message)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
     except IntegrityError:
+        db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Assignment violates uniqueness constraints.")
 
     audit_service.log_action(
@@ -369,12 +453,12 @@ def delete_patient(
         details=_patient_audit_details(patient),
         ip_address=get_client_ip(request),
     )
-    notify_staff(db, current_user, background_tasks, "deleted", str(patient.id))
+    notify_care_team(db, current_user, background_tasks, "deleted", str(patient.id))
     return None
 
 
 class BulkDeleteRequest(BaseModel):
-    ids: List[str]
+    ids: List[str] = Field(min_length=1, max_length=MAX_BULK_DELETE_PATIENTS)
 
 
 class BulkDeleteResponse(BaseModel):
@@ -392,36 +476,78 @@ def bulk_delete_patients(
     current_user: User = Depends(auth_service.get_admin_user),
 ):
     """Bulk delete patients (admin only)."""
-    deleted = 0
     errors: List[str] = []
     deleted_ids: List[str] = []
+    patient_ids: List[UUID] = []
+    patients_by_id: dict[str, Patient] = {}
 
     for patient_id in payload.ids:
-        patient = patient_service.get_patient(db, patient_id)
-        if not patient:
+        try:
+            patient_ids.append(UUID(patient_id))
+        except ValueError:
             errors.append(f"Patient {patient_id} not found")
-            continue
-        patient_service.delete_patient(db, patient, deleted_by=current_user.id)
+
+    if not errors:
+        patients = db.scalars(
+            select(Patient)
+            .where(
+                Patient.id.in_(patient_ids),
+                Patient.deleted_at.is_(None),
+                Patient.is_active == True,  # noqa: E712
+            )
+            .with_for_update()
+        ).all()
+        patients_by_id = {str(patient.id): patient for patient in patients}
+
+        for patient_id in payload.ids:
+            if patient_id not in patients_by_id:
+                errors.append(f"Patient {patient_id} not found")
+
+    if errors:
         audit_service.log_action(
             db=db,
             user_id=current_user.id,
-            action="delete_patient",
+            action="bulk_delete_patients_denied",
             resource_type="patient",
-            resource_id=patient.id,
-            details={**_patient_audit_details(patient), "bulk": True},
+            details={"requested_ids": payload.ids, "deleted_ids": [], "errors": errors},
             ip_address=get_client_ip(request),
         )
-        notify_staff(db, current_user, background_tasks, "deleted", str(patient.id))
-        deleted += 1
-        deleted_ids.append(str(patient.id))
+        return BulkDeleteResponse(deleted=0, errors=errors)
 
-    audit_service.log_action(
-        db=db,
-        user_id=current_user.id,
-        action="bulk_delete_patients",
-        resource_type="patient",
-        details={"requested_ids": payload.ids, "deleted_ids": deleted_ids, "errors": errors},
-        ip_address=get_client_ip(request),
-    )
+    try:
+        for patient_id in payload.ids:
+            patient = patients_by_id[patient_id]
+            patient_service.delete_patient(
+                db,
+                patient,
+                deleted_by=current_user.id,
+                commit=False,
+            )
+            audit_service.log_action(
+                db=db,
+                user_id=current_user.id,
+                action="delete_patient",
+                resource_type="patient",
+                resource_id=patient.id,
+                details={**_patient_audit_details(patient), "bulk": True},
+                ip_address=get_client_ip(request),
+                commit=False,
+            )
+            notify_care_team(db, current_user, background_tasks, "deleted", str(patient.id))
+            deleted_ids.append(str(patient.id))
 
-    return BulkDeleteResponse(deleted=deleted, errors=errors)
+        audit_service.log_action(
+            db=db,
+            user_id=current_user.id,
+            action="bulk_delete_patients",
+            resource_type="patient",
+            details={"requested_ids": payload.ids, "deleted_ids": deleted_ids, "errors": []},
+            ip_address=get_client_ip(request),
+            commit=False,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    return BulkDeleteResponse(deleted=len(deleted_ids), errors=[])

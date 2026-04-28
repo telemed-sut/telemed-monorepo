@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 function getApiProxyTarget(): string {
   const rawTarget =
@@ -20,84 +21,106 @@ function getApiProxyTarget(): string {
 }
 
 const API_PROXY_TARGET = getApiProxyTarget();
-const CALL_SURFACE_CSP = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  "object-src 'none'",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https:",
-  "font-src 'self' data:",
-  "connect-src 'self' https: wss: ws:",
-  "media-src 'self' blob: https:",
-  "worker-src 'self' blob:",
-].join("; ");
 
 const BASE_SECURITY_HEADERS = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
+  { key: "X-XSS-Protection", value: "0" },
+  { key: "X-DNS-Prefetch-Control", value: "on" },
+  { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
 ];
 
-const CALL_SURFACE_HEADERS = [
-  ...BASE_SECURITY_HEADERS,
-  { key: "Content-Security-Policy", value: CALL_SURFACE_CSP },
-  {
-    key: "Permissions-Policy",
-    value: "camera=(self), microphone=(self), fullscreen=(self)",
-  },
-];
+const PUBLIC_SENTRY_DSN =
+  process.env.NEXT_PUBLIC_SENTRY_DSN ?? process.env.SENTRY_DSN ?? "";
+const PUBLIC_SENTRY_ENVIRONMENT =
+  process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT ??
+  process.env.SENTRY_ENVIRONMENT ??
+  process.env.NODE_ENV ??
+  "";
+const PUBLIC_SENTRY_RELEASE =
+  process.env.NEXT_PUBLIC_SENTRY_RELEASE ?? process.env.SENTRY_RELEASE ?? "";
+const ENABLE_PRODUCTION_BROWSER_SOURCEMAPS =
+  process.env.ENABLE_PRODUCTION_BROWSER_SOURCEMAPS === "true";
+const HEART_SOUND_UPLOAD_PROXY_BODY_LIMIT = "10mb";
 
 const nextConfig: NextConfig = {
-  // Strict Mode double-invokes effects in dev; disable to prevent ZEGO SDK,
-  // camera warmup, and heartbeat API calls from firing twice on every HMR update.
-  reactStrictMode: false,
-  output: 'standalone', // Required for Docker containerization
+  // Keep Strict Mode on in production builds while avoiding double-invoke noise during local development.
+  reactStrictMode: process.env.NODE_ENV === "production",
+  productionBrowserSourceMaps: ENABLE_PRODUCTION_BROWSER_SOURCEMAPS,
+  devIndicators: false,
+  output: "standalone", // Required for Docker containerization
+  env: {
+    NEXT_PUBLIC_SENTRY_DSN: PUBLIC_SENTRY_DSN,
+    NEXT_PUBLIC_SENTRY_ENVIRONMENT: PUBLIC_SENTRY_ENVIRONMENT,
+    NEXT_PUBLIC_SENTRY_RELEASE: PUBLIC_SENTRY_RELEASE,
+  },
   images: {
     remotePatterns: [
       {
         protocol: "https",
         hostname: "api.dicebear.com",
       },
-      {
-        protocol: "http",
-        hostname: "localhost",
-      },
-      {
-        protocol: "http",
-        hostname: "127.0.0.1",
-      },
+      ...(process.env.NODE_ENV !== "production"
+        ? [
+            {
+              protocol: "http" as const,
+              hostname: "localhost",
+            },
+            {
+              protocol: "http" as const,
+              hostname: "127.0.0.1",
+            },
+          ]
+        : []),
     ],
   },
   experimental: {
+    // Keep the proxy/client body clone limit explicit so oversized payloads fail
+    // predictably at the Next.js edge/proxy layer instead of relying on defaults.
+    proxyClientMaxBodySize: HEART_SOUND_UPLOAD_PROXY_BODY_LIMIT,
+    serverActions: {
+      bodySizeLimit: HEART_SOUND_UPLOAD_PROXY_BODY_LIMIT,
+    },
     viewTransition: true,
   },
   async rewrites() {
     return [
       {
-        source: '/api/:path*',
+        source: "/api/:path*",
         destination: `${API_PROXY_TARGET}/:path*`,
       },
-    ]
+    ];
   },
   async headers() {
     return [
       {
-        source: "/(.*)",
+        source: "/((?!patient/join$|meetings/call/.*).*)",
         headers: BASE_SECURITY_HEADERS,
       },
       {
         source: "/patient/join",
-        headers: CALL_SURFACE_HEADERS,
+        headers: BASE_SECURITY_HEADERS,
       },
       {
         source: "/meetings/call/:meetingId",
-        headers: CALL_SURFACE_HEADERS,
+        headers: BASE_SECURITY_HEADERS,
       },
     ];
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  webpack: {
+    treeshake: {
+      removeDebugLogging: true,
+    },
+  },
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  silent: !process.env.CI,
+  widenClientFileUpload: true,
+});

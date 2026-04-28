@@ -57,18 +57,16 @@ const {
 }));
 
 function stripMotionProps<T extends Record<string, unknown>>(props: T) {
-  const {
-    animate,
-    exit,
-    initial,
-    layout,
-    layoutId,
-    transition,
-    variants,
-    whileHover,
-    whileTap,
-    ...domProps
-  } = props;
+  const domProps = { ...props };
+  delete domProps.animate;
+  delete domProps.exit;
+  delete domProps.initial;
+  delete domProps.layout;
+  delete domProps.layoutId;
+  delete domProps.transition;
+  delete domProps.variants;
+  delete domProps.whileHover;
+  delete domProps.whileTap;
   return domProps;
 }
 
@@ -88,6 +86,7 @@ vi.mock("next/image", () => ({
 
 vi.mock("framer-motion", () => ({
   AnimatePresence: ({ children }: { children: ReactNode }) => <>{children}</>,
+  useReducedMotion: () => false,
   motion: {
     div: ({ children, ...props }: HTMLAttributes<HTMLDivElement>) => (
       <div {...stripMotionProps(props as Record<string, unknown>)}>{children}</div>

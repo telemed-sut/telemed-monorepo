@@ -1,3 +1,5 @@
+import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -5,19 +7,29 @@ from sqlalchemy import extract, func, select
 from sqlalchemy.orm import Session
 
 from app.core.limiter import limiter
+from app.db.session import get_redis_client
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole
 from app.models.meeting import Meeting
 from app.models.patient import Patient
 from app.models.user import User
+from app.schemas.stats import StatsOverviewResponse
 from app.services import auth as auth_service
 from app.services import meeting as meeting_service
+from app.services.redis_cache import get_dashboard_stats_cache_key
 
 router = APIRouter(prefix="/stats", tags=["stats"])
+logger = logging.getLogger(__name__)
+_OVERVIEW_STATS_CACHE_TTL_SECONDS = 300  # 5 minutes
 
 
-@router.get("/overview")
-@limiter.limit("200/minute")
+def _overview_stats_cache_key(*, user_id: str, role: str, year: int) -> str:
+    return get_dashboard_stats_cache_key(role=role, user_id=user_id, year=year)
+
+
+
+@router.get("/overview", response_model=StatsOverviewResponse)
+@limiter.limit("60/minute")
 def get_overview_stats(
     request: Request,
     year: int = Query(default=None, description="Year to aggregate (defaults to current year)"),
@@ -28,8 +40,9 @@ def get_overview_stats(
 
     - Admin: global data across all patients and meetings.
     - Doctor: scoped to own meetings + assigned patient meetings.
+    - Medical student: scoped to assigned patient meetings (read-only).
     """
-    if current_user.role not in (UserRole.admin, UserRole.doctor):
+    if not auth_service.can_view_clinical_data(current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
 
     if year is None:
@@ -37,7 +50,22 @@ def get_overview_stats(
 
     resolved_year = int(year)
     doctor_id = current_user.id
-    is_doctor = current_user.role == UserRole.doctor
+    is_scoped_clinical_user = current_user.role != UserRole.admin
+    cache_key = _overview_stats_cache_key(
+        user_id=str(current_user.id),
+        role=current_user.role.value,
+        year=resolved_year,
+    )
+    redis_client = get_redis_client()
+
+    # 1. Try to serve from cache
+    if redis_client is not None:
+        try:
+            cached_payload = redis_client.get(cache_key)
+            if cached_payload:
+                return json.loads(cached_payload)
+        except Exception:
+            logger.warning("Failed to read overview stats cache for user %s", current_user.id, exc_info=True)
 
     month_labels = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -60,7 +88,7 @@ def get_overview_stats(
             Patient.is_active == True,  # noqa: E712
         )
     )
-    if is_doctor:
+    if is_scoped_clinical_user:
         patients_stmt = patients_stmt.join(
             DoctorPatientAssignment,
             DoctorPatientAssignment.patient_id == Patient.id,
@@ -79,7 +107,7 @@ def get_overview_stats(
         )
         .where(extract("year", Meeting.date_time) == resolved_year)
     )
-    if is_doctor:
+    if is_scoped_clinical_user:
         meetings_stmt = meetings_stmt.where(
             meeting_service.build_doctor_visibility_clause(doctor_id)
         )
@@ -101,7 +129,7 @@ def get_overview_stats(
         })
 
     # Totals — also scoped by role
-    if is_doctor:
+    if is_scoped_clinical_user:
         visibility_clause = meeting_service.build_doctor_visibility_clause(doctor_id)
         total_patients_stmt = (
             select(func.count(func.distinct(Patient.id)))
@@ -188,7 +216,7 @@ def get_overview_stats(
             )
         ) or 0
 
-    return {
+    payload = {
         "year": resolved_year,
         "monthly": monthly,
         "totals": {
@@ -201,3 +229,16 @@ def get_overview_stats(
             "this_month_new_patients": this_month_new_patients,
         },
     }
+
+    # 4. Save to cache
+    if redis_client is not None:
+        try:
+            redis_client.setex(
+                cache_key,
+                _OVERVIEW_STATS_CACHE_TTL_SECONDS,
+                json.dumps(payload),
+            )
+        except Exception:
+            logger.warning("Failed to write overview stats cache for user %s", current_user.id, exc_info=True)
+
+    return payload

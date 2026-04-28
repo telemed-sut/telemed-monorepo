@@ -7,6 +7,12 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Cancel01Icon } from "@hugeicons/core-free-icons"
+import { useLanguageStore } from "@/store/language-store"
+
+const CLOSE_LABELS = {
+  en: "Close",
+  th: "ปิด",
+} as const
 
 function Sheet({ ...props }: SheetPrimitive.Root.Props) {
   return <SheetPrimitive.Root data-slot="sheet" {...props} />
@@ -44,6 +50,9 @@ function SheetContent({
   side?: "top" | "right" | "bottom" | "left" | "center"
   showCloseButton?: boolean
 }) {
+  const language = useLanguageStore((state) => state.language)
+  const closeLabel = CLOSE_LABELS[language]
+
   return (
     <SheetPortal>
       <SheetOverlay />
@@ -66,7 +75,7 @@ function SheetContent({
             }
           >
             <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">{closeLabel}</span>
           </SheetPrimitive.Close>
         )}
       </SheetPrimitive.Popup>

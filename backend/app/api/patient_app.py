@@ -13,7 +13,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
-from app.core.limiter import limiter
+from app.core.limiter import get_strict_failed_login_key, get_strict_client_ip_rate_limit_key, limiter
 from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.patient_app import (
@@ -95,7 +95,7 @@ def generate_registration_code(
     "/register",
     response_model=PatientAppRegisterResponse,
 )
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=get_strict_client_ip_rate_limit_key)
 def register_patient(
     request: Request,
     payload: PatientAppRegisterRequest,
@@ -107,6 +107,8 @@ def register_patient(
         phone=payload.phone,
         code=payload.code,
         pin=payload.pin,
+        user_agent=request.headers.get("user-agent"),
+        device_id=patient_app_service.get_patient_device_id_from_headers(request.headers),
     )
 
 
@@ -117,6 +119,7 @@ def register_patient(
     response_model=PatientAppLoginResponse,
 )
 @limiter.limit("15/minute")
+@limiter.limit("10/minute", key_func=get_strict_failed_login_key)
 def login_patient(
     request: Request,
     payload: PatientAppLoginRequest,
@@ -127,6 +130,74 @@ def login_patient(
         db=db,
         phone=payload.phone,
         pin=payload.pin,
+        user_agent=request.headers.get("user-agent"),
+        device_id=patient_app_service.get_patient_device_id_from_headers(request.headers),
+    )
+
+
+@router.post(
+    "/refresh",
+    response_model=PatientAppLoginResponse,
+)
+@limiter.limit("30/minute")
+def refresh_patient(
+    request: Request,
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+):
+    """Refresh the authenticated patient app token."""
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    return patient_app_service.refresh_patient_app(
+        db=db,
+        token=token,
+        user_agent=request.headers.get("user-agent"),
+        device_id=patient_app_service.get_patient_device_id_from_headers(request.headers),
+    )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+@limiter.limit("30/minute")
+def logout_patient(
+    request: Request,
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+):
+    """Logout the authenticated patient app session."""
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    patient_app_service.logout_patient_app(
+        db=db,
+        token=token,
+        user_agent=request.headers.get("user-agent"),
+        device_id=patient_app_service.get_patient_device_id_from_headers(request.headers),
+    )
+
+
+@router.post(
+    "/logout-all",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+@limiter.limit("30/minute")
+def logout_all_patient(
+    request: Request,
+    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+):
+    """Logout every active patient app session for the authenticated patient."""
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    patient_app_service.logout_all_patient_app(
+        db=db,
+        token=token,
+        user_agent=request.headers.get("user-agent"),
+        device_id=patient_app_service.get_patient_device_id_from_headers(request.headers),
     )
 
 
@@ -150,7 +221,12 @@ def get_my_meetings(
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-    patient = patient_app_service.get_current_patient(token, db)
+    patient = patient_app_service.get_current_patient(
+        token,
+        db,
+        user_agent=request.headers.get("user-agent"),
+        device_id=patient_app_service.get_patient_device_id_from_headers(request.headers),
+    )
     updated_after_dt = _parse_updated_after(updated_after)
 
     return patient_app_service.get_patient_meetings(
@@ -175,7 +251,12 @@ def issue_my_meeting_invite(
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-    patient = patient_app_service.get_current_patient(token, db)
+    patient = patient_app_service.get_current_patient(
+        token,
+        db,
+        user_agent=request.headers.get("user-agent"),
+        device_id=patient_app_service.get_patient_device_id_from_headers(request.headers),
+    )
     return patient_app_service.issue_patient_meeting_invite(
         db=db,
         patient_id=str(patient.id),

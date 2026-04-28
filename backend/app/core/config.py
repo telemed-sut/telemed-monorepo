@@ -1,14 +1,21 @@
 import json
+import os
 import re
 from functools import lru_cache
 from typing import Dict, List, Literal, Union
+from urllib.parse import quote, urlsplit, urlunsplit
 
-from pydantic import field_validator, model_validator
+from pydantic import ValidationError, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     DotEnvSettingsSource,
     EnvSettingsSource,
     PydanticBaseSettingsSource,
+)
+from app.core.secret_crypto import (
+    SecretEncryptionConfigurationError,
+    has_secret_crypto_backend,
+    validate_secret_encryption_key,
 )
 
 
@@ -26,16 +33,45 @@ class RawDeviceSecretsDotEnvSettingsSource(DotEnvSettingsSource):
         return super().prepare_field_value(field_name, field, value, value_is_complex)
 
 
+LOCAL_DEV_CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+]
+
+LOCAL_DEV_ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "testserver",
+    "backend",
+    "patient-backend",
+    "frontend",
+    "patient-frontend",
+]
+
+LOOPBACK_ORIGIN_ALIASES = {
+    "http://localhost:3000": ["http://127.0.0.1:3000"],
+    "http://127.0.0.1:3000": ["http://localhost:3000"],
+    "http://localhost:8080": ["http://127.0.0.1:8080"],
+    "http://127.0.0.1:8080": ["http://localhost:8080"],
+}
+
+
 class Settings(BaseSettings):
     app_name: str = "Patient Management API"
+    app_env: Literal["development", "test", "production"] = "development"
     database_url: str
     jwt_secret: str
     jwt_expires_in: int
     password_reset_expires_in: int = 900
     password_reset_return_token_in_response: bool = False
     frontend_base_url: str = "http://localhost:3000"
+    api_docs_enabled: bool | None = None
     invite_expires_in_hours: int = 24
-    cors_origins: Union[List[str], str] = ["http://localhost:3000", "http://localhost:8080"]
+    cors_origins: Union[List[str], str] = LOCAL_DEV_CORS_ORIGINS.copy()
+    allowed_hosts: Union[List[str], str] = []
     default_page: int = 1
     default_limit: int = 20
     max_limit: int = 200
@@ -47,14 +83,26 @@ class Settings(BaseSettings):
     account_lockout_minutes: int = 15
     admin_max_login_attempts: int = 15
     admin_account_lockout_minutes: int = 3
+    clinical_lockout_attempts_step_one: int = 5
+    clinical_lockout_seconds_step_one: int = 30
+    clinical_lockout_attempts_step_two: int = 8
+    clinical_lockout_seconds_step_two: int = 120
+    clinical_lockout_attempts_step_three: int = 10
+    clinical_lockout_seconds_step_three: int = 300
+    patient_pin_max_login_attempts: int = 5
+    patient_pin_lockout_minutes: int = 15
+    patient_pin_pepper: str = ""
+    patient_app_token_ttl_seconds: int = 86_400 * 7
     min_active_admin_accounts: int = 2
     super_admin_emails: Union[List[str], str] = ["admin@example.com"]
     admin_unlock_whitelisted_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
     admin_2fa_required: bool = True
+    admin_jwt_expires_in: int = 2592000
     admin_2fa_issuer: str = "Telemed Admin"
+    privileged_action_mfa_max_age_seconds: int = 86400
     trusted_device_cookie_name: str = "trusted_device_token"
-    admin_trusted_device_days: int = 7
-    user_trusted_device_days: int = 30
+    admin_trusted_device_days: int = 30
+    user_trusted_device_days: int = 7
     backup_code_count: int = 10
     backup_code_expires_days: int = 365
     # Phase policy toggles
@@ -67,6 +115,9 @@ class Settings(BaseSettings):
     security_whitelisted_ips: str = "127.0.0.1,::1"
     trusted_proxy_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
     security_403_spike_threshold_1h: int = 25
+    device_secret_encryption_key: str | None = None
+    two_factor_secret_encryption_key: str | None = None
+    allow_insecure_secret_storage: bool = False
 
     # Device API Security
     device_api_secret: str | None = None
@@ -77,15 +128,37 @@ class Settings(BaseSettings):
     device_api_require_nonce: bool = False
     device_api_nonce_ttl_seconds: int = 300
     device_api_max_body_bytes: int = 262_144
+    device_session_stale_threshold_seconds: int = 120
+    device_session_auto_close_timeout_seconds: int = 1800
+    device_session_transition_window_seconds: int = 30
+    device_session_late_packet_grace_seconds: int = 5
 
     # Auth cookie settings
     auth_cookie_name: str = "access_token"
-    auth_cookie_secure: bool = False
+    auth_cookie_secure: bool = True
     auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    db_pool_size: int = 20
+    db_max_overflow: int = 20
+    db_pool_recycle_seconds: int = 300
+    admin_oidc_enabled: bool = False
+    admin_oidc_enforced: bool = False
+    admin_oidc_provider_name: str = "authentik"
+    admin_oidc_issuer_url: str | None = None
+    admin_oidc_client_id: str | None = None
+    admin_oidc_client_secret: str | None = None
+    admin_oidc_redirect_uri: str | None = None
+    admin_oidc_post_logout_redirect_uri: str | None = None
+    admin_oidc_scopes: Union[List[str], str] = ["openid", "profile", "email"]
+    admin_oidc_allowed_email_domains: Union[List[str], str] = []
+    admin_oidc_required_group: str | None = None
+    admin_oidc_state_ttl_seconds: int = 600
+    admin_oidc_cache_ttl_seconds: int = 3600
 
     # Rate Limiting
     redis_url: str | None = None
     rate_limit_whitelist: Union[List[str], str] = ["127.0.0.1", "::1"]
+    redis_runtime_degraded_scope_alert_threshold: int = 1
+    redis_runtime_operation_failure_alert_threshold: int = 5
     # Video meeting integration
     meeting_video_provider: Literal["disabled", "mock", "zego"] = "disabled"
     zego_app_id: int | None = None
@@ -93,7 +166,15 @@ class Settings(BaseSettings):
     meeting_video_token_ttl_seconds: int = 900
     meeting_patient_invite_ttl_seconds: int = 86_400
     meeting_patient_join_base_url: str | None = None
+    meeting_signing_secret: str | None = None
+    meeting_signing_allow_jwt_secret_fallback: bool = False
     meeting_video_room_prefix: str = "telemed"
+    meeting_presence_reconcile_interval_seconds: int = 30
+    storage_provider: Literal["azure", "local"] = "azure"
+    azure_blob_storage_connection_string: str | None = None
+    azure_blob_storage_container: str | None = None
+    azure_blob_storage_path_prefix: str = ""
+    azure_blob_storage_url_ttl_seconds: int = 900
 
     @field_validator("database_url", mode="before")
     @classmethod
@@ -103,17 +184,52 @@ class Settings(BaseSettings):
 
         value = v.strip()
         if value.startswith("postgres://"):
-            return f"postgresql+psycopg://{value[len('postgres://'):]}"
-        if value.startswith("postgresql://"):
-            return f"postgresql+psycopg://{value[len('postgresql://'):]}"
-        return value
+            value = f"postgresql+psycopg://{value[len('postgres://'):]}"
+        elif value.startswith("postgresql://"):
+            value = f"postgresql+psycopg://{value[len('postgresql://'):]}"
+
+        return cls._rewrite_local_database_host_for_container(value)
+
+    @classmethod
+    def _rewrite_local_database_host_for_container(cls, database_url: str) -> str:
+        if not os.path.exists("/.dockerenv"):
+            return database_url
+
+        parsed = urlsplit(database_url)
+        if parsed.scheme not in {"postgresql+psycopg", "postgresql", "postgres"}:
+            return database_url
+        if parsed.hostname not in {"localhost", "127.0.0.1"}:
+            return database_url
+
+        username = quote(parsed.username or "", safe="")
+        password = quote(parsed.password or "", safe="")
+        auth = username
+        if parsed.password is not None:
+            auth = f"{auth}:{password}" if auth else f":{password}"
+        if auth:
+            auth = f"{auth}@"
+
+        port = f":{parsed.port}" if parsed.port else ""
+        rewritten_netloc = f"{auth}db{port}"
+        return urlunsplit(
+            (
+                parsed.scheme,
+                rewritten_netloc,
+                parsed.path,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
 
     @field_validator(
         "cors_origins",
+        "allowed_hosts",
         "rate_limit_whitelist",
         "super_admin_emails",
         "admin_unlock_whitelisted_ips",
         "trusted_proxy_ips",
+        "admin_oidc_scopes",
+        "admin_oidc_allowed_email_domains",
         mode="before",
     )
     @classmethod
@@ -123,6 +239,30 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
 
+    @field_validator("app_env", mode="before")
+    @classmethod
+    def normalize_app_env(cls, v: str) -> str:
+        if not isinstance(v, str):
+            return v
+        return v.strip().lower()
+
+    @field_validator("auth_cookie_samesite", mode="before")
+    @classmethod
+    def normalize_auth_cookie_samesite(cls, v: str) -> str:
+        if not isinstance(v, str):
+            return v
+
+        value = v.strip().lower()
+        return value or "lax"
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def validate_jwt_secret(cls, v: str) -> str:
+        value = (v or "").strip()
+        if len(value) < 32:
+            raise ValueError("JWT_SECRET must be at least 32 characters long.")
+        return value
+
     @field_validator("device_api_secret")
     @classmethod
     def validate_device_api_secret(cls, v: str | None) -> str | None:
@@ -130,6 +270,51 @@ class Settings(BaseSettings):
             return None
         value = cls._validate_device_secret_value(v, "DEVICE_API_SECRET")
         return value
+
+    @field_validator("meeting_signing_secret")
+    @classmethod
+    def validate_meeting_signing_secret(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return cls._validate_device_secret_value(v, "MEETING_SIGNING_SECRET")
+
+    @field_validator("azure_blob_storage_connection_string", "azure_blob_storage_container", mode="before")
+    @classmethod
+    def normalize_optional_storage_strings(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
+
+    @field_validator("azure_blob_storage_path_prefix")
+    @classmethod
+    def normalize_storage_path_prefix(cls, v: str) -> str:
+        value = (v or "").strip().strip("/")
+        return value
+
+    @field_validator("azure_blob_storage_url_ttl_seconds")
+    @classmethod
+    def validate_azure_blob_storage_url_ttl_seconds(cls, v: int) -> int:
+        if v < 60:
+            raise ValueError("AZURE_BLOB_STORAGE_URL_TTL_SECONDS must be at least 60.")
+        if v > 86400:
+            raise ValueError("AZURE_BLOB_STORAGE_URL_TTL_SECONDS must be <= 86400.")
+        return v
+
+    @field_validator(
+        "device_secret_encryption_key",
+        "two_factor_secret_encryption_key",
+    )
+    @classmethod
+    def validate_at_rest_secret_encryption_key(
+        cls,
+        v: str | None,
+        info,
+    ) -> str | None:
+        try:
+            return validate_secret_encryption_key(v, config_name=info.field_name.upper())
+        except SecretEncryptionConfigurationError as exc:
+            raise ValueError(str(exc)) from exc
 
     @classmethod
     def _validate_device_secret_value(cls, v: str, source_name: str) -> str:
@@ -147,6 +332,15 @@ class Settings(BaseSettings):
         if len(value) < 32:
             raise ValueError(f"{source_name} must be at least 32 characters long.")
         return value
+
+    @classmethod
+    def _uses_default_database_credentials(cls, database_url: str) -> bool:
+        value = (database_url or "").strip()
+        if not value or value.lower().startswith("sqlite"):
+            return False
+
+        parsed = urlsplit(value)
+        return parsed.username == "user" and parsed.password == "password"
 
     @field_validator("device_api_secrets", mode="before")
     @classmethod
@@ -169,18 +363,7 @@ class Settings(BaseSettings):
                     raise ValueError("DEVICE_API_SECRETS JSON must be an object")
                 raw_map = {str(k): str(val) for k, val in parsed.items()}
             except json.JSONDecodeError:
-                # Backward-friendly format: "deviceA=secretA,deviceB=secretB"
-                raw_map = {}
-                for pair in value.split(","):
-                    item = pair.strip()
-                    if not item:
-                        continue
-                    device_id, sep, secret = item.partition("=")
-                    if not sep:
-                        raise ValueError(
-                            "DEVICE_API_SECRETS must be JSON object or comma-separated 'device=secret' pairs."
-                        )
-                    raw_map[device_id.strip()] = secret.strip()
+                raw_map = cls._parse_legacy_device_api_secrets(value)
         else:
             raise ValueError("DEVICE_API_SECRETS must be a mapping or string.")
 
@@ -197,6 +380,33 @@ class Settings(BaseSettings):
                 raise ValueError(f"DEVICE_API_SECRETS[{device_id}] must not be empty.")
             normalized[device_id] = secret
         return normalized
+
+    @classmethod
+    def _parse_legacy_device_api_secrets(cls, value: str) -> Dict[str, str]:
+        normalized_value = value.strip()
+        if normalized_value.startswith("{") and normalized_value.endswith("}"):
+            normalized_value = normalized_value[1:-1].strip()
+
+        raw_map: Dict[str, str] = {}
+        for pair in normalized_value.split(","):
+            item = pair.strip()
+            if not item:
+                continue
+
+            if "=" in item:
+                device_id, secret = item.split("=", 1)
+            elif ":" in item:
+                device_id, secret = item.split(":", 1)
+            else:
+                raise ValueError(
+                    "DEVICE_API_SECRETS must be JSON object or comma-separated 'device=secret' pairs."
+                )
+
+            normalized_device_id = device_id.strip().strip("\"'")
+            normalized_secret = secret.strip().strip("\"'")
+            raw_map[normalized_device_id] = normalized_secret
+
+        return raw_map
 
     @field_validator("device_api_nonce_ttl_seconds")
     @classmethod
@@ -216,6 +426,13 @@ class Settings(BaseSettings):
             raise ValueError("DEVICE_API_MAX_BODY_BYTES must be <= 10485760.")
         return v
 
+    @field_validator("db_pool_size", "db_max_overflow", "db_pool_recycle_seconds")
+    @classmethod
+    def validate_db_pool_settings(cls, v: int, info) -> int:
+        if v < 0:
+            raise ValueError(f"{info.field_name.upper()} must be >= 0.")
+        return v
+
     @field_validator("meeting_video_token_ttl_seconds")
     @classmethod
     def validate_meeting_video_token_ttl_seconds(cls, v: int) -> int:
@@ -232,6 +449,15 @@ class Settings(BaseSettings):
             raise ValueError("MEETING_PATIENT_INVITE_TTL_SECONDS must be at least 300.")
         if v > 604_800:
             raise ValueError("MEETING_PATIENT_INVITE_TTL_SECONDS must be <= 604800.")
+        return v
+
+    @field_validator("meeting_presence_reconcile_interval_seconds")
+    @classmethod
+    def validate_meeting_presence_reconcile_interval_seconds(cls, v: int) -> int:
+        if v < 5:
+            raise ValueError("MEETING_PRESENCE_RECONCILE_INTERVAL_SECONDS must be at least 5.")
+        if v > 3600:
+            raise ValueError("MEETING_PRESENCE_RECONCILE_INTERVAL_SECONDS must be <= 3600.")
         return v
 
     @field_validator("meeting_video_room_prefix")
@@ -258,6 +484,95 @@ class Settings(BaseSettings):
             raise ValueError("MEETING_PATIENT_JOIN_BASE_URL must start with http:// or https://.")
         return value.rstrip("/")
 
+    @field_validator("redis_url")
+    @classmethod
+    def validate_redis_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        if not value:
+            return None
+        if not os.path.exists("/.dockerenv"):
+            return value
+
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"redis", "rediss"}:
+            return value
+        if parsed.hostname not in {"localhost", "127.0.0.1"}:
+            return value
+
+        password = parsed.password
+        if password is None:
+            password = os.environ.get("REDIS_PASSWORD", "telemed-dev-redis-password")
+
+        username = quote(parsed.username or "", safe="")
+        quoted_password = quote(password or "", safe="")
+        auth = username
+        if password is not None:
+            auth = f"{auth}:{quoted_password}" if auth else f":{quoted_password}"
+        if auth:
+            auth = f"{auth}@"
+        port = f":{parsed.port}" if parsed.port else ""
+        return urlunsplit(
+            (
+                parsed.scheme,
+                f"{auth}redis{port}",
+                parsed.path,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
+
+    @field_validator(
+        "admin_oidc_issuer_url",
+        "admin_oidc_redirect_uri",
+        "admin_oidc_post_logout_redirect_uri",
+    )
+    @classmethod
+    def validate_optional_http_url(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        if not value:
+            return None
+        if not (value.startswith("http://") or value.startswith("https://")):
+            raise ValueError("OIDC URLs must start with http:// or https://.")
+        return value.rstrip("/")
+
+    @field_validator("admin_oidc_client_id", "admin_oidc_client_secret", "admin_oidc_required_group")
+    @classmethod
+    def validate_optional_trimmed_string(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = v.strip()
+        return value or None
+
+    @field_validator("admin_oidc_provider_name")
+    @classmethod
+    def validate_admin_oidc_provider_name(cls, v: str) -> str:
+        value = (v or "").strip()
+        if not value:
+            raise ValueError("ADMIN_OIDC_PROVIDER_NAME must not be empty.")
+        return value
+
+    @field_validator("admin_oidc_state_ttl_seconds")
+    @classmethod
+    def validate_admin_oidc_state_ttl_seconds(cls, v: int) -> int:
+        if v < 60:
+            raise ValueError("ADMIN_OIDC_STATE_TTL_SECONDS must be at least 60.")
+        if v > 3600:
+            raise ValueError("ADMIN_OIDC_STATE_TTL_SECONDS must be <= 3600.")
+        return v
+
+    @field_validator("admin_oidc_cache_ttl_seconds")
+    @classmethod
+    def validate_admin_oidc_cache_ttl_seconds(cls, v: int) -> int:
+        if v < 60:
+            raise ValueError("ADMIN_OIDC_CACHE_TTL_SECONDS must be at least 60.")
+        if v > 86400:
+            raise ValueError("ADMIN_OIDC_CACHE_TTL_SECONDS must be <= 86400.")
+        return v
+
     @field_validator("zego_app_id", mode="before")
     @classmethod
     def parse_optional_zego_app_id(cls, v: object) -> object:
@@ -266,6 +581,39 @@ class Settings(BaseSettings):
         if isinstance(v, str) and not v.strip():
             return None
         return v
+
+    @model_validator(mode="after")
+    def validate_production_requirements(self):
+        if self.app_env == "production" and not self.redis_url:
+            raise ValueError("REDIS_URL is required when APP_ENV=production.")
+        return self
+
+    @model_validator(mode="after")
+    def expand_local_dev_cors_origins(self):
+        normalized_origins: List[str] = []
+
+        for origin in self.cors_origins:
+            value = (origin or "").strip().rstrip("/")
+            if not value:
+                continue
+
+            if value not in normalized_origins:
+                normalized_origins.append(value)
+
+            if self.app_env not in {"development", "test"}:
+                continue
+
+            for alias in LOOPBACK_ORIGIN_ALIASES.get(value, []):
+                if alias not in normalized_origins:
+                    normalized_origins.append(alias)
+
+        if self.app_env in {"development", "test"}:
+            for origin in LOCAL_DEV_CORS_ORIGINS:
+                if origin not in normalized_origins:
+                    normalized_origins.append(origin)
+
+        self.cors_origins = normalized_origins
+        return self
 
     @model_validator(mode="after")
     def apply_device_api_secret_fallback(self):
@@ -289,6 +637,25 @@ class Settings(BaseSettings):
         if self.frontend_base_url.startswith("https://") and not self.auth_cookie_secure:
             raise ValueError("AUTH_COOKIE_SECURE must be true when FRONTEND_BASE_URL is HTTPS.")
 
+        if self.admin_oidc_enforced and not self.admin_oidc_enabled:
+            raise ValueError("ADMIN_OIDC_ENFORCED requires ADMIN_OIDC_ENABLED=true.")
+
+        if self.admin_oidc_enabled:
+            missing_fields = [
+                name
+                for name, value in (
+                    ("ADMIN_OIDC_ISSUER_URL", self.admin_oidc_issuer_url),
+                    ("ADMIN_OIDC_CLIENT_ID", self.admin_oidc_client_id),
+                    ("ADMIN_OIDC_CLIENT_SECRET", self.admin_oidc_client_secret),
+                    ("ADMIN_OIDC_REDIRECT_URI", self.admin_oidc_redirect_uri),
+                )
+                if not value
+            ]
+            if missing_fields:
+                raise ValueError(
+                    f"Admin OIDC is enabled but missing required settings: {', '.join(missing_fields)}."
+                )
+
         if self.meeting_video_provider == "zego":
             if self.zego_app_id is None:
                 raise ValueError("ZEGO_APP_ID is required when MEETING_VIDEO_PROVIDER=zego.")
@@ -303,7 +670,139 @@ class Settings(BaseSettings):
 
         return self
 
+    @model_validator(mode="after")
+    def validate_phase_one_security_requirements(self):
+        if self.meeting_signing_secret is not None:
+            value = self.meeting_signing_secret.strip()
+            self.meeting_signing_secret = value or None
+
+        if self.app_env == "production":
+            missing_device_hardening_flags = []
+            if not self.device_api_require_registered_device:
+                missing_device_hardening_flags.append(
+                    "DEVICE_API_REQUIRE_REGISTERED_DEVICE=true"
+                )
+            if not self.device_api_require_body_hash_signature:
+                missing_device_hardening_flags.append(
+                    "DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE=true"
+                )
+            if not self.device_api_require_nonce:
+                missing_device_hardening_flags.append("DEVICE_API_REQUIRE_NONCE=true")
+            if missing_device_hardening_flags:
+                raise ValueError(
+                    "Production device ingest hardening requires "
+                    + ", ".join(missing_device_hardening_flags)
+                    + "."
+                )
+
+            if self.meeting_signing_allow_jwt_secret_fallback:
+                raise ValueError(
+                    "MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK must be false when APP_ENV=production."
+                )
+
+            if not self.meeting_signing_secret:
+                raise ValueError(
+                    "MEETING_SIGNING_SECRET is required when APP_ENV=production."
+                )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_at_rest_secret_encryption_requirements(self):
+        missing_keys = [
+            env_name
+            for env_name, value in (
+                ("DEVICE_SECRET_ENCRYPTION_KEY", self.device_secret_encryption_key),
+                ("TWO_FACTOR_SECRET_ENCRYPTION_KEY", self.two_factor_secret_encryption_key),
+            )
+            if not value
+        ]
+
+        if self.app_env == "production":
+            if self.allow_insecure_secret_storage:
+                raise ValueError(
+                    "ALLOW_INSECURE_SECRET_STORAGE must be false when APP_ENV=production."
+                )
+            if missing_keys:
+                raise ValueError(
+                    "Production secret-at-rest hardening requires "
+                    + ", ".join(missing_keys)
+                    + "."
+                )
+            return self
+
+        insecure_secret_storage_explicitly_configured = (
+            "allow_insecure_secret_storage" in self.model_fields_set
+        )
+        if (
+            missing_keys
+            and not self.allow_insecure_secret_storage
+            and not (
+                self.app_env in {"development", "test"}
+                and not insecure_secret_storage_explicitly_configured
+            )
+        ):
+            raise ValueError(
+                "Secret-at-rest encryption keys are required unless "
+                "ALLOW_INSECURE_SECRET_STORAGE=true is set explicitly for non-production compatibility mode."
+            )
+
+        if (
+            missing_keys
+            and self.app_env in {"development", "test"}
+            and not insecure_secret_storage_explicitly_configured
+        ):
+            self.allow_insecure_secret_storage = True
+
+        encrypted_secret_storage_enabled = bool(
+            self.device_secret_encryption_key or self.two_factor_secret_encryption_key
+        )
+        if encrypted_secret_storage_enabled and not has_secret_crypto_backend():
+            raise ValueError(
+                "Missing dependency 'pycryptodomex'. Install it to enable secrets-at-rest encryption."
+            )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_azure_blob_storage_configuration(self):
+        configured_values = [
+            self.azure_blob_storage_connection_string,
+            self.azure_blob_storage_container,
+        ]
+        if any(configured_values) and not all(configured_values):
+            raise ValueError(
+                "AZURE_BLOB_STORAGE_CONNECTION_STRING and AZURE_BLOB_STORAGE_CONTAINER must both be set."
+            )
+        return self
+
+    @property
+    def resolved_allowed_hosts(self) -> List[str]:
+        normalized_hosts: List[str] = []
+        for host in self.allowed_hosts:
+            value = (host or "").strip().lower()
+            if value and value not in normalized_hosts:
+                normalized_hosts.append(value)
+
+        if self.app_env in {"development", "test"}:
+            for host in LOCAL_DEV_ALLOWED_HOSTS:
+                if host not in normalized_hosts:
+                    normalized_hosts.append(host)
+
+        if normalized_hosts:
+            return normalized_hosts
+
+        return []
+
+    @property
+    def should_enable_api_docs(self) -> bool:
+        if self.api_docs_enabled is not None:
+            return self.api_docs_enabled
+        return self.app_env in {"development", "test"}
+
     model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
         "env_prefix": "",
         "env_file": ".env",
         "case_sensitive": False,
@@ -321,12 +820,74 @@ class Settings(BaseSettings):
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         return (
             init_settings,
-            RawDeviceSecretsEnvSettingsSource(settings_cls),
-            RawDeviceSecretsDotEnvSettingsSource(settings_cls),
+            RawDeviceSecretsEnvSettingsSource(
+                settings_cls,
+                case_sensitive=getattr(env_settings, "case_sensitive", None),
+                env_prefix=getattr(env_settings, "env_prefix", None),
+                env_nested_delimiter=getattr(env_settings, "env_nested_delimiter", None),
+                env_ignore_empty=getattr(env_settings, "env_ignore_empty", None),
+                env_parse_none_str=getattr(env_settings, "env_parse_none_str", None),
+                env_parse_enums=getattr(env_settings, "env_parse_enums", None),
+            ),
+            RawDeviceSecretsDotEnvSettingsSource(
+                settings_cls,
+                env_file=getattr(dotenv_settings, "env_file", None),
+                env_file_encoding=getattr(dotenv_settings, "env_file_encoding", None),
+                case_sensitive=getattr(dotenv_settings, "case_sensitive", None),
+                env_prefix=getattr(dotenv_settings, "env_prefix", None),
+                env_nested_delimiter=getattr(dotenv_settings, "env_nested_delimiter", None),
+                env_ignore_empty=getattr(dotenv_settings, "env_ignore_empty", None),
+                env_parse_none_str=getattr(dotenv_settings, "env_parse_none_str", None),
+                env_parse_enums=getattr(dotenv_settings, "env_parse_enums", None),
+            ),
             file_secret_settings,
         )
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    try:
+        settings = Settings()
+    except ValidationError as exc:
+        security_fields = {
+            "jwt_secret",
+            "device_api_secret",
+            "meeting_signing_secret",
+            "device_secret_encryption_key",
+            "two_factor_secret_encryption_key",
+        }
+        security_markers = (
+            "MEETING_SIGNING_SECRET",
+            "DEVICE_API_REQUIRE_REGISTERED_DEVICE",
+            "DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE",
+            "DEVICE_API_REQUIRE_NONCE",
+            "Production device ingest hardening requires",
+            "DEVICE_SECRET_ENCRYPTION_KEY",
+            "TWO_FACTOR_SECRET_ENCRYPTION_KEY",
+            "ALLOW_INSECURE_SECRET_STORAGE",
+            "Secret-at-rest encryption keys are required unless",
+            "Production secret-at-rest hardening requires",
+            "pycryptodomex",
+        )
+        security_messages: List[str] = []
+
+        for error in exc.errors():
+            loc = error.get("loc") or ()
+            field_name = loc[-1] if loc else None
+            message = error.get("msg", "Invalid security configuration.")
+            if field_name in security_fields or any(marker in message for marker in security_markers):
+                security_messages.append(message)
+
+        if security_messages:
+            raise RuntimeError(
+                "Startup security validation failed: " + "; ".join(dict.fromkeys(security_messages))
+            ) from exc
+
+        raise
+
+    if Settings._uses_default_database_credentials(settings.database_url):
+        raise RuntimeError(
+            "Startup security validation failed: DATABASE_URL must not use default credentials 'user:password@'."
+        )
+
+    return settings

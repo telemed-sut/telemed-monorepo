@@ -13,7 +13,7 @@ This app does **not** replace existing web flow. It is added as an additional ch
 ## Prerequisites
 
 - Flutter SDK installed on your machine
-- Backend API running and reachable from phone via LAN IP
+- Backend API running on an HTTPS endpoint reachable from the device
 
 For iPhone build/run, you still need macOS + Xcode.
 For Windows flow below, target is Android.
@@ -38,12 +38,12 @@ cd mobile/patient_flutter_app
 flutter run \
   --dart-define=ZEGO_APP_ID=1477525628 \
   --dart-define=ZEGO_APP_SIGN=<YOUR_ZEGO_APP_SIGN> \
-  --dart-define=TELEMED_API_BASE_URL=http://192.168.1.219:8000
+  --dart-define=TELEMED_API_BASE_URL=https://api.telemed.example.com
 ```
 
 Notes:
 
-- Use `TELEMED_API_BASE_URL` as LAN IP (not `localhost`) for physical iPhone.
+- Use an HTTPS hostname for `TELEMED_API_BASE_URL`.
 - `ZEGO_APP_SIGN` should be your project AppSign from ZEGO console.
 
 ## Windows quick start (Android)
@@ -90,6 +90,37 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\install-patient-apk.p
 2. Enter patient display name.
 3. Toggle camera/mic on/off before joining.
 4. Tap `Join Call`.
+
+## Android release signing
+
+Before you publish a release build, configure a dedicated production keystore.
+
+1. Generate an upload keystore:
+
+```bash
+keytool -genkeypair -v \
+  -keystore android/app/upload-keystore.jks \
+  -alias upload \
+  -keyalg RSA \
+  -keysize 2048 \
+  -validity 10000
+```
+
+2. Create `android/key.properties` with your signing credentials:
+
+```properties
+storeFile=app/upload-keystore.jks
+storePassword=<keystore password>
+keyAlias=upload
+keyPassword=<key password>
+```
+
+3. Keep both `android/key.properties` and the keystore file out of source
+   control.
+
+The Gradle release configuration also accepts the equivalent
+`ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and
+`ANDROID_KEY_PASSWORD` environment variables.
 
 ## Current architecture choice
 

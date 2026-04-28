@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/components/ui/toast";
 
+import { getLocalizedDashboardErrorMessage } from "@/components/dashboard/dashboard-error-message";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -14,7 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ROLE_LABEL_MAP, fetchCurrentUser, updateUser, type UserMe } from "@/lib/api";
+import { fetchCurrentUser, getRoleLabel, updateUser, type UserMe } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
@@ -22,16 +23,14 @@ import type { AppLanguage } from "@/store/language-config";
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
 
-function parseApiError(error: unknown, language: AppLanguage): string {
-  if (error instanceof Error && error.message) return error.message;
-  return tr(language, "Unable to update profile", "ไม่สามารถอัปเดตโปรไฟล์ได้");
-}
-
 export function ProfileContent() {
   const router = useRouter();
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.userId);
+  const authCurrentUser = useAuthStore((state) => state.currentUser);
   const hydrated = useAuthStore((state) => state.hydrated);
   const clearToken = useAuthStore((state) => state.clearToken);
+  const setAuthCurrentUser = useAuthStore((state) => state.setCurrentUser);
   const language = useLanguageStore((state) => state.language);
 
   const [loading, setLoading] = useState(true);
@@ -42,7 +41,28 @@ export function ProfileContent() {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (!token) {
+    if (!token || !userId) {
+      setCurrentUser(null);
+      setFirstName("");
+      setLastName("");
+      return;
+    }
+
+    if (!authCurrentUser || authCurrentUser.id !== userId) {
+      setCurrentUser(null);
+      setFirstName("");
+      setLastName("");
+      return;
+    }
+
+    setCurrentUser(authCurrentUser);
+    setFirstName(authCurrentUser.first_name || "");
+    setLastName(authCurrentUser.last_name || "");
+  }, [authCurrentUser, hydrated, token, userId]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!token || !userId) {
       router.replace("/login");
       return;
     }
@@ -52,7 +72,8 @@ export function ProfileContent() {
     const load = async () => {
       try {
         const me = await fetchCurrentUser(token);
-        if (cancelled) return;
+        if (cancelled || me.id !== userId) return;
+        setAuthCurrentUser(me);
         setCurrentUser(me);
         setFirstName(me.first_name || "");
         setLastName(me.last_name || "");
@@ -70,7 +91,7 @@ export function ProfileContent() {
     return () => {
       cancelled = true;
     };
-  }, [hydrated, token, clearToken, router]);
+  }, [hydrated, token, userId, clearToken, router, setAuthCurrentUser]);
 
   const hasChanges = useMemo(() => {
     if (!currentUser) return false;
@@ -102,12 +123,20 @@ export function ProfileContent() {
         verification_status: updated.verification_status,
       };
 
+      setAuthCurrentUser(nextUser);
       setCurrentUser(nextUser);
       setFirstName(nextUser.first_name || "");
       setLastName(nextUser.last_name || "");
       toast.success(tr(language, "Profile updated", "อัปเดตโปรไฟล์แล้ว"));
     } catch (error: unknown) {
-      toast.error(parseApiError(error, language));
+      toast.error(
+        getLocalizedDashboardErrorMessage(
+          error,
+          language,
+          "Unable to update profile",
+          "ไม่สามารถอัปเดตโปรไฟล์ได้"
+        )
+      );
     } finally {
       setSaving(false);
     }
@@ -163,19 +192,7 @@ export function ProfileContent() {
                   <Label htmlFor="role">{tr(language, "Role", "บทบาท")}</Label>
                   <Input
                     id="role"
-                    value={currentUser
-                      ? (language === "th"
-                        ? ({
-                          admin: "ผู้ดูแลระบบ",
-                          doctor: "แพทย์",
-                          staff: "เจ้าหน้าที่",
-                          nurse: "พยาบาล",
-                          pharmacist: "เภสัชกร",
-                          medical_technologist: "นักเทคนิคการแพทย์",
-                          psychologist: "นักจิตวิทยา",
-                        }[currentUser.role] || currentUser.role)
-                        : (ROLE_LABEL_MAP[currentUser.role] || currentUser.role))
-                      : ""}
+                    value={currentUser ? getRoleLabel(currentUser.role, language) : ""}
                     disabled
                     readOnly
                   />

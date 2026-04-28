@@ -1,14 +1,21 @@
 x-backend-common-env: &backend-common-env
-  DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required. Run backend/scripts/bootstrap_backend_env.sh or use Infisical before running docker compose.}"
-  JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required. Run backend/scripts/bootstrap_backend_env.sh or use Infisical before running docker compose.}"
+  DATABASE_URL: "${DOCKER_DATABASE_URL:-${DATABASE_URL:-postgresql+psycopg://user:password@db:5432/patient_db}}"
+  JWT_SECRET: "${JWT_SECRET:-replace_with_a_minimum_32_character_random_secret}"
   JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-3600}"
+  ADMIN_JWT_EXPIRES_IN: "${ADMIN_JWT_EXPIRES_IN:-14400}"
+  APP_ENV: "${APP_ENV:-development}"
   PASSWORD_RESET_EXPIRES_IN: "${PASSWORD_RESET_EXPIRES_IN:-900}"
   PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE: "${PASSWORD_RESET_RETURN_TOKEN_IN_RESPONSE:-false}"
   FRONTEND_BASE_URL: "${FRONTEND_BASE_URL:-http://localhost:3000}"
+  API_DOCS_ENABLED: "${API_DOCS_ENABLED:-true}"
+  ALLOWED_HOSTS: "${ALLOWED_HOSTS:-localhost,127.0.0.1,::1,backend,patient-backend,frontend,patient-frontend}"
+  DEVICE_SECRET_ENCRYPTION_KEY: "${DEVICE_SECRET_ENCRYPTION_KEY:-}"
+  TWO_FACTOR_SECRET_ENCRYPTION_KEY: "${TWO_FACTOR_SECRET_ENCRYPTION_KEY:-}"
+  ALLOW_INSECURE_SECRET_STORAGE: "${ALLOW_INSECURE_SECRET_STORAGE:-true}"
   INVITE_EXPIRES_IN_HOURS: "${INVITE_EXPIRES_IN_HOURS:-24}"
-  CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://localhost:8080}"
+  CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080}"
 
-  DEVICE_API_SECRET: "${DEVICE_API_SECRET:-change_this_device_secret_for_local_dev_only_32_chars_minimum}"
+  DEVICE_API_SECRET: "${DEVICE_API_SECRET:-}"
   DEVICE_API_SECRETS: "${DEVICE_API_SECRETS:-}"
   DEVICE_API_ALLOW_JWT_SECRET_FALLBACK: "${DEVICE_API_ALLOW_JWT_SECRET_FALLBACK:-false}"
   DEVICE_API_REQUIRE_REGISTERED_DEVICE: "${DEVICE_API_REQUIRE_REGISTERED_DEVICE:-false}"
@@ -20,6 +27,19 @@ x-backend-common-env: &backend-common-env
   AUTH_COOKIE_NAME: "${AUTH_COOKIE_NAME:-access_token}"
   AUTH_COOKIE_SECURE: "${AUTH_COOKIE_SECURE:-false}"
   AUTH_COOKIE_SAMESITE: "${AUTH_COOKIE_SAMESITE:-lax}"
+  ADMIN_OIDC_ENABLED: "${ADMIN_OIDC_ENABLED:-false}"
+  ADMIN_OIDC_ENFORCED: "${ADMIN_OIDC_ENFORCED:-false}"
+  ADMIN_OIDC_PROVIDER_NAME: "${ADMIN_OIDC_PROVIDER_NAME:-authentik}"
+  ADMIN_OIDC_ISSUER_URL: "${ADMIN_OIDC_ISSUER_URL:-http://localhost:9000/application/o/telemed-admin}"
+  ADMIN_OIDC_CLIENT_ID: "${ADMIN_OIDC_CLIENT_ID:-telemed-admin}"
+  ADMIN_OIDC_CLIENT_SECRET: "${ADMIN_OIDC_CLIENT_SECRET:-}"
+  ADMIN_OIDC_REDIRECT_URI: "${ADMIN_OIDC_REDIRECT_URI:-http://localhost:3000/api/auth/admin/sso/callback}"
+  ADMIN_OIDC_POST_LOGOUT_REDIRECT_URI: "${ADMIN_OIDC_POST_LOGOUT_REDIRECT_URI:-http://localhost:3000/login}"
+  ADMIN_OIDC_SCOPES: "${ADMIN_OIDC_SCOPES:-openid,profile,email}"
+  ADMIN_OIDC_ALLOWED_EMAIL_DOMAINS: "${ADMIN_OIDC_ALLOWED_EMAIL_DOMAINS:-}"
+  ADMIN_OIDC_REQUIRED_GROUP: "${ADMIN_OIDC_REQUIRED_GROUP:-}"
+  ADMIN_OIDC_STATE_TTL_SECONDS: "${ADMIN_OIDC_STATE_TTL_SECONDS:-600}"
+  ADMIN_OIDC_CACHE_TTL_SECONDS: "${ADMIN_OIDC_CACHE_TTL_SECONDS:-3600}"
 
   MAX_LOGIN_ATTEMPTS: "${MAX_LOGIN_ATTEMPTS:-10}"
   ACCOUNT_LOCKOUT_MINUTES: "${ACCOUNT_LOCKOUT_MINUTES:-15}"
@@ -34,10 +54,11 @@ x-backend-common-env: &backend-common-env
   RATE_LIMIT_WHITELIST: "${RATE_LIMIT_WHITELIST:-127.0.0.1,::1}"
 
   ADMIN_2FA_REQUIRED: "${ADMIN_2FA_REQUIRED:-true}"
+  PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS: "${PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS:-900}"
   ADMIN_2FA_ISSUER: "${ADMIN_2FA_ISSUER:-Telemed Admin}"
   TRUSTED_DEVICE_COOKIE_NAME: "${TRUSTED_DEVICE_COOKIE_NAME:-trusted_device_token}"
-  ADMIN_TRUSTED_DEVICE_DAYS: "${ADMIN_TRUSTED_DEVICE_DAYS:-7}"
-  USER_TRUSTED_DEVICE_DAYS: "${USER_TRUSTED_DEVICE_DAYS:-30}"
+  ADMIN_TRUSTED_DEVICE_DAYS: "${ADMIN_TRUSTED_DEVICE_DAYS:-1}"
+  USER_TRUSTED_DEVICE_DAYS: "${USER_TRUSTED_DEVICE_DAYS:-7}"
   BACKUP_CODE_COUNT: "${BACKUP_CODE_COUNT:-10}"
   BACKUP_CODE_EXPIRES_DAYS: "${BACKUP_CODE_EXPIRES_DAYS:-365}"
 
@@ -51,55 +72,123 @@ x-backend-common-env: &backend-common-env
   MEETING_VIDEO_TOKEN_TTL_SECONDS: "${MEETING_VIDEO_TOKEN_TTL_SECONDS:-900}"
   MEETING_PATIENT_INVITE_TTL_SECONDS: "${MEETING_PATIENT_INVITE_TTL_SECONDS:-86400}"
   MEETING_PATIENT_JOIN_BASE_URL: "${MEETING_PATIENT_JOIN_BASE_URL:-}"
+  MEETING_SIGNING_SECRET: "${MEETING_SIGNING_SECRET:-}"
+  MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK: "${MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK:-false}"
   MEETING_VIDEO_ROOM_PREFIX: "${MEETING_VIDEO_ROOM_PREFIX:-telemed}"
   ZEGO_APP_ID: "${ZEGO_APP_ID:-}"
   ZEGO_SERVER_SECRET: "${ZEGO_SERVER_SECRET:-}"
   REDIS_URL: "${REDIS_URL:-}"
+  AZURE_BLOB_STORAGE_CONNECTION_STRING: "${AZURE_BLOB_STORAGE_CONNECTION_STRING:-}"
+  AZURE_BLOB_STORAGE_CONTAINER: "${AZURE_BLOB_STORAGE_CONTAINER:-}"
+  AZURE_BLOB_STORAGE_PATH_PREFIX: "${AZURE_BLOB_STORAGE_PATH_PREFIX:-}"
+  AZURE_BLOB_STORAGE_URL_TTL_SECONDS: "${AZURE_BLOB_STORAGE_URL_TTL_SECONDS:-900}"
 
 services:
   frontend:
+    init: true
     build:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_BASE_URL: "${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}"
-        NEXT_SERVER_API_PROXY_TARGET: "${NEXT_SERVER_API_PROXY_TARGET:-http://localhost:8000}"
-        NEXT_SERVER_API_BASE_URL: "${NEXT_SERVER_API_BASE_URL:-http://localhost:8000}"
+        NEXT_SERVER_API_PROXY_TARGET: "${NEXT_SERVER_API_PROXY_TARGET:-http://backend:8000}"
+        NEXT_SERVER_API_BASE_URL: "${NEXT_SERVER_API_BASE_URL:-http://backend:8000}"
     container_name: patient-frontend
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       NEXT_PUBLIC_API_BASE_URL: "${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}"
-      NEXT_SERVER_API_PROXY_TARGET: "${NEXT_SERVER_API_PROXY_TARGET:-http://localhost:8000}"
-      NEXT_SERVER_API_BASE_URL: "${NEXT_SERVER_API_BASE_URL:-http://localhost:8000}"
+      NEXT_SERVER_API_PROXY_TARGET: "${NEXT_SERVER_API_PROXY_TARGET:-http://backend:8000}"
+      NEXT_SERVER_API_BASE_URL: "${NEXT_SERVER_API_BASE_URL:-http://backend:8000}"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:3000', (res) => process.exit(res.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1));",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+    networks:
+      - frontend-net
+      - backend-net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: always
 
   backend:
+    init: true
     build: ./backend
     container_name: patient-backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       <<: *backend-common-env
       RUN_MIGRATIONS_ON_STARTUP: "${RUN_MIGRATIONS_ON_STARTUP:-true}"
-      RUN_SEED_ON_STARTUP: "${RUN_SEED_ON_STARTUP:-true}"
-    volumes:
-      - ./backend:/app
+      RUN_SEED_ON_STARTUP: "${RUN_SEED_ON_STARTUP:-false}"
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+    networks:
+      - backend-net
+      - db-net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: always
 
   db:
+    init: true
     image: postgres:15-alpine
     container_name: patient-db
     environment:
       POSTGRES_USER: "${POSTGRES_USER:-user}"
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-password}"
       POSTGRES_DB: "${POSTGRES_DB:-patient_db}"
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -112,6 +201,185 @@ services:
       timeout: 5s
       retries: 12
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "1.0"
+          memory: 512M
+    networks:
+      - db-net
 
+  authentik-postgresql:
+    profiles: ["identity"]
+    init: true
+    image: postgres:15-alpine
+    container_name: telemed-authentik-db
+    environment:
+      POSTGRES_USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
+      POSTGRES_PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-telemed-dev-auth-password}"
+      POSTGRES_DB: "${AUTHENTIK_POSTGRES_DB:-authentik}"
+    volumes:
+      - authentik_postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "1.0"
+          memory: 512M
+    networks:
+      - db-net
+
+  authentik-redis:
+    profiles: ["identity"]
+    init: true
+    image: redis:7-alpine
+    container_name: telemed-authentik-redis
+    environment:
+      AUTHENTIK_REDIS_PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-telemed-dev-auth-password}"
+    command:
+      [
+        "sh",
+        "-c",
+        "exec redis-server --save '' --appendonly no --requirepass \"$${AUTHENTIK_REDIS_PASSWORD}\"",
+      ]
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    networks:
+      - db-net
+
+  authentik-server:
+    profiles: ["identity"]
+    init: true
+    image: "${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server:latest}"
+    container_name: telemed-authentik-server
+    command: server
+    environment:
+      AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY:-telemed-dev-auth-secret}"
+      AUTHENTIK_POSTGRESQL__HOST: authentik-postgresql
+      AUTHENTIK_POSTGRESQL__USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
+      AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-telemed-dev-auth-password}"
+      AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB:-authentik}"
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_REDIS__PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-telemed-dev-auth-password}"
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+    ports:
+      - "127.0.0.1:9000:9000"
+    depends_on:
+      - authentik-postgresql
+      - authentik-redis
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9000/-/health/ready/', timeout=2)",
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+    volumes:
+      - authentik_media:/media
+      - authentik_templates:/templates
+    networks:
+      - backend-net
+      - db-net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  authentik-worker:
+    profiles: ["identity"]
+    init: true
+    image: "${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server:latest}"
+    container_name: telemed-authentik-worker
+    command: worker
+    environment:
+      AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY:-telemed-dev-auth-secret}"
+      AUTHENTIK_POSTGRESQL__HOST: authentik-postgresql
+      AUTHENTIK_POSTGRESQL__USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
+      AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-telemed-dev-auth-password}"
+      AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB:-authentik}"
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_REDIS__PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-telemed-dev-auth-password}"
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+    depends_on:
+      - authentik-postgresql
+      - authentik-redis
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+    volumes:
+      - authentik_media:/media
+      - authentik_templates:/templates
+    networks:
+      - backend-net
+      - db-net
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+
+  redis:
+    image: redis:7-alpine
+    container_name: telemed-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-telemed-dev-redis-password}"
+    command:
+      [
+        "sh",
+        "-c",
+        "exec redis-server --save '' --appendonly no --requirepass \"$${REDIS_PASSWORD}\"",
+      ]
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 volumes:
   postgres_data:
+  authentik_postgres_data:
+  authentik_media:
+  authentik_templates:
+
+networks:
+  frontend-net:
+  backend-net:
+  db-net:

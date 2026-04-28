@@ -10,6 +10,7 @@ from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
 from app.schemas.meeting import MeetingCreate, MeetingUpdate
+from app.services import meeting_presence as meeting_presence_service
 from app.services import meeting_video as meeting_video_service
 
 settings = get_settings()
@@ -41,6 +42,10 @@ def can_doctor_view_meeting(db: Session, doctor_id: UUID, meeting: Meeting) -> b
     if not meeting.user_id:
         return False
     return is_patient_assigned_to_doctor(db, doctor_id, meeting.user_id)
+
+
+def can_assigned_user_view_meeting(db: Session, user_id: UUID, meeting: Meeting) -> bool:
+    return can_doctor_view_meeting(db, user_id, meeting)
 
 
 def can_doctor_edit_meeting(doctor_id: UUID, meeting: Meeting) -> bool:
@@ -91,11 +96,46 @@ def _apply_list_filters(
     return stmt
 
 
+from fastapi import HTTPException, status
+from app.core.redis_client import distributed_lock
+
+from app.services.redis_cache import clear_dashboard_stats_cache
+
 def create_meeting(db: Session, payload: MeetingCreate) -> Meeting:
-    meeting = Meeting(**payload.model_dump())
-    db.add(meeting)
-    db.commit()
-    db.refresh(meeting)
+    # 1. Use a distributed lock to prevent concurrent creation for the same doctor at the same time
+    # Normalize time to minutes to prevent minor variations from bypassing the lock
+    time_str = payload.date_time.strftime("%Y%m%d%H%M")
+    lock_name = f"create_meeting:{payload.doctor_id}:{time_str}"
+    
+    with distributed_lock(lock_name, expire_seconds=30) as acquired:
+        if not acquired:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Could not acquire lock for meeting creation. Please try again."
+            )
+            
+        # 2. Check for existing overlapping meetings within the lock
+        # For simplicity, we check for meetings at the exact same start time
+        # In a real system, you might check for overlapping duration (e.g. start < end and end > start)
+        existing = db.scalar(
+            select(Meeting).where(
+                Meeting.doctor_id == payload.doctor_id,
+                Meeting.date_time == payload.date_time,
+                Meeting.status != MeetingStatus.cancelled
+            )
+        )
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The doctor already has a meeting scheduled at this time."
+            )
+
+        # 3. Create the meeting
+        meeting = Meeting(**payload.model_dump())
+        db.add(meeting)
+        db.commit()
+        db.refresh(meeting)
+        
     if meeting.user_id and meeting.status not in (
         MeetingStatus.cancelled,
         MeetingStatus.completed,
@@ -104,6 +144,10 @@ def create_meeting(db: Session, payload: MeetingCreate) -> Meeting:
             db=db,
             meeting=meeting,
         )
+        
+    # Invalidate stats cache
+    clear_dashboard_stats_cache()
+    
     # Reload with relationships
     return get_meeting(db, str(meeting.id))
 
@@ -120,7 +164,10 @@ def get_meeting(db: Session, meeting_id: str) -> Optional[Meeting]:
             )
             .where(Meeting.id == uuid_id)
         )
-        return db.scalar(stmt)
+        meeting = db.scalar(stmt)
+        if meeting and meeting.room_presence:
+            meeting_presence_service.apply_runtime_presence_overlay(meeting.room_presence)
+        return meeting
     except ValueError:
         return None
 
@@ -239,4 +286,7 @@ def list_meetings(
     stmt = stmt.limit(safe_limit).offset(offset)
 
     items = db.scalars(stmt).unique().all()
+    for meeting in items:
+        if meeting.room_presence:
+            meeting_presence_service.apply_runtime_presence_overlay(meeting.room_presence)
     return items, total

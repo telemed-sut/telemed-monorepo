@@ -16,10 +16,10 @@ main() {
   # If required env has already been injected (e.g. outer `infisical run`),
   # skip calling infisical again to avoid nested-run failures.
   if [[ -n "${DATABASE_URL:-}" && -n "${JWT_SECRET:-}" ]]; then
-    exec env COMPOSE_DISABLE_ENV_FILE=1 docker compose up --build "$@"
+    exec ./scripts/start-compose.sh "$@"
   fi
 
-  if is_enabled "${USE_INFISICAL:-true}"; then
+  if is_enabled "${USE_INFISICAL:-false}"; then
     if ! command -v infisical >/dev/null 2>&1; then
       echo "infisical CLI is required when USE_INFISICAL=true" >&2
       echo "Install and login first, or run with USE_INFISICAL=false for fallback mode." >&2
@@ -33,13 +33,13 @@ main() {
     fi
 
     if (( ${#infisical_args[@]} > 0 )); then
-      exec infisical run "${infisical_args[@]}" -- env COMPOSE_DISABLE_ENV_FILE=1 docker compose up --build "$@"
+      exec infisical run "${infisical_args[@]}" -- ./scripts/start-compose.sh "$@"
     fi
 
-    exec infisical run -- env COMPOSE_DISABLE_ENV_FILE=1 docker compose up --build "$@"
+    exec infisical run -- ./scripts/start-compose.sh "$@"
   fi
 
-  exec env COMPOSE_DISABLE_ENV_FILE=1 docker compose up --build "$@"
+  exec ./scripts/start-compose.sh "$@"
 }
 
 main "$@"

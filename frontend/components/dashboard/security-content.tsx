@@ -56,7 +56,7 @@ import {
     Clock,
     AlertTriangle,
 } from "lucide-react";
-import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
+import { AnimatePresence, LazyMotion, domAnimation, m, useReducedMotion } from "framer-motion";
 import { useLanguageStore } from "@/store/language-store";
 import { APP_LOCALE_MAP, type AppLanguage } from "@/store/language-config";
 
@@ -190,6 +190,7 @@ export function SecurityContent() {
     const hydrated = useAuthStore((state) => state.hydrated);
     const clearToken = useAuthStore((state) => state.clearToken);
     const language = useLanguageStore((state) => state.language);
+    const prefersReducedMotion = useReducedMotion();
 
     // Stats
     const [stats, setStats] = useState<SecurityStats | null>(null);
@@ -391,6 +392,19 @@ export function SecurityContent() {
 
     const bansTotalPages = Math.ceil(bansTotal / 20);
     const attemptsTotalPages = Math.ceil(attemptsTotal / 50);
+    const tableRowMotion = prefersReducedMotion
+        ? {
+            initial: false as const,
+            animate: { opacity: 1 },
+            exit: { opacity: 1 },
+            transition: { duration: 0 },
+        }
+        : {
+            initial: { opacity: 0, y: 6 },
+            animate: { opacity: 1, y: 0 },
+            exit: { opacity: 0, y: -4 },
+            transition: { duration: 0.08, ease: [0.22, 1, 0.36, 1] as [number, number, number, number] },
+        };
 
     return (
         <LazyMotion features={domAnimation}>
@@ -478,14 +492,11 @@ export function SecurityContent() {
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        <AnimatePresence mode="popLayout">
+                                        <AnimatePresence initial={false} mode="popLayout">
                                             {bans.map((ban) => (
                                                 <m.tr
                                                     key={ban.id}
-                                                    initial={{ opacity: 0, y: 10 }}
-                                                    animate={{ opacity: 1, y: 0 }}
-                                                    exit={{ opacity: 0, y: -10 }}
-                                                    transition={{ duration: 0.15 }}
+                                                    {...tableRowMotion}
                                                     className="border-b border-white/5 hover:bg-white/5 transition-colors"
                                                 >
                                                     <TableCell className="font-mono text-sm">{ban.ip_address}</TableCell>
@@ -632,14 +643,11 @@ export function SecurityContent() {
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        <AnimatePresence mode="popLayout">
+                                        <AnimatePresence initial={false} mode="popLayout">
                                             {attempts.map((attempt) => (
                                                 <m.tr
                                                     key={attempt.id}
-                                                    initial={{ opacity: 0, y: 10 }}
-                                                    animate={{ opacity: 1, y: 0 }}
-                                                    exit={{ opacity: 0, y: -10 }}
-                                                    transition={{ duration: 0.15 }}
+                                                    {...tableRowMotion}
                                                     className={cn(
                                                         "border-b border-white/5 hover:bg-white/5 transition-colors",
                                                         !attempt.success && "bg-red-500/5"

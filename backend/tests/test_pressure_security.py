@@ -6,10 +6,13 @@ import time
 from datetime import date
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api import pressure as pressure_api
+from app.core.secret_crypto import SECRET_VALUE_PREFIX
 from app.models.device_registration import DeviceRegistration
+from app.models.device_request_nonce import DeviceRequestNonce
 from app.models.patient import Patient
 
 
@@ -271,6 +274,98 @@ def test_add_pressure_accepts_nonce_and_rejects_replay(client: TestClient, db: S
         pressure_api.settings.device_api_require_nonce = original_require_nonce
 
 
+def test_add_pressure_uses_redis_for_nonce_replay_protection(client: TestClient, db: Session, monkeypatch):
+    patient = _create_patient(db)
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": "device-redis-nonce-001",
+        "heart_rate": 81,
+        "sys_rate": 124,
+        "dia_rate": 82,
+        "a": None,
+        "b": None,
+    }
+    nonce = f"nonce-redis-{int(time.time() * 1000)}"
+    headers = _sign_headers(
+        device_id="device-redis-nonce-001",
+        timestamp=str(int(time.time())),
+        nonce=nonce,
+    )
+
+    class FakeRedisClient:
+        def __init__(self):
+            self.keys = set()
+            self.calls = []
+
+        def set(self, key, value, ex=None, nx=False):
+            self.calls.append({"key": key, "value": value, "ex": ex, "nx": nx})
+            if nx and key in self.keys:
+                return False
+            self.keys.add(key)
+            return True
+
+    fake_redis = FakeRedisClient()
+    monkeypatch.setattr(pressure_api, "get_redis_client_or_log", lambda *args, **kwargs: fake_redis)
+
+    original_require_nonce = pressure_api.settings.device_api_require_nonce
+    pressure_api.settings.device_api_require_nonce = True
+    try:
+        first_response = client.post("/add_pressure", json=payload, headers=headers)
+        assert first_response.status_code == 201, first_response.text
+
+        replay_response = client.post("/add_pressure", json=payload, headers=headers)
+        assert replay_response.status_code == 403
+        assert "Invalid signature" in replay_response.text
+
+        stored_nonces = db.scalars(select(DeviceRequestNonce)).all()
+        assert stored_nonces == []
+        assert len(fake_redis.calls) == 2
+        assert fake_redis.calls[0]["nx"] is True
+    finally:
+        pressure_api.settings.device_api_require_nonce = original_require_nonce
+
+
+def test_add_pressure_falls_back_to_db_nonce_storage_when_redis_unavailable(client: TestClient, db: Session, monkeypatch):
+    patient = _create_patient(db)
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": "device-db-fallback-nonce-001",
+        "heart_rate": 81,
+        "sys_rate": 124,
+        "dia_rate": 82,
+        "a": None,
+        "b": None,
+    }
+    nonce = f"nonce-db-fallback-{int(time.time() * 1000)}"
+    headers = _sign_headers(
+        device_id="device-db-fallback-nonce-001",
+        timestamp=str(int(time.time())),
+        nonce=nonce,
+    )
+
+    class BrokenRedisClient:
+        def set(self, *args, **kwargs):
+            raise RuntimeError("redis unavailable")
+
+    monkeypatch.setattr(pressure_api, "get_redis_client_or_log", lambda *args, **kwargs: BrokenRedisClient())
+
+    original_require_nonce = pressure_api.settings.device_api_require_nonce
+    pressure_api.settings.device_api_require_nonce = True
+    try:
+        first_response = client.post("/add_pressure", json=payload, headers=headers)
+        assert first_response.status_code == 201, first_response.text
+
+        replay_response = client.post("/add_pressure", json=payload, headers=headers)
+        assert replay_response.status_code == 403
+        assert "Invalid signature" in replay_response.text
+
+        stored_nonces = db.scalars(select(DeviceRequestNonce)).all()
+        assert len(stored_nonces) == 1
+        assert stored_nonces[0].device_id == "device-db-fallback-nonce-001"
+    finally:
+        pressure_api.settings.device_api_require_nonce = original_require_nonce
+
+
 def test_add_pressure_accepts_per_device_secret_map(client: TestClient, db: Session):
     patient = _create_patient(db)
     payload = {
@@ -419,6 +514,54 @@ def test_add_pressure_rejects_inactive_registered_device(client: TestClient, db:
         device_secret=device_secret,
         is_active=False,
     )
+    db.add(device)
+    db.commit()
+
+    payload = {
+        "user_id": str(patient.id),
+        "device_id": device_id,
+        "heart_rate": 80,
+        "sys_rate": 124,
+        "dia_rate": 81,
+        "a": None,
+        "b": None,
+    }
+    headers = _sign_headers(
+        device_id=device_id,
+        timestamp=str(int(time.time())),
+        secret=device_secret,
+    )
+
+    original_secret_map = dict(pressure_api.settings.device_api_secrets)
+    original_require_registered = pressure_api.settings.device_api_require_registered_device
+    original_global_secret = pressure_api.settings.device_api_secret
+
+    pressure_api.settings.device_api_secrets = {}
+    pressure_api.settings.device_api_require_registered_device = True
+    pressure_api.settings.device_api_secret = None
+    try:
+        response = client.post("/add_pressure", json=payload, headers=headers)
+        assert response.status_code == 403
+        assert "Invalid signature" in response.text
+    finally:
+        pressure_api.settings.device_api_secrets = original_secret_map
+        pressure_api.settings.device_api_require_registered_device = original_require_registered
+        pressure_api.settings.device_api_secret = original_global_secret
+
+
+def test_add_pressure_rejects_malformed_encrypted_registered_device_secret(client: TestClient, db: Session):
+    patient = _create_patient(db)
+    device_id = "db-malformed-secret-001"
+    device_secret = "db_malformed_secret_001_1234567890abcdef123456789"
+    device = DeviceRegistration(
+        device_id=device_id,
+        display_name="Ward Device Malformed Secret",
+        device_secret=device_secret,
+        is_active=True,
+    )
+    db.add(device)
+    db.commit()
+    device._device_secret_encrypted = f"{SECRET_VALUE_PREFIX}not-valid"
     db.add(device)
     db.commit()
 

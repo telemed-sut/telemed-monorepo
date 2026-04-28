@@ -4,7 +4,8 @@ from pydantic import BaseModel, Field, UUID4, field_validator, model_validator
 
 class PressureCreate(BaseModel):
     # Map patient_id to user_id in the JSON input
-    patient_id: UUID4 = Field(..., alias="user_id")
+    patient_id: UUID4 | None = Field(default=None, alias="user_id")
+    session_id: UUID4 | None = None
     device_id: str = Field(..., min_length=1, max_length=128)
     
     heart_rate: int = Field(..., ge=20, le=300)

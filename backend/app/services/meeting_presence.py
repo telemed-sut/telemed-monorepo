@@ -1,16 +1,150 @@
 from datetime import datetime, timezone
+import logging
+from threading import Event, Lock, Thread
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.config import get_settings
+from app.db.session import SessionLocal
 from app.models.enums import MeetingStatus
 
 from app.models.meeting import Meeting
 from app.models.meeting_room_presence import MeetingRoomPresence
 from app.models.meeting_room_presence import ROOM_PRESENCE_HEARTBEAT_TIMEOUT_SECONDS
+from app.services.redis_runtime import (
+    get_redis_client_or_log,
+    log_redis_operation_failure,
+    parse_cached_datetime,
+)
+
+settings = get_settings()
+logger = logging.getLogger(__name__)
+_reconcile_worker_lock = Lock()
+_reconcile_worker_stop = Event()
+_reconcile_worker_thread: Thread | None = None
+_PRESENCE_REDIS_PREFIX = "meeting_presence:v1:"
+_PRESENCE_REDIS_TTL_SECONDS = max(ROOM_PRESENCE_HEARTBEAT_TIMEOUT_SECONDS * 4, 120)
+_PRESENCE_DB_FLUSH_INTERVAL_SECONDS = 10
+_REDIS_SCOPE = "meeting_presence_runtime"
+_FALLBACK_LABEL = "database-only state"
+_UNSET = object()
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _presence_redis_key(meeting_id) -> str:
+    return f"{_PRESENCE_REDIS_PREFIX}{meeting_id}"
+
+
+def _serialize_dt(value: datetime | None) -> str | None:
+    normalized = MeetingRoomPresence._ensure_utc(value)
+    return normalized.isoformat() if normalized is not None else None
+
+
+def _get_presence_redis_client():
+    return get_redis_client_or_log(
+        logger,
+        scope=_REDIS_SCOPE,
+        fallback_label=_FALLBACK_LABEL,
+    )
+
+
+def _write_presence_runtime_state(
+    *,
+    meeting_id,
+    doctor_last_seen_at: datetime | None | object = _UNSET,
+    patient_last_seen_at: datetime | None | object = _UNSET,
+    doctor_left_at: datetime | None | object = _UNSET,
+    patient_left_at: datetime | None | object = _UNSET,
+    refreshed_at: datetime | None | object = _UNSET,
+) -> None:
+    redis_client = _get_presence_redis_client()
+    if redis_client is None:
+        return
+
+    mapping = {}
+    fields = {
+        "doctor_last_seen_at": doctor_last_seen_at,
+        "patient_last_seen_at": patient_last_seen_at,
+        "doctor_left_at": doctor_left_at,
+        "patient_left_at": patient_left_at,
+        "refreshed_at": refreshed_at,
+    }
+    for field_name, value in fields.items():
+        if value is _UNSET:
+            continue
+        mapping[field_name] = _serialize_dt(value if value is not None else None) or ""
+
+    if not mapping:
+        return
+
+    key = _presence_redis_key(meeting_id)
+    try:
+        redis_client.hset(key, mapping=mapping)
+        redis_client.expire(key, _PRESENCE_REDIS_TTL_SECONDS)
+    except Exception:
+        log_redis_operation_failure(
+            logger,
+            scope=_REDIS_SCOPE,
+            operation="write",
+            fallback_label=_FALLBACK_LABEL,
+        )
+
+
+def _read_presence_runtime_state(meeting_id) -> dict[str, datetime | None]:
+    redis_client = _get_presence_redis_client()
+    if redis_client is None:
+        return {}
+
+    try:
+        payload = redis_client.hgetall(_presence_redis_key(meeting_id))
+    except Exception:
+        log_redis_operation_failure(
+            logger,
+            scope=_REDIS_SCOPE,
+            operation="read",
+            fallback_label=_FALLBACK_LABEL,
+        )
+        return {}
+
+    if not payload:
+        return {}
+
+    runtime_state: dict[str, datetime | None] = {}
+    for field_name in (
+        "doctor_last_seen_at",
+        "patient_last_seen_at",
+        "doctor_left_at",
+        "patient_left_at",
+        "refreshed_at",
+    ):
+        if field_name not in payload:
+            continue
+        runtime_state[field_name] = parse_cached_datetime(payload.get(field_name))
+    return runtime_state
+
+
+def apply_runtime_presence_overlay(presence: MeetingRoomPresence | None) -> MeetingRoomPresence | None:
+    if presence is None:
+        return None
+
+    runtime_state = _read_presence_runtime_state(presence.meeting_id)
+    if not runtime_state:
+        return presence
+
+    for field_name, value in runtime_state.items():
+        setattr(presence, field_name, value)
+
+    return presence
+
+
+def _should_flush_presence_timestamp(current_value: datetime | None, now: datetime) -> bool:
+    normalized = MeetingRoomPresence._ensure_utc(current_value)
+    if normalized is None:
+        return True
+    return (now - normalized).total_seconds() >= _PRESENCE_DB_FLUSH_INTERVAL_SECONDS
 
 
 def get_or_create_presence(db: Session, meeting: Meeting) -> MeetingRoomPresence:
@@ -28,51 +162,81 @@ def get_or_create_presence(db: Session, meeting: Meeting) -> MeetingRoomPresence
 def touch_doctor_presence(db: Session, meeting: Meeting) -> MeetingRoomPresence:
     now = _now_utc()
     presence = get_or_create_presence(db, meeting)
-    if presence.doctor_joined_at is None:
+    first_join = presence.doctor_joined_at is None
+    if first_join:
         presence.doctor_joined_at = now
-    presence.doctor_last_seen_at = now
-    presence.doctor_left_at = None
-    presence.refreshed_at = now
-    db.add(presence)
-    db.commit()
-    db.refresh(presence)
-    return presence
+    _write_presence_runtime_state(
+        meeting_id=meeting.id,
+        doctor_last_seen_at=now,
+        doctor_left_at=None,
+        refreshed_at=now,
+    )
+
+    if first_join or presence.doctor_left_at is not None or _should_flush_presence_timestamp(presence.doctor_last_seen_at, now):
+        presence.doctor_last_seen_at = now
+        presence.doctor_left_at = None
+        presence.refreshed_at = now
+        db.add(presence)
+        db.commit()
+        db.refresh(presence)
+
+    return apply_runtime_presence_overlay(presence) or presence
 
 
 def touch_patient_presence(db: Session, meeting: Meeting) -> MeetingRoomPresence:
     now = _now_utc()
     presence = get_or_create_presence(db, meeting)
-    if presence.patient_joined_at is None:
+    first_join = presence.patient_joined_at is None
+    if first_join:
         presence.patient_joined_at = now
-    presence.patient_last_seen_at = now
-    presence.patient_left_at = None
-    presence.refreshed_at = now
-    db.add(presence)
-    db.commit()
-    db.refresh(presence)
-    return presence
+    _write_presence_runtime_state(
+        meeting_id=meeting.id,
+        patient_last_seen_at=now,
+        patient_left_at=None,
+        refreshed_at=now,
+    )
+
+    if first_join or presence.patient_left_at is not None or _should_flush_presence_timestamp(presence.patient_last_seen_at, now):
+        presence.patient_last_seen_at = now
+        presence.patient_left_at = None
+        presence.refreshed_at = now
+        db.add(presence)
+        db.commit()
+        db.refresh(presence)
+
+    return apply_runtime_presence_overlay(presence) or presence
 
 
 def mark_doctor_left(db: Session, meeting: Meeting) -> MeetingRoomPresence:
     now = _now_utc()
     presence = get_or_create_presence(db, meeting)
+    _write_presence_runtime_state(
+        meeting_id=meeting.id,
+        doctor_left_at=now,
+        refreshed_at=now,
+    )
     presence.doctor_left_at = now
     presence.refreshed_at = now
     db.add(presence)
     db.commit()
     db.refresh(presence)
-    return presence
+    return apply_runtime_presence_overlay(presence) or presence
 
 
 def mark_patient_left(db: Session, meeting: Meeting) -> MeetingRoomPresence:
     now = _now_utc()
     presence = get_or_create_presence(db, meeting)
+    _write_presence_runtime_state(
+        meeting_id=meeting.id,
+        patient_left_at=now,
+        refreshed_at=now,
+    )
     presence.patient_left_at = now
     presence.refreshed_at = now
     db.add(presence)
     db.commit()
     db.refresh(presence)
-    return presence
+    return apply_runtime_presence_overlay(presence) or presence
 
 
 def _derive_active_meeting_status(presence: MeetingRoomPresence) -> MeetingStatus:
@@ -100,6 +264,7 @@ def reconcile_active_meeting_status(
     meeting: Meeting,
     presence: MeetingRoomPresence,
 ) -> bool:
+    apply_runtime_presence_overlay(presence)
     if meeting.status not in (
         MeetingStatus.scheduled,
         MeetingStatus.waiting,
@@ -142,6 +307,51 @@ def reconcile_active_meetings(db: Session, *, force: bool = False) -> int:
     return changed
 
 
+def reconcile_active_meetings_in_new_session(*, force: bool = False) -> int:
+    with SessionLocal() as db:
+        return reconcile_active_meetings(db, force=force)
+
+
+def start_reconcile_worker() -> None:
+    if settings.app_env == "test":
+        return
+
+    interval_seconds = settings.meeting_presence_reconcile_interval_seconds
+    if interval_seconds <= 0:
+        return
+
+    global _reconcile_worker_thread
+    with _reconcile_worker_lock:
+        if _reconcile_worker_thread is not None and _reconcile_worker_thread.is_alive():
+            return
+
+        _reconcile_worker_stop.clear()
+
+        def _worker() -> None:
+            while not _reconcile_worker_stop.wait(interval_seconds):
+                try:
+                    reconcile_active_meetings_in_new_session()
+                except Exception:
+                    logger.exception("Meeting presence reconciliation worker failed.")
+
+        _reconcile_worker_thread = Thread(
+            target=_worker,
+            name="meeting-presence-reconcile-worker",
+            daemon=True,
+        )
+        _reconcile_worker_thread.start()
+
+
+def stop_reconcile_worker() -> None:
+    global _reconcile_worker_thread
+    with _reconcile_worker_lock:
+        thread = _reconcile_worker_thread
+        _reconcile_worker_stop.set()
+        _reconcile_worker_thread = None
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=max(1, min(settings.meeting_presence_reconcile_interval_seconds, 5)))
+
+
 def build_reliability_snapshot(
     *,
     meeting: Meeting,
@@ -150,6 +360,7 @@ def build_reliability_snapshot(
     meeting_status_before_reconcile: MeetingStatus | None = None,
 ) -> dict:
     checked = checked_at or _now_utc()
+    presence = apply_runtime_presence_overlay(presence)
     projected_status = (
         _derive_active_meeting_status(presence)
         if presence is not None

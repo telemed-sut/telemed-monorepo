@@ -183,6 +183,19 @@ jobs:
         cache-from: type=gha,scope=gcp-backend
         cache-to: type=gha,mode=max,scope=gcp-backend
 
+    - name: Run database migrations
+      if: ${{ github.event_name == 'push' || inputs.run_migrations_on_startup }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        database_url="$(gcloud secrets versions access latest --secret "$DATABASE_URL_SECRET_NAME" --project "$GCP_PROJECT_ID")"
+        echo "::add-mask::$database_url"
+
+        docker run --rm \
+          -e DATABASE_URL="$database_url" \
+          "$BACKEND_IMAGE" \
+          alembic upgrade head
+
     - name: Deploy backend service
       shell: bash
       run: |
@@ -295,3 +308,32 @@ jobs:
       run: |
         echo "Backend URL: ${{ steps.backend-url.outputs.value }}"
         echo "Frontend URL: ${{ steps.frontend-url.outputs.value }}"
+
+    - name: Capture deploy failure diagnostics
+      if: ${{ failure() }}
+      shell: bash
+      run: |
+        set +e
+        {
+          echo "## Deploy Failure Diagnostics"
+          echo ""
+          echo "### Backend service"
+          gcloud run services describe "$GCP_BACKEND_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --format='yaml(status.url,status.latestReadyRevisionName,status.latestCreatedRevisionName,status.traffic)'
+          echo ""
+          echo "### Frontend service"
+          gcloud run services describe "$GCP_FRONTEND_SERVICE" \
+            --project "$GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --format='yaml(status.url,status.latestReadyRevisionName,status.latestCreatedRevisionName,status.traffic)'
+          echo ""
+          echo "### Recent backend error logs"
+          gcloud logging read \
+            "resource.type=cloud_run_revision AND resource.labels.service_name=${GCP_BACKEND_SERVICE} AND severity>=ERROR" \
+            --project "$GCP_PROJECT_ID" \
+            --limit=30 \
+            --freshness=30m \
+            --format='value(timestamp,textPayload,jsonPayload.message)'
+        } >> "$GITHUB_STEP_SUMMARY"

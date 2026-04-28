@@ -1,5 +1,7 @@
+import os
 import secrets
 from datetime import datetime
+from urllib.parse import urlparse
 
 from faker import Faker
 from sqlalchemy import func, select
@@ -11,30 +13,85 @@ from app.models.user import User, UserRole
 
 faker = Faker()
 RNG = secrets.SystemRandom()
+LOCAL_SEED_HOSTS = {"localhost", "127.0.0.1", "::1", "db", "patient-db"}
+
+
+def _is_truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _assert_demo_seed_allowed() -> None:
+    if _is_truthy(os.getenv("ALLOW_DEMO_SEED")):
+        return
+
+    database_url = (os.getenv("DATABASE_URL") or "").strip()
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is required before running demo seed data.")
+
+    if database_url.startswith("sqlite"):
+        return
+
+    parsed = urlparse(database_url)
+    if parsed.hostname in LOCAL_SEED_HOSTS:
+        return
+
+    raise RuntimeError(
+        "Refusing to seed demo credentials against a non-local database target. "
+        "Set ALLOW_DEMO_SEED=true only if you intend to do this explicitly."
+    )
+
+
+def _seed_password(env_name: str, fallback: str) -> str:
+    return (os.getenv(env_name) or fallback).strip()
 
 
 def seed_users(db):
     users = [
         {
             "email": "admin@example.com",
-            "password": "AdminPass123",
+            "password": _seed_password("SEED_ADMIN_PASSWORD", "AdminPass123"),
             "role": UserRole.admin,
+            "first_name": "Platform",
+            "last_name": "Admin",
         },
         {
-            "email": "staff@example.com",
-            "password": "StaffPass123",
-            "role": UserRole.staff,
+            "email": "admin-ops@example.com",
+            "password": _seed_password("SEED_REGULAR_ADMIN_PASSWORD", "AdminPass456"),
+            "role": UserRole.admin,
+            "first_name": "Operations",
+            "last_name": "Admin",
+        },
+        {
+            "email": "doctor@example.com",
+            "password": _seed_password("SEED_DOCTOR_PASSWORD", "DoctorPass123"),
+            "role": UserRole.doctor,
+        },
+        {
+            "email": "medical-student@example.com",
+            "password": _seed_password("SEED_MEDICAL_STUDENT_PASSWORD", "MedicalStudentPass123"),
+            "role": UserRole.medical_student,
         },
     ]
 
     for user_data in users:
         existing = db.scalar(select(User).where(User.email == user_data["email"]))
         if existing:
+            updated = False
+            if not existing.first_name and user_data.get("first_name"):
+                existing.first_name = user_data["first_name"]
+                updated = True
+            if not existing.last_name and user_data.get("last_name"):
+                existing.last_name = user_data["last_name"]
+                updated = True
+            if updated:
+                db.add(existing)
             continue
         user = User(
             email=user_data["email"],
             password_hash=get_password_hash(user_data["password"]),
             role=user_data["role"],
+            first_name=user_data.get("first_name"),
+            last_name=user_data.get("last_name"),
         )
         db.add(user)
     db.commit()
@@ -66,6 +123,7 @@ def seed_patients(db, count: int = 15):
 
 
 def main():
+    _assert_demo_seed_allowed()
     db = SessionLocal()
     try:
         seed_users(db)

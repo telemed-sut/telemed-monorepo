@@ -73,12 +73,14 @@ def _resolve_patient_join_meeting_id(
 
 
 def _presence_response(meeting, presence) -> MeetingRoomPresenceResponse:
+    presence = meeting_presence_service.apply_runtime_presence_overlay(presence)
     return MeetingRoomPresenceResponse(
         meeting_id=str(meeting.id),
         state=presence.state,
         doctor_online=presence.doctor_online,
         patient_online=presence.patient_online,
         refreshed_at=presence.refreshed_at,
+        patient_joined_at=presence.patient_joined_at,
         doctor_last_seen_at=presence.doctor_last_seen_at,
         patient_last_seen_at=presence.patient_last_seen_at,
         doctor_left_at=presence.doctor_left_at,
@@ -93,12 +95,12 @@ def _ensure_doctor_can_view_meeting(
     current_user: User,
     meeting,
 ) -> None:
-    if current_user.role not in (UserRole.admin, UserRole.doctor):
+    if not auth_service.can_view_clinical_data(current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    if current_user.role == UserRole.doctor and not meeting_service.can_doctor_view_meeting(
+    if current_user.role != UserRole.admin and not meeting_service.can_assigned_user_view_meeting(
         db=db,
-        doctor_id=current_user.id,
+        user_id=current_user.id,
         meeting=meeting,
     ):
         raise HTTPException(
@@ -107,6 +109,9 @@ def _ensure_doctor_can_view_meeting(
         )
 
 
+from fastapi.responses import JSONResponse
+from app.services.idempotency import get_idempotency_key, check_idempotency, lock_idempotency, save_idempotency_response
+
 @router.post("", response_model=MeetingOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("30/minute")
 def create_meeting(
@@ -114,17 +119,43 @@ def create_meeting(
     payload: MeetingCreate,
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(get_current_user),
+    idempotency_key: Optional[str] = Depends(get_idempotency_key),
 ):
     """Create a new meeting/appointment (admin or doctor)."""
     if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # 1. Handle Idempotency
+    if idempotency_key:
+        cached_response = check_idempotency(idempotency_key, str(current_user.id))
+        if cached_response:
+            return JSONResponse(status_code=status.HTTP_200_OK, content=cached_response)
+        
+        if not lock_idempotency(idempotency_key, str(current_user.id)):
+             raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Request with this idempotency key is already in progress."
+            )
+
     # Doctors always create meetings under their own account.
     if current_user.role == UserRole.doctor:
         payload.doctor_id = current_user.id
 
-    meeting = meeting_service.create_meeting(db, payload)
-    return meeting
+    try:
+        meeting = meeting_service.create_meeting(db, payload)
+        
+        # 2. Save response for idempotency
+        if idempotency_key:
+            # We use MeetingOut.model_validate(meeting).model_dump() to ensure JSON serializable
+            # and matches the expected response schema exactly.
+            response_data = MeetingOut.model_validate(meeting).model_dump(mode='json')
+            save_idempotency_response(idempotency_key, str(current_user.id), response_data)
+            
+        return meeting
+    except Exception:
+        # If creation fails, we might want to clear the idempotency lock to allow retry
+        # But for simplicity, we let it expire (60s).
+        raise
 
 
 @router.get("", response_model=MeetingListResponse)
@@ -143,18 +174,32 @@ def list_meetings(
     current_user: User = Depends(get_current_user),
 ):
     """List meetings with pagination and filters."""
-    if current_user.role not in (UserRole.admin, UserRole.doctor):
+    if not auth_service.can_view_clinical_data(current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    meeting_presence_service.reconcile_active_meetings(db)
-
-    visible_doctor_id = current_user.id if current_user.role == UserRole.doctor else None
+    visible_doctor_id = current_user.id if current_user.role != UserRole.admin else None
 
     items, total = meeting_service.list_meetings(
         db, page, min(limit, settings.max_limit), q, doctor_id, patient_id, sort, order,
         status_filter=status,
         visible_doctor_id=visible_doctor_id,
     )
+
+    reconciled_meetings = []
+    for meeting in items:
+        if meeting.status not in (MeetingStatus.waiting, MeetingStatus.in_progress):
+            continue
+        presence = meeting.room_presence
+        if not presence:
+            continue
+        if meeting_presence_service.reconcile_active_meeting_status(db, meeting, presence):
+            reconciled_meetings.append(meeting)
+
+    if reconciled_meetings:
+        db.commit()
+        for meeting in reconciled_meetings:
+            db.refresh(meeting)
+
     return MeetingListResponse(items=items, page=page, limit=min(limit, settings.max_limit), total=total)
 
 
@@ -167,15 +212,15 @@ def get_meeting(
     current_user: User = Depends(get_current_user),
 ):
     """Get meeting by ID."""
-    if current_user.role not in (UserRole.admin, UserRole.doctor):
+    if not auth_service.can_view_clinical_data(current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
     meeting = meeting_service.get_meeting(db, meeting_id)
     if not meeting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
 
-    if current_user.role == UserRole.doctor and not meeting_service.can_doctor_view_meeting(
+    if current_user.role != UserRole.admin and not meeting_service.can_assigned_user_view_meeting(
         db=db,
-        doctor_id=current_user.id,
+        user_id=current_user.id,
         meeting=meeting,
     ):
         raise HTTPException(
@@ -203,7 +248,7 @@ def issue_meeting_video_token(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Issue a short-lived meeting video token for authorized staff."""
+    """Issue a short-lived meeting video token for authorized care-team users."""
     if current_user.role not in (UserRole.admin, UserRole.doctor):
         raise HTTPException(status_code=403, detail="Access denied")
 
@@ -232,6 +277,9 @@ def get_meeting_video_reliability(
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if not auth_service.can_view_clinical_data(current_user.role):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     meeting = meeting_service.get_meeting(db, meeting_id)
     if not meeting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
@@ -331,6 +379,8 @@ def issue_patient_video_token(
     return response
 
 
+from app.services.global_presence import touch_global_presence
+
 @router.post("/{meeting_id}/video/presence/heartbeat", response_model=MeetingRoomPresenceResponse)
 @limiter.limit("120/minute")
 def doctor_presence_heartbeat(
@@ -355,6 +405,9 @@ def doctor_presence_heartbeat(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only access meetings you own or assigned patients.",
         )
+
+    # Global presence heartbeat
+    touch_global_presence(str(current_user.id))
 
     presence = meeting_presence_service.touch_doctor_presence(db, meeting)
     if meeting_presence_service.reconcile_active_meeting_status(db, meeting, presence):
@@ -413,6 +466,10 @@ def patient_presence_heartbeat(
     if not meeting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
 
+    # Global presence heartbeat (if we have a patient ID)
+    if meeting.user_id:
+        touch_global_presence(str(meeting.user_id))
+
     presence = meeting_presence_service.touch_patient_presence(db, meeting)
     if meeting_presence_service.reconcile_active_meeting_status(db, meeting, presence):
         db.commit()
@@ -455,7 +512,7 @@ def update_meeting(
     current_user: User = Depends(get_current_user),
 ):
     """Update meeting. Doctors can only update their own meetings."""
-    if current_user.role not in (UserRole.admin, UserRole.doctor):
+    if not auth_service.can_write_clinical_data(current_user.role):
         raise HTTPException(status_code=403, detail="Access denied")
     meeting = meeting_service.get_meeting(db, meeting_id)
     if not meeting:

@@ -94,7 +94,11 @@ async function openMiniWindowAndGetHandoffId() {
     expect(mockJoinRoom).toHaveBeenCalledTimes(1);
   });
 
-  fireEvent.click(screen.getByRole("button", { name: "Open mini window" }));
+  const openMiniWindowButton = await screen.findByRole("button", {
+    name: "Open mini window",
+  });
+
+  fireEvent.click(openMiniWindowButton);
 
   const popupUrl = mockWindowOpen.mock.calls[0]?.[0];
   expect(typeof popupUrl).toBe("string");

@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import Image from "next/image";
+import {
+  startTransition,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { addMonths, addWeeks, isSameMonth } from "date-fns";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -40,10 +46,6 @@ import {
   Add01Icon,
   ProfileIcon,
   Cancel01Icon,
-  Briefcase01Icon,
-  PaintBoardIcon,
-  Database01Icon,
-  QuillWrite01Icon,
   Calendar01Icon,
   FilterIcon,
   Clock01Icon,
@@ -58,10 +60,14 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { CalendarView, type CalendarSlotSelection } from "./calendar-view";
+import { DoctorMemberItem } from "./doctor-member-item";
 import { MonthCalendarView } from "./month-calendar-view";
+import { PatientDirectoryDialog } from "./patient-directory-dialog";
 import { useCalendarStore } from "@/store/calendar-store";
 import { useAuthStore } from "@/store/auth-store";
+import { t as tr } from "@/lib/i18n-utils";
 import {
+  canWriteClinicalData,
   fetchAllMeetings,
   fetchAllPatients,
   fetchPatients,
@@ -84,6 +90,11 @@ import {
   formatLocalDateKey,
   parseLocalDateKey,
 } from "@/lib/meeting-datetime";
+import {
+  readProtectedSessionItem,
+  removeProtectedSessionItem,
+  writeProtectedSessionItem,
+} from "@/lib/protected-client-state";
 import { getPresenceAwareStatus } from "./meeting-presence";
 import { cn } from "@/lib/utils";
 import { useLanguageStore } from "@/store/language-store";
@@ -92,8 +103,6 @@ import {
   scheduleZegoUIKitPreload,
 } from "@/lib/zego-uikit";
 
-const tr = (language: AppLanguage, en: string, th: string) =>
-  language === "th" ? th : en;
 const localeOf = (language: AppLanguage) => APP_LOCALE_MAP[language] ?? "en-US";
 const formatDateLabel = (
   date: Date,
@@ -120,15 +129,19 @@ function formatDoctorDisplayName(doctor: Pick<User, "first_name" | "last_name" |
   return fullName || doctor.email;
 }
 
-function formatPatientDisplayName(patient: Pick<Patient, "first_name" | "last_name" | "email" | "id">): string {
+function formatPatientDisplayName(
+  patient: Pick<Patient, "first_name" | "last_name" | "id">
+): string {
   const fullName = `${patient.first_name || ""} ${patient.last_name || ""}`.trim();
-  return fullName || patient.email || patient.id;
+  return fullName || patient.id;
 }
 
 const ACTIVE_MEETING_REFRESH_INTERVAL_MS = 5_000;
 const NEAR_MEETING_REFRESH_INTERVAL_MS = 10_000;
 const IDLE_MEETING_REFRESH_INTERVAL_MS = 30_000;
 const NEAR_MEETING_WINDOW_MS = 15 * 60 * 1_000;
+const VISIBLE_REFRESH_GRACE_PERIOD_MS = 1_200;
+const VISIBLE_REFRESH_MIN_AGE_MS = 15_000;
 
 const AnimatedCalendar = dynamic(
   () =>
@@ -143,6 +156,8 @@ const AnimatedCalendar = dynamic(
   }
 );
 
+import { QueueView } from "./queue-view";
+
 const AnimatedCalendarStandalone = dynamic(
   () =>
     import("@/components/ui/calender").then((module) => ({
@@ -151,24 +166,6 @@ const AnimatedCalendarStandalone = dynamic(
   {
     loading: () => (
       <div className="h-[340px] w-[328px] rounded-[26px] border border-slate-200/80 bg-white/90 animate-pulse" />
-    ),
-    ssr: false,
-  }
-);
-
-const QueueView = dynamic(
-  () =>
-    import("./queue-view").then((module) => ({
-      default: module.QueueView,
-    })),
-  {
-    loading: () => (
-      <div className="flex-1 px-4 py-4">
-        <div className="space-y-3">
-          <Skeleton className="h-9 w-full" />
-          <Skeleton className="h-[320px] w-full rounded-xl" />
-        </div>
-      </div>
     ),
     ssr: false,
   }
@@ -256,7 +253,6 @@ interface DoctorPickerItem extends PickerCommandItem {
 }
 
 interface PatientPickerItem extends PickerCommandItem {
-  active: boolean;
   status: string;
   avatar?: string;
 }
@@ -284,10 +280,8 @@ function clampInt(value: unknown, fallback: number, min: number, max: number): n
 }
 
 function readCreateEventDraft(userId: string | null): CreateEventDraft | null {
-  if (typeof window === "undefined") return null;
-
   try {
-    const raw = window.sessionStorage.getItem(getCreateEventDraftKey(userId));
+    const raw = readProtectedSessionItem(getCreateEventDraftKey(userId));
     if (!raw) return null;
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
@@ -330,316 +324,20 @@ function readCreateEventDraft(userId: string | null): CreateEventDraft | null {
 }
 
 function writeCreateEventDraft(userId: string | null, draft: CreateEventDraft): void {
-  if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(getCreateEventDraftKey(userId), JSON.stringify(draft));
+    writeProtectedSessionItem(getCreateEventDraftKey(userId), JSON.stringify(draft));
   } catch {
     // no-op
   }
 }
 
 function clearCreateEventDraft(userId: string | null): void {
-  if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.removeItem(getCreateEventDraftKey(userId));
+    removeProtectedSessionItem(getCreateEventDraftKey(userId));
   } catch {
     // no-op
   }
 }
-
-function PatientDirectoryDialog({
-  open,
-  onOpenChange,
-  query,
-  onQueryChange,
-  items,
-  selectedId,
-  loading,
-  onSelect,
-  language,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  query: string;
-  onQueryChange: (value: string) => void;
-  items: PatientPickerItem[];
-  selectedId?: string;
-  loading: boolean;
-  onSelect: (item: PatientPickerItem) => void;
-  language: AppLanguage;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const filteredAllPatients = useMemo(
-    () => {
-      const normalizedQuery = normalizeSearchText(query);
-      if (!normalizedQuery) return items;
-      return items.filter(
-        (patient) =>
-          includesSearchQuery(patient.label, query) ||
-          includesSearchQuery(patient.status, query) ||
-          includesSearchQuery(patient.description || "", query)
-      );
-    },
-    [items, query]
-  );
-  const activeItems = useMemo(
-    () => items.filter((item) => item.active),
-    [items]
-  );
-  const handleOpenChange = useCallback(
-    (nextOpen: boolean) => {
-      if (!nextOpen) {
-        setExpanded(false);
-      }
-      onOpenChange(nextOpen);
-    },
-    [onOpenChange]
-  );
-  const handlePatientSelect = useCallback(
-    (patient: PatientPickerItem) => {
-      onSelect(patient);
-      handleOpenChange(false);
-    },
-    [onSelect, handleOpenChange]
-  );
-
-  return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-[560px] p-0 gap-0 overflow-hidden bg-muted/50" showCloseButton={false}>
-        <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
-          <div className="text-sm font-semibold text-foreground">
-            {tr(language, "Select Patient", "เลือกผู้ป่วย")}
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-xl text-muted-foreground"
-            onClick={() => handleOpenChange(false)}
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={2.2} />
-          </Button>
-        </div>
-
-        <div className="p-4">
-          <div className="relative w-full rounded-[28px] border border-border bg-background pb-5">
-            <div className="px-6 pb-3 pt-6">
-              <div className="mb-5 flex items-center justify-between">
-                <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight text-foreground">
-                  {tr(language, "Active Patients", "ผู้ป่วยที่พร้อมติดต่อ")}
-                  <span className="mt-0.5 rounded-full bg-muted px-2 py-1 text-xs font-normal leading-none text-muted-foreground">
-                    {activeItems.length}
-                  </span>
-                </h2>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-9 w-9 rounded-full border-border/50 text-muted-foreground hover:bg-muted/50"
-                  onClick={() => setExpanded((prev) => !prev)}
-                >
-                  <HugeiconsIcon icon={Add01Icon} size={18} strokeWidth={2.5} />
-                </Button>
-              </div>
-
-              <div className="relative mb-4">
-                <HugeiconsIcon
-                  icon={Search01Icon}
-                  className="absolute left-4 top-1/2 z-10 -translate-y-1/2 text-muted-foreground/60"
-                  size={16}
-                />
-                <Input
-                  placeholder={tr(language, "Search patients...", "ค้นหาผู้ป่วย...")}
-                  value={query}
-                  onChange={(event) => onQueryChange(event.target.value)}
-                  className="h-11 w-full rounded-2xl border-none bg-muted/40 pl-11 pr-4 text-base text-foreground placeholder:text-muted-foreground/50 box-border transition-all focus-visible:ring-1 focus-visible:ring-border"
-                />
-              </div>
-            </div>
-
-            <div className="max-h-[280px] overflow-y-auto px-6 pb-20">
-              <motion.div
-                initial={false}
-                animate="visible"
-                variants={{ visible: { transition: { staggerChildren: 0.04 } } }}
-                className="space-y-0.5"
-              >
-                {loading ? (
-                  <p className="py-6 text-center text-sm text-muted-foreground">
-                    {tr(language, "Searching patients...", "กำลังค้นหาผู้ป่วย...")}
-                  </p>
-                ) : activeItems.length === 0 ? (
-                  <p className="py-6 text-center text-sm text-muted-foreground">
-                    {tr(language, "No active patients found.", "ไม่พบผู้ป่วยที่พร้อมติดต่อ")}
-                  </p>
-                ) : (
-                  activeItems.map((patient) => (
-                    <PatientMemberItem
-                      key={`active-${patient.id}`}
-                      member={patient}
-                      selectedId={selectedId}
-                      onSelect={handlePatientSelect}
-                    />
-                  ))
-                )}
-              </motion.div>
-            </div>
-
-            <motion.div
-              layout
-              initial={false}
-              animate={{
-                height: expanded ? "calc(100% - 20px)" : "68px",
-                width: expanded ? "calc(100% - 20px)" : "calc(100% - 40px)",
-                bottom: expanded ? "10px" : "20px",
-                left: expanded ? "10px" : "20px",
-                borderRadius: expanded ? "32px" : "24px",
-              }}
-              transition={{
-                type: "spring",
-                stiffness: 240,
-                damping: 30,
-                mass: 0.8,
-                ease: "easeInOut",
-              }}
-              className="group/bar absolute z-50 flex flex-col overflow-hidden border border-border bg-card shadow-none"
-              style={{ cursor: expanded ? "default" : "pointer" }}
-              onClick={() => !expanded && setExpanded(true)}
-            >
-              <div
-                className={cn(
-                  "flex h-[68px] shrink-0 items-center justify-between px-3 transition-colors",
-                  expanded ? "border-b border-border/40" : "hover:bg-muted/20"
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-background text-muted-foreground/80 shadow-[0_1px_2px_rgba(0,0,0,0.02)] transition-transform group-hover/bar:scale-105">
-                    <HugeiconsIcon icon={ProfileIcon} size={20} strokeWidth={2} />
-                  </div>
-                  <motion.div layout="position">
-                    <h4 className="text-base font-medium leading-none tracking-tight text-foreground">
-                      {tr(language, "Patient Directory", "ไดเรกทอรีผู้ป่วย")}
-                    </h4>
-                    <p className="mt-1 text-xs font-normal leading-none text-muted-foreground">
-                      {tr(
-                        language,
-                        `${items.length} patients registered`,
-                        `มีผู้ป่วยในระบบ ${items.length} คน`
-                      )}
-                    </p>
-                  </motion.div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  {!expanded && (
-                    <div className="flex items-center gap-0">
-                      <div className="flex -space-x-3">
-                        {items.slice(0, 3).map((patient) => (
-                          <motion.div
-                            key={`sum-${patient.id}`}
-                            layoutId={`patient-avatar-${patient.id}`}
-                            className="flex h-10 w-10 items-center justify-center rounded-full ring-1 ring-background bg-muted text-[11px] font-semibold text-muted-foreground shadow-sm"
-                          >
-                            {getNameInitials(patient.label)}
-                          </motion.div>
-                        ))}
-                        <div className="relative z-0 flex h-10 w-10 items-center justify-center rounded-full bg-muted shadow-sm ring-1 ring-background">
-                          <span className="text-sm font-normal leading-none text-muted-foreground">
-                            +{Math.max(items.length - 3, 0)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {expanded && (
-                    <button
-                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-muted/60 text-muted-foreground transition-all hover:text-foreground active:scale-90"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setExpanded(false);
-                      }}
-                    >
-                      <HugeiconsIcon
-                        icon={Cancel01Icon}
-                        size={18}
-                        strokeWidth={2.5}
-                      />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-1 flex-col overflow-hidden">
-                <AnimatePresence>
-                  {expanded && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -8 }}
-                      className="px-5 py-4"
-                    >
-                      <div className="relative">
-                        <HugeiconsIcon
-                          icon={Search01Icon}
-                          className="absolute left-4 top-1/2 z-10 -translate-y-1/2 text-muted-foreground/50"
-                          size={15}
-                        />
-                        <Input
-                          placeholder={tr(language, "Search patients...", "ค้นหาผู้ป่วย...")}
-                          value={query}
-                          onChange={(event) => onQueryChange(event.target.value)}
-                          className="h-10 w-full rounded-xl border-none bg-muted/30 pl-10 text-sm text-foreground placeholder:text-muted-foreground/40 box-border transition-all focus-visible:ring-1 focus-visible:ring-border"
-                        />
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
-                <div className="flex-1 overflow-y-auto px-5 py-2">
-                  <motion.div
-                    initial="hidden"
-                    animate={expanded ? "visible" : "hidden"}
-                    variants={{
-                      visible: {
-                        transition: { staggerChildren: 0.03, delayChildren: 0.1 },
-                      },
-                      hidden: {
-                        transition: { staggerChildren: 0.02, staggerDirection: -1 },
-                      },
-                    }}
-                    className="space-y-0.5"
-                  >
-                    {filteredAllPatients.map((patient) => (
-                      <PatientMemberItem
-                        key={`list-${patient.id}`}
-                        member={patient}
-                        selectedId={selectedId}
-                        onSelect={handlePatientSelect}
-                      />
-                    ))}
-                    {filteredAllPatients.length === 0 && (
-                      <p className="py-8 text-center text-sm text-muted-foreground">
-                        {tr(language, "No patients found.", "ไม่พบผู้ป่วย")}
-                      </p>
-                    )}
-                  </motion.div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-const sweepSpring = {
-  type: "spring" as const,
-  stiffness: 400,
-  damping: 35,
-  mass: 0.5,
-};
 
 function getNameInitials(name: string): string {
   const parts = name
@@ -650,192 +348,6 @@ function getNameInitials(name: string): string {
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
 }
-
-const DoctorRoleBadge = ({
-  type,
-  label,
-}: {
-  type: DoctorPickerItem["roleType"];
-  label: string;
-}) => {
-  const styles = {
-    pm: {
-      bg: "bg-[#FFFCEB]",
-      text: "text-[#856404]",
-      border: "border-[#FFEBA5]",
-      icon: Briefcase01Icon,
-    },
-    designer: {
-      bg: "bg-[#F0F7FF]",
-      text: "text-[#004085]",
-      border: "border-[#B8DAFF]",
-      icon: PaintBoardIcon,
-    },
-    data: {
-      bg: "bg-[#F3FAF4]",
-      text: "text-[#155724]",
-      border: "border-[#C3E6CB]",
-      icon: Database01Icon,
-    },
-    creator: {
-      bg: "bg-[#FCF5FF]",
-      text: "text-[#522785]",
-      border: "border-[#E8D1FF]",
-      icon: QuillWrite01Icon,
-    },
-  };
-
-  const style = styles[type];
-  const Icon = style.icon;
-
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-1.5 rounded-full border px-2.5 py-1 shrink-0",
-        style.bg,
-        style.text,
-        style.border
-      )}
-    >
-      <HugeiconsIcon icon={Icon} size={12} strokeWidth={1.8} />
-      <span className="max-w-[72px] truncate whitespace-nowrap text-xs font-normal uppercase tracking-tight sm:max-w-none">
-        {label}
-      </span>
-    </div>
-  );
-};
-
-const DoctorMemberItem = ({
-  member,
-  selectedId,
-  onSelect,
-}: {
-  member: DoctorPickerItem;
-  selectedId?: string;
-  onSelect: (item: DoctorPickerItem) => void;
-}) => (
-  <motion.button
-    type="button"
-    onClick={() => onSelect(member)}
-    variants={{
-      hidden: { opacity: 0, x: 10, y: 15, rotate: 1 },
-      visible: { opacity: 1, x: 0, y: 0, rotate: 0 },
-    }}
-    transition={sweepSpring}
-    style={{ originX: 1, originY: 1 }}
-    className={cn(
-      "group flex w-full items-center border-b border-border/40 py-4 text-left first:pt-0 last:border-0",
-      selectedId === member.id && "rounded-xl bg-accent/40 px-2"
-    )}
-  >
-    <div className="relative mr-4 shrink-0">
-      {member.avatar ? (
-        <Image
-          src={member.avatar}
-          alt={member.label}
-          width={48}
-          height={48}
-          className="h-12 w-12 rounded-full ring-2 ring-background shadow-sm grayscale-[0.1] transition-all duration-300 group-hover:grayscale-0"
-        />
-      ) : (
-        <div className="flex h-12 w-12 items-center justify-center rounded-full ring-2 ring-background bg-muted text-xs font-semibold text-foreground">
-          {getNameInitials(member.label)}
-        </div>
-      )}
-      {member.online && (
-        <div className="absolute bottom-0 right-0 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-background shadow-sm">
-          <div className="h-2 w-2 rounded-full bg-green-500" />
-        </div>
-      )}
-    </div>
-    <div className="min-w-0 flex-1">
-      <h3 className="mb-1.5 truncate text-base font-semibold leading-none tracking-tight text-foreground">
-        {member.label}
-      </h3>
-      <div className="flex items-center gap-1.5 opacity-80">
-        {member.online && <div className="h-1.5 w-1.5 rounded-full bg-green-500" />}
-        <p
-          className={cn(
-            "text-sm font-medium leading-none",
-            member.online ? "text-green-600" : "text-muted-foreground"
-          )}
-        >
-          {member.status}
-        </p>
-      </div>
-    </div>
-    <div className="shrink-0">
-      <DoctorRoleBadge type={member.roleType} label={member.role} />
-    </div>
-  </motion.button>
-);
-
-const PatientMemberItem = ({
-  member,
-  selectedId,
-  onSelect,
-}: {
-  member: PatientPickerItem;
-  selectedId?: string;
-  onSelect: (item: PatientPickerItem) => void;
-}) => (
-  <motion.button
-    type="button"
-    onClick={() => onSelect(member)}
-    variants={{
-      hidden: { opacity: 0, x: 10, y: 15, rotate: 1 },
-      visible: { opacity: 1, x: 0, y: 0, rotate: 0 },
-    }}
-    transition={sweepSpring}
-    style={{ originX: 1, originY: 1 }}
-    className={cn(
-      "group flex w-full items-center border-b border-border/40 py-4 text-left first:pt-0 last:border-0",
-      selectedId === member.id && "rounded-xl bg-accent/40 px-2"
-    )}
-  >
-    <div className="relative mr-4 shrink-0">
-      {member.avatar ? (
-        <Image
-          src={member.avatar}
-          alt={member.label}
-          width={48}
-          height={48}
-          className="h-12 w-12 rounded-full ring-2 ring-background shadow-sm grayscale-[0.1] transition-all duration-300 group-hover:grayscale-0"
-        />
-      ) : (
-        <div className="flex h-12 w-12 items-center justify-center rounded-full ring-2 ring-background bg-muted text-xs font-semibold text-foreground">
-          {getNameInitials(member.label)}
-        </div>
-      )}
-      {member.active && (
-        <div className="absolute bottom-0 right-0 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-background shadow-sm">
-          <div className="h-2 w-2 rounded-full bg-green-500" />
-        </div>
-      )}
-    </div>
-    <div className="min-w-0 flex-1">
-      <h3 className="mb-1.5 truncate text-base font-semibold leading-none tracking-tight text-foreground">
-        {member.label}
-      </h3>
-      <div className="flex items-center gap-1.5 opacity-80">
-        {member.active && <div className="h-1.5 w-1.5 rounded-full bg-green-500" />}
-        <p
-          className={cn(
-            "text-sm font-medium leading-none",
-            member.active ? "text-green-600" : "text-muted-foreground"
-          )}
-        >
-          {member.status}
-        </p>
-      </div>
-    </div>
-    <div className="shrink-0">
-      {selectedId === member.id && (
-        <HugeiconsIcon icon={Tick02Icon} className="size-4 text-primary" />
-      )}
-    </div>
-  </motion.button>
-);
 
 function DoctorDirectoryDialog({
   open,
@@ -1382,10 +894,7 @@ function CreateEventDialog({
     if (query.length < 2) {
       return patients.filter((patient) => {
         const display = formatPatientDisplayName(patient);
-        return (
-          includesSearchQuery(display, patientQuery) ||
-          includesSearchQuery(patient.email || "", patientQuery)
-        );
+        return includesSearchQuery(display, patientQuery);
       });
     }
     return patientSearchResults;
@@ -1414,15 +923,14 @@ function CreateEventDialog({
   const patientPickerItems = useMemo<PatientPickerItem[]>(
     () =>
       visiblePatients.map((patient) => {
-        const hasContact = Boolean((patient.email || "").trim() || (patient.phone || "").trim());
         return {
           id: patient.id,
           label: formatPatientDisplayName(patient),
-          description: patient.email || patient.phone || undefined,
-          active: hasContact,
-          status: hasContact
-            ? tr(language, "Contact available", "มีข้อมูลติดต่อ")
-            : tr(language, "No contact info", "ยังไม่มีข้อมูลติดต่อ"),
+          status: tr(
+            language,
+            "Open workspace for protected details",
+            "เปิด workspace เพื่อดูข้อมูลที่ถูกปกป้อง"
+          ),
         };
       }),
     [visiblePatients, language]
@@ -1954,8 +1462,8 @@ function CreateEventDialog({
               <p className="text-sm text-muted-foreground">
                 {tr(
                   language,
-                  "Click to open patient search panel.",
-                  "กดปุ่มเพื่อเปิดหน้าค้นหาผู้ป่วย"
+                  "Search by patient name.",
+                  "ค้นหาด้วยชื่อผู้ป่วย"
                 )}
               </p>
             </div>
@@ -2099,14 +1607,18 @@ function CreateEventDialog({
 // Main Meetings Content
 // ══════════════════════════════════════════════════════════
 export function MeetingsContent() {
+  const prefersReducedMotion = useReducedMotion();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const token = useAuthStore((state) => state.token);
   const userId = useAuthStore((state) => state.userId);
+  const currentUser = useAuthStore((state) => state.currentUser);
   const userRole = useAuthStore((state) => state.role);
+  const setCurrentUser = useAuthStore((state) => state.setCurrentUser);
   const clearToken = useAuthStore((state) => state.clearToken);
   const language = useLanguageStore((state) => state.language);
+  const canManageMeetings = canWriteClinicalData(userRole);
 
   // Pre-warm the ZEGO SDK bundle so it's cached before the doctor clicks "Start call".
   // On 3G this can take 20-40s, so starting early is critical.
@@ -2145,6 +1657,8 @@ export function MeetingsContent() {
   >("my-meetings");
   const meetingsRefreshPromiseRef = useRef<Promise<void> | null>(null);
   const meetingsRefreshTimeoutRef = useRef<number | null>(null);
+  const visibilityRefreshTimeoutRef = useRef<number | null>(null);
+  const lastMeetingsRefreshAtRef = useRef(0);
   const urlStateHydratedRef = useRef(false);
 
   const weekEnd = addWeeks(currentWeekStart, 1);
@@ -2249,7 +1763,14 @@ export function MeetingsContent() {
               ? allMeetings.filter((item) => item.doctor_id !== userId)
               : allMeetings;
 
-          setMeetings(scopedItems);
+          lastMeetingsRefreshAtRef.current = Date.now();
+          if (background) {
+            startTransition(() => {
+              setMeetings(scopedItems);
+            });
+          } else {
+            setMeetings(scopedItems);
+          }
         } catch (err) {
           const status = (err as { status?: number }).status;
           if (status === 401) {
@@ -2302,9 +1823,15 @@ export function MeetingsContent() {
   );
 
   const handleSlotSelect = useCallback((slot: CalendarSlotSelection) => {
+    if (!canManageMeetings) {
+      toast.error(
+        tr(language, "This meeting view is read-only for your account", "บัญชีของคุณดูนัดหมายได้อย่างเดียว")
+      );
+      return;
+    }
     setCreateInitialSlot(slot);
     setCreateOpen(true);
-  }, []);
+  }, [canManageMeetings, language]);
 
   useEffect(() => {
     loadMeetings();
@@ -2376,6 +1903,13 @@ export function MeetingsContent() {
       }
     };
 
+    const clearVisibilityRefresh = () => {
+      if (visibilityRefreshTimeoutRef.current !== null) {
+        window.clearTimeout(visibilityRefreshTimeoutRef.current);
+        visibilityRefreshTimeoutRef.current = null;
+      }
+    };
+
     const scheduleNextRefresh = () => {
       clearScheduledRefresh();
       if (cancelled || document.visibilityState !== "visible") {
@@ -2392,13 +1926,29 @@ export function MeetingsContent() {
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void loadMeetings(true).finally(() => {
-          if (!cancelled) {
-            scheduleNextRefresh();
-          }
-        });
+        clearVisibilityRefresh();
+
+        const timeSinceLastRefresh =
+          Date.now() - lastMeetingsRefreshAtRef.current;
+
+        if (
+          lastMeetingsRefreshAtRef.current > 0 &&
+          timeSinceLastRefresh < VISIBLE_REFRESH_MIN_AGE_MS
+        ) {
+          scheduleNextRefresh();
+          return;
+        }
+
+        visibilityRefreshTimeoutRef.current = window.setTimeout(() => {
+          void loadMeetings(true).finally(() => {
+            if (!cancelled) {
+              scheduleNextRefresh();
+            }
+          });
+        }, VISIBLE_REFRESH_GRACE_PERIOD_MS);
         return;
       }
+      clearVisibilityRefresh();
       clearScheduledRefresh();
     };
 
@@ -2407,6 +1957,7 @@ export function MeetingsContent() {
 
     return () => {
       cancelled = true;
+      clearVisibilityRefresh();
       clearScheduledRefresh();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -2415,22 +1966,73 @@ export function MeetingsContent() {
   // Load patients & doctors for form
   useEffect(() => {
     if (!token) return;
+    let cancelled = false;
+
     fetchAllPatients({ sort: "first_name", order: "asc" }, token, {
       maxItems: 5000,
     })
-      .then((items) => setPatients(items))
+      .then((items) => {
+        if (!cancelled) {
+          setPatients(items);
+        }
+      })
       .catch(() => { });
-    // Doctors can't access /users endpoint; use /auth/me for their own info
+    // Doctors can't access /users endpoint; use /auth/me for their own info.
+    // Read-only roles should not preload doctor options for a form they cannot submit.
     if (userRole === "doctor") {
+      const resolvedCurrentUser =
+        currentUser && (!userId || currentUser.id === userId) ? currentUser : null;
+
+      if (resolvedCurrentUser) {
+        setDoctors([
+          {
+            id: resolvedCurrentUser.id,
+            email: resolvedCurrentUser.email,
+            first_name: resolvedCurrentUser.first_name,
+            last_name: resolvedCurrentUser.last_name,
+            role: resolvedCurrentUser.role,
+            is_active: true,
+          },
+        ]);
+        return () => {
+          cancelled = true;
+        };
+      }
+
       fetchCurrentUser(token)
-        .then((me) => setDoctors([{ id: me.id, email: me.email, first_name: me.first_name, last_name: me.last_name, role: me.role, is_active: true }]))
+        .then((me) => {
+          if (cancelled || (userId && me.id !== userId)) {
+            return;
+          }
+
+          setCurrentUser(me);
+          setDoctors([{ id: me.id, email: me.email, first_name: me.first_name, last_name: me.last_name, role: me.role, is_active: true }]);
+        })
         .catch(() => { });
-    } else {
-      fetchUsers({ page: 1, limit: 100, role: "doctor", clinical_only: true, sort: "first_name", order: "asc" }, token)
-        .then((res) => setDoctors(res.items))
-        .catch(() => { });
+
+      return () => {
+        cancelled = true;
+      };
     }
-  }, [token, userRole]);
+
+    if (canManageMeetings) {
+      fetchUsers({ page: 1, limit: 100, role: "doctor", clinical_only: true, sort: "first_name", order: "asc" }, token)
+        .then((res) => {
+          if (!cancelled) {
+            setDoctors(res.items);
+          }
+        })
+        .catch(() => { });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setDoctors([]);
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageMeetings, currentUser, setCurrentUser, token, userId, userRole]);
 
   return (
     <main className="flex h-full w-full flex-1 flex-col overflow-hidden">
@@ -2443,9 +2045,13 @@ export function MeetingsContent() {
             <div className="flex items-center justify-between gap-3 md:gap-4">
               {/* Left: title area */}
               <motion.div
-                initial={{ opacity: 0, y: -8 }}
+                initial={prefersReducedMotion ? false : { opacity: 0.96 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.28, ease: "easeOut" }}
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0 }
+                    : { duration: 0.14, ease: [0.22, 1, 0.36, 1] }
+                }
                 className="flex min-w-0 flex-1 items-center gap-3"
               >
                 <div className="min-w-0 flex-1">
@@ -2470,9 +2076,13 @@ export function MeetingsContent() {
 
               {/* Right: actions */}
               <motion.div
-                initial={{ opacity: 0, y: -6 }}
+                initial={prefersReducedMotion ? false : { opacity: 0.96 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.28, delay: 0.04, ease: "easeOut" }}
+                transition={
+                  prefersReducedMotion
+                    ? { duration: 0 }
+                    : { duration: 0.14, delay: 0.02, ease: [0.22, 1, 0.36, 1] }
+                }
                 className="flex shrink-0 items-center gap-1 rounded-[20px] border border-slate-200/80 bg-white/82 p-1 shadow-[0_10px_26px_rgba(15,23,42,0.06)] supports-[backdrop-filter]:bg-white/72 supports-[backdrop-filter]:backdrop-blur"
               >
                 <Popover>
@@ -2557,28 +2167,34 @@ export function MeetingsContent() {
                     </div>
                   </PopoverContent>
                 </Popover>
-                <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.985 }}>
-                  <Button
-                    size="icon"
-                    className="size-8 shrink-0 rounded-2xl border border-slate-900 bg-slate-900 text-white shadow-[0_14px_28px_rgba(15,23,42,0.16)] transition-[transform,box-shadow,background-color] hover:bg-slate-800 hover:shadow-[0_18px_34px_rgba(15,23,42,0.18)] md:h-9 md:w-auto md:px-3 md:gap-2"
-                    onClick={() => {
-                      setCreateInitialSlot(null);
-                      setCreateOpen(true);
-                    }}
-                  >
-                    <HugeiconsIcon icon={Add01Icon} className="size-4" />
-                    <span className="hidden text-sm lg:inline">{tr(language, "Create Event", "สร้างอีเวนต์")}</span>
-                  </Button>
-                </motion.div>
+                {canManageMeetings ? (
+                  <motion.div whileHover={{ y: -1 }} whileTap={{ scale: 0.985 }}>
+                    <Button
+                      size="icon"
+                      className="size-8 shrink-0 rounded-2xl border border-slate-900 bg-slate-900 text-white shadow-[0_14px_28px_rgba(15,23,42,0.16)] transition-[transform,box-shadow,background-color] hover:bg-slate-800 hover:shadow-[0_18px_34px_rgba(15,23,42,0.18)] md:h-9 md:w-auto md:px-3 md:gap-2"
+                      onClick={() => {
+                        setCreateInitialSlot(null);
+                        setCreateOpen(true);
+                      }}
+                    >
+                      <HugeiconsIcon icon={Add01Icon} className="size-4" />
+                      <span className="hidden text-sm lg:inline">{tr(language, "Create Event", "สร้างอีเวนต์")}</span>
+                    </Button>
+                  </motion.div>
+                ) : null}
               </motion.div>
             </div>
           </div>
         </div>
         <div className="border-b border-slate-200/70 bg-[linear-gradient(180deg,rgba(248,250,252,0.94),rgba(255,255,255,0.92))] px-3 py-3 md:px-4">
           <motion.div
-            initial={{ opacity: 0, y: -4 }}
+            initial={prefersReducedMotion ? false : { opacity: 0.97 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.24, delay: 0.1, ease: "easeOut" }}
+            transition={
+              prefersReducedMotion
+                ? { duration: 0 }
+                : { duration: 0.12, delay: 0.04, ease: [0.22, 1, 0.36, 1] }
+            }
             className="flex flex-wrap items-center gap-2 rounded-[22px] border border-slate-200/80 bg-white/84 p-1.5 shadow-[0_12px_26px_rgba(15,23,42,0.05)] supports-[backdrop-filter]:bg-white/72 supports-[backdrop-filter]:backdrop-blur"
           >
             <div className="flex items-center gap-1.5 rounded-[18px] border border-slate-200/80 bg-slate-50/80 p-1">
@@ -2687,22 +2303,24 @@ export function MeetingsContent() {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <SchedulePopover
-                language={language}
-                onSchedule={() => {
-                  setCreateInitialSlot(null);
-                  setCreateOpen(true);
-                }}
-              >
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-9 rounded-2xl border-slate-200/80 bg-white/80 px-3.5 text-sm font-medium text-slate-700 shadow-none transition-colors hover:bg-slate-50 md:w-auto md:gap-2"
+              {canManageMeetings ? (
+                <SchedulePopover
+                  language={language}
+                  onSchedule={() => {
+                    setCreateInitialSlot(null);
+                    setCreateOpen(true);
+                  }}
                 >
-                  <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
-                  <span className="hidden md:inline">{tr(language, "Schedule", "นัดหมาย")}</span>
-                </Button>
-              </SchedulePopover>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-9 rounded-2xl border-slate-200/80 bg-white/80 px-3.5 text-sm font-medium text-slate-700 shadow-none transition-colors hover:bg-slate-50 md:w-auto md:gap-2"
+                  >
+                    <HugeiconsIcon icon={Calendar01Icon} className="size-4" />
+                    <span className="hidden md:inline">{tr(language, "Schedule", "นัดหมาย")}</span>
+                  </Button>
+                </SchedulePopover>
+              ) : null}
 
               <Popover open={filterOpen} onOpenChange={setFilterOpen}>
                 <PopoverTrigger
@@ -2905,6 +2523,9 @@ export function MeetingsContent() {
           <CalendarView
             onSlotSelect={handleSlotSelect}
             onEditMeeting={(meeting) => {
+              if (!canManageMeetings) {
+                return;
+              }
               setEditMeeting(meeting);
               setCreateInitialSlot(null);
               setCreateOpen(true);
@@ -2916,6 +2537,9 @@ export function MeetingsContent() {
         <div className="flex-1 flex flex-col overflow-auto">
           <MonthCalendarView
             onEditMeeting={(meeting) => {
+              if (!canManageMeetings) {
+                return;
+              }
               setEditMeeting(meeting);
               setCreateInitialSlot(null);
               setCreateOpen(true);
@@ -2932,6 +2556,9 @@ export function MeetingsContent() {
         <QueueView
           onRefresh={loadMeetings}
           onEditMeeting={(meeting) => {
+            if (!canManageMeetings) {
+              return;
+            }
             setEditMeeting(meeting);
             setCreateInitialSlot(null);
             setCreateOpen(true);

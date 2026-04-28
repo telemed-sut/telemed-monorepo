@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
-import { exportAuditLogs, fetchAuditLogs, getErrorMessage, type ApiError, type AuditLogItem } from "@/lib/api";
+import { exportAuditLogs, fetchAuditLogs, getRoleLabel, type ApiError, type AuditLogItem } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +53,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import { useLanguageStore } from "@/store/language-store";
+import { getLocalizedDashboardErrorMessage } from "./dashboard-error-message";
 
 // ── Constants ──
 
@@ -120,6 +121,9 @@ const I18N = {
         cannotLoadAuditLogs: "Unable to load audit logs",
         exportAuditLogsFailed: "Failed to export audit logs",
         cannotExportAuditLogs: "Unable to export audit logs",
+        sensitiveViews: "Sensitive access presets",
+        patientContactOnly: "Patient contact reveals",
+        clearFilters: "Clear filters",
     },
     th: {
         language: "ภาษา",
@@ -182,6 +186,9 @@ const I18N = {
         cannotLoadAuditLogs: "ไม่สามารถโหลด Audit Logs ได้",
         exportAuditLogsFailed: "ส่งออก Audit Logs ไม่สำเร็จ",
         cannotExportAuditLogs: "ไม่สามารถส่งออก Audit Logs ได้",
+        sensitiveViews: "ชุดตัวกรองการเข้าถึงข้อมูลอ่อนไหว",
+        patientContactOnly: "เฉพาะการเปิดข้อมูลติดต่อผู้ป่วย",
+        clearFilters: "ล้างตัวกรอง",
     },
 } as const;
 
@@ -212,6 +219,7 @@ const ACTION_OPTIONS = [
     "patient_assignment_update",
     "patient_assignment_delete",
     "patient_access_denied",
+    "patient_contact_revealed",
     "http_403_denied",
     "admin_emergency_unlock",
     "admin_force_2fa_reset",
@@ -230,6 +238,8 @@ const ACTION_OPTIONS = [
     "login_failed",
     "login_failed_2fa",
     "login_with_backup_code",
+    "step_up_verified",
+    "step_up_failed",
     "view_patient_summary",
     "view_patient_timeline",
     "view_active_orders",
@@ -267,10 +277,13 @@ const ACTION_LABELS: Record<AuditLanguage, Record<string, string>> = {
         patient_assignment_update: "Update Patient Assignment",
         patient_assignment_delete: "Delete Patient Assignment",
         patient_access_denied: "Patient Access Denied",
+        patient_contact_revealed: "Reveal Patient Contact Details",
         http_403_denied: "HTTP 403 Denied",
         invite_accept: "Invite Accepted",
         user_invite_resend: "Resend User Invite",
         user_invite_revoke: "Revoke User Invite",
+        step_up_verified: "Step-Up Verified",
+        step_up_failed: "Step-Up Failed",
     },
     th: {
         user_create: "สร้างผู้ใช้",
@@ -294,6 +307,7 @@ const ACTION_LABELS: Record<AuditLanguage, Record<string, string>> = {
         patient_assignment_update: "แก้ไขการมอบหมายผู้ป่วย",
         patient_assignment_delete: "ลบการมอบหมายผู้ป่วย",
         patient_access_denied: "ปฏิเสธการเข้าถึงผู้ป่วย",
+        patient_contact_revealed: "เปิดดูข้อมูลติดต่อผู้ป่วย",
         http_403_denied: "ปฏิเสธ HTTP 403",
         admin_emergency_unlock: "ปลดล็อกฉุกเฉินโดยผู้ดูแล",
         admin_force_2fa_reset: "รีเซ็ต 2FA โดยผู้ดูแล",
@@ -312,6 +326,8 @@ const ACTION_LABELS: Record<AuditLanguage, Record<string, string>> = {
         login_failed: "เข้าสู่ระบบล้มเหลว",
         login_failed_2fa: "เข้าสู่ระบบล้มเหลว (2FA)",
         login_with_backup_code: "เข้าสู่ระบบด้วยรหัสสำรอง",
+        step_up_verified: "ยืนยันตัวตนเพิ่มเติมสำเร็จ",
+        step_up_failed: "ยืนยันตัวตนเพิ่มเติมล้มเหลว",
         view_patient_summary: "ดูสรุปผู้ป่วย",
         view_patient_timeline: "ดูไทม์ไลน์ผู้ป่วย",
         view_active_orders: "ดูคำสั่งที่ยังใช้งาน",
@@ -380,19 +396,6 @@ const FIELD_LABELS: Record<AuditLanguage, Record<string, string>> = {
     },
 };
 
-const ROLE_VALUE_LABELS: Record<AuditLanguage, Record<string, string>> = {
-    en: {},
-    th: {
-        admin: "ผู้ดูแลระบบ",
-        doctor: "แพทย์",
-        staff: "เจ้าหน้าที่",
-        nurse: "พยาบาล",
-        pharmacist: "เภสัชกร",
-        medical_technologist: "นักเทคนิคการแพทย์",
-        psychologist: "นักจิตวิทยา",
-    },
-};
-
 const STATUS_VALUE_LABELS: Record<AuditLanguage, Record<string, string>> = {
     en: {},
     th: {
@@ -440,7 +443,7 @@ function translateFieldValue(field: string, value: unknown, language: AuditLangu
 
     const normalized = String(value);
     if (field === "role") {
-        return ROLE_VALUE_LABELS[language][normalized] ?? normalized;
+        return getRoleLabel(normalized, language);
     }
     if (field === "status" || field === "verification_status" || field.startsWith("is_")) {
         return STATUS_VALUE_LABELS[language][normalized] ?? normalized;
@@ -608,6 +611,35 @@ export function AuditLogsContent() {
         (result: "success" | "failure") => (result === "failure" ? t("failure") : t("success")),
         [t]
     );
+    const hasActiveFilters =
+        search.length > 0 ||
+        userFilter.length > 0 ||
+        actionFilter !== "all" ||
+        resourceTypeFilter !== "all" ||
+        breakGlassFilter !== "all" ||
+        resultFilter !== "all" ||
+        dateFrom.length > 0 ||
+        dateTo.length > 0;
+
+    const applyPatientContactRevealPreset = useCallback(() => {
+        setActionFilter("patient_contact_revealed");
+        setResourceTypeFilter("patient");
+        setBreakGlassFilter("all");
+        setResultFilter("success");
+        setDateFrom("");
+        setDateTo("");
+    }, []);
+
+    const clearFilters = useCallback(() => {
+        setSearch("");
+        setUserFilter("");
+        setActionFilter("all");
+        setResourceTypeFilter("all");
+        setBreakGlassFilter("all");
+        setResultFilter("all");
+        setDateFrom("");
+        setDateTo("");
+    }, []);
 
     // Auth guard
     useEffect(() => {
@@ -668,7 +700,12 @@ export function AuditLogsContent() {
             }
             if (!silent) {
                 toast.error(t("loadAuditLogsFailed"), {
-                    description: getErrorMessage(apiError, t("cannotLoadAuditLogs")),
+                    description: getLocalizedDashboardErrorMessage(
+                        apiError,
+                        language,
+                        I18N.en.cannotLoadAuditLogs,
+                        I18N.th.cannotLoadAuditLogs
+                    ),
                 });
             }
         } finally {
@@ -677,7 +714,7 @@ export function AuditLogsContent() {
                 setLoadingMore(false);
             }
         }
-    }, [token, limit, nextCursor, search, userFilter, actionFilter, resourceTypeFilter, breakGlassFilter, resultFilter, dateFrom, dateTo, clearToken, router, t]);
+    }, [token, limit, nextCursor, search, userFilter, actionFilter, resourceTypeFilter, breakGlassFilter, resultFilter, dateFrom, dateTo, clearToken, router, t, language]);
 
     // Debounce search & filter changes
     useEffect(() => {
@@ -752,7 +789,12 @@ export function AuditLogsContent() {
             });
         } catch (err: unknown) {
             toast.error(t("exportAuditLogsFailed"), {
-                description: getErrorMessage(err, t("cannotExportAuditLogs")),
+                description: getLocalizedDashboardErrorMessage(
+                    err,
+                    language,
+                    I18N.en.cannotExportAuditLogs,
+                    I18N.th.cannotExportAuditLogs
+                ),
             });
         } finally {
             setIsExporting(false);
@@ -791,6 +833,31 @@ export function AuditLogsContent() {
                             </div>
 
                             <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-2 rounded-full border border-white/10 bg-background/40 px-2 py-1">
+                                    <span className="px-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                                        {t("sensitiveViews")}
+                                    </span>
+                                    <Button
+                                        type="button"
+                                        variant={actionFilter === "patient_contact_revealed" ? "default" : "outline"}
+                                        size="sm"
+                                        className="h-8 rounded-full"
+                                        onClick={applyPatientContactRevealPreset}
+                                    >
+                                        {t("patientContactOnly")}
+                                    </Button>
+                                    {hasActiveFilters ? (
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 rounded-full"
+                                            onClick={clearFilters}
+                                        >
+                                            {t("clearFilters")}
+                                        </Button>
+                                    ) : null}
+                                </div>
                                 <div className="relative">
                                     <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                                     <Input
@@ -1003,12 +1070,12 @@ export function AuditLogsContent() {
                                                                 variant="outline"
                                                                 className={cn(
                                                                     "text-sm",
-                                                                    log.result === "failure"
+                                                                    log.status === "failure"
                                                                         ? "border-red-500/20 text-red-500 bg-red-500/10"
                                                                         : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
                                                                 )}
                                                             >
-                                                                {resultLabel(log.result)}
+                                                                {resultLabel(log.status)}
                                                             </Badge>
                                                         </TableCell>
                                                         <TableCell>
@@ -1119,12 +1186,12 @@ export function AuditLogsContent() {
                                                     variant="outline"
                                                     className={cn(
                                                         "text-sm",
-                                                        selectedLog.result === "failure"
+                                                        selectedLog.status === "failure"
                                                             ? "border-red-500/20 text-red-500 bg-red-500/10"
                                                             : "border-emerald-500/20 text-emerald-500 bg-emerald-500/10"
                                                     )}
                                                 >
-                                                    {resultLabel(selectedLog.result)}
+                                                    {resultLabel(selectedLog.status)}
                                                 </Badge>
                                                 {selectedLog.is_break_glass && (
                                                     <Badge variant="outline" className="border-red-500/20 bg-red-500/10 text-sm text-red-500">

@@ -3,12 +3,14 @@ import enum
 
 class UserRole(str, enum.Enum):
     admin = "admin"
-    staff = "staff"
     doctor = "doctor"
-    nurse = "nurse"
-    pharmacist = "pharmacist"
-    medical_technologist = "medical_technologist"
-    psychologist = "psychologist"
+    medical_student = "medical_student"
+
+
+class PrivilegedRole(str, enum.Enum):
+    platform_super_admin = "platform_super_admin"
+    security_admin = "security_admin"
+    hospital_admin = "hospital_admin"
 
 
 class VerificationStatus(str, enum.Enum):
@@ -82,3 +84,33 @@ class MeetingStatus(str, enum.Enum):
     overtime = "overtime"
     completed = "completed"
     cancelled = "cancelled"
+
+
+class DeviceExamSessionStatus(str, enum.Enum):
+    pending_pair = "pending_pair"
+    active = "active"
+    stale = "stale"
+    completed = "completed"
+    cancelled = "cancelled"
+    review_needed = "review_needed"
+
+
+class DeviceExamSessionResolutionReason(str, enum.Enum):
+    manual_complete = "manual_complete"
+    timeout = "timeout"
+    cancelled = "cancelled"
+    preempted_by_new_session = "preempted_by_new_session"
+
+
+class DeviceMeasurementRoutingStatus(str, enum.Enum):
+    verified = "verified"
+    needs_review = "needs_review"
+    unmatched = "unmatched"
+    quarantined = "quarantined"
+
+
+class DeviceExamMeasurementType(str, enum.Enum):
+    lung_sound = "lung_sound"
+    heart_sound = "heart_sound"
+    blood_pressure = "blood_pressure"
+    multi = "multi"

@@ -5,10 +5,12 @@ Revises: 20260215_0006
 Create Date: 2026-02-15
 """
 
+import os
+
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-from passlib.context import CryptContext
+import bcrypt
 
 # revision identifiers, used by Alembic.
 revision = "20260215_0007"
@@ -16,10 +18,22 @@ down_revision = "20260215_0006"
 branch_labels = None
 depends_on = None
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def _get_password_hash(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def _require_seed_password(env_name: str) -> str:
+    password = (os.environ.get(env_name) or "").strip()
+    if not password:
+        raise ValueError(f"{env_name} must be set before running this seed migration.")
+    return password
 
 
 def upgrade() -> None:
+    if os.environ.get("APP_ENV") == "production":
+        raise ValueError("Seed migration is blocked in production")
+
     user_role_enum = postgresql.ENUM(name="user_role", create_type=False)
     verification_status_enum = postgresql.ENUM(name="verification_status", create_type=False)
     users_table = sa.table(
@@ -37,8 +51,8 @@ def upgrade() -> None:
         sa.column("verification_status", verification_status_enum),
     )
 
-    admin_hash = pwd_context.hash("AdminSeed@2026")
-    doctor_hash = pwd_context.hash("DoctorSeed@2026")
+    admin_hash = _get_password_hash(_require_seed_password("SEED_ADMIN_PASSWORD"))
+    doctor_hash = _get_password_hash(_require_seed_password("SEED_DOCTOR_PASSWORD"))
 
     op.bulk_insert(users_table, [
         {

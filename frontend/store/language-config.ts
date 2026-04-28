@@ -1,6 +1,8 @@
 export type AppLanguage = "th" | "en";
 
 export const APP_LANGUAGE_STORAGE_KEY = "app_language";
+export const APP_LANGUAGE_COOKIE_KEY = APP_LANGUAGE_STORAGE_KEY;
+export const DEFAULT_APP_LANGUAGE: AppLanguage = "th";
 
 export const APP_LANGUAGE_OPTIONS: Array<{ value: AppLanguage; label: string }> = [
   { value: "th", label: "ไทย" },
@@ -18,12 +20,20 @@ export function isAppLanguage(value: string | null | undefined): value is AppLan
 
 export function detectDefaultLanguage(localeInput?: string): AppLanguage {
   const locale = (localeInput || "").toLowerCase();
-  if (locale.startsWith("th")) return "th";
-  return "en";
+  if (locale.startsWith("en")) return "en";
+  return DEFAULT_APP_LANGUAGE;
 }
 
 export function applyDocumentLanguage(language: AppLanguage): void {
   if (typeof document === "undefined") return;
   const locale = APP_LOCALE_MAP[language];
   document.documentElement.lang = locale.split("-")[0] || "en";
+}
+
+export function resolveAppLanguage(
+  preferredLanguage?: string | null,
+  localeInput?: string
+): AppLanguage {
+  if (isAppLanguage(preferredLanguage)) return preferredLanguage;
+  return detectDefaultLanguage(localeInput);
 }
