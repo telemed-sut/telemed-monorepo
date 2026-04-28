@@ -30,7 +30,7 @@ All work in this repository should be treated as production-impacting.
 
 - JWT authentication with refresh/logout endpoints
 - HTTP-only auth cookie support
-- 2FA support with trusted devices and backup codes
+- Passkey support for passwordless sign-in
 - Granular role-based access control (RBAC)
 - Security operations toolkit:
   - emergency admin unlock (policy-guarded)
@@ -309,7 +309,6 @@ Important for production hardening:
 - `CORS_ORIGINS`
 - `FRONTEND_BASE_URL`
 - `AUTH_COOKIE_SECURE`
-- `ADMIN_2FA_REQUIRED`
 - `SUPER_ADMIN_EMAILS` for bootstrap and break-glass fallback only
 - `PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS`
 
@@ -325,7 +324,7 @@ Reference file: `frontend/.env.example`
 
 Main route groups:
 
-- `/auth` - login, token refresh, logout, password reset, 2FA, invite acceptance
+- `/auth` - login, token refresh, logout, password reset, invite acceptance
 - `/users` - user lifecycle management, invite lifecycle, verification, restore/purge
 - `/patients` - patient CRUD, assignments, dense mode clinical endpoints
 - `/meetings` - consultation scheduling and lifecycle

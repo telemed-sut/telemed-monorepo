@@ -179,7 +179,7 @@ export function useSettingsProfile({
     ? tr(language, "Organization SSO", "Organization SSO")
     : tr(language, "Local password", "รหัสผ่านภายใน");
 
-  const mfaStatusSummary = mfaVerified
+  const sessionVerificationSummary = mfaVerified
     ? tr(language, "Verified", "ยืนยันแล้ว")
     : tr(language, "Not verified", "ยังไม่ได้ยืนยัน");
 
@@ -211,7 +211,6 @@ export function useSettingsProfile({
           last_name: updated.last_name,
           role: updated.role,
           verification_status: updated.verification_status,
-          two_factor_enabled: currentUser.two_factor_enabled,
           mfa_verified: currentUser.mfa_verified,
           mfa_authenticated_at: currentUser.mfa_authenticated_at,
           mfa_recent_for_privileged_actions:
@@ -265,7 +264,7 @@ export function useSettingsProfile({
     setLastName,
     ttlLabel,
     loginMethodSummary,
-    mfaStatusSummary,
+    sessionVerificationSummary,
     mfaAuthenticatedAtLabel: formatDateTime(mfaAuthenticatedAt, language),
     ssoProvider,
     hasProfileChanges,

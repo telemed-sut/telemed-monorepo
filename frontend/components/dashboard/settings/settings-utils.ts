@@ -3,15 +3,10 @@ import type {
   AppearanceSettings,
   AppearanceTheme,
 } from "@/lib/appearance";
-import { formatCompactDuration } from "@/lib/secure-session";
 
 import type { SettingsLanguage } from "./settings-types";
 
 export const SETTINGS_VALIDATION_TOAST_IDS = {
-  verify2FA: "settings-verify-2fa-required",
-  verify2FAInvalid: "settings-verify-2fa-invalid",
-  reset2FA: "settings-reset-2fa-required",
-  disable2FA: "settings-disable-2fa-required",
   resolveUser: "settings-resolve-user-required",
   emergencyReason: "settings-emergency-reason-required",
   adminInviteEmail: "settings-admin-invite-email-required",
@@ -20,40 +15,6 @@ export const SETTINGS_VALIDATION_TOAST_IDS = {
 
 export function tr(language: SettingsLanguage, en: string, th: string) {
   return language === "th" ? th : en;
-}
-
-export function isInvalidTwoFactorCodeError(error: unknown): boolean {
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-
-  const record = error as {
-    detail?: unknown;
-    message?: unknown;
-  };
-  if (
-    record.detail &&
-    typeof record.detail === "object" &&
-    "code" in record.detail &&
-    (record.detail as { code?: unknown }).code === "invalid_two_factor_code"
-  ) {
-    return true;
-  }
-
-  return (
-    typeof record.message === "string" &&
-    /invalid two-factor authentication code/i.test(record.message)
-  );
-}
-
-export function extractSetupKey(uri: string | null | undefined): string | null {
-  if (!uri) return null;
-  try {
-    const parsed = new URL(uri);
-    return parsed.searchParams.get("secret");
-  } catch {
-    return null;
-  }
 }
 
 export function formatDateTime(
@@ -70,25 +31,6 @@ export function formatDateTime(
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-export function formatTimeUntil(
-  value: string | null | undefined,
-  language: SettingsLanguage,
-): string {
-  if (!value) return "-";
-  const expiresAt = new Date(value).getTime();
-  if (Number.isNaN(expiresAt)) return "-";
-  const remainingSeconds = Math.max(
-    Math.floor((expiresAt - Date.now()) / 1000),
-    0,
-  );
-  if (remainingSeconds <= 0) {
-    return tr(language, "Expired", "หมดอายุแล้ว");
-  }
-  return language === "th"
-    ? `อีก ${formatCompactDuration(remainingSeconds, language)}`
-    : `${formatCompactDuration(remainingSeconds, language)} left`;
 }
 
 export function isSettingsPanelId(value: string | null): value is import("./settings-types").SettingsPanelId {

@@ -72,6 +72,10 @@ vi.mock("@/lib/zego-uikit", () => ({
   preloadZegoUIKitPrebuilt: vi.fn(),
   withTimeout: <T,>(promise: Promise<T>) => promise,
   withRetry: async <T,>(fn: () => Promise<T>) => fn(),
+  markPromiseHandled: <T,>(promise: Promise<T>) => {
+    void promise.catch(() => {});
+    return promise;
+  },
   CallStartupMetrics: class {
     mark() {}
     measure() { return 0; }

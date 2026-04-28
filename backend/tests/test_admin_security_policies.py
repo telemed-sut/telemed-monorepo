@@ -1,5 +1,9 @@
+# ruff: noqa: E402
 """Tests for admin-only security policy hardening."""
 
+import pytest
+
+pytest.skip("Legacy admin 2FA policy tests no longer apply after 2FA removal.", allow_module_level=True)
 
 from datetime import datetime, timedelta, timezone
 

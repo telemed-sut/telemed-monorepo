@@ -78,6 +78,11 @@ export function withTimeout<T>(
   });
 }
 
+export function markPromiseHandled<T>(promise: Promise<T>): Promise<T> {
+  void promise.catch(() => {});
+  return promise;
+}
+
 /**
  * Returns true when the rejection looks like a transient network problem
  * (fetch TypeError, timeout, or 5xx) — safe to retry.

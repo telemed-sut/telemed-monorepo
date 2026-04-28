@@ -7,7 +7,7 @@ import {
   useReactTable,
   type RowSelectionState,
 } from "@tanstack/react-table";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Activity,
@@ -53,6 +53,15 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -88,6 +97,7 @@ const DEVICE_REGISTRY_LIVE_SYNC_MS = 15_000;
 const DEVICE_REGISTRY_VALIDATION_TOAST_ID = "device-registry-required-fields";
 const DEVICE_REGISTRY_RESULT_TOAST_ID = "device-registry-result";
 const DEFAULT_MEASUREMENT_TYPE: DeviceExamMeasurementType = "lung_sound";
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100] as const;
 const MEASUREMENT_OPTIONS: DeviceExamMeasurementType[] = [
   "lung_sound",
   "heart_sound",
@@ -236,6 +246,7 @@ export function DeviceRegistryContent() {
   const [submitting, setSubmitting] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [filter, setFilter] = useState<DeviceFilter>("all");
@@ -260,8 +271,13 @@ export function DeviceRegistryContent() {
   const displayNameInputRef = useRef<HTMLInputElement | null>(null);
   const editDisplayNameInputRef = useRef<HTMLInputElement | null>(null);
 
-  const pageSize = 20;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const paginationPages = useMemo(() => {
+    const pages = new Set([1, totalPages, page - 1, page, page + 1]);
+    return Array.from(pages)
+      .filter((value) => value >= 1 && value <= totalPages)
+      .sort((a, b) => a - b);
+  }, [page, totalPages]);
 
   useEffect(() => {
     routerRef.current = router;
@@ -329,7 +345,7 @@ export function DeviceRegistryContent() {
         if (silent) setRefreshing(false);
       }
     },
-    [token, page, searchQuery, filter, handleAuthError, language],
+    [token, page, pageSize, searchQuery, filter, handleAuthError, language],
   );
 
   useEffect(() => {
@@ -376,7 +392,7 @@ export function DeviceRegistryContent() {
         return [device, ...currentDevices].slice(0, pageSize);
       });
     },
-    [filter, searchQuery],
+    [filter, pageSize, searchQuery],
   );
 
   const resetForm = () => {
@@ -825,6 +841,15 @@ export function DeviceRegistryContent() {
     setRowSelection({});
   }, [devices]);
 
+  const handlePageSizeChange = useCallback((value: string) => {
+    const nextPageSize = Number(value);
+    if (!PAGE_SIZE_OPTIONS.includes(nextPageSize as (typeof PAGE_SIZE_OPTIONS)[number])) {
+      return;
+    }
+    setPageSize(nextPageSize);
+    setPage(1);
+  }, []);
+
   const handleDeleteDevice = async (device: DeviceRegistration) => {
     if (!token) return;
     setSavingId(device.id);
@@ -1130,30 +1155,76 @@ export function DeviceRegistryContent() {
                 </Table>
               </div>
 
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-slate-500">
-                  {tr(language, "Showing current page results", "กำลังแสดงผลลัพธ์หน้าปัจจุบัน")}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                    disabled={page <= 1 || loading}
-                    className="h-10 flex-1 sm:flex-none"
-                  >
-                    {tr(language, "Previous", "ก่อนหน้า")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-                    disabled={page >= totalPages || loading}
-                    className="h-10 flex-1 sm:flex-none"
-                  >
-                    {tr(language, "Next", "ถัดไป")}
-                  </Button>
+              <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <p className="text-sm text-slate-500">
+                    {tr(language, "Showing current page results", "กำลังแสดงผลลัพธ์หน้าปัจจุบัน")}
+                  </p>
+                  <div className="flex items-center gap-2 text-sm text-slate-600">
+                    <span>{tr(language, "Rows per page", "แสดงต่อหน้า")}</span>
+                    <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
+                      <SelectTrigger className="h-9 w-[92px] rounded-xl bg-white">
+                        <SelectValue>{pageSize}</SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PAGE_SIZE_OPTIONS.map((option) => (
+                          <SelectItem key={option} value={String(option)}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
+                <Pagination className="mx-0 w-full justify-start lg:w-auto lg:justify-end">
+                  <PaginationContent className="flex-wrap justify-start">
+                    <PaginationItem>
+                      <PaginationPrevious
+                        href="#"
+                        disabled={page <= 1 || loading}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setPage((prev) => Math.max(1, prev - 1));
+                        }}
+                      />
+                    </PaginationItem>
+                    {paginationPages.map((pageNumber, index) => {
+                      const previousPage = paginationPages[index - 1];
+                      return (
+                        <Fragment key={pageNumber}>
+                          {previousPage && pageNumber - previousPage > 1 ? (
+                            <PaginationItem>
+                              <PaginationEllipsis />
+                            </PaginationItem>
+                          ) : null}
+                          <PaginationItem>
+                            <PaginationLink
+                              href="#"
+                              isActive={pageNumber === page}
+                              disabled={loading}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setPage(pageNumber);
+                              }}
+                            >
+                              {pageNumber}
+                            </PaginationLink>
+                          </PaginationItem>
+                        </Fragment>
+                      );
+                    })}
+                    <PaginationItem>
+                      <PaginationNext
+                        href="#"
+                        disabled={page >= totalPages || loading}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setPage((prev) => Math.min(totalPages, prev + 1));
+                        }}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
               </div>
             </div>
           </section>
@@ -1161,7 +1232,10 @@ export function DeviceRegistryContent() {
       </main>
 
       <Sheet open={registerDialogOpen} onOpenChange={setRegisterDialogOpen}>
-        <SheetContent side="right" className="w-full overflow-y-auto border-l border-slate-200 sm:max-w-2xl">
+        <SheetContent
+          side="center"
+          className="w-[min(94vw,760px)] max-h-[86vh] overflow-hidden rounded-2xl border border-slate-200 p-0 shadow-2xl sm:w-[min(88vw,760px)]"
+        >
           <SheetHeader className="border-b border-slate-100 px-6 py-5">
             <SheetTitle className="text-xl">
               {tr(language, "Register new device", "ลงทะเบียนอุปกรณ์ใหม่")}
@@ -1174,7 +1248,7 @@ export function DeviceRegistryContent() {
               )}
             </SheetDescription>
           </SheetHeader>
-          <div className="grid gap-6 px-6 py-5">
+          <div className="grid max-h-[calc(86vh-168px)] gap-6 overflow-y-auto px-6 py-5">
             <FieldGroup>
               <div className="grid gap-4 md:grid-cols-2">
                 <Field>
@@ -1239,7 +1313,7 @@ export function DeviceRegistryContent() {
                   }
                 >
                   <SelectTrigger className="h-12">
-                    <SelectValue />
+                    <SelectValue>{measurementLabel(defaultMeasurementType, language)}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {MEASUREMENT_OPTIONS.map((option) => (
@@ -1289,7 +1363,10 @@ export function DeviceRegistryContent() {
           }
         }}
       >
-        <SheetContent side="right" className="w-full overflow-y-auto border-l border-slate-200 sm:max-w-xl">
+        <SheetContent
+          side="center"
+          className="w-[min(94vw,680px)] max-h-[86vh] overflow-hidden rounded-2xl border border-slate-200 p-0 shadow-2xl sm:w-[min(88vw,680px)]"
+        >
           <SheetHeader className="border-b border-slate-100 px-6 py-5">
             <SheetTitle className="text-xl">
               {tr(language, "Edit device", "แก้ไขอุปกรณ์")}
@@ -1302,7 +1379,7 @@ export function DeviceRegistryContent() {
               )}
             </SheetDescription>
           </SheetHeader>
-          <div className="grid gap-6 px-6 py-5">
+          <div className="grid max-h-[calc(86vh-168px)] gap-6 overflow-y-auto px-6 py-5">
             <FieldGroup>
               <Field>
                 <FieldLabel>{tr(language, "Device ID", "รหัสอุปกรณ์")}</FieldLabel>
@@ -1340,7 +1417,7 @@ export function DeviceRegistryContent() {
                   }
                 >
                   <SelectTrigger className="h-12">
-                    <SelectValue />
+                    <SelectValue>{measurementLabel(editDefaultMeasurementType, language)}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {MEASUREMENT_OPTIONS.map((option) => (

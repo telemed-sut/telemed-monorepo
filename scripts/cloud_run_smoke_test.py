@@ -83,10 +83,8 @@ def _smoke_frontend(frontend_base_url: str) -> None:
     print("frontend: ok")
 
 
-def _login(backend_base_url: str, email: str, password: str, otp_code: str | None) -> str:
+def _login(backend_base_url: str, email: str, password: str) -> str:
     payload = {"email": email, "password": password}
-    if otp_code:
-        payload["otp_code"] = otp_code
 
     status, body = _request_json(f"{backend_base_url}/auth/login", method="POST", body=payload)
     _assert(status == 200, f"Login failed status={status}, payload={body}")
@@ -117,7 +115,6 @@ def main() -> None:
     frontend_base_url = _normalize_base_url(os.getenv("FRONTEND_BASE_URL", ""))
     email = _require_env("SMOKE_TEST_EMAIL")
     password = _require_env("SMOKE_TEST_PASSWORD")
-    otp_code = (os.getenv("SMOKE_TEST_OTP_CODE") or "").strip() or None
     should_create_patient = _is_enabled("SMOKE_TEST_CREATE_PATIENT", default="true")
 
     started_at = time.time()
@@ -125,7 +122,7 @@ def main() -> None:
     if frontend_base_url:
         _smoke_frontend(frontend_base_url)
 
-    token = _login(backend_base_url, email, password, otp_code)
+    token = _login(backend_base_url, email, password)
     if should_create_patient:
         _create_patient(backend_base_url, token)
     else:

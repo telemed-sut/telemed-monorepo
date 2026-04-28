@@ -56,8 +56,8 @@ export function GeneralSettingsPanel({
                 <p className="mt-1 max-w-[46ch] break-words text-sm leading-6 text-muted-foreground">
                   {tr(
                     language,
-                    "Review MFA and recovery options before choosing a daily theme.",
-                    "ตรวจสอบ MFA และตัวเลือกกู้คืนก่อนเลือกธีมสำหรับใช้งานทุกวัน",
+                    "Review passkeys and recovery options before choosing a daily theme.",
+                    "ตรวจสอบ Passkeys และตัวเลือกกู้คืนก่อนเลือกธีมสำหรับใช้งานทุกวัน",
                   )}
                 </p>
               </div>
@@ -107,8 +107,8 @@ export function GeneralSettingsPanel({
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
                   {tr(
                     language,
-                    "Open security settings to verify MFA and recovery options.",
-                    "เปิดส่วนความปลอดภัยเพื่อตรวจสอบ MFA และตัวเลือกกู้คืน",
+                    "Open security settings to review passkeys and recovery options.",
+                    "เปิดส่วนความปลอดภัยเพื่อตรวจสอบ Passkeys และตัวเลือกกู้คืน",
                   )}
                 </p>
                 <Button

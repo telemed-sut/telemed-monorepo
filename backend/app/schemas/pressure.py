@@ -1,6 +1,8 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, UUID4, field_validator, model_validator
+
+PressureRiskLevel = Literal["normal", "moderate", "danger"]
 
 class PressureCreate(BaseModel):
     # Map patient_id to user_id in the JSON input
@@ -45,3 +47,33 @@ class PressureCreate(BaseModel):
 
 class PressureIngestResponse(BaseModel):
     status: str = "ok"
+
+
+class PressureRiskAssessment(BaseModel):
+    level: PressureRiskLevel
+    heart_rate_level: PressureRiskLevel
+    blood_pressure_level: PressureRiskLevel
+    reasons: list[str] = Field(default_factory=list)
+
+
+class PressureRecordOut(BaseModel):
+    id: UUID4
+    patient_id: UUID4
+    device_exam_session_id: UUID4 | None = None
+    device_id: str
+    heart_rate: int
+    sys_rate: int
+    dia_rate: int
+    measured_at: datetime
+    created_at: datetime
+    risk: PressureRiskAssessment
+
+    model_config = {"from_attributes": True}
+
+
+class PressureListResponse(BaseModel):
+    items: list[PressureRecordOut]
+    total: int
+    limit: int
+    offset: int
+    latest: PressureRecordOut | None = None

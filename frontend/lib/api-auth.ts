@@ -1,18 +1,15 @@
 import { apiFetch } from "./api-client";
 import type {
   AccessProfile,
-  Admin2FAStatus,
   AdminEmergencyUnlockPayload,
   AdminEmergencyUnlockResponse,
   AdminPasswordResetResponse,
   AdminSsoLogoutResponse,
   AdminSecurityUserLookup,
   AdminSsoStatus,
-  BackupCodesResponse,
   ForgotPasswordResponse,
   InviteInfoResponse,
   LoginResponse,
-  TrustedDeviceListResponse,
   UserMe,
 } from "./api-types";
 
@@ -43,37 +40,25 @@ export async function logoutAdminSso(): Promise<AdminSsoLogoutResponse> {
 
 export async function login(
   email: string,
-  password: string,
-  otpCode?: string,
-  rememberDevice = false
+  password: string
 ) {
-  const payload: { email: string; password: string; otp_code?: string; remember_device?: boolean } = { email, password };
-  if (otpCode && otpCode.trim().length > 0) {
-    payload.otp_code = otpCode;
-  }
-  payload.remember_device = rememberDevice;
   return apiFetch<LoginResponse>("/auth/login", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ email, password }),
   });
 }
 
 export async function stepUpAuth(
   password: string,
-  otpCode?: string,
-  rememberDevice = false,
+  _verificationCode?: string,
+  _rememberDevice = false,
   token?: string,
 ) {
-  const payload: { password: string; otp_code?: string; remember_device?: boolean } = { password };
-  if (otpCode && otpCode.trim().length > 0) {
-    payload.otp_code = otpCode;
-  }
-  payload.remember_device = rememberDevice;
   return apiFetch<LoginResponse>(
     "/auth/step-up",
     {
       method: "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ password }),
     },
     token,
   );
@@ -116,135 +101,6 @@ export async function fetchCurrentUser(token?: string) {
 
 export async function fetchAccessProfile(token?: string) {
   return apiFetch<AccessProfile>("/auth/access-profile", {}, token);
-}
-
-export async function fetchAdmin2FAStatus(token: string) {
-  return apiFetch<Admin2FAStatus>("/auth/2fa/admin", { method: "GET" }, token);
-}
-
-export async function verifyAdmin2FA(otpCode: string, token: string) {
-  return apiFetch<{ message: string }>(
-    "/auth/2fa/admin/verify",
-    {
-      method: "POST",
-      body: JSON.stringify({ otp_code: otpCode }),
-    },
-    token
-  );
-}
-
-export async function resetAdmin2FA(
-  token: string,
-  data?: { current_otp_code?: string; reason?: string }
-) {
-  return apiFetch<Admin2FAStatus>(
-    "/auth/2fa/admin/reset",
-    {
-      method: "POST",
-      body: JSON.stringify(data || {}),
-    },
-    token
-  );
-}
-
-export async function fetch2FAStatus(token: string) {
-  return apiFetch<Admin2FAStatus>("/auth/2fa/status", { method: "GET" }, token);
-}
-
-export async function verify2FA(otpCode: string, token: string) {
-  return apiFetch<{ message: string }>(
-    "/auth/2fa/verify",
-    {
-      method: "POST",
-      body: JSON.stringify({ otp_code: otpCode }),
-    },
-    token
-  );
-}
-
-export async function disable2FA(currentOtpCode: string, token: string) {
-  return apiFetch<{ message: string }>(
-    "/auth/2fa/disable",
-    {
-      method: "POST",
-      body: JSON.stringify({ current_otp_code: currentOtpCode }),
-    },
-    token
-  );
-}
-
-export async function reset2FA(
-  token: string,
-  data?: { current_otp_code?: string; reason?: string }
-) {
-  return apiFetch<Admin2FAStatus>(
-    "/auth/2fa/reset",
-    {
-      method: "POST",
-      body: JSON.stringify(data || {}),
-    },
-    token
-  );
-}
-
-export async function regenerateBackupCodes(token: string) {
-  return apiFetch<BackupCodesResponse>(
-    "/auth/2fa/backup-codes/regenerate",
-    {
-      method: "POST",
-    },
-    token
-  );
-}
-
-export async function useBackupCode(code: string, token: string) {
-  return apiFetch<{ message: string }>(
-    "/auth/2fa/backup-codes/use",
-    {
-      method: "POST",
-      body: JSON.stringify({ code }),
-    },
-    token
-  );
-}
-
-export async function fetchTrustedDevices(token: string) {
-  return apiFetch<TrustedDeviceListResponse>(
-    "/auth/2fa/trusted-devices",
-    { method: "GET" },
-    token
-  );
-}
-
-export async function revokeTrustedDevice(deviceId: string, token: string) {
-  return apiFetch<{ message: string }>(
-    `/auth/2fa/trusted-devices/${deviceId}`,
-    { method: "DELETE" },
-    token
-  );
-}
-
-export async function revokeAllTrustedDevices(token: string) {
-  return apiFetch<{ revoked: number }>(
-    "/auth/2fa/trusted-devices/revoke-all",
-    { method: "POST" },
-    token
-  );
-}
-
-export async function superAdminResetUser2FA(
-  userId: string,
-  reason: string,
-  token: string
-) {
-  return apiFetch<{ message: string; user_id: string; email: string; setup_required: boolean }>(
-    `/security/users/${userId}/2fa/reset`,
-    {
-      method: "POST",
-      body: JSON.stringify({ reason }),
-    },
-    token
-  );
 }
 
 export async function resolveSecurityUserByEmail(email: string, token: string) {

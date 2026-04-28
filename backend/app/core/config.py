@@ -96,15 +96,8 @@ class Settings(BaseSettings):
     min_active_admin_accounts: int = 2
     super_admin_emails: Union[List[str], str] = ["admin@example.com"]
     admin_unlock_whitelisted_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
-    admin_2fa_required: bool = True
     admin_jwt_expires_in: int = 2592000
-    admin_2fa_issuer: str = "Telemed Admin"
-    privileged_action_mfa_max_age_seconds: int = 86400
-    trusted_device_cookie_name: str = "trusted_device_token"
-    admin_trusted_device_days: int = 30
-    user_trusted_device_days: int = 7
-    backup_code_count: int = 10
-    backup_code_expires_days: int = 365
+    privileged_action_mfa_max_age_seconds: int = 900
     # Phase policy toggles
     specialist_invite_only: bool = True
     enable_break_glass_access: bool = False
@@ -116,7 +109,6 @@ class Settings(BaseSettings):
     trusted_proxy_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
     security_403_spike_threshold_1h: int = 25
     device_secret_encryption_key: str | None = None
-    two_factor_secret_encryption_key: str | None = None
     allow_insecure_secret_storage: bool = False
 
     # Device API Security
@@ -303,7 +295,6 @@ class Settings(BaseSettings):
 
     @field_validator(
         "device_secret_encryption_key",
-        "two_factor_secret_encryption_key",
     )
     @classmethod
     def validate_at_rest_secret_encryption_key(
@@ -713,7 +704,6 @@ class Settings(BaseSettings):
             env_name
             for env_name, value in (
                 ("DEVICE_SECRET_ENCRYPTION_KEY", self.device_secret_encryption_key),
-                ("TWO_FACTOR_SECRET_ENCRYPTION_KEY", self.two_factor_secret_encryption_key),
             )
             if not value
         ]
@@ -754,9 +744,7 @@ class Settings(BaseSettings):
         ):
             self.allow_insecure_secret_storage = True
 
-        encrypted_secret_storage_enabled = bool(
-            self.device_secret_encryption_key or self.two_factor_secret_encryption_key
-        )
+        encrypted_secret_storage_enabled = bool(self.device_secret_encryption_key)
         if encrypted_secret_storage_enabled and not has_secret_crypto_backend():
             raise ValueError(
                 "Missing dependency 'pycryptodomex'. Install it to enable secrets-at-rest encryption."
@@ -804,7 +792,6 @@ class Settings(BaseSettings):
         "env_file": ".env",
         "env_file_encoding": "utf-8",
         "env_prefix": "",
-        "env_file": ".env",
         "case_sensitive": False,
         "extra": "ignore",
     }
@@ -854,7 +841,6 @@ def get_settings() -> Settings:
             "device_api_secret",
             "meeting_signing_secret",
             "device_secret_encryption_key",
-            "two_factor_secret_encryption_key",
         }
         security_markers = (
             "MEETING_SIGNING_SECRET",
@@ -863,7 +849,6 @@ def get_settings() -> Settings:
             "DEVICE_API_REQUIRE_NONCE",
             "Production device ingest hardening requires",
             "DEVICE_SECRET_ENCRYPTION_KEY",
-            "TWO_FACTOR_SECRET_ENCRYPTION_KEY",
             "ALLOW_INSECURE_SECRET_STORAGE",
             "Secret-at-rest encryption keys are required unless",
             "Production secret-at-rest hardening requires",

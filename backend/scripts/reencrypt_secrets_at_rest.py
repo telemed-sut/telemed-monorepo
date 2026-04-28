@@ -24,7 +24,6 @@ from app.core.secret_crypto import (
 )
 from app.db.session import SessionLocal
 from app.models.device_registration import DeviceRegistration
-from app.models.user import User
 
 
 def classify_secret_for_reencryption(value: str | None) -> str:
@@ -39,9 +38,7 @@ def classify_secret_for_reencryption(value: str | None) -> str:
 
 def _reencrypt_secret_rows(*, write: bool) -> dict[str, int]:
     updated_device_rows = 0
-    updated_user_rows = 0
     ambiguous_device_rows = 0
-    ambiguous_user_rows = 0
 
     with SessionLocal() as db:
         device_rows = db.scalars(select(DeviceRegistration)).all()
@@ -57,19 +54,6 @@ def _reencrypt_secret_rows(*, write: bool) -> dict[str, int]:
             elif disposition == "ambiguous_legacy_prefixed":
                 ambiguous_device_rows += 1
 
-        user_rows = db.scalars(select(User).where(User._two_factor_secret_encrypted.is_not(None))).all()
-        for user in user_rows:
-            raw_secret = user._two_factor_secret_encrypted
-            disposition = classify_secret_for_reencryption(raw_secret)
-            if disposition == "legacy_plaintext":
-                if write:
-                    plaintext = raw_secret
-                    user.two_factor_secret = plaintext
-                    db.add(user)
-                updated_user_rows += 1
-            elif disposition == "ambiguous_legacy_prefixed":
-                ambiguous_user_rows += 1
-
         if write:
             db.commit()
         else:
@@ -77,9 +61,7 @@ def _reencrypt_secret_rows(*, write: bool) -> dict[str, int]:
 
     return {
         "device_registrations": updated_device_rows,
-        "users": updated_user_rows,
         "ambiguous_device_registrations": ambiguous_device_rows,
-        "ambiguous_users": ambiguous_user_rows,
     }
 
 
@@ -108,9 +90,7 @@ def main() -> int:
             [
                 f"mode={mode}",
                 f"device_registrations={summary['device_registrations']}",
-                f"users={summary['users']}",
                 f"ambiguous_device_registrations={summary['ambiguous_device_registrations']}",
-                f"ambiguous_users={summary['ambiguous_users']}",
             ]
         )
     )

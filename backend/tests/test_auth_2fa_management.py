@@ -1,5 +1,10 @@
+# ruff: noqa: E402
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
+
+import pytest
+
+pytest.skip("2FA management endpoints were removed from the product.", allow_module_level=True)
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select

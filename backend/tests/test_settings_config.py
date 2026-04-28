@@ -17,7 +17,6 @@ BASELINE_ENV = {
     "DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE": "false",
     "DEVICE_API_REQUIRE_NONCE": "false",
     "DEVICE_SECRET_ENCRYPTION_KEY": "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
-    "TWO_FACTOR_SECRET_ENCRYPTION_KEY": "ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=",
     "ALLOW_INSECURE_SECRET_STORAGE": "false",
     "MEETING_SIGNING_SECRET": "meeting_signing_secret_1234567890abcdef1234567890",
 }
@@ -33,7 +32,6 @@ ISOLATED_ENV_KEYS = {
     "DB_POOL_RECYCLE_SECONDS",
     "DEVICE_API_SECRETS",
     "DEVICE_SECRET_ENCRYPTION_KEY",
-    "TWO_FACTOR_SECRET_ENCRYPTION_KEY",
     "ALLOW_INSECURE_SECRET_STORAGE",
     "MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK",
     "REDIS_URL",
@@ -105,7 +103,6 @@ def test_test_env_bootstrap_fails_closed_when_required_security_key_is_missing(t
                 "JWT_EXPIRES_IN=3600",
                 "PASSWORD_RESET_EXPIRES_IN=900",
                 "DEVICE_SECRET_ENCRYPTION_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
-                "TWO_FACTOR_SECRET_ENCRYPTION_KEY=ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=",
                 "ALLOW_INSECURE_SECRET_STORAGE=false",
                 "MEETING_SIGNING_SECRET=test_meeting_signing_secret_minimum_32_characters",
                 "DEVICE_API_SECRET=test_device_secret_minimum_32_characters",
@@ -113,7 +110,6 @@ def test_test_env_bootstrap_fails_closed_when_required_security_key_is_missing(t
                 "DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE=false",
                 "DEVICE_API_REQUIRE_NONCE=false",
                 "AUTH_COOKIE_SECURE=false",
-                "ADMIN_2FA_REQUIRED=true",
                 "ADMIN_JWT_EXPIRES_IN=14400",
                 "SUPER_ADMIN_EMAILS=admin@example.com",
                 "ADMIN_UNLOCK_WHITELISTED_IPS=127.0.0.1,::1,testclient",
@@ -373,7 +369,6 @@ def test_settings_allow_explicit_insecure_secret_storage_only_in_non_production(
         monkeypatch,
         APP_ENV="test",
         DEVICE_SECRET_ENCRYPTION_KEY=None,
-        TWO_FACTOR_SECRET_ENCRYPTION_KEY=None,
         ALLOW_INSECURE_SECRET_STORAGE="true",
     )
 
@@ -387,7 +382,6 @@ def test_settings_default_to_insecure_secret_storage_in_development_when_keys_ar
         monkeypatch,
         APP_ENV="development",
         DEVICE_SECRET_ENCRYPTION_KEY=None,
-        TWO_FACTOR_SECRET_ENCRYPTION_KEY=None,
         ALLOW_INSECURE_SECRET_STORAGE=None,
     )
 
@@ -401,7 +395,6 @@ def test_settings_still_fail_when_insecure_secret_storage_is_explicitly_disabled
         monkeypatch,
         APP_ENV="development",
         DEVICE_SECRET_ENCRYPTION_KEY=None,
-        TWO_FACTOR_SECRET_ENCRYPTION_KEY=None,
         ALLOW_INSECURE_SECRET_STORAGE="false",
     )
 

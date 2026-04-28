@@ -18,6 +18,7 @@ from app.schemas.patient import PatientCreate
 from app.api.patients import notify_care_team
 from app.services.auth import create_login_response
 from app.services.patient import create_patient, get_patient, list_patients
+from app.services.pressure import pressure_service
 
 
 def create_test_user(db: Session, role: UserRole = UserRole.medical_student) -> User:
@@ -184,6 +185,87 @@ def test_list_patients_does_not_match_email_or_phone_queries(db: Session):
     assert email_matches == []
     assert phone_total == 0
     assert phone_matches == []
+
+
+def test_patient_pressure_readings_are_patient_scoped_and_classified(
+    client: TestClient,
+    db: Session,
+):
+    admin = create_test_user(db, UserRole.admin)
+    patient = create_patient(
+        db,
+        PatientCreate(
+            first_name="Pressure",
+            last_name="Owner",
+            date_of_birth=date(1988, 1, 1),
+        ),
+    )
+    other_patient = create_patient(
+        db,
+        PatientCreate(
+            first_name="Pressure",
+            last_name="Other",
+            date_of_birth=date(1989, 1, 1),
+        ),
+    )
+    db.add_all(
+        [
+            PressureRecord(
+                patient_id=patient.id,
+                device_id="pressure-scope-001",
+                heart_rate=72,
+                sys_rate=118,
+                dia_rate=78,
+                measured_at=datetime(2026, 4, 28, 8, 0, tzinfo=timezone.utc),
+                created_at=datetime(2026, 4, 28, 8, 0, tzinfo=timezone.utc),
+            ),
+            PressureRecord(
+                patient_id=patient.id,
+                device_id="pressure-scope-001",
+                heart_rate=78,
+                sys_rate=130,
+                dia_rate=85,
+                measured_at=datetime(2026, 4, 28, 9, 0, tzinfo=timezone.utc),
+                created_at=datetime(2026, 4, 28, 9, 0, tzinfo=timezone.utc),
+            ),
+            PressureRecord(
+                patient_id=other_patient.id,
+                device_id="pressure-scope-002",
+                heart_rate=132,
+                sys_rate=160,
+                dia_rate=96,
+                measured_at=datetime(2026, 4, 28, 10, 0, tzinfo=timezone.utc),
+                created_at=datetime(2026, 4, 28, 10, 0, tzinfo=timezone.utc),
+            ),
+        ]
+    )
+    db.commit()
+
+    response = client.get(
+        f"/patients/{patient.id}/pressure-readings",
+        headers=get_auth_headers(admin, db),
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 2
+    assert len(body["items"]) == 2
+    assert {item["patient_id"] for item in body["items"]} == {str(patient.id)}
+    assert body["latest"]["heart_rate"] == 78
+    assert body["latest"]["sys_rate"] == 130
+    assert body["latest"]["dia_rate"] == 85
+    assert body["latest"]["risk"]["level"] == "moderate"
+    assert body["latest"]["risk"]["heart_rate_level"] == "normal"
+    assert body["latest"]["risk"]["blood_pressure_level"] == "moderate"
+
+
+def test_pressure_risk_classification_has_three_levels():
+    assert pressure_service.classify_heart_rate(78)[0] == "normal"
+    assert pressure_service.classify_heart_rate(112)[0] == "moderate"
+    assert pressure_service.classify_heart_rate(132)[0] == "danger"
+    assert pressure_service.classify_blood_pressure(118, 78)[0] == "normal"
+    assert pressure_service.classify_blood_pressure(130, 85)[0] == "moderate"
+    assert pressure_service.classify_blood_pressure(145, 95)[0] == "danger"
 
 
 def test_patient_api_endpoints(client: TestClient, db: Session):

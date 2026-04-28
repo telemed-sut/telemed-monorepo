@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { cookies, headers } from "next/headers";
+import { Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthInitializer } from "@/components/auth-initializer";
@@ -11,6 +12,14 @@ import { AppearanceInitializer } from "@/components/appearance-initializer";
 import { AgentationClient } from "@/components/agentation-client";
 import { ToasterClient } from "@/components/toaster-client";
 import { APP_LANGUAGE_COOKIE_KEY, resolveAppLanguage } from "@/store/language-config";
+
+const notoSansThai = Noto_Sans_Thai({
+  subsets: ["thai", "latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  display: "swap",
+  variable: "--font-sans",
+  fallback: ["Segoe UI", "Noto Sans", "Helvetica Neue", "Arial", "sans-serif"],
+});
 
 const metadataBase = new URL(
   process.env.NEXT_PUBLIC_SITE_URL ||
@@ -71,7 +80,10 @@ export default async function RootLayout({
 
   return (
     <html lang={detectedLang} suppressHydrationWarning>
-      <body className="font-sans antialiased bg-background" suppressHydrationWarning>
+      <body
+        className={`${notoSansThai.variable} font-sans antialiased bg-background`}
+        suppressHydrationWarning
+      >
         <ThemeProvider
           attribute="class"
           forcedTheme="light"

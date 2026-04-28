@@ -130,8 +130,8 @@ export function AdminSettingsPanel({
                   <div className="rounded-xl border border-border/60 bg-muted/20 p-3 text-sm text-muted-foreground">
                     {tr(
                       language,
-                      "This issues an admin invite link. Share it securely. The invited admin will set a password and still complete 2FA.",
-                      "ระบบจะออกลิงก์คำเชิญสำหรับแอดมิน ควรส่งลิงก์อย่างปลอดภัย โดยผู้ได้รับเชิญจะตั้งรหัสผ่านและยังต้องทำ 2FA ให้ครบ",
+                      "This issues an admin invite link. Share it securely. The invited admin will set a password before signing in.",
+                      "ระบบจะออกลิงก์คำเชิญสำหรับแอดมิน ควรส่งลิงก์อย่างปลอดภัย โดยผู้ได้รับเชิญจะตั้งรหัสผ่านก่อนเข้าใช้งาน",
                     )}
                   </div>
 
@@ -268,14 +268,6 @@ export function AdminSettingsPanel({
                           ? tr(language, "Yes", "ใช่")
                           : tr(language, "No", "ไม่")}
                       </p>
-                      <p>
-                        <span className="text-muted-foreground">
-                          {tr(language, "2FA Enabled", "เปิดใช้งาน 2FA")}:
-                        </span>{" "}
-                        {admin.resolvedUser.two_factor_enabled
-                          ? tr(language, "Yes", "ใช่")
-                          : tr(language, "No", "ไม่")}
-                      </p>
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">
@@ -295,14 +287,6 @@ export function AdminSettingsPanel({
                       onClick={admin.handleEmergencyUnlock}
                     >
                       {tr(language, "Unlock account", "ปลดล็อกบัญชี")}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={admin.emergencyBusy || !admin.resolvedUser}
-                      onClick={admin.handleEmergencyReset2FA}
-                    >
-                      {tr(language, "Reset 2FA", "รีเซ็ต 2FA")}
                     </Button>
                     <Button
                       type="button"

@@ -48,7 +48,6 @@ export interface UserMe {
   last_name: string | null;
   role: string;
   verification_status?: string | null;
-  two_factor_enabled?: boolean;
   mfa_verified?: boolean;
   mfa_authenticated_at?: string | null;
   mfa_recent_for_privileged_actions?: boolean;
@@ -79,17 +78,6 @@ export interface AdminSsoLogoutResponse {
   redirect_url: string;
 }
 
-export interface Admin2FAStatus {
-  role?: string;
-  required: boolean;
-  enabled: boolean;
-  setup_required: boolean;
-  issuer?: string | null;
-  account_email?: string | null;
-  provisioning_uri?: string | null;
-  trusted_device_days?: number | null;
-}
-
 export type LockedRecoveryOption =
   | "wait"
   | "forgot_password"
@@ -99,33 +87,8 @@ export type LockedRecoveryOption =
 export interface LoginChallengeDetail {
   code?: string;
   message?: string;
-  required?: boolean;
-  setup_required?: boolean;
-  issuer?: string | null;
-  trusted_device_days?: number | null;
-  provisioning_uri?: string | null;
   retry_after_seconds?: number;
   recovery_options?: LockedRecoveryOption[];
-}
-
-export interface TrustedDevice {
-  id: string;
-  ip_address?: string | null;
-  created_at: string;
-  last_used_at?: string | null;
-  expires_at: string;
-  current_device: boolean;
-}
-
-export interface TrustedDeviceListResponse {
-  items: TrustedDevice[];
-  total: number;
-}
-
-export interface BackupCodesResponse {
-  codes: string[];
-  generated_at: string;
-  expires_at?: string | null;
 }
 
 export interface Patient {
@@ -188,7 +151,6 @@ export interface AdminSecurityUserLookup {
   user_id: string;
   email: string;
   role: string;
-  two_factor_enabled: boolean;
   is_locked: boolean;
 }
 
@@ -256,6 +218,36 @@ export interface HeartSoundListResponse {
   total: number;
   limit: number;
   offset: number;
+}
+
+export type PressureRiskLevel = "normal" | "moderate" | "danger";
+
+export interface PressureRiskAssessment {
+  level: PressureRiskLevel;
+  heart_rate_level: PressureRiskLevel;
+  blood_pressure_level: PressureRiskLevel;
+  reasons: string[];
+}
+
+export interface PressureRecord {
+  id: string;
+  patient_id: string;
+  device_exam_session_id?: string | null;
+  device_id: string;
+  heart_rate: number;
+  sys_rate: number;
+  dia_rate: number;
+  measured_at: string;
+  created_at: string;
+  risk: PressureRiskAssessment;
+}
+
+export interface PressureListResponse {
+  items: PressureRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+  latest: PressureRecord | null;
 }
 
 export const MEETING_STATUSES = [

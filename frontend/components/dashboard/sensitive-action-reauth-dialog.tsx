@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CheckCircle2, Eye, Loader2, LockKeyhole, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Eye, Loader2, LockKeyhole, ShieldCheck } from "lucide-react";
 
 import {
   fetchCurrentUser,
@@ -10,7 +10,6 @@ import {
   getLoginRedirectPath,
   getErrorMessage,
   stepUpAuth,
-  type ApiError,
 } from "@/lib/api";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
@@ -23,16 +22,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
 import type { AppLanguage } from "@/store/language-config";
-
-interface Admin2FAErrorDetail {
-  code?: string;
-  message?: string;
-}
 
 interface SensitiveActionReauthDialogProps {
   open: boolean;
@@ -69,13 +62,9 @@ export function SensitiveActionReauthDialog({
   const [resolvedAuthSource, setResolvedAuthSource] = useState<string | null>(null);
   const [resolvedSsoProvider, setResolvedSsoProvider] = useState<string | null>(null);
   const [password, setPassword] = useState("");
-  const [otpCode, setOtpCode] = useState("");
   const [loadingIdentity, setLoadingIdentity] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [requiresOtp, setRequiresOtp] = useState(false);
-  const [rememberDevice, setRememberDevice] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const otpInputRef = useRef<HTMLInputElement | null>(null);
 
   const dialogTitle = title ?? tr(language, "Confirm your identity", "ยืนยันตัวตนอีกครั้ง");
   const dialogDescription =
@@ -87,11 +76,6 @@ export function SensitiveActionReauthDialog({
     );
   const primaryActionLabel =
     actionLabel ?? tr(language, "Continue securely", "ดำเนินการต่ออย่างปลอดภัย");
-  const otpActionLabel = tr(
-    language,
-    "Verify code and continue",
-    "ยืนยันรหัสแล้วทำต่อ",
-  );
   const effectiveAuthSource = resolvedAuthSource ?? authSource;
   const effectiveSsoProvider = resolvedSsoProvider ?? ssoProvider;
   const isSsoSession = effectiveAuthSource === "sso";
@@ -112,9 +96,6 @@ export function SensitiveActionReauthDialog({
       setResolvedAuthSource(null);
       setResolvedSsoProvider(null);
       setPassword("");
-      setOtpCode("");
-      setRequiresOtp(false);
-      setRememberDevice(false);
       setSubmitting(false);
       setError(null);
       return;
@@ -174,14 +155,6 @@ export function SensitiveActionReauthDialog({
     };
   }, [authSource, clearToken, currentUser, language, open, router, token, userId, setCurrentUser]);
 
-  useEffect(() => {
-    if (!requiresOtp) {
-      return;
-    }
-
-    otpInputRef.current?.focus();
-  }, [requiresOtp]);
-
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!token) {
@@ -203,7 +176,7 @@ export function SensitiveActionReauthDialog({
         return;
       }
 
-      const response = await stepUpAuth(password, otpCode, rememberDevice, token);
+      const response = await stepUpAuth(password, undefined, false, token);
       if (!response.user) {
         throw new Error(
           tr(
@@ -216,28 +189,10 @@ export function SensitiveActionReauthDialog({
 
       setSession(response);
       setPassword("");
-      setOtpCode("");
-      setRequiresOtp(false);
-      setRememberDevice(false);
       onOpenChange(false);
       toast.success(tr(language, "Secure verification refreshed", "รีเฟรชการยืนยันตัวตนแล้ว"));
       await onSuccess?.();
     } catch (err) {
-      const apiError = err as ApiError;
-      const detail = apiError.detail as Admin2FAErrorDetail | undefined;
-
-      if (detail?.code === "two_factor_required" || detail?.code === "admin_2fa_required") {
-        setRequiresOtp(true);
-        setError(
-          tr(
-            language,
-            "Enter the 6-digit code from your authenticator app, or use a backup code.",
-            "กรอกรหัส 6 หลักจากแอปยืนยันตัวตน หรือใช้รหัสสำรอง",
-          ),
-        );
-        return;
-      }
-
       setError(getAuthErrorMessage(language, err, "step-up"));
     } finally {
       setSubmitting(false);
@@ -321,87 +276,16 @@ export function SensitiveActionReauthDialog({
                 {email
                   ? tr(
                       language,
-                      `Use the same password you use to sign in as ${email}. This is not the OTP or verification code.`,
-                      `ใช้รหัสเดียวกับที่คุณใช้ล็อกอินเป็น ${email} ไม่ใช่รหัส OTP หรือรหัสยืนยัน`,
+                      `Use the same password you use to sign in as ${email}.`,
+                      `ใช้รหัสเดียวกับที่คุณใช้ล็อกอินเป็น ${email}`,
                     )
                   : tr(
                       language,
-                      "Use the same password you use to sign in to this dashboard. This is not the OTP or verification code.",
-                      "ใช้รหัสเดียวกับที่คุณใช้ล็อกอินเข้าแดชบอร์ดนี้ ไม่ใช่รหัส OTP หรือรหัสยืนยัน",
+                      "Use the same password you use to sign in to this dashboard.",
+                      "ใช้รหัสเดียวกับที่คุณใช้ล็อกอินเข้าแดชบอร์ดนี้",
                     )}
               </p>
             </div>
-
-            {requiresOtp ? (
-              <div className="space-y-3">
-                <div className="rounded-2xl border border-emerald-200/80 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-950">
-                  <div className="flex items-start gap-3">
-                    <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
-                    <p>
-                      {tr(
-                        language,
-                        "Password confirmed. Step 2 of 2: enter the current code from your authenticator app or a backup code to finish.",
-                        "รหัสผ่านถูกต้องแล้ว ขั้นตอนที่ 2 จาก 2: กรอกรหัสล่าสุดจากแอปยืนยันตัวตน หรือใช้รหัสสำรองเพื่อทำรายการต่อ",
-                      )}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="secure-session-otp">
-                    {tr(language, "Authenticator or backup code", "รหัสจากแอปยืนยันตัวตนหรือรหัสสำรอง")}
-                  </Label>
-                  <Input
-                    id="secure-session-otp"
-                    ref={otpInputRef}
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    value={otpCode}
-                    onChange={(event) => {
-                      setOtpCode(event.target.value);
-                      setError(null);
-                    }}
-                    placeholder={tr(language, "6-digit code or backup code", "รหัส 6 หลักหรือรหัสสำรอง")}
-                    disabled={submitting}
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    {tr(
-                      language,
-                      "Use the current 6-digit code from your authenticator app, or one of your backup codes from Security settings.",
-                      "ใช้รหัส 6 หลักล่าสุดจากแอปยืนยันตัวตน หรือใช้รหัสสำรองจากหน้า Security settings",
-                    )}
-                  </p>
-                </div>
-
-                <div className="space-y-2 rounded-2xl border border-border/70 bg-muted/15 px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <Checkbox
-                      id="secure-session-remember-device"
-                      checked={rememberDevice}
-                      onCheckedChange={(value) => setRememberDevice(Boolean(value))}
-                      disabled={submitting}
-                    />
-                    <Label
-                      htmlFor="secure-session-remember-device"
-                      className="cursor-pointer text-sm font-medium"
-                    >
-                      {tr(
-                        language,
-                        "Trust this device for secure actions",
-                        "เชื่อถืออุปกรณ์นี้สำหรับงานที่ต้องยืนยันตัวตน",
-                      )}
-                    </Label>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    {tr(
-                      language,
-                      "Future protected actions on this browser will ask for fewer codes, based on your trusted-device policy.",
-                      "งานที่ถูกปกป้องครั้งถัดไปบนเบราว์เซอร์นี้จะถามรหัสน้อยลงตามนโยบายอุปกรณ์ที่เชื่อถือได้",
-                    )}
-                  </p>
-                </div>
-              </div>
-            ) : null}
 
             <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
               <div className="flex items-start gap-3">
@@ -428,7 +312,7 @@ export function SensitiveActionReauthDialog({
               </Button>
               <Button type="submit" disabled={submitting || loadingIdentity || !email}>
                 {submitting ? <Loader2 className="size-4 animate-spin" /> : <LockKeyhole className="size-4" />}
-                {requiresOtp ? otpActionLabel : primaryActionLabel}
+                {primaryActionLabel}
               </Button>
             </DialogFooter>
           </form>

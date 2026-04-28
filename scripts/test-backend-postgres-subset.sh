@@ -14,7 +14,6 @@ TEST_FILES=(
   tests/test_patients.py
   tests/test_dense_mode_access.py
   tests/test_audit_logs.py
-  tests/test_auth_2fa_management.py
   tests/test_security_admin_endpoints.py
   tests/test_stats_and_audit_contracts.py
 )

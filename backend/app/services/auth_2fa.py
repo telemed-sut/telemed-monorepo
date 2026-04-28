@@ -1,4 +1,4 @@
-"""Two-factor session freshness helpers for sensitive operations."""
+"""Session freshness helpers for sensitive operations."""
 
 from datetime import timedelta
 
@@ -46,7 +46,7 @@ def require_recent_sensitive_session(
     if not bool(payload.get("mfa_verified")):
         raise HTTPException(
             status_code=error_status,
-            detail="Recent multi-factor verification required.",
+            detail="Recent verification required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -55,13 +55,13 @@ def require_recent_sensitive_session(
     if mfa_authenticated_at is None:
         raise HTTPException(
             status_code=error_status,
-            detail="Recent multi-factor verification required.",
+            detail="Recent verification required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
     if _now_utc() - mfa_authenticated_at > timedelta(seconds=max(threshold_seconds, 1)):
         raise HTTPException(
             status_code=error_status,
-            detail="Recent multi-factor verification required.",
+            detail="Recent verification required.",
             headers={"WWW-Authenticate": "Bearer"},
         )

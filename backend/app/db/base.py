@@ -12,7 +12,7 @@ from app.models import (  # noqa: F401,E402
     current_condition, treatment, medication, lab,
     timeline_event, alert, audit_log,
     ip_ban, login_attempt, pressure_record, device_error_log, device_request_nonce,
-    user_trusted_device, user_backup_code, device_registration,
+    device_registration,
     device_exam_session,
     user_passkey,
     meeting_patient_invite_code,

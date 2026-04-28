@@ -37,8 +37,8 @@ export function AccountSettingsPanel({
         <CardDescription>
           {tr(
             language,
-            "Edit your profile and review sign-in details, MFA status, and the current session in one place.",
-            "แก้ไขโปรไฟล์ พร้อมดูวิธีเข้าสู่ระบบ สถานะ MFA และเซสชันปัจจุบันได้ในที่เดียว",
+            "Edit your profile and review sign-in details and the current session in one place.",
+            "แก้ไขโปรไฟล์ พร้อมดูวิธีเข้าสู่ระบบและเซสชันปัจจุบันได้ในที่เดียว",
           )}
         </CardDescription>
       </CardHeader>
@@ -114,8 +114,8 @@ export function AccountSettingsPanel({
                     profile.privilegedAccessCodename ||
                     tr(
                       language,
-                      "Protected until recent MFA",
-                      "ปกป้องไว้จนกว่าจะยืนยัน MFA ล่าสุด",
+                      "Protected until recent verification",
+                      "ปกป้องไว้จนกว่าจะยืนยันล่าสุด",
                     )
                   }
                   disabled
@@ -125,8 +125,8 @@ export function AccountSettingsPanel({
                   <p className="text-xs text-muted-foreground">
                     {tr(
                       language,
-                      "Detailed privileged access stays hidden until this session has recent MFA.",
-                      "รายละเอียดสิทธิพิเศษจะยังไม่แสดงจนกว่าเซสชันนี้จะมี MFA ล่าสุด",
+                      "Detailed privileged access stays hidden until this session was verified recently.",
+                      "รายละเอียดสิทธิพิเศษจะยังไม่แสดงจนกว่าเซสชันนี้จะยืนยันล่าสุด",
                     )}
                   </p>
                 ) : null}
@@ -174,9 +174,9 @@ export function AccountSettingsPanel({
           </div>
           <div className="rounded-2xl border border-border bg-muted/20 p-3">
             <p className="text-[11px] font-medium text-muted-foreground">
-              {tr(language, "MFA", "MFA")}
+              {tr(language, "Verification", "การยืนยัน")}
             </p>
-            <p className="mt-1 text-sm font-medium">{profile.mfaStatusSummary}</p>
+            <p className="mt-1 text-sm font-medium">{profile.sessionVerificationSummary}</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
               {tr(language, "Last verified", "ยืนยันล่าสุด")}{" "}
               {profile.mfaAuthenticatedAtLabel}

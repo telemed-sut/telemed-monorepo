@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.core.secret_crypto import has_reserved_secret_prefix
-from app.core.security import generate_totp_secret
 from app.models.audit_log import AuditLog
 from app.models.device_registration import DeviceRegistration
 from app.models.enums import DeviceExamMeasurementType, PrivilegedRole, UserRole
@@ -25,6 +24,7 @@ from app.services import auth as auth_service
 from app.services import auth_sessions
 from app.services import security as security_service
 from app.services.auth import get_admin_user, get_db
+from app.services.redis_cache import clear_cached_device_secret
 
 router = APIRouter(prefix="/security", tags=["security"])
 settings = get_settings()
@@ -238,22 +238,10 @@ class AdminEmergencyUnlockResponse(BaseModel):
     was_locked: bool
 
 
-class AdminUserTwoFactorResetRequest(BaseModel):
-    reason: str
-
-
-class AdminUserTwoFactorResetResponse(BaseModel):
-    message: str
-    user_id: str
-    email: str
-    setup_required: bool
-
-
 class AdminSecurityUserLookupResponse(BaseModel):
     user_id: str
     email: str
     role: str
-    two_factor_enabled: bool
     is_locked: bool
 
 
@@ -748,89 +736,7 @@ def resolve_user_for_security_actions(
         user_id=str(user.id),
         email=user.email,
         role=user.role.value if user.role else "unknown",
-        two_factor_enabled=bool(user.two_factor_enabled),
         is_locked=bool(locked_until and locked_until > now),
-    )
-
-
-@router.post("/users/{user_id}/2fa/reset", response_model=AdminUserTwoFactorResetResponse)
-@limiter.limit("5/minute")
-def reset_user_two_factor_by_super_admin(
-    request: Request,
-    user_id: UUID,
-    payload: AdminUserTwoFactorResetRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(auth_service.get_current_user),
-):
-    ip = _client_ip(request)
-    reason = _normalize_privileged_reason(payload.reason)
-    try:
-        _require_security_recovery_access(request=request, db=db, current_user=current_user)
-    except HTTPException as exc:
-        db.add(
-            AuditLog(
-                user_id=current_user.id,
-                action="admin_force_2fa_reset_denied",
-                resource_type="user",
-                resource_id=user_id,
-                details={"reason": reason, "error": _security_recovery_denial_code(exc)},
-                ip_address=ip,
-                is_break_glass=False,
-                status="failure",
-            )
-        )
-        db.commit()
-        raise
-
-    target = db.scalar(
-        select(User)
-        .where(User.id == user_id, User.deleted_at.is_(None))
-        .with_for_update()
-    )
-    if not target:
-        db.add(
-            AuditLog(
-                user_id=current_user.id,
-                action="admin_force_2fa_reset_denied",
-                resource_type="user",
-                resource_id=user_id,
-                details={"reason": reason, "error": "target_not_found"},
-                ip_address=ip,
-                is_break_glass=False,
-                status="failure",
-            )
-        )
-        db.commit()
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    target.two_factor_secret = generate_totp_secret()
-    target.two_factor_enabled = False
-    target.two_factor_enabled_at = None
-    revoked_devices = security_service.revoke_all_trusted_devices(db, user_id=target.id)
-    revoked_backup_codes = security_service.revoke_backup_codes(db, user_id=target.id)
-    db.add(
-        AuditLog(
-            user_id=current_user.id,
-            action="admin_force_2fa_reset",
-            resource_type="user",
-            resource_id=target.id,
-            details={
-                "reason": reason,
-                "target_email": target.email,
-                "revoked_devices": revoked_devices,
-                "revoked_backup_codes": revoked_backup_codes,
-            },
-            ip_address=ip,
-            is_break_glass=False,
-            status="success",
-        )
-    )
-    db.commit()
-    return AdminUserTwoFactorResetResponse(
-        message=f"2FA has been reset for {target.email}.",
-        user_id=str(target.id),
-        email=target.email,
-        setup_required=True,
     )
 
 
@@ -884,15 +790,12 @@ def reset_user_password_by_super_admin(
         db.commit()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    # Immediately invalidate old credentials, revoke MFA bypass artifacts,
-    # then issue a short-lived one-time reset token.
-    auth_service.reset_user_password(db, target, generate_totp_secret(16))
+    # Immediately invalidate old credentials, then issue a short-lived reset token.
+    auth_service.reset_user_password(db, target, secrets.token_urlsafe(24))
     target.failed_login_attempts = 0
     target.account_locked_until = None
     target.last_failed_login_at = None
     revoked_sessions = auth_sessions.revoke_user_sessions(db, user_id=target.id)
-    revoked_devices = security_service.revoke_all_trusted_devices(db, user_id=target.id)
-    revoked_backup_codes = security_service.revoke_backup_codes(db, user_id=target.id)
     reset_token = auth_service.create_password_reset_token(target)
     db.add(
         AuditLog(
@@ -905,8 +808,6 @@ def reset_user_password_by_super_admin(
                 "target_email": target.email,
                 "reset_token_expires_in": settings.password_reset_expires_in,
                 "revoked_sessions": revoked_sessions,
-                "revoked_devices": revoked_devices,
-                "revoked_backup_codes": revoked_backup_codes,
             },
             ip_address=ip,
             is_break_glass=False,
@@ -923,8 +824,6 @@ def reset_user_password_by_super_admin(
         details={
             "reason_present": bool(reason),
             "revoked_sessions": revoked_sessions,
-            "revoked_devices": revoked_devices,
-            "revoked_backup_codes": revoked_backup_codes,
         },
     )
 
@@ -969,11 +868,7 @@ def list_registered_devices(
         stmt = stmt.where(active_filter)
         count_stmt = count_stmt.where(active_filter)
 
-    # nosemgrep: generic-sql-fastapi
-    # SQLAlchemy binds the optional filters here; q/is_active are not interpolated into raw SQL strings.
-    total = db.scalar(count_stmt) or 0  # nosemgrep: generic-sql-fastapi
-    # nosemgrep: generic-sql-fastapi
-    # Pagination values are normalized to bounded ints before reaching the ORM query builder.
+    total = db.scalar(count_stmt) or 0
     rows = db.scalars(
         stmt.order_by(DeviceRegistration.created_at.desc())
         .offset((normalized_page - 1) * normalized_limit)
@@ -987,8 +882,6 @@ def list_registered_devices(
         limit=normalized_limit,
     )
 
-
-from app.services.redis_cache import clear_cached_device_secret
 
 @router.post("/devices", response_model=DeviceRegistrationCreateResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("20/minute")
@@ -1044,8 +937,6 @@ def create_registered_device(
     db.commit()
     db.refresh(device)
 
-    # One-time reveal: the plaintext secret is returned only at creation time so
-    # the operator can provision the device before it is persisted encrypted.
     return DeviceRegistrationCreateResponse(
         device=_to_device_registration_view(device),
         device_secret=secret_value,
@@ -1195,8 +1086,6 @@ def rotate_registered_device_secret(
 
     db.commit()
     db.refresh(device)
-    # One-time reveal: expose the rotated secret only in this response so the
-    # replacement credential can be deployed while the stored value remains encrypted.
     return DeviceRegistrationRotateSecretResponse(
         message=f"Secret rotated for {device.device_id}.",
         device_secret=secret_value,
@@ -1275,7 +1164,6 @@ def get_security_stats(
             AuditLog.action.in_(
                 (
                     "admin_emergency_unlock",
-                    "admin_force_2fa_reset",
                     "admin_force_password_reset",
                 )
             ),
@@ -1347,7 +1235,6 @@ def create_ip_ban(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
-    # Prevent banning own IP
     client_ip = _client_ip(request)
     
     if payload.ip_address == client_ip:
@@ -1356,11 +1243,9 @@ def create_ip_ban(
             detail="You cannot ban your own IP address."
         )
 
-    # Check if already banned
     existing_ban = db.scalar(select(IPBan).where(IPBan.ip_address == payload.ip_address))
     was_existing = existing_ban is not None
     if existing_ban:
-        # Update existing ban
         existing_ban.reason = payload.reason or existing_ban.reason
         existing_ban.banned_until = datetime.now(timezone.utc) + timedelta(minutes=payload.duration_minutes)
         db.add(existing_ban)
@@ -1368,7 +1253,6 @@ def create_ip_ban(
         db.refresh(existing_ban)
         ban = existing_ban
     else:
-        # Create new ban
         ban = IPBan(
             ip_address=payload.ip_address,
             reason=payload.reason or "Manual ban by admin",

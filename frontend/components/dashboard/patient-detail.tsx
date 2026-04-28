@@ -6,15 +6,23 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import {
+  Activity,
+  AlertTriangle,
   ArrowRight,
   CalendarClock,
+  CheckCircle2,
   Clock3,
   Eye,
   EyeOff,
+  Gauge,
+  HeartPulse,
   Mail,
   MapPin,
   Phone,
+  Play,
+  RefreshCcw,
   ShieldCheck,
+  Square,
   Stethoscope,
   UserRound,
   Volume2,
@@ -25,10 +33,13 @@ import {
   fetchMeetings,
   fetchPatient,
   fetchPatientContactDetails,
+  fetchPatientPressureReadings,
   getErrorMessage,
   type Meeting,
   type Patient,
   type PatientContactDetails,
+  type PressureRecord,
+  type PressureRiskLevel,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -76,9 +87,199 @@ interface InfoRowProps {
 }
 
 const CONTACT_REVEAL_TIMEOUT_MS = 60_000;
+const PRESSURE_POLL_INTERVAL_MS = 3_000;
+const PRESSURE_DEMO_INTERVAL_MS = 1_600;
+const MAX_DEMO_PRESSURE_READINGS = 10;
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
+
+const getPressureRiskLabel = (level: PressureRiskLevel, language: AppLanguage) => {
+  if (level === "danger") return tr(language, "Danger", "อันตราย");
+  if (level === "moderate") return tr(language, "Moderate", "ปานกลาง");
+  return tr(language, "Normal", "ปกติ");
+};
+
+const getPressureRiskTone = (level: PressureRiskLevel) => {
+  if (level === "danger") {
+    return {
+      icon: AlertTriangle,
+      bannerClass: "border-red-200 bg-card text-red-800",
+      badgeClass: "border-red-200 bg-red-50 text-red-700",
+      accentClass: "text-red-600",
+      iconClass: "border-red-100 bg-red-50 text-red-600",
+    };
+  }
+  if (level === "moderate") {
+    return {
+      icon: AlertTriangle,
+      bannerClass: "border-amber-200 bg-card text-amber-800",
+      badgeClass: "border-amber-200 bg-amber-50 text-amber-700",
+      accentClass: "text-amber-600",
+      iconClass: "border-amber-100 bg-amber-50 text-amber-600",
+    };
+  }
+  return {
+    icon: CheckCircle2,
+    bannerClass: "border-emerald-200 bg-card text-emerald-800",
+    badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    accentClass: "text-emerald-600",
+    iconClass: "border-emerald-100 bg-emerald-50 text-emerald-600",
+  };
+};
+
+const getPressureRiskHint = (record: PressureRecord, language: AppLanguage) => {
+  if (record.risk.level === "danger") {
+    return tr(
+      language,
+      "Latest reading needs urgent clinical review.",
+      "ค่าล่าสุดเข้าเกณฑ์ที่ต้องรีบประเมินทางคลินิก"
+    );
+  }
+  if (record.risk.level === "moderate") {
+    return tr(
+      language,
+      "Latest reading is outside the normal range and should be followed.",
+      "ค่าล่าสุดเริ่มออกนอกช่วงปกติ ควรติดตามต่อ"
+    );
+  }
+  return tr(
+    language,
+    "Latest heart rate and blood pressure are in the normal range.",
+    "อัตราการเต้นหัวใจและความดันล่าสุดอยู่ในช่วงปกติ"
+  );
+};
+
+const buildMockPressureReadings = (patientId: string): PressureRecord[] => {
+  const now = Date.now();
+  const measuredAt = new Date(now - 4 * 60 * 1000).toISOString();
+  const earlierAt = new Date(now - 34 * 60 * 1000).toISOString();
+  const oldestAt = new Date(now - 74 * 60 * 1000).toISOString();
+
+  return [
+    {
+      id: `${patientId}-mock-pressure-1`,
+      patient_id: patientId,
+      device_exam_session_id: null,
+      device_id: "mock-bp-device-001",
+      heart_rate: 78,
+      sys_rate: 130,
+      dia_rate: 85,
+      measured_at: measuredAt,
+      created_at: measuredAt,
+      risk: {
+        level: "moderate",
+        heart_rate_level: "normal",
+        blood_pressure_level: "moderate",
+        reasons: ["sys_rate between 120-139 mmHg (130)", "dia_rate between 80-89 mmHg (85)"],
+      },
+    },
+    {
+      id: `${patientId}-mock-pressure-2`,
+      patient_id: patientId,
+      device_exam_session_id: null,
+      device_id: "mock-bp-device-001",
+      heart_rate: 74,
+      sys_rate: 118,
+      dia_rate: 76,
+      measured_at: earlierAt,
+      created_at: earlierAt,
+      risk: {
+        level: "normal",
+        heart_rate_level: "normal",
+        blood_pressure_level: "normal",
+        reasons: [],
+      },
+    },
+    {
+      id: `${patientId}-mock-pressure-3`,
+      patient_id: patientId,
+      device_exam_session_id: null,
+      device_id: "mock-bp-device-001",
+      heart_rate: 124,
+      sys_rate: 146,
+      dia_rate: 92,
+      measured_at: oldestAt,
+      created_at: oldestAt,
+      risk: {
+        level: "danger",
+        heart_rate_level: "danger",
+        blood_pressure_level: "danger",
+        reasons: ["heart_rate above 120 bpm (124)", "sys_rate at least 140 mmHg (146)"],
+      },
+    },
+  ];
+};
+
+const demoPressureSequence: Array<{
+  heartRate: number;
+  sysRate: number;
+  diaRate: number;
+  risk: PressureRecord["risk"];
+}> = [
+  {
+    heartRate: 76,
+    sysRate: 118,
+    diaRate: 76,
+    risk: {
+      level: "normal",
+      heart_rate_level: "normal",
+      blood_pressure_level: "normal",
+      reasons: [],
+    },
+  },
+  {
+    heartRate: 82,
+    sysRate: 130,
+    diaRate: 85,
+    risk: {
+      level: "moderate",
+      heart_rate_level: "normal",
+      blood_pressure_level: "moderate",
+      reasons: ["sys_rate between 120-139 mmHg (130)", "dia_rate between 80-89 mmHg (85)"],
+    },
+  },
+  {
+    heartRate: 126,
+    sysRate: 148,
+    diaRate: 94,
+    risk: {
+      level: "danger",
+      heart_rate_level: "danger",
+      blood_pressure_level: "danger",
+      reasons: ["heart_rate above 120 bpm (126)", "sys_rate at least 140 mmHg (148)"],
+    },
+  },
+  {
+    heartRate: 104,
+    sysRate: 136,
+    diaRate: 86,
+    risk: {
+      level: "moderate",
+      heart_rate_level: "moderate",
+      blood_pressure_level: "moderate",
+      reasons: ["heart_rate above normal range 60-100 bpm (104)", "sys_rate between 120-139 mmHg (136)"],
+    },
+  },
+];
+
+const buildDemoPressureReading = (patientId: string, sequence: number): PressureRecord => {
+  const sample = demoPressureSequence[sequence % demoPressureSequence.length];
+  const measuredAt = new Date().toISOString();
+
+  return {
+    id: `${patientId}-demo-pressure-${sequence}-${Date.now()}`,
+    patient_id: patientId,
+    device_exam_session_id: null,
+    device_id: "demo-bp-device-001",
+    heart_rate: sample.heartRate,
+    sys_rate: sample.sysRate,
+    dia_rate: sample.diaRate,
+    measured_at: measuredAt,
+    created_at: measuredAt,
+    risk: sample.risk,
+  };
+};
 
 const getGenderLabel = (
   value: string | null | undefined,
@@ -178,6 +379,13 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
   const [loadingContactDetails, setLoadingContactDetails] = useState(false);
   const [contactDetailsError, setContactDetailsError] = useState<string | null>(null);
   const [contactDetailsRevealed, setContactDetailsRevealed] = useState(false);
+  const [pressureReadings, setPressureReadings] = useState<PressureRecord[]>([]);
+  const [pressureTotal, setPressureTotal] = useState(0);
+  const [loadingPressureReadings, setLoadingPressureReadings] = useState(true);
+  const [pressureReadingsError, setPressureReadingsError] = useState<string | null>(null);
+  const [demoPressureReadings, setDemoPressureReadings] = useState<PressureRecord[]>([]);
+  const [isPressureDemoRunning, setIsPressureDemoRunning] = useState(false);
+  const pressureDemoSequenceRef = React.useRef(0);
   const patientWorkspaceHrefs = React.useMemo(
     () => getPatientWorkspaceHrefs(patientId),
     [patientId]
@@ -201,6 +409,13 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     setContactDetailsError(null);
     setLoadingContactDetails(false);
     setContactDetailsRevealed(false);
+    setPressureReadings([]);
+    setPressureTotal(0);
+    setLoadingPressureReadings(true);
+    setPressureReadingsError(null);
+    setDemoPressureReadings([]);
+    setIsPressureDemoRunning(false);
+    pressureDemoSequenceRef.current = 0;
   }, [cachedSnapshot]);
 
   useEffect(() => {
@@ -256,6 +471,79 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
 
     await revealContactDetails();
   }, [contactDetailsRevealed, revealContactDetails]);
+
+  const pushDemoPressureReading = React.useCallback(() => {
+    const nextReading = buildDemoPressureReading(
+      patientId,
+      pressureDemoSequenceRef.current
+    );
+    pressureDemoSequenceRef.current += 1;
+    setDemoPressureReadings((current) => [
+      nextReading,
+      ...current,
+    ].slice(0, MAX_DEMO_PRESSURE_READINGS));
+  }, [patientId]);
+
+  const handleTogglePressureDemo = React.useCallback(() => {
+    setPressureReadingsError(null);
+    setLoadingPressureReadings(false);
+
+    if (isPressureDemoRunning) {
+      setIsPressureDemoRunning(false);
+      setDemoPressureReadings([]);
+      pressureDemoSequenceRef.current = 0;
+      return;
+    }
+
+    setDemoPressureReadings([]);
+    pressureDemoSequenceRef.current = 0;
+    pushDemoPressureReading();
+    setIsPressureDemoRunning(true);
+  }, [isPressureDemoRunning, pushDemoPressureReading]);
+
+  const loadPressureReadings = React.useCallback(
+    async (options: { showLoading?: boolean } = {}) => {
+      if (!token) {
+        return;
+      }
+
+      const showLoading = options.showLoading ?? false;
+      if (showLoading) {
+        setLoadingPressureReadings(true);
+      }
+      setPressureReadingsError(null);
+
+      try {
+        const res = await fetchPatientPressureReadings(patientId, token);
+        setPressureReadings(res.items);
+        setPressureTotal(res.total);
+      } catch (err) {
+        const status = (err as { status?: number }).status;
+        if (status === 401) {
+          clearToken();
+          router.replace("/login");
+          return;
+        }
+        if (status === 404) {
+          setPressureReadings([]);
+          setPressureTotal(0);
+          setPressureReadingsError(null);
+          return;
+        }
+        setPressureReadingsError(
+          getErrorMessage(
+            err,
+            tr(language, "Vital signs could not be loaded.", "ยังไม่สามารถโหลดสัญญาณชีพได้")
+          )
+        );
+      } finally {
+        if (showLoading) {
+          setLoadingPressureReadings(false);
+        }
+      }
+    },
+    [clearToken, language, patientId, router, token]
+  );
 
   useEffect(() => {
     if (!token) return;
@@ -338,6 +626,27 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
       cancelled = true;
     };
   }, [token, patientId, clearToken, router, cachedSnapshot?.meetings.length, userId]);
+
+  useEffect(() => {
+    if (!token) return;
+
+    void loadPressureReadings({ showLoading: true });
+    const intervalId = window.setInterval(() => {
+      void loadPressureReadings({ showLoading: false });
+    }, PRESSURE_POLL_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [loadPressureReadings, token]);
+
+  useEffect(() => {
+    if (!isPressureDemoRunning) return;
+
+    const intervalId = window.setInterval(() => {
+      pushDemoPressureReading();
+    }, PRESSURE_DEMO_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [isPressureDemoRunning, pushDemoPressureReading]);
 
   const getAge = (dateOfBirth: string) => {
     const dob = new Date(dateOfBirth);
@@ -438,6 +747,28 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     .map((part) => part?.trim().charAt(0) ?? "")
     .join("")
     .toUpperCase();
+  const mockPressureReadings = buildMockPressureReadings(patientId);
+  const isUsingDemoPressureReadings = demoPressureReadings.length > 0;
+  const isUsingMockPressureReadings =
+    !loadingPressureReadings &&
+    !pressureReadingsError &&
+    pressureReadings.length === 0 &&
+    !isUsingDemoPressureReadings;
+  const displayPressureReadings = isUsingDemoPressureReadings
+    ? demoPressureReadings
+    : pressureReadings.length > 0
+    ? pressureReadings
+    : mockPressureReadings;
+  const displayPressureTotal = isUsingDemoPressureReadings
+    ? demoPressureReadings.length
+    : pressureReadings.length > 0
+    ? pressureTotal
+    : mockPressureReadings.length;
+  const latestPressureReading = displayPressureReadings[0] ?? null;
+  const latestPressureRiskTone = latestPressureReading
+    ? getPressureRiskTone(latestPressureReading.risk.level)
+    : null;
+  const LatestPressureRiskIcon = latestPressureRiskTone?.icon ?? Activity;
   const heartSoundHref = patientWorkspaceHrefs[1];
   const denseModeHref = patientWorkspaceHrefs[2];
   const prefetchHeartSoundWorkspace = () => {
@@ -607,6 +938,242 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                     tone={stat.tone}
                   />
                 ))}
+              </div>
+
+              <div className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+                <div className="mb-4 flex flex-col gap-4 border-b border-border/70 pb-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="max-w-3xl space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
+                        {tr(language, "Vital Signs", "สัญญาณชีพ")}
+                      </p>
+                      {isUsingMockPressureReadings ? (
+                        <Badge
+                          variant="outline"
+                          className="rounded-full border-sky-200 bg-sky-50 px-2.5 py-0.5 text-[0.7rem] text-sky-700"
+                        >
+                          {tr(language, "Sample data", "ข้อมูลตัวอย่าง")}
+                        </Badge>
+                      ) : null}
+                      {isUsingDemoPressureReadings ? (
+                        <Badge
+                          variant="outline"
+                          className="rounded-full border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[0.7rem] text-emerald-700"
+                        >
+                          {tr(language, "Live demo", "จำลองสด")}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <h2 className="text-xl font-semibold tracking-tight text-foreground">
+                      {tr(language, "Blood pressure risk", "ระดับความเสี่ยงความดันโลหิต")}
+                    </h2>
+                    <p className="text-sm leading-6 text-muted-foreground">
+                      {isUsingMockPressureReadings
+                        ? tr(
+                            language,
+                            "Sample readings are shown until this patient receives real device data.",
+                            "แสดงข้อมูลตัวอย่างไว้ก่อน จนกว่าผู้ป่วยรายนี้จะมีข้อมูลจริงจากอุปกรณ์"
+                          )
+                        : isUsingDemoPressureReadings
+                          ? tr(
+                              language,
+                              "Live demo readings are showing in this patient view.",
+                              "กำลังแสดงข้อมูลจำลองสดในหน้าผู้ป่วยนี้"
+                            )
+                        : tr(
+                            language,
+                            "Latest device reading for this patient only. This panel refreshes automatically.",
+                            "แสดงค่าล่าสุดจากอุปกรณ์ของผู้ป่วยรายนี้เท่านั้น และรีเฟรชอัตโนมัติ"
+                          )}
+                    </p>
+                  </div>
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row lg:pt-1">
+                    <Button
+                      type="button"
+                      variant={isPressureDemoRunning ? "outline" : "default"}
+                      onClick={handleTogglePressureDemo}
+                      className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
+                    >
+                      {isPressureDemoRunning ? (
+                        <Square className="size-4" />
+                      ) : (
+                        <Play className="size-4" />
+                      )}
+                      {isPressureDemoRunning
+                        ? tr(language, "Stop demo", "หยุดจำลอง")
+                        : tr(language, "Start live demo", "เริ่มจำลองสด")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setIsPressureDemoRunning(false);
+                        setDemoPressureReadings([]);
+                        pressureDemoSequenceRef.current = 0;
+                        void loadPressureReadings({ showLoading: true });
+                      }}
+                      disabled={loadingPressureReadings}
+                      className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
+                    >
+                      <RefreshCcw className={cn("size-4", loadingPressureReadings && "animate-spin")} />
+                      {tr(language, "Refresh", "รีเฟรช")}
+                    </Button>
+                  </div>
+                </div>
+
+                {loadingPressureReadings ? (
+                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+                    <Skeleton className="h-32 rounded-2xl" />
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Skeleton className="h-32 rounded-2xl" />
+                      <Skeleton className="h-32 rounded-2xl" />
+                    </div>
+                  </div>
+                ) : pressureReadingsError ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+                    {pressureReadingsError}
+                  </div>
+                ) : latestPressureReading && latestPressureRiskTone ? (
+                  <div className="space-y-4">
+                    <m.div
+                      key={latestPressureReading.id}
+                      initial={{ opacity: 0, y: 10, scale: 0.99 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.22 }}
+                      className={cn(
+                        "relative flex flex-col gap-4 overflow-hidden rounded-xl border px-4 py-3.5 shadow-[0_1px_0_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:justify-between sm:px-5",
+                        latestPressureRiskTone.bannerClass,
+                        isUsingDemoPressureReadings && "ring-1 ring-emerald-300/60"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={cn(
+                            "flex size-11 shrink-0 items-center justify-center rounded-xl border",
+                            latestPressureRiskTone.iconClass
+                          )}
+                        >
+                          <LatestPressureRiskIcon className="size-5" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                            {tr(language, "Current assessment", "ผลประเมินล่าสุด")}
+                          </p>
+                          <p className="text-2xl font-semibold tracking-tight text-foreground">
+                            {getPressureRiskLabel(latestPressureReading.risk.level, language)}
+                          </p>
+                          <p className="text-sm leading-6 text-muted-foreground">
+                            {getPressureRiskHint(latestPressureReading, language)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex min-w-fit flex-col gap-1 rounded-xl border border-border/70 bg-muted/20 px-3 py-2 sm:items-end">
+                        <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                          {tr(language, "Measured", "วัดเมื่อ")}
+                        </span>
+                        <span className={cn("text-sm font-semibold tabular-nums", latestPressureRiskTone.accentClass)}>
+                          {formatDateTime(latestPressureReading.measured_at)}
+                        </span>
+                      </div>
+                    </m.div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-2xl border border-border/80 bg-background p-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div className="rounded-xl border border-red-100 bg-red-50 p-2 text-red-500">
+                            <HeartPulse className="size-5" />
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "rounded-lg px-2.5 py-1",
+                              getPressureRiskTone(latestPressureReading.risk.heart_rate_level).badgeClass
+                            )}
+                          >
+                            {getPressureRiskLabel(latestPressureReading.risk.heart_rate_level, language)}
+                          </Badge>
+                        </div>
+                        <p className="text-sm font-medium text-muted-foreground">
+                          {tr(language, "Heart rate", "อัตราการเต้นหัวใจ")}
+                        </p>
+                        <p className="mt-1 text-3xl font-semibold tracking-tight text-foreground tabular-nums">
+                          {latestPressureReading.heart_rate}{" "}
+                          <span className="text-base font-medium tracking-normal text-muted-foreground">BPM</span>
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl border border-border/80 bg-background p-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div className="rounded-xl border border-amber-100 bg-amber-50 p-2 text-amber-500">
+                            <Gauge className="size-5" />
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "rounded-lg px-2.5 py-1",
+                              getPressureRiskTone(latestPressureReading.risk.blood_pressure_level).badgeClass
+                            )}
+                          >
+                            {getPressureRiskLabel(latestPressureReading.risk.blood_pressure_level, language)}
+                          </Badge>
+                        </div>
+                        <p className="text-sm font-medium text-muted-foreground">
+                          {tr(language, "Blood pressure", "ความดันโลหิต")}
+                        </p>
+                        <p className="mt-1 text-3xl font-semibold tracking-tight text-foreground tabular-nums">
+                          {latestPressureReading.sys_rate}/{latestPressureReading.dia_rate}
+                          <span className="ml-1 text-base font-medium tracking-normal text-muted-foreground">mmHg</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {displayPressureReadings.length > 1 ? (
+                      <div className="rounded-2xl border border-border/70 bg-muted/15 px-3 py-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                            {tr(language, "Recent history", "ประวัติล่าสุด")}
+                          </p>
+                          {displayPressureTotal > displayPressureReadings.length ? (
+                            <span className="text-xs font-medium text-muted-foreground">
+                              +{displayPressureTotal - displayPressureReadings.length}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {displayPressureReadings.slice(1, 4).map((reading) => (
+                            <Badge
+                              key={reading.id}
+                              variant="outline"
+                              className={cn(
+                                "rounded-lg px-3 py-1 text-xs font-medium tabular-nums",
+                                getPressureRiskTone(reading.risk.level).badgeClass
+                              )}
+                            >
+                              {reading.sys_rate}/{reading.dia_rate} · {reading.heart_rate} BPM ·{" "}
+                              {getPressureRiskLabel(reading.risk.level, language)}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/80 bg-background/60 px-6 py-10 text-center">
+                    <div className="rounded-xl border border-primary/10 bg-primary/10 p-3 text-primary">
+                      <Activity className="size-6" />
+                    </div>
+                    <p className="mt-4 text-sm font-medium text-foreground">
+                      {tr(language, "No vital sign readings yet", "ยังไม่มีข้อมูลสัญญาณชีพ")}
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      {tr(
+                        language,
+                        "Device readings will appear here after ingestion.",
+                        "ข้อมูลจากอุปกรณ์จะแสดงที่นี่หลังถูกส่งเข้า backend"
+                      )}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="rounded-[24px] border border-border/80 bg-muted/20 p-4">

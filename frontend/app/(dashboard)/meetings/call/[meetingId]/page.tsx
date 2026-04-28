@@ -19,6 +19,7 @@ import {
   preloadZegoUIKitPrebuilt,
   withTimeout,
   withRetry,
+  markPromiseHandled,
   CallStartupMetrics,
   getAdaptiveMediaConstraints,
   getMediaReleaseDelay,
@@ -65,8 +66,10 @@ function isExpectedZegoConsoleNoise(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
     normalized.includes("\"action\":\"zc.") ||
+    normalized.includes("\"action\":\"zs.") ||
     normalized.includes("\"appid\":") ||
     normalized.includes("\"roomid\":") ||
+    (normalized.includes("fetch fail") && normalized.includes("status_code")) ||
     normalized.includes("session request timeout") ||
     normalized.includes("play stream interrupted") ||
     normalized.includes("stream does not exist") ||
@@ -745,13 +748,13 @@ export default function MeetingCallPage() {
         }
 
         metrics.mark("sdk-load-start");
-        const zegoPromise = withRetry(
+        const zegoPromise = markPromiseHandled(withRetry(
           () => loadZegoUIKitPrebuilt(),
           1,
           "ZEGO SDK load"
-        );
+        ));
         metrics.mark("api-token-start");
-        const videoSessionPromise = withRetry(
+        const videoSessionPromise = markPromiseHandled(withRetry(
           () => withTimeout(
             issueMeetingVideoToken(meetingId, token),
             API_TIMEOUT_MS,
@@ -759,7 +762,7 @@ export default function MeetingCallPage() {
           ),
           1,
           "Video token API"
-        );
+        ));
 
         metrics.mark("media-warmup-start");
         const mediaPreference = await warmupDoctorMediaDevices(language, networkProfile);

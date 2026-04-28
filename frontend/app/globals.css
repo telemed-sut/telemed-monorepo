@@ -227,7 +227,7 @@
 }
 
 :root {
-  --font-sans: "Segoe UI", "Noto Sans Thai", "Noto Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Noto Sans Thai", "Segoe UI", "Noto Sans", "Helvetica Neue", Arial, sans-serif;
   --font-geist-mono: "SFMono-Regular", "Menlo", "Monaco", "Consolas", "Liberation Mono", monospace;
   --background: #ffffff;
   --foreground: #0f2854;

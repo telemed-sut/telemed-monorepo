@@ -143,8 +143,8 @@ export function SettingsContent({
         summary: security.securityHeaderSummary,
         description: tr(
           language,
-          "Manage MFA, backup codes, and trusted devices.",
-          "จัดการ MFA, รหัสสำรอง และอุปกรณ์ที่เชื่อถือ",
+          "Manage passkeys and secure sign-in options.",
+          "จัดการ Passkeys และตัวเลือกเข้าสู่ระบบที่ปลอดภัย",
         ),
         icon: <ShieldCheck className="size-4" />,
       },

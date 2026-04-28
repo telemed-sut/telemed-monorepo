@@ -9,7 +9,6 @@ from dotenv import dotenv_values, load_dotenv
 _project_root = Path(__file__).resolve().parent.parent
 _TEST_ENV_PATH = _project_root / ".env.test"
 _ENFORCED_TEST_ENV_KEYS = {
-    "ADMIN_2FA_REQUIRED",
     "ADMIN_JWT_EXPIRES_IN",
     "ADMIN_UNLOCK_WHITELISTED_IPS",
     "ALLOW_INSECURE_SECRET_STORAGE",
@@ -27,7 +26,6 @@ _ENFORCED_TEST_ENV_KEYS = {
     "PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS",
     "SUPER_ADMIN_EMAILS",
     "TRUSTED_PROXY_IPS",
-    "TWO_FACTOR_SECRET_ENCRYPTION_KEY",
 }
 
 
@@ -78,17 +76,11 @@ os.environ.setdefault(
     "DEVICE_SECRET_ENCRYPTION_KEY",
     "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
 )
-os.environ.setdefault(
-    "TWO_FACTOR_SECRET_ENCRYPTION_KEY",
-    "ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA=",
-)
 os.environ.setdefault("ALLOW_INSECURE_SECRET_STORAGE", "false")
 os.environ.setdefault(
     "MEETING_SIGNING_SECRET",
     "test_meeting_signing_secret_1234567890abcdef1234567890abcd",
 )
-# Most tests assume plain admin login unless they explicitly opt into MFA.
-os.environ["ADMIN_2FA_REQUIRED"] = "false"
 os.environ.setdefault("DEVICE_API_REQUIRE_REGISTERED_DEVICE", "false")
 os.environ.setdefault("DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE", "false")
 os.environ.setdefault("DEVICE_API_REQUIRE_NONCE", "false")

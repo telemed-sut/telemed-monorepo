@@ -78,10 +78,10 @@ const TRANSLATED_MESSAGE_RULES: Array<{
     },
   },
   {
-    pattern: /recent multi-factor verification required/i,
+    pattern: /recent (?:multi-factor )?verification required/i,
     messages: {
-      en: "Recent multi-factor verification is required for this action.",
-      th: "ต้องยืนยันตัวตนแบบหลายปัจจัยใหม่อีกครั้งก่อนทำรายการนี้",
+      en: "Recent verification is required for this action.",
+      th: "ต้องยืนยันตัวตนใหม่อีกครั้งก่อนทำรายการนี้",
     },
   },
   {
@@ -171,8 +171,8 @@ const TRANSLATED_MESSAGE_RULES: Array<{
   {
     pattern: /invalid two-factor authentication code/i,
     messages: {
-      en: "Authenticator code or backup code is incorrect.",
-      th: "รหัส 2FA หรือ Backup Code ไม่ถูกต้อง",
+      en: "Secure verification failed. Please try again.",
+      th: "ยืนยันตัวตนไม่สำเร็จ กรุณาลองใหม่",
     },
   },
   {
@@ -197,12 +197,12 @@ const TRANSLATED_CODE_MESSAGES: Record<
     th: "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
   },
   mfa_required: {
-    en: "Two-factor verification is required.",
-    th: "ต้องยืนยันตัวตนแบบหลายปัจจัยก่อนดำเนินการต่อ",
+    en: "Secure verification is required.",
+    th: "ต้องยืนยันตัวตนอีกครั้งก่อนดำเนินการต่อ",
   },
   mfa_verification_failed: {
-    en: "Multi-factor verification failed.",
-    th: "รหัสยืนยันตัวตนแบบหลายปัจจัยไม่ถูกต้อง",
+    en: "Secure verification failed.",
+    th: "ยืนยันตัวตนไม่สำเร็จ",
   },
   token_expired: {
     en: "Session expired. Please sign in again.",
@@ -280,16 +280,16 @@ const AUTH_ERROR_RULES: Array<{
     codes: ["mfa_verification_failed"],
     patterns: [/invalid two-factor authentication code|invalid two-factor code/i],
     messages: {
-      en: "Authenticator code or backup code is incorrect.",
-      th: "รหัสจากแอปยืนยันตัวตนหรือรหัสสำรองไม่ถูกต้อง",
+      en: "Secure verification failed. Please try again.",
+      th: "ยืนยันตัวตนไม่สำเร็จ กรุณาลองใหม่",
     },
   },
   {
     contexts: ["login", "step-up"],
     codes: ["mfa_required"],
     messages: {
-      en: "Two-factor verification is required.",
-      th: "ต้องยืนยันตัวตนแบบหลายปัจจัยก่อนดำเนินการต่อ",
+      en: "Secure verification is required.",
+      th: "ต้องยืนยันตัวตนอีกครั้งก่อนดำเนินการต่อ",
     },
   },
   {

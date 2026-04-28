@@ -8,7 +8,6 @@ import {
   createUserInvite,
   getErrorMessage,
   resolveSecurityUserByEmail,
-  superAdminResetUser2FA,
   superAdminResetUserPassword,
   type AdminSecurityUserLookup,
 } from "@/lib/api";
@@ -229,61 +228,6 @@ export function useSettingsAdmin({
     token,
   ]);
 
-  const handleEmergencyReset2FA = useCallback(async () => {
-    if (!token || !resolvedUser || emergencyBusy || sensitiveReauthOpen) {
-      return;
-    }
-    if (!hasEmergencyReason) {
-      showValidationToastOnce(
-        SETTINGS_VALIDATION_TOAST_IDS.emergencyReason,
-        tr(
-          language,
-          "Please enter reason with at least 8 characters",
-          "กรุณากรอกเหตุผลอย่างน้อย 8 ตัวอักษร",
-        ),
-      );
-      return;
-    }
-
-    setEmergencyBusy(true);
-    try {
-      await superAdminResetUser2FA(
-        resolvedUser.user_id,
-        emergencyReason.trim(),
-        token,
-      );
-      toast.success(
-        tr(language, "User 2FA reset successfully", "รีเซ็ต 2FA ให้ผู้ใช้แล้ว"),
-      );
-      await resolveEmergencyTarget();
-    } catch (error: unknown) {
-      if (
-        handleSensitiveActionError(error, {
-          actionLabel: tr(language, "Reset 2FA", "รีเซ็ต 2FA"),
-          run: handleEmergencyReset2FA,
-        })
-      ) {
-        return;
-      }
-
-      showGenericError(error);
-    } finally {
-      setEmergencyBusy(false);
-    }
-  }, [
-    emergencyBusy,
-    emergencyReason,
-    handleSensitiveActionError,
-    hasEmergencyReason,
-    language,
-    resolveEmergencyTarget,
-    resolvedUser,
-    sensitiveReauthOpen,
-    showGenericError,
-    showValidationToastOnce,
-    token,
-  ]);
-
   const handleEmergencyResetPassword = useCallback(async () => {
     if (!token || !resolvedUser || emergencyBusy || sensitiveReauthOpen) {
       return;
@@ -473,7 +417,6 @@ export function useSettingsAdmin({
     handleAdminInviteReasonChange,
     resolveEmergencyTarget,
     handleEmergencyUnlock,
-    handleEmergencyReset2FA,
     handleEmergencyResetPassword,
     handleCopyGeneratedResetToken,
     handleCopyCreatedAdminInvite,

@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   AudioLines,
-  Activity,
   CircleAlert,
   CloudUpload,
   Files,
@@ -490,7 +489,6 @@ export function PatientHeartSoundContent({
     () => cachedSnapshot?.patient ?? null
   );
   const [records, setRecords] = useState<HeartSoundRecord[]>(() => cachedRecords);
-  const [simulatedRecords, setSimulatedRecords] = useState<HeartSoundRecord[]>([]);
   const [activeSession, setActiveSession] = useState<DeviceLiveSessionItem | null>(null);
   const [draftRecords, setDraftRecords] = useState<DisplayHeartSoundRecord[]>([]);
   const [loading, setLoading] = useState(
@@ -753,10 +751,10 @@ export function PatientHeartSoundContent({
   }, [patientId, refreshHeartSounds, token, activeSession]);
 
   const displayRecords = useMemo<DisplayHeartSoundRecord[]>(() => {
-    return [...draftRecords, ...simulatedRecords, ...records].sort((left, right) => {
+    return [...draftRecords, ...records].sort((left, right) => {
       return new Date(right.recorded_at).getTime() - new Date(left.recorded_at).getTime();
     });
-  }, [draftRecords, simulatedRecords, records]);
+  }, [draftRecords, records]);
 
   const positionCounts = useMemo(() => buildPositionCounts(displayRecords), [displayRecords]);
 
@@ -1043,57 +1041,6 @@ export function PatientHeartSoundContent({
           </div>
 
           <div className="flex flex-col gap-2.5 lg:min-w-[240px] lg:items-end">
-            {/* Dev Simulator Button */}
-            {process.env.NODE_ENV === "development" && (
-              <Button
-                variant="secondary"
-                className="w-full bg-amber-100 text-amber-800 hover:bg-amber-200 border-amber-200 rounded-2xl"
-                onClick={async () => {
-                  if (!token) return;
-                  setIsUploading(true);
-                  try {
-                    console.log("Dev Sim: Simulating real-time signal...");
-                    
-                    // 1. Create a Mock Record that looks like a real one
-                    const now = new Date().toISOString();
-                    const mockId = `sim-${Date.now()}`;
-                    const mockRecord: HeartSoundRecord = {
-                      id: mockId,
-                      patient_id: patientId,
-                      device_id: activeSession?.device_id || "DEV-HEART-01",
-                      mac_address: "SIM-ADDR-001",
-                      position: activePosition || 1,
-                      blob_url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", // Use a real public mp3 for testing
-                      storage_key: `simulated/${mockId}.mp3`,
-                      mime_type: "audio/mpeg",
-                      duration_seconds: 5.0,
-                      recorded_at: now,
-                      created_at: now,
-                    };
-
-                    // 2. Inject directly into simulated state so it's not overwritten by API refresh
-                    setSimulatedRecords(current => [mockRecord, ...current]);
-                    
-                    // 3. Trigger UI effects (Map pulse and Auto-scroll)
-                    setActivePosition(mockRecord.position);
-                    shouldScrollRef.current = true;
-
-                    toast.success("Dev Sim: Real-time signal injected!", {
-                      description: `Simulated data added to position ${mockRecord.position} (Bypassing Azure)`
-                    });
-                  } catch (e) {
-                    console.error("Dev Sim Error:", e);
-                    toast.error("Dev Sim failed to inject data");
-                  } finally {
-                    setIsUploading(false);
-                  }
-                }}
-              >
-                <Activity className="size-4" />
-                Dev Sim: Send Pulse
-              </Button>
-            )}
-
             <Button
               className="min-h-11 min-w-[240px] rounded-2xl"
               onClick={() => setUploadOpen((current) => !current)}

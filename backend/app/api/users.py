@@ -58,7 +58,6 @@ def _user_snapshot(user: User) -> dict:
         "department": user.department,
         "license_no": _mask_license_no(user.license_no),
         "verification_status": user.verification_status.value if user.verification_status else None,
-        "two_factor_enabled": user.two_factor_enabled,
         "deleted_at": user.deleted_at.isoformat() if user.deleted_at else None,
         "deleted_by": str(user.deleted_by) if user.deleted_by else None,
         "restored_at": user.restored_at.isoformat() if user.restored_at else None,
@@ -654,7 +653,7 @@ def update_user(
                     resource_id=user.id,
                     details={
                         "status": "failure",
-                        "reason": "recent_mfa_required",
+                        "reason": "recent_verification_required",
                         "old_email": user.email,
                         "new_email": normalized_email,
                         "mfa_max_age_seconds": mfa_max_age,
@@ -665,7 +664,7 @@ def update_user(
                 )
                 raise HTTPException(
                     status_code=403,
-                    detail="Recent MFA verification required to change email address.",
+                    detail="Recent verification required to change email address.",
                 )
         dup = db.scalar(
             select(User).where(

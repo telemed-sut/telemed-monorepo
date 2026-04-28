@@ -260,7 +260,7 @@ def is_super_admin(user: Optional[User], db: Session | None = None) -> bool:
 
 
 def require_roles(allowed_roles: List[UserRole], *, require_mfa: bool = False):
-    """Dependency to require specific roles and optionally MFA verification."""
+    """Dependency to require specific roles and optionally a verified session."""
     def role_checker(
         request: Request,
         current_user: User = Depends(get_current_user)
@@ -276,7 +276,7 @@ def require_roles(allowed_roles: List[UserRole], *, require_mfa: bool = False):
             if not payload.get("mfa_verified"):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Multi-factor authentication (MFA) required for this action.",
+                    detail="Recent verification required for this action.",
                 )
                 
         return current_user

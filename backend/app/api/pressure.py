@@ -6,22 +6,25 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.services.auth import get_db
-from app.schemas.pressure import PressureCreate, PressureIngestResponse
+from app.services.auth import get_db, verify_patient_access
+from app.schemas.pressure import PressureCreate, PressureIngestResponse, PressureListResponse
 from app.services.pressure import pressure_service
 from app.core.config import get_settings
 from app.core.limiter import get_device_ingest_rate_limit_key, limiter
 from app.models.device_registration import DeviceRegistration
 from app.models.device_error_log import DeviceErrorLog
 from app.models.device_request_nonce import DeviceRequestNonce
+from app.models.user import User
 from app.core.request_utils import get_client_ip
 from app.core.secret_crypto import SecretDecryptionError
+from app.services.redis_cache import get_cached_device_secret, set_cached_device_secret
 from app.services.redis_runtime import get_redis_client_or_log, log_redis_operation_failure
 
 router = APIRouter()
@@ -82,9 +85,6 @@ def log_device_error(db: Session, device_id: str, error_msg: str, request: Reque
         db.commit()
     except Exception:
         logger.exception("Failed to log device error for device=%s", device_id)
-
-
-from app.services.redis_cache import get_cached_device_secret, set_cached_device_secret
 
 def _resolve_device_secret(db: Session, device_id: str) -> tuple[str, DeviceRegistration | None]:
     # 1. Try to resolve from Redis cache first
@@ -362,3 +362,29 @@ def add_pressure_alias(
     response.headers["Warning"] = '299 - "/add_pressure is deprecated; use /device/v1/pressure"'
     # Simply call the main logic
     return create_pressure_record(request=request, db=db, pressure_in=pressure_in, authorized=authorized)
+
+
+@router.get("/patients/{patient_id}/pressure-readings", response_model=PressureListResponse)
+@limiter.limit("60/minute")
+def get_patient_pressure_readings(
+    request: Request,
+    patient_id: UUID,
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(verify_patient_access),
+):
+    items, total = pressure_service.list_patient_pressure_records(
+        db,
+        patient_id,
+        limit=limit,
+        offset=offset,
+    )
+    serialized_items = [pressure_service.serialize_pressure_record(item) for item in items]
+    return PressureListResponse(
+        items=serialized_items,
+        total=total,
+        limit=limit,
+        offset=offset,
+        latest=serialized_items[0] if offset == 0 and serialized_items else None,
+    )

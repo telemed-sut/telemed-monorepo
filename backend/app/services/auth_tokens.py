@@ -13,7 +13,6 @@ from app.core.security import create_access_token, decode_token
 from app.models.enums import UserRole
 from app.models.user import User
 from app.services import auth_sessions
-from app.services.auth_privileges import requires_token_mfa
 
 settings = get_settings()
 
@@ -80,7 +79,7 @@ def create_login_response(
     session_id: str | None = None,
 ) -> dict:
     expires_in = get_access_token_ttl_seconds(user)
-    effective_mfa_verified = not requires_token_mfa(user) or bool(mfa_verified)
+    effective_mfa_verified = True
     auth_time = mfa_authenticated_at
     if effective_mfa_verified and auth_time is None:
         auth_time = _now_utc()
@@ -118,7 +117,6 @@ def create_login_response(
             "last_name": user.last_name,
             "role": user.role.value,
             "verification_status": user.verification_status.value if user.verification_status else None,
-            "two_factor_enabled": bool(user.two_factor_enabled),
             "mfa_verified": effective_mfa_verified,
             "mfa_authenticated_at": auth_time,
             "mfa_recent_for_privileged_actions": is_recent_mfa_authenticated(auth_time),
@@ -190,10 +188,3 @@ def _validate_token_session(
     if password_changed_at is not None:
         if token_issued_at is None or token_issued_at < password_changed_at:
             raise credentials_exception
-
-    if requires_token_mfa(user) and not bool(payload.get("mfa_verified")):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Two-factor verification required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )

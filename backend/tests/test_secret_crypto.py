@@ -1,5 +1,3 @@
-from datetime import datetime, timezone
-
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,24 +8,8 @@ from app.core.secret_crypto import (
     SecretDecryptionError,
     encrypt_secret_value,
 )
-from app.core.security import get_password_hash
 from app.models.device_registration import DeviceRegistration
-from app.models.enums import UserRole
-from app.models.user import User
 from scripts.reencrypt_secrets_at_rest import classify_secret_for_reencryption
-
-
-def _create_user(db: Session, *, email: str) -> User:
-    user = User(
-        email=email,
-        password_hash=get_password_hash("TestPass123"),
-        role=UserRole.medical_student,
-        is_active=True,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
 
 
 def test_device_secret_encrypts_on_write_and_decrypts_on_read(db: Session):
@@ -45,21 +27,6 @@ def test_device_secret_encrypts_on_write_and_decrypts_on_read(db: Session):
     assert device._device_secret_encrypted.startswith(SECRET_VALUE_PREFIX)
     assert device._device_secret_encrypted != "device_secret_plaintext_1234567890abcdef"
 
-
-def test_two_factor_secret_encrypts_on_write_and_decrypts_on_read(db: Session):
-    user = _create_user(db, email="secret-2fa@example.com")
-    user.two_factor_secret = "JBSWY3DPEHPK3PXP"
-    user.two_factor_enabled = True
-    user.two_factor_enabled_at = datetime.now(timezone.utc)
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    assert user.two_factor_secret == "JBSWY3DPEHPK3PXP"
-    assert user._two_factor_secret_encrypted.startswith(SECRET_VALUE_PREFIX)
-    assert user._two_factor_secret_encrypted != "JBSWY3DPEHPK3PXP"
-
-
 def test_legacy_plaintext_secret_rows_remain_readable(db: Session):
     device = DeviceRegistration(
         device_id="legacy-device-001",
@@ -75,14 +42,7 @@ def test_legacy_plaintext_secret_rows_remain_readable(db: Session):
     db.commit()
     db.refresh(device)
 
-    user = _create_user(db, email="legacy-2fa@example.com")
-    user._two_factor_secret_encrypted = "JBSWY3DPEHPK3PXP"
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
     assert device.device_secret == "legacy_plaintext_secret_1234567890abcdef"
-    assert user.two_factor_secret == "JBSWY3DPEHPK3PXP"
 
 
 def test_legacy_encrypted_secret_rows_remain_readable(db: Session):

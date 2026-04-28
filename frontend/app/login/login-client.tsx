@@ -1,13 +1,10 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff } from "lucide-react";
 import Link from "next/link";
-import Image from "next/image";
-import QRCode from "qrcode";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -33,23 +30,10 @@ import {
 } from "@/lib/login-form-privacy";
 import { useAuthStore } from "@/store/auth-store";
 import { AuthMessage } from "@/components/auth/auth-message";
-import { SecretDisclosure } from "@/components/auth/secret-disclosure";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { cn } from "@/lib/utils";
 import { type AppLanguage } from "@/store/language-config";
 import { useLanguageStore } from "@/store/language-store";
-
-type LoginStep = "credentials" | "twoFactor";
-
-function extractSetupKey(uri: string | null): string | null {
-  if (!uri) return null;
-  try {
-    const parsed = new URL(uri);
-    return parsed.searchParams.get("secret");
-  } catch {
-    return null;
-  }
-}
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
@@ -138,12 +122,6 @@ export default function LoginClientPage() {
   const [lockoutDetail, setLockoutDetail] = useState<LoginChallengeDetail | null>(null);
   const [lockoutRetryAfterSeconds, setLockoutRetryAfterSeconds] = useState<number | null>(null);
   const [isPasswordVisible, setIsPasswordVisible] = useState<boolean>(false);
-  const [loginStep, setLoginStep] = useState<LoginStep>("credentials");
-  const [otpCode, setOtpCode] = useState("");
-  const [provisioningUri, setProvisioningUri] = useState<string | null>(null);
-  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null);
-  const [rememberDevice, setRememberDevice] = useState(true);
-  const [trustedDays, setTrustedDays] = useState<number | null>(null);
   const [adminSsoStatus, setAdminSsoStatus] = useState<AdminSsoStatus | null>(null);
   const [shouldSuppressCredentialAutofill, setShouldSuppressCredentialAutofill] = useState(false);
   const [supportsConditionalPasskeyUi, setSupportsConditionalPasskeyUi] = useState<boolean | null>(null);
@@ -164,11 +142,7 @@ export default function LoginClientPage() {
     const clearCredentialFields = () => {
       setEmail("");
       setPassword("");
-      setOtpCode("");
       setError(null);
-      setLoginStep("credentials");
-      setProvisioningUri(null);
-      setTrustedDays(null);
       setIsPasswordVisible(false);
       setLockoutDetail(null);
       setLockoutRetryAfterSeconds(null);
@@ -201,34 +175,6 @@ export default function LoginClientPage() {
       router.replace("/patients");
     }
   }, [hydrated, token, router]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function buildQr() {
-      if (!provisioningUri) {
-        setQrCodeDataUrl(null);
-        return;
-      }
-      try {
-        const dataUrl = await QRCode.toDataURL(provisioningUri, {
-          width: 220,
-          margin: 1,
-          errorCorrectionLevel: "M",
-        });
-        if (!cancelled) {
-          setQrCodeDataUrl(dataUrl);
-        }
-      } catch {
-        if (!cancelled) {
-          setQrCodeDataUrl(null);
-        }
-      }
-    }
-    void buildQr();
-    return () => {
-      cancelled = true;
-    };
-  }, [provisioningUri]);
 
   useEffect(() => {
     let cancelled = false;
@@ -361,8 +307,8 @@ export default function LoginClientPage() {
         th: "การออกจากระบบผ่าน Organization SSO ต้องเริ่มจากเซสชันในแอปที่ยังใช้งานอยู่ หากยังต้องการปิดเซสชันนั้น กรุณาเข้าสู่ระบบอีกครั้ง",
       },
       mfa_required: {
-        en: "Admin SSO requires a passkey or MFA-verified organization session.",
-        th: "Admin SSO ต้องใช้ passkey หรือเซสชันองค์กรที่ยืนยัน MFA แล้ว",
+        en: "Admin SSO requires a verified organization session.",
+        th: "Admin SSO ต้องใช้เซสชันองค์กรที่ยืนยันแล้ว",
       },
     };
 
@@ -391,18 +337,6 @@ export default function LoginClientPage() {
     return () => window.clearInterval(timer);
   }, [lockoutRetryAfterSeconds]);
 
-  const resetTwoFactorChallenge = () => {
-    setLoginStep("credentials");
-    setLockoutDetail(null);
-    setLockoutRetryAfterSeconds(null);
-    setOtpCode("");
-    setProvisioningUri(null);
-    setTrustedDays(null);
-    setQrCodeDataUrl(null);
-    setError(null);
-  };
-
-  const isTwoFactorStep = loginStep === "twoFactor";
   const isPlainLocked = lockoutDetail?.code === "account_locked";
   const countdownMessage =
     lockoutRetryAfterSeconds !== null
@@ -414,27 +348,19 @@ export default function LoginClientPage() {
   const showContactSecurityAdmin = recoveryOptions.includes("contact_security_admin");
   const hasTypedCredentials = email.trim().length > 0 || password.trim().length > 0;
   const hasCompleteCredentials = email.trim().length > 0 && password.trim().length > 0;
-  const isSubmitReady = isTwoFactorStep ? otpCode.trim().length > 0 : hasCompleteCredentials;
-  const shouldEmphasizePasskey = !isTwoFactorStep && !hasTypedCredentials;
+  const isSubmitReady = hasCompleteCredentials;
+  const shouldEmphasizePasskey = !hasTypedCredentials;
   const isConditionalPasskeyUiPending = supportsConditionalPasskeyUi === null;
-  const shouldUseConditionalPasskeyUi = supportsConditionalPasskeyUi === true && !isTwoFactorStep;
-  const title = isTwoFactorStep
-    ? tr(language, "Confirm sign-in", "ยืนยันการเข้าสู่ระบบ")
-    : tr(language, "Welcome Back", "ยินดีต้อนรับกลับ");
-  const subtitle = isTwoFactorStep
-    ? tr(
-        language,
-        "Enter your code to continue.",
-        "กรอกรหัสเพื่อดำเนินการต่อ"
-      )
-    : tr(language, "Sign in to continue securely.", "ลงชื่อเข้าใช้เพื่อดำเนินการต่ออย่างปลอดภัย");
+  const shouldUseConditionalPasskeyUi = supportsConditionalPasskeyUi === true;
+  const title = tr(language, "Welcome Back", "ยินดีต้อนรับกลับ");
+  const subtitle = tr(language, "Sign in to continue securely.", "ลงชื่อเข้าใช้เพื่อดำเนินการต่ออย่างปลอดภัย");
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
     try {
-      const res = await loginRequest(email, password, otpCode, rememberDevice);
+      const res = await loginRequest(email, password);
       if (!res.user) {
         throw new Error(
           tr(language, "Unable to establish session. Please try again.", "ไม่สามารถเริ่มต้นเซสชันได้ โปรดลองอีกครั้ง")
@@ -450,18 +376,8 @@ export default function LoginClientPage() {
       const apiError = err as ApiError;
       const detail = apiError.detail as LoginChallengeDetail | undefined;
       const detailCode = detail?.code?.toLowerCase();
-      if (detail && (detailCode === "two_factor_required" || detailCode === "admin_2fa_required")) {
-        setLockoutDetail(null);
-        setLockoutRetryAfterSeconds(null);
-        setLoginStep("twoFactor");
-        setProvisioningUri(detail.provisioning_uri ?? null);
-        setTrustedDays(typeof detail.trusted_device_days === "number" ? detail.trusted_device_days : null);
-        setError(tr(language, "Enter your code to continue.", "กรอกรหัสเพื่อดำเนินการต่อ"));
-      } else if (detail && detailCode === "account_locked") {
-        setLoginStep("credentials");
+      if (detail && detailCode === "account_locked") {
         setLockoutDetail(detail);
-        setProvisioningUri(null);
-        setTrustedDays(null);
         const retryAfterSeconds =
           typeof detail.retry_after_seconds === "number" && detail.retry_after_seconds > 0
             ? detail.retry_after_seconds
@@ -687,113 +603,79 @@ export default function LoginClientPage() {
         className="space-y-6"
         autoComplete="on"
       >
-        {!isTwoFactorStep ? (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="email">{tr(language, "Email address", "อีเมล")}</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete={
-                  shouldUseConditionalPasskeyUi
-                    ? "username webauthn"
-                    : shouldSuppressCredentialAutofill
-                      ? "off"
-                      : "username"
-                }
-                placeholder={tr(language, "Enter your email", "กรอกอีเมล")}
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  setLockoutDetail(null);
-                  setLoginStep("credentials");
-                  setOtpCode("");
-                  setProvisioningUri(null);
-                  setTrustedDays(null);
-                  setError(null);
-                  setLockoutRetryAfterSeconds(null);
-                }}
-                required
-              />
-            </div>
-            <div className="space-y-0">
-              <div className="mb-2 flex items-center justify-between">
-                <Label htmlFor="password">{tr(language, "Password", "รหัสผ่าน")}</Label>
-              </div>
-              <div className="relative">
-                <Input
-                  id="password"
-                  className="pe-9"
-                  autoComplete={shouldSuppressCredentialAutofill ? "new-password" : "current-password"}
-                  placeholder={tr(language, "Enter your password", "กรอกรหัสผ่าน")}
-                  type={isPasswordVisible ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setLockoutDetail(null);
-                    setLoginStep("credentials");
-                    setOtpCode("");
-                    setProvisioningUri(null);
-                    setTrustedDays(null);
-                    setError(null);
-                    setLockoutRetryAfterSeconds(null);
-                  }}
-                  required
-                />
-                <button
-                  className="text-muted-foreground/80 hover:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 absolute inset-y-0 end-0 flex h-full w-9 items-center justify-center rounded-e-md transition-[color,box-shadow] outline-none focus:z-10 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
-                  type="button"
-                  onClick={togglePasswordVisibility}
-                  aria-label={
-                    isPasswordVisible
-                      ? tr(language, "Hide password", "ซ่อนรหัสผ่าน")
-                      : tr(language, "Show password", "แสดงรหัสผ่าน")
-                  }
-                  aria-pressed={isPasswordVisible}
-                  aria-controls="password"
-                >
-                  {isPasswordVisible ? (
-                    <EyeOff size={16} aria-hidden="true" />
-                  ) : (
-                    <Eye size={16} aria-hidden="true" />
-                  )}
-                </button>
-              </div>
-              <div className="mt-2 flex justify-end">
-                <Link
-                  href="/forgot-password"
-                  className="text-[0.92rem] text-slate-500 transition-colors hover:text-primary hover:underline"
-                >
-                  {tr(language, "Forgot password?", "ลืมรหัสผ่าน?")}
-                </Link>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="space-y-3 rounded-xl border border-border/80 bg-muted/20 p-4">
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-foreground">
-                {tr(language, "Continue sign-in", "ดำเนินการเข้าสู่ระบบต่อ")}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {tr(language, "Enter your code below.", "กรอกรหัสด้านล่าง")}
-              </p>
-            </div>
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                variant="link"
-                size="sm"
-                className="h-auto px-0 text-[0.9rem] text-slate-500 hover:text-slate-700"
-                onClick={resetTwoFactorChallenge}
-              >
-                {tr(language, "Use another account", "เปลี่ยนบัญชี")}
-              </Button>
-            </div>
+        <div className="space-y-2">
+          <Label htmlFor="email">{tr(language, "Email address", "อีเมล")}</Label>
+          <Input
+            id="email"
+            type="email"
+            autoComplete={
+              shouldUseConditionalPasskeyUi
+                ? "username webauthn"
+                : shouldSuppressCredentialAutofill
+                  ? "off"
+                  : "username"
+            }
+            placeholder={tr(language, "Enter your email", "กรอกอีเมล")}
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setLockoutDetail(null);
+              setError(null);
+              setLockoutRetryAfterSeconds(null);
+            }}
+            required
+          />
+        </div>
+        <div className="space-y-0">
+          <div className="mb-2 flex items-center justify-between">
+            <Label htmlFor="password">{tr(language, "Password", "รหัสผ่าน")}</Label>
           </div>
-        )}
+          <div className="relative">
+            <Input
+              id="password"
+              className="pe-9"
+              autoComplete={shouldSuppressCredentialAutofill ? "new-password" : "current-password"}
+              placeholder={tr(language, "Enter your password", "กรอกรหัสผ่าน")}
+              type={isPasswordVisible ? "text" : "password"}
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setLockoutDetail(null);
+                setError(null);
+                setLockoutRetryAfterSeconds(null);
+              }}
+              required
+            />
+            <button
+              className="text-muted-foreground/80 hover:text-foreground focus-visible:border-ring focus-visible:ring-ring/50 absolute inset-y-0 end-0 flex h-full w-9 items-center justify-center rounded-e-md transition-[color,box-shadow] outline-none focus:z-10 focus-visible:ring-[3px] disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+              type="button"
+              onClick={togglePasswordVisibility}
+              aria-label={
+                isPasswordVisible
+                  ? tr(language, "Hide password", "ซ่อนรหัสผ่าน")
+                  : tr(language, "Show password", "แสดงรหัสผ่าน")
+              }
+              aria-pressed={isPasswordVisible}
+              aria-controls="password"
+            >
+              {isPasswordVisible ? (
+                <EyeOff size={16} aria-hidden="true" />
+              ) : (
+                <Eye size={16} aria-hidden="true" />
+              )}
+            </button>
+          </div>
+          <div className="mt-2 flex justify-end">
+            <Link
+              href="/forgot-password"
+              className="text-[0.92rem] text-slate-500 transition-colors hover:text-primary hover:underline"
+            >
+              {tr(language, "Forgot password?", "ลืมรหัสผ่าน?")}
+            </Link>
+          </div>
+        </div>
 
-        {isPlainLocked && !isTwoFactorStep ? (
+        {isPlainLocked ? (
           <div className="space-y-3 rounded-xl border border-amber-200/80 bg-amber-50/80 p-4">
             <div className="space-y-1">
               <p className="text-sm font-semibold text-amber-950">
@@ -820,86 +702,6 @@ export default function LoginClientPage() {
           </div>
         ) : null}
 
-        {isTwoFactorStep && (
-          <div className="space-y-3 rounded-lg border border-border p-3">
-            <div className="space-y-2">
-              {isTwoFactorStep ? (
-                <>
-                  <Label htmlFor="otpCode">
-                    {tr(language, "Verification code", "รหัสยืนยัน")}
-                  </Label>
-                  <Input
-                    id="otpCode"
-                    inputMode="numeric"
-                    maxLength={12}
-                    placeholder={tr(language, "Enter code", "กรอกรหัส")}
-                    autoFocus={isTwoFactorStep}
-                    value={otpCode}
-                    onChange={(e) => {
-                      setOtpCode(e.target.value);
-                      setError(null);
-                    }}
-                    required={isTwoFactorStep}
-                  />
-                </>
-              ) : null}
-            </div>
-
-            {isTwoFactorStep && provisioningUri ? (
-              <div className="space-y-2">
-                <p className="text-[0.88rem] text-muted-foreground">
-                  {tr(
-                    language,
-                    "Scan the QR, then enter your code.",
-                    "สแกน QR แล้วกรอกรหัส"
-                  )}
-                </p>
-                <div className="flex justify-center rounded-md bg-white p-2">
-                  {qrCodeDataUrl ? (
-                    <Image
-                      src={qrCodeDataUrl}
-                      alt={tr(language, "Admin 2FA QR code", "คิวอาร์โค้ด 2FA สำหรับผู้ดูแล")}
-                      width={220}
-                      height={220}
-                      unoptimized
-                      className="h-[220px] w-[220px]"
-                    />
-                  ) : (
-                    <p className="py-8 text-[0.88rem] text-muted-foreground">
-                      {tr(language, "Generating QR code...", "กำลังสร้าง QR code...")}
-                    </p>
-                  )}
-                </div>
-                <SecretDisclosure
-                  key={extractSetupKey(provisioningUri) ?? "setup-key-hidden"}
-                  label={tr(language, "Setup key", "รหัสตั้งค่า")}
-                  value={extractSetupKey(provisioningUri)}
-                  showLabel={tr(language, "Show setup key", "แสดงรหัสตั้งค่า")}
-                  hideLabel={tr(language, "Hide setup key", "ซ่อนรหัสตั้งค่า")}
-                />
-              </div>
-            ) : null}
-
-            {isTwoFactorStep ? (
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="remember_device"
-                  checked={rememberDevice}
-                  onCheckedChange={(value) => setRememberDevice(Boolean(value))}
-                />
-                <Label htmlFor="remember_device" className="text-[0.95rem] font-normal">
-                  {tr(language, "Trust this device", "เชื่อถืออุปกรณ์นี้")}
-                  {trustedDays
-                    ? language === "th"
-                      ? ` (${trustedDays} วัน)`
-                      : ` (${trustedDays} days)`
-                    : ""}
-                </Label>
-              </div>
-            ) : null}
-          </div>
-        )}
-
         {error && !isPlainLocked && (
           <AuthMessage>
             {error}
@@ -919,9 +721,7 @@ export default function LoginClientPage() {
         >
           {loading
             ? tr(language, "Signing in...", "กำลังเข้าสู่ระบบ...")
-            : isTwoFactorStep
-              ? tr(language, "Verify and Sign In", "ยืนยันและเข้าสู่ระบบ")
-              : tr(language, "Continue", "ดำเนินการต่อ")}
+            : tr(language, "Continue", "ดำเนินการต่อ")}
         </Button>
       </form>
     </AuthShell>

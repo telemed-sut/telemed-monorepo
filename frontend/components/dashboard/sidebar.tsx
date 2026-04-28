@@ -23,7 +23,6 @@ import {
   CalendarDays,
   UserCog,
   ScrollText,
-  Shield,
   HelpCircle,
   ChevronsUpDown,
   ChevronRight,
@@ -77,7 +76,6 @@ const adminOnlyRoutes: NavItem[] = [
   { id: "device-monitor", icon: Activity, link: "/device-monitor" },
   { id: "device-registry", icon: Cpu, link: "/device-registry" },
   { id: "audit-logs", icon: ScrollText, link: "/audit-logs" },
-  { id: "security", icon: Shield, link: "/security" },
 ];
 
 const SIDEBAR_LABELS: Record<
@@ -103,7 +101,6 @@ const SIDEBAR_LABELS: Record<
       "device-monitor": "Device Monitor",
       "device-registry": "Device Registry",
       "audit-logs": "Audit Logs",
-      security: "Security",
     },
     helpCenter: "Help Center",
     loading: "Loading...",
@@ -123,7 +120,6 @@ const SIDEBAR_LABELS: Record<
       "device-monitor": "มอนิเตอร์อุปกรณ์",
       "device-registry": "ทะเบียนอุปกรณ์",
       "audit-logs": "บันทึก Audit",
-      security: "ความปลอดภัย",
     },
     helpCenter: "ศูนย์ช่วยเหลือ",
     loading: "กำลังโหลด...",

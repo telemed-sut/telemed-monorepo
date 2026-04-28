@@ -17,9 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def requires_token_mfa(user: User | None) -> bool:
-    if user is None:
-        return False
-    return (settings.admin_2fa_required and user.role == UserRole.admin) or bool(user.two_factor_enabled)
+    return False
 
 
 def is_admin_sso_enforced_for_user(user: User | None) -> bool:

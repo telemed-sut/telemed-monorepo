@@ -5,9 +5,9 @@ import {
   Activity,
   CheckCircle2,
   CircleAlert,
-  Cpu,
   ExternalLink,
   Loader2,
+  Monitor,
   Play,
   RefreshCw,
   Search,
@@ -27,7 +27,8 @@ import {
   fetchDeviceLiveSessions,
   fetchPatients,
   isProbablyJwt,
-  resolveDeviceLungSoundReview,
+  resolveDeviceLungSoundReviewItem,
+  type DeviceExamSession,
   type DeviceLungSoundReviewItem,
   type DeviceLungSoundReviewQueueResponse,
   type DeviceInventoryItem,
@@ -59,7 +60,6 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
 const LIVE_STALE_OPTIONS = [90, 120, 300, 600] as const;
-const MEASUREMENT_OPTIONS: DeviceExamMeasurementType[] = ["lung_sound", "heart_sound", "blood_pressure", "multi"];
 const DEFAULT_MEASUREMENT_TYPE: DeviceExamMeasurementType = "lung_sound";
 
 type DeviceSessionEvent = {
@@ -158,6 +158,21 @@ function measurementIcon(value: DeviceLiveSessionItem["measurement_type"]) {
 function formatPatientName(patient: Pick<Patient, "first_name" | "last_name" | "id">) {
   const name = `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim();
   return name || patient.id;
+}
+
+function prettifyIdentifier(value: string) {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => (/^\d+$/.test(part) ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+    .join(" ");
+}
+
+function deviceOptionLabel(device: Pick<DeviceInventoryItem, "device_id" | "device_display_name" | "default_measurement_type">, language: AppLanguage) {
+  const displayName = device.device_display_name?.trim();
+  const readableName =
+    displayName && displayName !== device.device_id ? displayName : prettifyIdentifier(device.device_id);
+  return `${readableName} · ${measurementLabel(device.default_measurement_type, language)}`;
 }
 
 function freshnessBadgeClass(freshness: string) {
@@ -280,7 +295,7 @@ export function DeviceMonitorLiveOps({
   const [liveData, setLiveData] = useState<DeviceLiveSessionResponse | null>(null);
   const [inventoryData, setInventoryData] = useState<DeviceInventoryResponse | null>(null);
   const [reviewData, setReviewData] = useState<DeviceLungSoundReviewQueueResponse | null>(null);
-  const [recentCompletedData, setRecentCompletedData] = useState<any[]>([]);
+  const [recentCompletedData, setRecentCompletedData] = useState<DeviceExamSession[]>([]);
   const [reviewRoutingFilter, setReviewRoutingFilter] = useState<ReviewRoutingFilter>("all");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -289,7 +304,6 @@ export function DeviceMonitorLiveOps({
   const [staleAfterSeconds, setStaleAfterSeconds] = useState<number>(120);
   const [query, setQuery] = useState("");
   const [streamState, setStreamState] = useState<StreamState>("connecting");
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [patientQuery, setPatientQuery] = useState("");
   const [patientResults, setPatientResults] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
@@ -300,7 +314,7 @@ export function DeviceMonitorLiveOps({
   const [startSubmitting, setStartSubmitting] = useState(false);
   const [reviewActionId, setReviewActionId] = useState<string | null>(null);
   const [showSwitchConfirm, setShowSwitchConfirm] = useState(false);
-  const [activeSessionToClose, setActiveSessionToClose] = useState<any | null>(null);
+  const [activeSessionToClose, setActiveSessionToClose] = useState<DeviceInventoryItem | null>(null);
   const isFetchingRef = useRef(false);
   const refreshTimerRef = useRef<number | null>(null);
 
@@ -320,6 +334,10 @@ export function DeviceMonitorLiveOps({
               routingStatus: reviewRoutingFilter === "all" ? undefined : reviewRoutingFilter,
             })
           : Promise.resolve(null);
+        const completedSessionsPromise = fetchDeviceExamSessions(token, {
+          status: "completed",
+          limit: 5,
+        }).catch(() => ({ items: [], total: 0 }));
         const [liveSessions, inventory, reviewQueue, completedSessions] = await Promise.all([
           fetchDeviceLiveSessions(token, {
             includePending,
@@ -329,19 +347,13 @@ export function DeviceMonitorLiveOps({
             staleAfterSeconds,
           }),
           reviewPromise,
-          fetchDeviceExamSessions(token, {
-            status: "completed",
-            limit: 5,
-            sort: "ended_at",
-            order: "desc",
-          }),
+          completedSessionsPromise,
         ]);
         setLiveData(liveSessions);
         setInventoryData(inventory);
         setReviewData(reviewQueue);
         setRecentCompletedData(completedSessions.items ?? []);
         setErrorText(null);
-        setLastUpdated(new Date());
       } catch (error) {
         if (!silent) {
           setErrorText(
@@ -544,6 +556,13 @@ export function DeviceMonitorLiveOps({
       ),
     [inventoryData?.items],
   );
+  const selectedDevice = useMemo(
+    () => availableDevices.find((device) => device.device_id === selectedDeviceId) ?? null,
+    [availableDevices, selectedDeviceId],
+  );
+  const canStartSession = Boolean(
+    token && selectedPatient && selectedDeviceId && availableDevices.length > 0 && !startSubmitting,
+  );
 
   useEffect(() => {
     if (!selectedDeviceId || availableDevices.some((device) => device.device_id === selectedDeviceId)) {
@@ -560,16 +579,15 @@ export function DeviceMonitorLiveOps({
       }
       return;
     }
-    const selectedDevice = availableDevices.find((device) => device.device_id === selectedDeviceId);
     if (selectedDevice?.default_measurement_type) {
       setMeasurementType(selectedDevice.default_measurement_type);
     }
-  }, [availableDevices, selectedDeviceId]);
+  }, [availableDevices, selectedDevice, selectedDeviceId]);
 
   const executeStartSession = useCallback(async (isConfirmed = false) => {
     if (!token || startSubmitting || !selectedPatient || !selectedDeviceId) return;
 
-    const currentDevice = availableDevices.find(d => d.device_id === selectedDeviceId);
+    const currentDevice = selectedDevice;
     
     // Check if we need confirmation
     if (!isConfirmed && currentDevice?.session_id) {
@@ -587,11 +605,16 @@ export function DeviceMonitorLiveOps({
           await completeDeviceExamSession(token, currentDevice.session_id, {
             notes: tr(language, "Automatically completed for patient transition.", "จบการตรวจอัตโนมัติเนื่องจากสลับคนไข้"),
           });
-        } catch (e) {
-          console.error("Failed to auto-complete previous session:", e);
-          toast.error(tr(language, "Could not close previous session", "ไม่สามารถปิดรอบตรวจเดิมได้"), {
-            description: tr(language, "Please try finishing it manually or check connection.", "โปรดลองกดจบงานด้วยตนเอง หรือตรวจสอบการเชื่อมต่อ")
-          });
+        } catch (error) {
+          toast.apiError(
+            tr(language, "Could not close previous session", "ไม่สามารถปิดรอบตรวจเดิมได้"),
+            error,
+            tr(
+              language,
+              "Please try finishing it manually or check the connection.",
+              "โปรดลองกดจบงานด้วยตนเอง หรือตรวจสอบการเชื่อมต่อ",
+            ),
+          );
           setStartSubmitting(false);
           return; // Stop here if we can't clear the device
         }
@@ -640,7 +663,7 @@ export function DeviceMonitorLiveOps({
     sessionNotes,
     startSubmitting,
     token,
-    availableDevices,
+    selectedDevice,
   ]);
 
   const handleStartSession = useCallback(async () => {
@@ -750,87 +773,53 @@ export function DeviceMonitorLiveOps({
   return (
     <>
     <section className="space-y-4">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="space-y-1">
-          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
-            {tr(language, "Live Device Operations", "สถานะการใช้งานอุปกรณ์แบบสด")}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {tr(
-              language,
-              "Monitor real-time device usage and patient assignments, plus device inventory status.",
-              "ตรวจสอบความเคลื่อนไหวการใช้งานเครื่องกับคนไข้ รวมถึงสถานะของแต่ละอุปกรณ์",
-            )}
-          </p>
-          {lastUpdated && (
-            <p className="text-xs text-muted-foreground">
-              {tr(language, "Snapshot refreshed", "อัปเดต snapshot ล่าสุด")} {formatDateTime(lastUpdated.toISOString(), language)}
-            </p>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge className={cn("rounded-full border px-2.5 py-1 text-[0.7rem] font-medium", streamMeta.className)} variant="outline">
-            {streamMeta.label}
-          </Badge>
-          <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 shadow-xs">
-            <Switch id="live-include-pending" checked={includePending} onCheckedChange={setIncludePending} />
-            <Label htmlFor="live-include-pending" className="text-sm">
-              {tr(language, "Include inactive sessions", "รวมรายการที่ไม่ได้เคลื่อนไหว")}
-            </Label>
-          </div>
-          <Select
-            value={String(staleAfterSeconds)}
-            onValueChange={(value) => setStaleAfterSeconds(Number(value))}
-          >
-            <SelectTrigger className="h-9 w-[160px] text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {LIVE_STALE_OPTIONS.map((seconds) => (
-                <SelectItem key={seconds} value={String(seconds)}>
-                  {tr(language, "Stale after", "ถือว่าขาดช่วงเมื่อ")} {seconds}s
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="relative w-full min-w-[220px] max-w-[320px]">
+      <h2 className="sr-only">
+        {tr(language, "Live Device Operations", "สถานะการใช้งานอุปกรณ์แบบสด")}
+      </h2>
+      <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="grid gap-3 lg:grid-cols-[minmax(280px,1fr)_auto] lg:items-center">
+          <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              className="h-9 pl-9 text-sm"
-              placeholder={tr(language, "Search device or patient", "ค้นหาเครื่องหรือผู้ป่วย")}
+              className="h-10 rounded-xl border-slate-200 bg-slate-50 pl-9 text-sm"
+              placeholder={tr(language, "Search device, patient, mode, or pairing code", "ค้นหาเครื่อง ผู้ป่วย โหมด หรือรหัสจับคู่")}
             />
           </div>
-          <Button variant="outline" size="sm" onClick={() => void loadSnapshot()} disabled={refreshing}>
-            <RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />
-            {tr(language, "Refresh", "รีเฟรช")}
-          </Button>
-
-          {/* Dev Simulator Button */}
-          {process.env.NODE_ENV === "development" && (
-            <Button 
-              variant="secondary" 
-              size="sm" 
-              className="bg-amber-100 text-amber-800 hover:bg-amber-200 border-amber-200"
-              onClick={async () => {
-                if (!availableDevices.length || !patientResults.length) {
-                  toast.warning("Needs available devices and patients to simulate.");
-                  return;
-                }
-                const devPatient = patientResults[0];
-                const devDevice = availableDevices[0];
-                setSelectedPatient(devPatient);
-                setSelectedDeviceId(devDevice.device_id);
-                setPatientQuery(formatPatientName(devPatient));
-                toast.info(`Simulated selection: ${devDevice.device_id} for ${devPatient.first_name}`);
-              }}
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+            <Badge
+              className={cn("rounded-full border px-2.5 py-1 text-[0.7rem] font-medium", streamMeta.className)}
+              variant="outline"
             >
-              <Cpu className="mr-2 h-4 w-4" />
-              Dev Sim
+              {streamMeta.label}
+            </Badge>
+            <div className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3">
+              <Switch id="live-include-pending" checked={includePending} onCheckedChange={setIncludePending} />
+              <Label htmlFor="live-include-pending" className="text-sm font-medium text-slate-700">
+                {tr(language, "Include inactive", "รวมรายการนิ่ง")}
+              </Label>
+            </div>
+            <Select
+              value={String(staleAfterSeconds)}
+              onValueChange={(value) => setStaleAfterSeconds(Number(value))}
+            >
+              <SelectTrigger className="h-10 w-[170px] rounded-xl text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LIVE_STALE_OPTIONS.map((seconds) => (
+                  <SelectItem key={seconds} value={String(seconds)}>
+                    {tr(language, "Stale after", "ขาดช่วงเมื่อ")} {seconds}s
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="sm" className="h-10 rounded-xl" onClick={() => void loadSnapshot()} disabled={refreshing}>
+              <RefreshCw className={cn("mr-2 h-4 w-4", refreshing && "animate-spin")} />
+              {tr(language, "Refresh", "รีเฟรช")}
             </Button>
-          )}
+          </div>
         </div>
       </div>
 
@@ -841,19 +830,21 @@ export function DeviceMonitorLiveOps({
       )}
 
       {canManageSessions ? (
-      <Card className="border-slate-200 bg-white">
-        <CardHeader>
+      <Card className="border-slate-200 bg-white shadow-sm">
+        <CardHeader className="pb-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <UserRoundPlus className="size-5 text-sky-600" />
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <span className="flex size-9 items-center justify-center rounded-xl bg-sky-50 text-sky-700">
+                  <UserRoundPlus className="size-5" />
+                </span>
                 {tr(language, "Start device session", "เริ่มรอบตรวจด้วยเครื่อง")}
               </CardTitle>
-              <CardDescription>
+              <CardDescription className="mt-2 max-w-2xl">
                 {tr(
                   language,
                   "Pick a device, choose the patient, and start the examination session immediately.",
-                  "เลือกเครื่อง เลือกผู้ป่วย แล้วเริ่มรอบการตรวจได้ทันที",
+                  "เลือกผู้ป่วย เลือกเครื่อง แล้วเริ่มรอบตรวจได้ทันที",
                 )}
               </CardDescription>
             </div>
@@ -862,11 +853,23 @@ export function DeviceMonitorLiveOps({
             </Badge>
           </div>
         </CardHeader>
-        <CardContent className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
-          <div className="space-y-3">
-            <Label htmlFor="device-session-patient-search">
-              {tr(language, "Patient", "ผู้ป่วย")}
-            </Label>
+        <CardContent className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(340px,0.78fr)]">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wider text-sky-700">
+                  {tr(language, "Step 1", "ขั้นตอนที่ 1")}
+                </p>
+                <Label htmlFor="device-session-patient-search" className="text-base font-semibold text-slate-950">
+                  {tr(language, "Choose patient", "เลือกผู้ป่วย")}
+                </Label>
+              </div>
+              {selectedPatient ? (
+                <Badge variant="outline" className="rounded-full border-sky-200 bg-sky-50 text-sky-700">
+                  {tr(language, "Selected", "เลือกแล้ว")}
+                </Badge>
+              ) : null}
+            </div>
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
               <Input
@@ -876,11 +879,19 @@ export function DeviceMonitorLiveOps({
                   setPatientQuery(event.target.value);
                   setSelectedPatient(null);
                 }}
-                className="pl-9"
+                className="h-11 rounded-xl bg-white pl-9"
                 placeholder={tr(language, "Search name or patient ID", "ค้นหาชื่อหรือรหัสผู้ป่วย")}
               />
             </div>
-            <div className="grid max-h-[210px] gap-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/60 p-2">
+            {selectedPatient ? (
+              <div className="mt-3 rounded-xl border border-sky-200 bg-white px-3 py-2 text-sm">
+                <div className="font-semibold text-slate-950">{formatPatientName(selectedPatient)}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  {selectedPatient.ward || tr(language, "No ward", "ยังไม่ระบุวอร์ด")} · {selectedPatient.id}
+                </div>
+              </div>
+            ) : null}
+            <div className="mt-3 grid max-h-[240px] gap-2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2">
               {patientSearchLoading ? (
                 <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
@@ -902,7 +913,7 @@ export function DeviceMonitorLiveOps({
                         setPatientQuery(formatPatientName(patient));
                       }}
                       className={cn(
-                        "flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                        "flex min-h-14 items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors",
                         active
                           ? "border-sky-300 bg-sky-50 text-sky-900"
                           : "border-transparent bg-white hover:border-slate-200 hover:bg-slate-50",
@@ -922,40 +933,51 @@ export function DeviceMonitorLiveOps({
             </div>
           </div>
 
-          <div className="grid gap-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
+            <div className="mb-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-sky-700">
+                {tr(language, "Step 2", "ขั้นตอนที่ 2")}
+              </p>
+              <h3 className="text-base font-semibold text-slate-950">
+                {tr(language, "Select device and start", "เลือกเครื่องและเริ่มตรวจ")}
+              </h3>
+            </div>
+            <div className="grid gap-3">
             <div className="grid gap-2">
               <Label>{tr(language, "Select device", "เลือกเครื่อง")}</Label>
               <Select value={selectedDeviceId} onValueChange={(value) => setSelectedDeviceId(value ?? "")}>
-                <SelectTrigger>
-                  <SelectValue placeholder={tr(language, "Choose a device", "เลือกเครื่อง")} />
+                <SelectTrigger className="h-11 rounded-xl bg-white">
+                  {selectedDevice ? (
+                    <SelectValue>{deviceOptionLabel(selectedDevice, language)}</SelectValue>
+                  ) : (
+                    <SelectValue placeholder={tr(language, "Choose a device", "เลือกเครื่อง")} />
+                  )}
                 </SelectTrigger>
                 <SelectContent>
                   {availableDevices.map((device) => (
                     <SelectItem key={device.device_id} value={device.device_id}>
-                      {device.device_display_name} · {device.device_id} · {measurementLabel(device.default_measurement_type, language)}
+                      {deviceOptionLabel(device, language)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              
-              {/* Active Status Display and Finish Button inside the form */}
+
               {selectedDeviceId && (
                 (() => {
-                  const dev = inventoryData?.items.find(d => d.device_id === selectedDeviceId);
-                  // Show if there is any active session linked to this device
+                  const dev = inventoryData?.items.find((device) => device.device_id === selectedDeviceId);
                   if (dev?.session_id) {
                     return (
-                      <div className="mt-2 flex items-center justify-between rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 shadow-sm animate-in fade-in slide-in-from-top-1 duration-300">
-                        <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 shadow-sm animate-in fade-in slide-in-from-top-1 duration-300">
+                        <div className="flex min-w-0 items-center gap-2.5">
                           <div className="relative flex h-2 w-2 shrink-0">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-75"></span>
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-amber-500"></span>
                           </div>
                           <div className="min-w-0">
-                            <p className="text-[10px] font-medium uppercase tracking-wider text-sky-600/80">
+                            <p className="text-[10px] font-medium uppercase tracking-wider text-amber-700/80">
                               {tr(language, "Device is Busy", "เครื่องกำลังถูกใช้งาน")}
                             </p>
-                            <p className="text-sm font-semibold text-sky-900 truncate">
+                            <p className="truncate text-sm font-semibold text-amber-950">
                               {dev.patient_name || tr(language, "Active Session", "มีรอบตรวจค้างอยู่")}
                             </p>
                           </div>
@@ -964,7 +986,7 @@ export function DeviceMonitorLiveOps({
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="h-8 rounded-lg border-sky-200 bg-white px-3 text-xs font-medium text-sky-700 hover:bg-sky-100 hover:text-sky-800 shadow-xs"
+                          className="h-8 shrink-0 rounded-lg border-amber-200 bg-white px-3 text-xs font-medium text-amber-800 shadow-xs hover:bg-amber-100 hover:text-amber-900"
                           onClick={async (e) => {
                             e.stopPropagation();
                             if (!dev.session_id || !token) return;
@@ -974,8 +996,12 @@ export function DeviceMonitorLiveOps({
                               });
                               toast.success(tr(language, "Session finished", "จบการตรวจเรียบร้อย"));
                               void loadSnapshot();
-                            } catch (err) {
-                              toast.error("Failed to finish session");
+                            } catch (error) {
+                              toast.apiError(
+                                tr(language, "Failed to finish session", "จบการตรวจไม่สำเร็จ"),
+                                error,
+                                tr(language, "Please try again or check the connection.", "โปรดลองอีกครั้งหรือตรวจสอบการเชื่อมต่อ"),
+                              );
                             }
                           }}
                         >
@@ -988,6 +1014,11 @@ export function DeviceMonitorLiveOps({
                   return null;
                 })()
               )}
+              {selectedDevice && !selectedDevice.session_id ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                  {tr(language, "Ready to assign this device.", "เครื่องนี้พร้อมผูกกับผู้ป่วย")}
+                </div>
+              ) : null}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="device-session-notes">{tr(language, "Notes", "หมายเหตุ")}</Label>
@@ -996,14 +1027,15 @@ export function DeviceMonitorLiveOps({
                 value={sessionNotes}
                 onChange={(event) => setSessionNotes(event.target.value)}
                 rows={3}
+                className="rounded-xl bg-white"
                 placeholder={tr(language, "Optional context for this examination", "บริบทเพิ่มเติมสำหรับรอบตรวจนี้ ถ้ามี")}
               />
             </div>
             <Button
               type="button"
               onClick={() => void handleStartSession()}
-              disabled={startSubmitting || !token || availableDevices.length === 0 || !selectedPatient || !selectedDeviceId}
-              className="w-full"
+              disabled={!canStartSession}
+              className="h-11 w-full rounded-xl"
             >
               {startSubmitting ? (
                 <Loader2 className="mr-2 size-4 animate-spin" />
@@ -1012,6 +1044,7 @@ export function DeviceMonitorLiveOps({
               )}
               {tr(language, "Start session", "เริ่มรอบตรวจ")}
             </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1096,7 +1129,8 @@ export function DeviceMonitorLiveOps({
             </div>
           </CardHeader>
           <CardContent>
-            <Table>
+            <div className="max-h-[360px] overflow-auto rounded-xl border border-slate-100 bg-white [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10 [&_thead]:bg-white">
+            <Table className="min-w-[920px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>{tr(language, "Device", "อุปกรณ์")}</TableHead>
@@ -1198,6 +1232,7 @@ export function DeviceMonitorLiveOps({
                 )}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -1215,14 +1250,15 @@ export function DeviceMonitorLiveOps({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
+            <div className="max-h-[380px] overflow-auto rounded-xl border border-slate-100 bg-white [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10 [&_thead]:bg-white">
+            <Table className="min-w-[760px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>{tr(language, "Device", "อุปกรณ์")}</TableHead>
                   <TableHead>{tr(language, "Patient", "ผู้ป่วย")}</TableHead>
                   <TableHead>{tr(language, "Mode", "โหมด")}</TableHead>
                   <TableHead>{tr(language, "Freshness", "ความสดของสัญญาณ")}</TableHead>
-                  <TableHead className="text-right">{tr(language, "View", "ดูผล")}</TableHead>
+                  <TableHead className="text-right">{tr(language, "Actions", "จัดการ")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1252,6 +1288,11 @@ export function DeviceMonitorLiveOps({
                             <div className="text-xs text-muted-foreground">
                               {tr(language, "Started", "เริ่ม")} {formatDateTime(session.started_at, language)}
                             </div>
+                            {session.pairing_code ? (
+                              <div className="text-xs font-medium text-slate-500">
+                                {tr(language, "Pairing", "รหัสจับคู่")} {session.pairing_code}
+                              </div>
+                            ) : null}
                           </div>
                         </TableCell>
                         <TableCell className="align-top">
@@ -1285,15 +1326,44 @@ export function DeviceMonitorLiveOps({
                             </div>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right align-top">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="rounded-full hover:bg-sky-50 hover:text-sky-600"
-                            onClick={() => window.open(`/patients/${session.patient_id}/heart-sound`, '_blank')}
-                          >
-                            <ExternalLink className="size-4" />
-                          </Button>
+                        <TableCell className="align-top">
+                          <div className="flex justify-end gap-2">
+                            {canManageSessions ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-8 rounded-lg"
+                                onClick={async () => {
+                                  if (!token) return;
+                                  try {
+                                    await completeDeviceExamSession(token, session.session_id, {
+                                      notes: tr(language, "Completed from live device operations.", "จบการตรวจจากหน้าปฏิบัติการอุปกรณ์"),
+                                    });
+                                    toast.success(tr(language, "Session completed", "จบการตรวจแล้ว"));
+                                    void loadSnapshot();
+                                  } catch (error) {
+                                    toast.apiError(
+                                      tr(language, "Failed to complete session", "จบการตรวจไม่สำเร็จ"),
+                                      error,
+                                      tr(language, "Please try again or refresh the page.", "โปรดลองอีกครั้งหรือรีเฟรชหน้า"),
+                                    );
+                                  }
+                                }}
+                              >
+                                <Square className="mr-1.5 size-3 fill-current" />
+                                {tr(language, "Complete", "จบงาน")}
+                              </Button>
+                            ) : null}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="rounded-full hover:bg-sky-50 hover:text-sky-600"
+                              onClick={() => window.open(`/patients/${session.patient_id}/heart-sound`, "_blank")}
+                              aria-label={tr(language, "View patient result", "ดูผลผู้ป่วย")}
+                            >
+                              <ExternalLink className="size-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
@@ -1301,6 +1371,7 @@ export function DeviceMonitorLiveOps({
                 )}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
 
@@ -1316,7 +1387,8 @@ export function DeviceMonitorLiveOps({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
+            <div className="max-h-[380px] overflow-auto rounded-xl border border-slate-100 bg-white [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10 [&_thead]:bg-white">
+            <Table className="min-w-[620px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>{tr(language, "Device", "อุปกรณ์")}</TableHead>
@@ -1386,6 +1458,7 @@ export function DeviceMonitorLiveOps({
                 )}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
 
@@ -1406,7 +1479,8 @@ export function DeviceMonitorLiveOps({
             </div>
           </CardHeader>
           <CardContent>
-            <Table>
+            <div className="max-h-[320px] overflow-auto rounded-xl border border-slate-100 bg-white [&_thead]:sticky [&_thead]:top-0 [&_thead]:z-10 [&_thead]:bg-white">
+            <Table className="min-w-[640px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>{tr(language, "Patient", "ผู้ป่วย")}</TableHead>
@@ -1460,6 +1534,7 @@ export function DeviceMonitorLiveOps({
                 )}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
       </div>
