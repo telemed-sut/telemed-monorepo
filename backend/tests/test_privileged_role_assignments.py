@@ -108,40 +108,7 @@ def test_platform_super_admin_assignment_can_create_admin_invite(client: TestCli
     assert "/invite#token=" in response.json()["invite_url"]
 
 
-def test_security_admin_can_run_recovery_actions(client: TestClient, db: Session):
-    bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
-    security_admin = _make_user(db, email="security-admin@example.com", role=UserRole.admin)
-    target_admin = _make_user(db, email="locked-admin@example.com", role=UserRole.admin)
-    target_admin.failed_login_attempts = 7
-    target_admin.account_locked_until = datetime.now(timezone.utc) + timedelta(minutes=5)
-    db.add(target_admin)
-    db.commit()
-
-    _grant_privileged_role(
-        db,
-        user=security_admin,
-        role=PrivilegedRole.security_admin,
-        created_by=bootstrap_admin,
-    )
-
-    token = _login(client, security_admin.email)
-    unlock = client.post(
-        "/security/admin-unlock",
-        json={"email": target_admin.email, "reason": "Emergency admin access recovery"},
-        headers=_auth(token),
-    )
-    assert unlock.status_code == 200, unlock.text
-
-    password_reset = client.post(
-        f"/security/users/{target_admin.id}/password/reset",
-        json={"reason": "Emergency account recovery after lockout"},
-        headers=_auth(token),
-    )
-    assert password_reset.status_code == 200, password_reset.text
-    assert password_reset.json()["reset_token"]
-
-
-def test_security_recovery_actions_require_fresh_high_risk_mfa(client: TestClient, db: Session):
+def test_security_operations_require_fresh_high_risk_mfa(client: TestClient, db: Session):
     bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
     security_admin = _make_user(db, email="stale-security-admin@example.com", role=UserRole.admin)
     target_admin = _make_user(db, email="stale-target-admin@example.com", role=UserRole.admin)
@@ -170,7 +137,7 @@ def test_security_recovery_actions_require_fresh_high_risk_mfa(client: TestClien
     assert "Recent multi-factor verification required" in response.json()["detail"]
 
 
-def test_hospital_admin_cannot_run_recovery_actions(client: TestClient, db: Session):
+def test_hospital_admin_cannot_run_security_operations(client: TestClient, db: Session):
     bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
     hospital_admin = _make_user(db, email="hospital-admin@example.com", role=UserRole.admin)
     target_user = _make_user(db, email="target@example.com", role=UserRole.medical_student)
@@ -279,7 +246,7 @@ def test_access_profile_reveals_db_backed_privileged_access(client: TestClient, 
     assert payload["access_class"] == "Vault Apex"
     assert payload["access_class_revealed"] is True
     assert payload["can_manage_privileged_admins"] is True
-    assert payload["can_manage_security_recovery"] is True
+    assert payload["can_manage_security_operations"] is True
 
 
 def test_access_profile_hides_sensitive_details_without_recent_mfa(client: TestClient, db: Session):
@@ -308,7 +275,7 @@ def test_access_profile_hides_sensitive_details_without_recent_mfa(client: TestC
     assert payload["access_class"] is None
     assert payload["access_class_revealed"] is False
     assert payload["can_manage_privileged_admins"] is False
-    assert payload["can_manage_security_recovery"] is False
+    assert payload["can_manage_security_operations"] is False
 
 
 def test_backfill_bootstrap_privileged_roles_assigns_platform_super_admin(monkeypatch, db: Session):

@@ -79,7 +79,7 @@ Settings live in `app/core/config.py` (`Settings(BaseSettings)`, cached via `@lr
 - `DEVICE_API_SECRET` and per‑device entries in `DEVICE_API_SECRETS` must be ≥32 chars and not the obvious weak strings (`changeme`, `default`, `secret`, `change_this_to_a_strong_secret`).
 - If `FRONTEND_BASE_URL` is HTTPS, `AUTH_COOKIE_SECURE` must be true (enforced by `model_validator`).
 - `MEETING_VIDEO_PROVIDER=zego` requires `ZEGO_APP_ID` and `ZEGO_SERVER_SECRET` (≥16 chars).
-- `cors_origins`, `super_admin_emails`, `trusted_proxy_ips`, `admin_unlock_whitelisted_ips`, `rate_limit_whitelist` accept either a JSON list or a comma‑separated string (split by `split_origins`).
+- `cors_origins`, `super_admin_emails`, `trusted_proxy_ips`, `rate_limit_whitelist` accept either a JSON list or a comma‑separated string (split by `split_origins`).
 
 Adding a setting? Add it to `Settings`, document it in `.env.example`, and (if a list/dict) add the matching validator.
 
@@ -122,7 +122,7 @@ Service‑layer enforcement is intentional: routers call `verify_doctor_patient_
 ### 6.4 Account lockout & IP ban
 - Per‑user: `MAX_LOGIN_ATTEMPTS=10` / `ACCOUNT_LOCKOUT_MINUTES=15` (admin: 15 / 3). Locked account → HTTP **423** (not 401/403). Logic in `app/services/security.py:handle_failed_login` and `check_account_locked`.
 - Per‑IP: `IP_BAN_THRESHOLD=20` failed attempts in `IP_ATTEMPT_WINDOW_MINUTES=15` triggers `IPBan` for `IP_BAN_DURATION_MINUTES=30`. Enforced very early by `IPBanMiddleware` (`app/middleware/__init__.py`) with a 30 s in‑process cache to keep the DB hit low.
-- Whitelists: `SECURITY_WHITELISTED_IPS` (general bypass), `ADMIN_UNLOCK_WHITELISTED_IPS` (allow admin emergency unlock without auth), `RATE_LIMIT_WHITELIST` (skip slowapi).
+- Whitelists: `SECURITY_WHITELISTED_IPS` (general bypass), `RATE_LIMIT_WHITELIST` (skip slowapi).
 - Minimum admin floor: `MIN_ACTIVE_ADMIN_ACCOUNTS=2`. Updates/deletes that would drop active admins below this fail with 400. Code paths in `app/api/users.py:update_user`, `delete_user`, `bulk_delete_users` all use `_active_admin_count_for_update` with `with_for_update()` — preserve the row lock.
 
 ### 6.5 Device API HMAC contract (`/device/v1/pressure`, `/add_pressure` legacy)

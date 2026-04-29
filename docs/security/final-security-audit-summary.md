@@ -9,7 +9,7 @@ that were executed locally.
 The following material risks were addressed in this hardening round.
 
 - Staff and admin JWTs now require an active server-side session record and can
-  be revoked on logout, password reset, and security recovery flows.
+  be revoked on logout, password reset, and privileged security flows.
 - Sensitive 2FA lifecycle actions now require a recent MFA-backed secure
   session.
 - Logout now clears trusted-device cookies so shared browsers do not continue

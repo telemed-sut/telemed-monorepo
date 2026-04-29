@@ -97,9 +97,7 @@ export function SettingsContent({
   const admin = useSettingsAdmin({
     token,
     language,
-    isAdmin,
     canManagePrivilegedAdmins: profile.canManagePrivilegedAdmins,
-    canManageSecurityRecovery: profile.canManageSecurityRecovery,
     sensitiveReauthOpen: Boolean(sensitiveReauthRequest),
     dismissValidationToast,
     showValidationToastOnce,
@@ -148,8 +146,7 @@ export function SettingsContent({
         ),
         icon: <ShieldCheck className="size-4" />,
       },
-      ...(profile.canManagePrivilegedAdmins ||
-      (isAdmin && profile.canManageSecurityRecovery)
+      ...(profile.canManagePrivilegedAdmins
         ? [
             {
               id: "admin" as const,
@@ -159,8 +156,8 @@ export function SettingsContent({
                 tr(language, "Advanced access", "เครื่องมือขั้นสูง"),
               description: tr(
                 language,
-                "Open onboarding and emergency actions in one place.",
-                "รวมงานเชิญแอดมินและงานฉุกเฉินไว้ในจุดเดียว",
+                "Generate one-time admin onboarding links.",
+                "สร้างลิงก์เริ่มต้นใช้งานแอดมินแบบใช้ครั้งเดียว",
               ),
               icon: <Wrench className="size-4" />,
             },
@@ -170,10 +167,8 @@ export function SettingsContent({
     [
       admin.adminToolsSummary,
       generalSummary,
-      isAdmin,
       language,
       profile.canManagePrivilegedAdmins,
-      profile.canManageSecurityRecovery,
       profile.loginMethodSummary,
       profile.ttlLabel,
       security.securityHeaderSummary,
@@ -364,7 +359,6 @@ export function SettingsContent({
                   language={language}
                   isModalPresentation={isModalPresentation}
                   appearance={appearance}
-                  onOpenSecurity={() => setActivePanel("security")}
                 />
               ) : null}
 
@@ -386,14 +380,10 @@ export function SettingsContent({
                 />
               ) : null}
 
-              {activePanel === "admin" &&
-              (profile.canManagePrivilegedAdmins ||
-                (isAdmin && profile.canManageSecurityRecovery)) ? (
+              {activePanel === "admin" && profile.canManagePrivilegedAdmins ? (
                 <AdminSettingsPanel
                   language={language}
-                  isAdmin={isAdmin}
                   canManagePrivilegedAdmins={profile.canManagePrivilegedAdmins}
-                  canManageSecurityRecovery={profile.canManageSecurityRecovery}
                   admin={admin}
                   getRoleLabel={getRoleLabel}
                 />

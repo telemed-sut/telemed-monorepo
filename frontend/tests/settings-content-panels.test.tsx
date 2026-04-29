@@ -171,7 +171,7 @@ describe("SettingsContent panels", () => {
       access_class: null,
       access_class_revealed: false,
       can_manage_privileged_admins: false,
-      can_manage_security_recovery: false,
+      can_manage_security_operations: false,
       can_bootstrap_privileged_roles: false,
     });
     mockFetch2FAStatus.mockResolvedValue({

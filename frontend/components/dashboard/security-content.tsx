@@ -169,9 +169,6 @@ function SecurityStatsCards({
                         <Badge variant="outline">
                             {tr(language, "Purge actions (24h)", "การลบถาวร (24 ชม.)")}: {stats.purge_actions_24h}
                         </Badge>
-                        <Badge variant="outline">
-                            {tr(language, "Emergency actions (24h)", "การกู้ฉุกเฉิน (24 ชม.)")}: {stats.emergency_actions_24h}
-                        </Badge>
                         {stats.forbidden_403_spike && (
                             <Badge className="bg-red-500/90 text-white">{tr(language, "403 spike detected", "พบ 403 พุ่งสูงผิดปกติ")}</Badge>
                         )}

@@ -172,8 +172,6 @@ export function useSettingsProfile({
     hasPrivilegedAccess && !accessProfile?.access_class_revealed;
   const canManagePrivilegedAdmins =
     accessProfile?.can_manage_privileged_admins ?? false;
-  const canManageSecurityRecovery =
-    accessProfile?.can_manage_security_recovery ?? false;
 
   const loginMethodSummary = ssoProvider
     ? tr(language, "Organization SSO", "Organization SSO")
@@ -272,7 +270,6 @@ export function useSettingsProfile({
     privilegedAccessCodename,
     privilegedAccessProtected,
     canManagePrivilegedAdmins,
-    canManageSecurityRecovery,
     handleResetProfile,
     handleSaveProfile,
   };

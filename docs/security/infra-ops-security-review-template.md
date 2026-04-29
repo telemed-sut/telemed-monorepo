@@ -58,7 +58,6 @@ Confirm that the environment is observable enough for safe release.
 | Request IDs reach monitoring and logs | | | |
 | Sentry or equivalent monitoring is enabled where required | | | |
 | Alert routing reaches the on-call owner | | | |
-| Emergency recovery path was reviewed this cycle | | | |
 
 ## Closed-system operational sign-off
 
@@ -69,7 +68,6 @@ Use this section for the non-code controls that still affect security.
 | Shared workstation policy is in force | | | |
 | Admin re-auth expectations are communicated | | | |
 | Trusted-device retention is accepted by support owners | | | |
-| Emergency recovery was tested in the target environment | | | |
 
 ## Next steps
 

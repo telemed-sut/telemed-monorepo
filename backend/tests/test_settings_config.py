@@ -112,7 +112,6 @@ def test_test_env_bootstrap_fails_closed_when_required_security_key_is_missing(t
                 "AUTH_COOKIE_SECURE=false",
                 "ADMIN_JWT_EXPIRES_IN=14400",
                 "SUPER_ADMIN_EMAILS=admin@example.com",
-                "ADMIN_UNLOCK_WHITELISTED_IPS=127.0.0.1,::1,testclient",
                 "TRUSTED_PROXY_IPS=127.0.0.1,::1",
             ]
         )

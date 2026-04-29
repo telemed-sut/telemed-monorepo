@@ -31,7 +31,7 @@ from app.services.auth_privileges import (
     backfill_bootstrap_privileged_roles,
     build_access_profile,
     can_manage_privileged_admins,
-    can_manage_security_recovery,
+    can_manage_security_operations,
     is_admin_sso_enforced_for_user,
     requires_token_mfa,
 )

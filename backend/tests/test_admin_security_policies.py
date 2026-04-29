@@ -123,7 +123,7 @@ def test_locked_admin_returns_generic_locked_response_even_with_correct_password
     assert response.status_code == 423, response.text
     detail = response.json()["detail"]
     assert detail["code"] == "account_locked"
-    assert "contact_security_admin" in detail["recovery_options"]
+    assert "contact_admin" in detail["recovery_options"]
     assert detail["retry_after_seconds"] > 0
 
     db.refresh(admin)
@@ -151,57 +151,6 @@ def test_locked_admin_returns_same_locked_response_for_wrong_password(
     assert correct.json()["detail"]["code"] == "account_locked"
     assert wrong.json()["detail"]["code"] == "account_locked"
     assert correct.json()["detail"]["recovery_options"] == wrong.json()["detail"]["recovery_options"]
-
-
-def test_emergency_unlock_admin_requires_super_admin(
-    client: TestClient,
-    db: Session,
-):
-    _make_user(db, email="normal-admin@example.com", role=UserRole.admin)
-    target = _make_user(db, email="locked-admin-a@example.com", role=UserRole.admin)
-    target.failed_login_attempts = 8
-    target.account_locked_until = datetime.now(timezone.utc) + timedelta(minutes=5)
-    db.add(target)
-    db.commit()
-
-    token = _login(client, "normal-admin@example.com").json()["access_token"]
-    response = client.post(
-        "/security/admin-unlock",
-        json={"email": "locked-admin-a@example.com", "reason": "manual test"},
-        headers=_auth(token),
-    )
-    assert response.status_code == 403
-
-    log = db.scalar(
-        select(AuditLog)
-        .where(AuditLog.action == "admin_emergency_unlock")
-        .order_by(AuditLog.created_at.desc())
-    )
-    assert log is not None
-    detail = log.details if isinstance(log.details, dict) else __import__('json').loads(log.details)
-    assert detail["success"] is False
-
-
-def test_super_admin_can_emergency_unlock_admin(client: TestClient, db: Session):
-    _make_user(db, email="admin@example.com", role=UserRole.admin)
-    target = _make_user(db, email="locked-admin-b@example.com", role=UserRole.admin)
-    target.failed_login_attempts = 12
-    target.account_locked_until = datetime.now(timezone.utc) + timedelta(minutes=5)
-    db.add(target)
-    db.commit()
-
-    token = _login(client, "admin@example.com").json()["access_token"]
-    response = client.post(
-        "/security/admin-unlock",
-        json={"email": "locked-admin-b@example.com", "reason": "unlock test"},
-        headers=_auth(token),
-    )
-    assert response.status_code == 200
-    assert response.json()["email"] == "locked-admin-b@example.com"
-
-    db.refresh(target)
-    assert target.failed_login_attempts == 0
-    assert target.account_locked_until is None
 
 
 def test_trusted_device_bypasses_2fa_challenge(client: TestClient, db: Session, monkeypatch):
@@ -487,286 +436,7 @@ def test_non_super_admin_cannot_reset_user_2fa(client: TestClient, db: Session):
     assert audit is not None
 
 
-def test_super_admin_can_reset_user_password(client: TestClient, db: Session):
-    super_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
-    target = _make_user(db, email="target-password-reset@example.com", role=UserRole.medical_student, password="OldPass123")
-    token = _login(client, super_admin.email).json()["access_token"]
-
-    response = client.post(
-        f"/security/users/{target.id}/password/reset",
-        json={"reason": "Emergency account recovery for lost credentials"},
-        headers=_auth(token),
-    )
-    assert response.status_code == 200, response.text
-    payload = response.json()
-    assert payload["email"] == target.email
-    assert payload["reset_token"]
-    assert payload["reset_token_expires_in"] > 0
-
-    reset = client.post(
-        "/auth/reset-password",
-        json={
-            "token": payload["reset_token"],
-            "new_password": "NewStrongPass456",
-        },
-    )
-    assert reset.status_code == 200, reset.text
-
-    relogin = _login(
-        client,
-        target.email,
-        password="NewStrongPass456",
-    )
-    assert relogin.status_code == 200, relogin.text
-
-
-def test_admin_force_password_reset_token_cannot_be_reused(client: TestClient, db: Session):
-    super_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
-    target = _make_user(
-        db,
-        email="target-password-reset-reuse@example.com",
-        role=UserRole.medical_student,
-        password="OldPass123",
-    )
-    token = _login(client, super_admin.email).json()["access_token"]
-
-    response = client.post(
-        f"/security/users/{target.id}/password/reset",
-        json={"reason": "Emergency account recovery for lost credentials"},
-        headers=_auth(token),
-    )
-    assert response.status_code == 200, response.text
-    reset_token = response.json()["reset_token"]
-
-    first_reset = client.post(
-        "/auth/reset-password",
-        json={"token": reset_token, "new_password": "NewStrongPass456"},
-    )
-    assert first_reset.status_code == 200, first_reset.text
-
-    second_reset = client.post(
-        "/auth/reset-password",
-        json={"token": reset_token, "new_password": "AnotherStrongPass456"},
-    )
-    assert second_reset.status_code == 400, second_reset.text
-
-
-def test_admin_force_password_reset_invalidates_existing_access_tokens(client: TestClient, db: Session):
-    super_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
-    target = _make_user(
-        db,
-        email="target-password-reset-token@example.com",
-        role=UserRole.medical_student,
-        password="OldPass123",
-    )
-    stale_access_token = create_login_response(target, db=db)["access_token"]
-    db.commit()
-    token = _login(client, super_admin.email).json()["access_token"]
-
-    response = client.post(
-        f"/security/users/{target.id}/password/reset",
-        json={"reason": "Emergency account recovery after lockout"},
-        headers=_auth(token),
-    )
-    assert response.status_code == 200, response.text
-
-    me_response = client.get(
-        "/auth/me",
-        headers=_auth(stale_access_token),
-    )
-    assert me_response.status_code == 401, me_response.text
-
-
-def test_admin_force_password_reset_invalidates_previous_reset_tokens_and_mfa_bypass_artifacts(
-    client: TestClient,
-    db: Session,
-    monkeypatch,
-):
-    super_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
-    target = _make_user(
-        db,
-        email="target-password-reset-artifacts@example.com",
-        role=UserRole.medical_student,
-        password="OldPass123",
-    )
-    secret = generate_totp_secret()
-    target.two_factor_secret = secret
-    target.two_factor_enabled = True
-    target.two_factor_enabled_at = datetime.now(timezone.utc)
-    db.add(target)
-    db.commit()
-
-    trusted_device_token, trusted_device = security_service.create_trusted_device(
-        db,
-        user=target,
-        ip_address="203.0.113.42",
-        user_agent="pytest-agent",
-    )
-    backup_codes, _ = security_service.generate_backup_codes(db, user_id=target.id)
-    db.commit()
-    assert trusted_device_token
-    assert trusted_device.id
-    assert backup_codes
-
-    monkeypatch.setattr(get_settings(), "password_reset_return_token_in_response", True)
-
-    forgot_response = client.post(
-        "/auth/forgot-password",
-        json={"email": target.email},
-        headers={"host": "localhost"},
-    )
-    assert forgot_response.status_code == 200, forgot_response.text
-    stale_reset_token = forgot_response.json()["reset_token"]
-    assert stale_reset_token
-
-    token = _login(client, super_admin.email).json()["access_token"]
-    response = client.post(
-        f"/security/users/{target.id}/password/reset",
-        json={"reason": "Emergency account recovery after lockout"},
-        headers=_auth(token),
-    )
-    assert response.status_code == 200, response.text
-    fresh_reset_token = response.json()["reset_token"]
-    assert fresh_reset_token
-
-    reset_response = client.post(
-        "/auth/reset-password",
-        json={"token": stale_reset_token, "new_password": "AnotherStrongPass456"},
-    )
-    assert reset_response.status_code == 400, reset_response.text
-
-    fresh_reset_response = client.post(
-        "/auth/reset-password",
-        json={"token": fresh_reset_token, "new_password": "AnotherStrongPass456"},
-    )
-    assert fresh_reset_response.status_code == 200, fresh_reset_response.text
-
-    db.refresh(trusted_device)
-    assert trusted_device.revoked_at is not None
-
-    active_backup_codes = db.scalars(
-        select(UserBackupCode).where(
-            UserBackupCode.user_id == target.id,
-            UserBackupCode.used_at.is_(None),
-        )
-    ).all()
-    assert active_backup_codes == []
-
-    audit = db.scalar(
-        select(AuditLog)
-        .where(AuditLog.action == "admin_force_password_reset")
-        .order_by(AuditLog.created_at.desc())
-    )
-    assert audit is not None
-    details = audit.details if isinstance(audit.details, dict) else {}
-    assert details.get("revoked_devices") == 1
-    assert details.get("revoked_backup_codes") == len(backup_codes)
-
-
-def test_non_super_admin_cannot_reset_user_password(client: TestClient, db: Session):
-    normal_admin = _make_user(db, email="normal-admin-password-reset@example.com", role=UserRole.admin)
-    target = _make_user(db, email="target-password-reset-denied@example.com", role=UserRole.medical_student)
-    token = _login(client, normal_admin.email).json()["access_token"]
-
-    response = client.post(
-        f"/security/users/{target.id}/password/reset",
-        json={"reason": "Temporary reset request"},
-        headers=_auth(token),
-    )
-    assert response.status_code == 403
-
-    audit = db.scalar(
-        select(AuditLog)
-        .where(AuditLog.action == "admin_force_password_reset_denied")
-        .order_by(AuditLog.created_at.desc())
-    )
-    assert audit is not None
-
-
-def test_security_admin_can_resolve_user_for_emergency_toolkit(client: TestClient, db: Session):
-    bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
-    admin = _make_user(db, email="resolve-admin@example.com", role=UserRole.admin)
-    target = _make_user(db, email="resolve-target@example.com", role=UserRole.medical_student)
-    _grant_privileged_role(
-        db,
-        user=admin,
-        role=PrivilegedRole.security_admin,
-        created_by=bootstrap_admin,
-    )
-    token = _login(client, admin.email).json()["access_token"]
-
-    response = client.get(
-        f"/security/users/resolve?email={target.email}",
-        headers=_auth(token),
-    )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["user_id"] == str(target.id)
-    assert payload["email"] == target.email
-
-
-def test_security_recovery_endpoints_enforce_ip_allowlist(client: TestClient, db: Session, monkeypatch):
-    from app.core import request_utils
-
-    bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
-    security_admin = _make_user(db, email="ip-gated-security-admin@example.com", role=UserRole.admin)
-    target = _make_user(db, email="ip-gated-target@example.com", role=UserRole.medical_student)
-    target_admin = _make_user(db, email="ip-gated-target-admin@example.com", role=UserRole.admin)
-    _grant_privileged_role(
-        db,
-        user=security_admin,
-        role=PrivilegedRole.security_admin,
-        created_by=bootstrap_admin,
-    )
-
-    monkeypatch.setattr(request_utils.settings, "trusted_proxy_ips", ["testclient"])
-    monkeypatch.setattr(
-        security_service.settings,
-        "admin_unlock_whitelisted_ips",
-        ["127.0.0.1"],
-    )
-
-    token = _login(client, security_admin.email).json()["access_token"]
-    forwarded_headers = {
-        **_auth(token),
-        "x-forwarded-for": "198.51.100.44",
-    }
-
-    requests = [
-        (
-            "post",
-            "/security/admin-unlock",
-            {"email": target_admin.email, "reason": "Emergency admin account recovery"},
-        ),
-        (
-            "get",
-            f"/security/users/resolve?email={target.email}",
-            None,
-        ),
-        (
-            "post",
-            f"/security/users/{target.id}/2fa/reset",
-            {"reason": "Emergency two factor reset request"},
-        ),
-        (
-            "post",
-            f"/security/users/{target.id}/password/reset",
-            {"reason": "Emergency password reset request"},
-        ),
-    ]
-
-    for method, url, payload in requests:
-        request_kwargs = {"headers": forwarded_headers}
-        if payload is not None:
-            request_kwargs["json"] = payload
-        response = getattr(client, method)(url, **request_kwargs)
-        assert response.status_code == 403, response.text
-        assert response.json()["detail"] == (
-            "Security recovery actions are only allowed from approved IP addresses."
-        )
-
-
-def test_security_admin_can_register_device_from_non_recovery_ip(client: TestClient, db: Session, monkeypatch):
+def test_security_admin_can_register_device_from_forwarded_ip(client: TestClient, db: Session, monkeypatch):
     from app.core import request_utils
 
     bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
@@ -779,12 +449,6 @@ def test_security_admin_can_register_device_from_non_recovery_ip(client: TestCli
     )
 
     monkeypatch.setattr(request_utils.settings, "trusted_proxy_ips", ["testclient"])
-    monkeypatch.setattr(
-        security_service.settings,
-        "admin_unlock_whitelisted_ips",
-        ["127.0.0.1"],
-    )
-
     token = _login(client, security_admin.email).json()["access_token"]
     response = client.post(
         "/security/devices",
@@ -1031,16 +695,6 @@ def test_security_stats_tracks_403_spike_counter(client: TestClient, db: Session
             is_break_glass=False,
         )
     )
-    db.add(
-        AuditLog(
-            user_id=admin.id,
-            action="admin_force_password_reset",
-            resource_type="user",
-            details={"target_email": "incident@example.com"},
-            ip_address="127.0.0.1",
-            is_break_glass=False,
-        )
-    )
     db.commit()
 
     stats = client.get("/security/stats", headers=_auth(admin_token))
@@ -1049,4 +703,3 @@ def test_security_stats_tracks_403_spike_counter(client: TestClient, db: Session
     assert payload["forbidden_403_1h"] >= 1
     assert "failed_logins_1h" in payload
     assert payload["purge_actions_24h"] >= 1
-    assert payload["emergency_actions_24h"] >= 1

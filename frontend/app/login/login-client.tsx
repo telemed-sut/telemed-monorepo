@@ -77,8 +77,6 @@ function getRecoveryOptionLabel(language: AppLanguage, option: LockedRecoveryOpt
       return tr(language, "Reset your password", "รีเซ็ตรหัสผ่าน");
     case "contact_admin":
       return tr(language, "Contact an admin for help unlocking this account.", "ติดต่อแอดมินเพื่อช่วยปลดล็อกบัญชีนี้");
-    case "contact_security_admin":
-      return tr(language, "Contact a security admin for an emergency unlock.", "ติดต่อผู้ดูแลด้านความปลอดภัยเพื่อปลดล็อกฉุกเฉิน");
     case "wait":
     default:
       return tr(language, "Wait for the timer to finish.", "รอให้เวลานับถอยหลังหมดก่อน");
@@ -345,7 +343,6 @@ export default function LoginClientPage() {
   const recoveryOptions = lockoutDetail?.recovery_options ?? [];
   const showForgotPassword = recoveryOptions.includes("forgot_password");
   const showContactAdmin = recoveryOptions.includes("contact_admin");
-  const showContactSecurityAdmin = recoveryOptions.includes("contact_security_admin");
   const hasTypedCredentials = email.trim().length > 0 || password.trim().length > 0;
   const hasCompleteCredentials = email.trim().length > 0 && password.trim().length > 0;
   const isSubmitReady = hasCompleteCredentials;
@@ -694,9 +691,6 @@ export default function LoginClientPage() {
               ) : null}
               {showContactAdmin ? (
                 <p>{getRecoveryOptionLabel(language, "contact_admin")}</p>
-              ) : null}
-              {showContactSecurityAdmin ? (
-                <p>{getRecoveryOptionLabel(language, "contact_security_admin")}</p>
               ) : null}
             </div>
           </div>

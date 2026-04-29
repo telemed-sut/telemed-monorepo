@@ -59,7 +59,7 @@ Run these checks after the initial sign-in succeeds.
 ## High-risk action checks
 
 Use actions such as privileged admin invite issuance, admin 2FA reset, admin
-password reset, or security recovery tooling.
+password reset, or trusted-device registry management.
 
 1. Complete a fresh secure re-auth.
 2. Trigger one high-risk action and confirm it succeeds.

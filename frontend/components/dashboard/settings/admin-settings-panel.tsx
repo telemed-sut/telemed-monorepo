@@ -19,18 +19,14 @@ import type { useSettingsAdmin } from "./use-settings-admin";
 
 interface AdminSettingsPanelProps {
   language: SettingsLanguage;
-  isAdmin: boolean;
   canManagePrivilegedAdmins: boolean;
-  canManageSecurityRecovery: boolean;
   admin: ReturnType<typeof useSettingsAdmin>;
   getRoleLabel: (role: string, language: SettingsLanguage) => string;
 }
 
 export function AdminSettingsPanel({
   language,
-  isAdmin,
   canManagePrivilegedAdmins,
-  canManageSecurityRecovery,
   admin,
   getRoleLabel,
 }: AdminSettingsPanelProps) {
@@ -52,8 +48,8 @@ export function AdminSettingsPanel({
               <span className="block text-[0.95rem] text-muted-foreground">
                 {tr(
                   language,
-                  "Keep onboarding and emergency actions grouped under one advanced area.",
-                  "รวมงานเชิญแอดมินและการกู้คืนฉุกเฉินไว้ในส่วนขั้นสูงเดียว",
+                  "Generate one-time admin invites from one advanced area.",
+                  "สร้างลิงก์คำเชิญแอดมินแบบใช้ครั้งเดียวจากส่วนขั้นสูงนี้",
                 )}
               </span>
             </span>
@@ -176,149 +172,6 @@ export function AdminSettingsPanel({
                         onClick={admin.handleCopyCreatedAdminInvite}
                       >
                         {tr(language, "Copy invite link", "คัดลอกลิงก์คำเชิญ")}
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-              </SettingsDisclosure>
-            ) : null}
-
-            {isAdmin && canManageSecurityRecovery ? (
-              <SettingsDisclosure
-                title={tr(language, "Emergency Actions", "การกู้คืนฉุกเฉิน")}
-                description={tr(
-                  language,
-                  "Unlock accounts and reset security with audit-friendly controls.",
-                  "ปลดล็อกบัญชีและรีเซ็ตความปลอดภัยด้วยเครื่องมือที่เหมาะกับงานฉุกเฉิน",
-                )}
-                summary={
-                  admin.resolvedUser
-                    ? admin.resolvedUser.email
-                    : tr(language, "Resolve a target user", "ค้นหาผู้ใช้เป้าหมาย")
-                }
-                open={admin.adminSectionOpen === "emergency"}
-                onOpenChange={(open) =>
-                  admin.setAdminSectionOpen(open ? "emergency" : null)
-                }
-                tone="danger"
-              >
-                <div className="space-y-4">
-                  <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                    <div className="space-y-2">
-                      <Label htmlFor="target_email">
-                        {tr(language, "Target user email", "อีเมลผู้ใช้เป้าหมาย")}
-                      </Label>
-                      <Input
-                        id="target_email"
-                        placeholder={tr(language, "user@hospital.org", "user@hospital.org")}
-                        value={admin.targetEmail}
-                        onChange={(event) =>
-                          admin.handleTargetEmailChange(event.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="emergency_reason">
-                        {tr(language, "Reason (required)", "เหตุผล (จำเป็น)")}
-                      </Label>
-                      <Input
-                        id="emergency_reason"
-                        placeholder={tr(
-                          language,
-                          "Reason for emergency action",
-                          "เหตุผลสำหรับการทำรายการฉุกเฉิน",
-                        )}
-                        value={admin.emergencyReason}
-                        onChange={(event) =>
-                          admin.handleEmergencyReasonChange(event.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="flex items-end">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={admin.resolveEmergencyTarget}
-                        disabled={admin.emergencyBusy}
-                      >
-                        {tr(language, "Resolve user", "ค้นหาผู้ใช้")}
-                      </Button>
-                    </div>
-                  </div>
-
-                  {admin.resolvedUser ? (
-                    <div className="rounded-xl border border-destructive/20 bg-background p-3 text-sm space-y-1">
-                      <p>
-                        <span className="text-muted-foreground">
-                          {tr(language, "User", "ผู้ใช้")}:
-                        </span>{" "}
-                        {admin.resolvedUser.email}
-                      </p>
-                      <p>
-                        <span className="text-muted-foreground">
-                          {tr(language, "Role", "บทบาท")}:
-                        </span>{" "}
-                        {getRoleLabel(admin.resolvedUser.role, language)}
-                      </p>
-                      <p>
-                        <span className="text-muted-foreground">
-                          {tr(language, "Locked", "ล็อกอยู่")}:
-                        </span>{" "}
-                        {admin.resolvedUser.is_locked
-                          ? tr(language, "Yes", "ใช่")
-                          : tr(language, "No", "ไม่")}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {tr(
-                        language,
-                        "Resolve user first to confirm target account",
-                        "ค้นหาผู้ใช้ก่อน เพื่อยืนยันบัญชีเป้าหมาย",
-                      )}
-                    </p>
-                  )}
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={admin.emergencyBusy}
-                      onClick={admin.handleEmergencyUnlock}
-                    >
-                      {tr(language, "Unlock account", "ปลดล็อกบัญชี")}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      disabled={admin.emergencyBusy || !admin.resolvedUser}
-                      onClick={admin.handleEmergencyResetPassword}
-                    >
-                      {tr(language, "Reset password", "รีเซ็ตรหัสผ่าน")}
-                    </Button>
-                  </div>
-
-                  {admin.generatedResetToken ? (
-                    <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
-                      <p className="text-sm text-muted-foreground">
-                        {tr(
-                          language,
-                          "One-time reset token (shown once):",
-                          "โทเคนรีเซ็ตรหัสผ่านแบบครั้งเดียว (แสดงครั้งเดียว):",
-                        )}
-                      </p>
-                      <Input value={admin.generatedResetToken} readOnly />
-                      <p className="text-sm text-muted-foreground">
-                        {tr(language, "Expires in", "หมดอายุใน")}{" "}
-                        {admin.generatedResetTokenTTL ?? "-"}{" "}
-                        {tr(language, "seconds", "วินาที")}
-                      </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={admin.handleCopyGeneratedResetToken}
-                      >
-                        {tr(language, "Copy reset token", "คัดลอกโทเคนรีเซ็ต")}
                       </Button>
                     </div>
                   ) : null}

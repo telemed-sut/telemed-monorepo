@@ -135,15 +135,6 @@ def is_ip_whitelisted(ip: str) -> bool:
     return ip in whitelist
 
 
-def is_admin_unlock_ip_whitelisted(ip: str) -> bool:
-    whitelist = settings.admin_unlock_whitelisted_ips
-    if isinstance(whitelist, str):
-        allowed_ips = [s.strip() for s in whitelist.split(",") if s.strip()]
-    else:
-        allowed_ips = [s.strip() for s in whitelist if s and s.strip()]
-    return ip in allowed_ips
-
-
 def record_login_attempt(db: Session, ip: str, email: str, success: bool, details: str = None) -> None:
     attempt = LoginAttempt(ip_address=ip, email=email, success=success, details=details)
     db.add(attempt)

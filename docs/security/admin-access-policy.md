@@ -2,11 +2,9 @@
 
 This document defines the production policy for `admin` and `super-admin`
 access in Telemed Platform. It covers password handling, MFA, onboarding,
-emergency access, and offboarding.
+and offboarding.
 
 Use this policy together with the operational runbooks in
-[admin emergency access runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md)
-and
 [secret rotation runbook](/Volumes/P1Back/telemed-monorepo/docs/security/secret-rotation-runbook.md).
 
 ## Scope
@@ -15,8 +13,7 @@ This policy applies to any account that can:
 
 - manage users or invites,
 - access the **Security** or **Audit logs** areas,
-- reset another user's password or 2FA state,
-- unlock admin accounts, or
+- reset another user's 2FA state, or
 - change system-wide security configuration.
 
 In the current implementation, privileged access is DB-backed. Every operator
@@ -39,9 +36,9 @@ Telemed Platform uses the following production model for privileged access:
 - Only operators with privileged admin-management access may issue `admin`
   invites.
 
-This repository does not implement a permanent application-level
-"break-glass user" account. Emergency recovery uses controlled privileged
-roles, recent MFA verification, and the dedicated emergency unlock tooling.
+This repository does not implement a permanent application-level fallback user
+or in-app account unlock workflow. Recovery for locked admin accounts remains an
+operational procedure outside the application.
 
 ## Password policy
 
@@ -72,9 +69,9 @@ Each admin record in the password manager must contain:
 - the date the credential was created or rotated,
 - which privileged roles the account holds,
 - the location of the current backup codes, and
-- the ticket or approval reference for recent emergency actions.
+- the ticket or approval reference for recent privileged access reviews.
 
-If your organization needs an emergency escrow record, keep that record in a
+If your organization needs an offline escrow record, keep that record in a
 restricted shared vault, not in Infisical and not in source control.
 
 ## MFA policy
@@ -85,8 +82,8 @@ Every `admin` account must satisfy the following controls:
 - Generate backup codes and store them in the same password manager item as the
   password, or in a tightly scoped linked item.
 - Review trusted devices after any workstation change or suspected compromise.
-- Revoke trusted devices after password reset, staff transition, or emergency
-  recovery.
+- Revoke trusted devices after password reset, staff transition, or suspected
+  compromise.
 
 The current backend policy enforces admin 2FA and supports:
 
@@ -140,10 +137,9 @@ permanent interactive break-glass account.
 
 That means:
 
-- normal recovery uses DB-backed privileged tooling,
-- emergency account unlock uses audited unlock actions,
+- privileged admin onboarding uses DB-backed role assignments,
 - patient break-glass access remains disabled by policy in this phase, and
-- any dormant emergency credential must live outside the app in an approved
+- any dormant fallback credential must live outside the app in an approved
   vault with explicit access review.
 
 If your organization later introduces a true break-glass account, it must meet
@@ -174,7 +170,6 @@ At every review, confirm:
 
 - DB-backed privileged role assignments are current,
 - `SUPER_ADMIN_EMAILS` is limited to bootstrap and break-glass fallback,
-- whitelisted unlock IPs are still valid,
 - invite-only admin onboarding is still enforced,
 - 2FA remains mandatory for admins, and
 - admin session TTL and secure-action windows still match the deployed policy,
@@ -186,6 +181,5 @@ After you adopt this policy, make sure operators can execute the associated
 runbooks without improvisation:
 
 - [Privileged admin bootstrap runbook](/Volumes/P1Back/telemed-monorepo/docs/security/privileged-admin-bootstrap-runbook.md)
-- [Admin emergency access runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md)
 - [Admin session validation checklist](/Volumes/P1Back/telemed-monorepo/docs/security/admin-session-validation-checklist.md)
 - [Secret rotation runbook](/Volumes/P1Back/telemed-monorepo/docs/security/secret-rotation-runbook.md)

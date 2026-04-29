@@ -61,7 +61,7 @@ def can_manage_privileged_admins(user: Optional[User], db: Session | None = None
     return PrivilegedRole.platform_super_admin in roles or is_bootstrap_super_admin(user)
 
 
-def can_manage_security_recovery(user: Optional[User], db: Session | None = None) -> bool:
+def can_manage_security_operations(user: Optional[User], db: Session | None = None) -> bool:
     if not user or user.role != UserRole.admin:
         return False
     roles = list_active_privileged_roles(db, user)
@@ -80,7 +80,7 @@ def build_privilege_flags(db: Session | None, user: User | None) -> dict[str, An
         and user.role == UserRole.admin
         and (PrivilegedRole.platform_super_admin in active_roles or is_bootstrap)
     )
-    can_manage_recovery = bool(
+    can_manage_security = bool(
         user
         and user.role == UserRole.admin
         and (
@@ -93,7 +93,7 @@ def build_privilege_flags(db: Session | None, user: User | None) -> dict[str, An
         "is_super_admin": can_manage_privileged,
         "privileged_roles": sorted(role.value for role in active_roles),
         "can_manage_privileged_admins": can_manage_privileged,
-        "can_manage_security_recovery": can_manage_recovery,
+        "can_manage_security_operations": can_manage_security,
         "can_bootstrap_privileged_roles": is_bootstrap,
     }
 
@@ -134,8 +134,8 @@ def build_access_profile(
         "can_manage_privileged_admins": (
             privilege_flags["can_manage_privileged_admins"] if reveal_sensitive_details else False
         ),
-        "can_manage_security_recovery": (
-            privilege_flags["can_manage_security_recovery"] if reveal_sensitive_details else False
+        "can_manage_security_operations": (
+            privilege_flags["can_manage_security_operations"] if reveal_sensitive_details else False
         ),
         "can_bootstrap_privileged_roles": (
             privilege_flags["can_bootstrap_privileged_roles"] if reveal_sensitive_details else False

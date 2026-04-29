@@ -24,7 +24,6 @@ The following values are not user passwords, but still require controlled
 change management because they affect bootstrap or break-glass behavior:
 
 - `SUPER_ADMIN_EMAILS`
-- `ADMIN_UNLOCK_WHITELISTED_IPS`
 - `TRUSTED_PROXY_IPS`
 
 Do not use this runbook for personal admin passwords. Those belong in the
@@ -100,7 +99,6 @@ For `NOVU_API_KEY` or `ZEGO_SERVER_SECRET`:
 Treat the following config changes as access-control rotations:
 
 - updating the bootstrap or break-glass fallback list in `SUPER_ADMIN_EMAILS`,
-- updating `ADMIN_UNLOCK_WHITELISTED_IPS`, and
 - changing `TRUSTED_PROXY_IPS`.
 
 When you change them:
@@ -156,4 +154,3 @@ docs:
 
 - [Admin access policy](/Volumes/P1Back/telemed-monorepo/docs/security/admin-access-policy.md)
 - [Privileged admin bootstrap runbook](/Volumes/P1Back/telemed-monorepo/docs/security/privileged-admin-bootstrap-runbook.md)
-- [Admin emergency access runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md)

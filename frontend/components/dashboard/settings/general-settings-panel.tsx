@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, ChevronUp, Palette, ShieldCheck } from "lucide-react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -28,104 +28,18 @@ interface GeneralSettingsPanelProps {
   language: SettingsLanguage;
   isModalPresentation: boolean;
   appearance: ReturnType<typeof useSettingsAppearance>;
-  onOpenSecurity: () => void;
 }
 
 export function GeneralSettingsPanel({
   language,
   isModalPresentation,
   appearance,
-  onOpenSecurity,
 }: GeneralSettingsPanelProps) {
   const appearanceThemeCopy = getAppearanceThemeCopy(language);
   const appearanceDensityCopy = getAppearanceDensityCopy(language);
 
   return (
     <div className="space-y-4">
-      {isModalPresentation ? (
-        <div className="min-w-0 overflow-hidden rounded-[1.5rem] border border-border/70 bg-muted/18 p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div className="flex items-start gap-3">
-              <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <ShieldCheck className="size-4.5" />
-              </span>
-              <div className="min-w-0 overflow-hidden">
-                <p className="break-words text-sm font-semibold text-foreground">
-                  {tr(language, "Protect your account", "ปกป้องบัญชีของคุณ")}
-                </p>
-                <p className="mt-1 max-w-[46ch] break-words text-sm leading-6 text-muted-foreground">
-                  {tr(
-                    language,
-                    "Review passkeys and recovery options before choosing a daily theme.",
-                    "ตรวจสอบ Passkeys และตัวเลือกกู้คืนก่อนเลือกธีมสำหรับใช้งานทุกวัน",
-                  )}
-                </p>
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="lg:shrink-0"
-              onClick={onOpenSecurity}
-            >
-              {tr(language, "Open security", "ไปที่ความปลอดภัย")}
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="grid min-w-0 gap-3 overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(0,280px)]">
-          <div className="min-w-0 overflow-x-auto rounded-[1.5rem] border border-border/70 bg-muted/18 p-4">
-            <div className="flex items-start gap-3">
-              <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <Palette className="size-4.5" />
-              </span>
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  {tr(language, "Workspace look & feel", "บุคลิกของหน้าจอทำงาน")}
-                </p>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  {tr(
-                    language,
-                    "Pick a theme and density that feel calm for daily tasks.",
-                    "เลือกธีมและความหนาแน่นที่สบายตาสำหรับการใช้งานทุกวัน",
-                  )}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="min-w-0 overflow-x-auto rounded-[1.5rem] border border-border/70 bg-background p-4">
-            <div className="flex items-start gap-3">
-              <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <ShieldCheck className="size-4.5" />
-              </span>
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  {tr(language, "Protect your account", "ปกป้องบัญชีของคุณ")}
-                </p>
-                <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  {tr(
-                    language,
-                    "Open security settings to review passkeys and recovery options.",
-                    "เปิดส่วนความปลอดภัยเพื่อตรวจสอบ Passkeys และตัวเลือกกู้คืน",
-                  )}
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-3"
-                  onClick={onOpenSecurity}
-                >
-                  {tr(language, "Open security", "ไปที่ความปลอดภัย")}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       <Card
         size="sm"
         className="h-fit rounded-[1.5rem] border-border/70 bg-background shadow-none"

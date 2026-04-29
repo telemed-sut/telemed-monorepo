@@ -23,7 +23,6 @@ import {
   CalendarDays,
   UserCog,
   ScrollText,
-  HelpCircle,
   ChevronsUpDown,
   ChevronRight,
   Activity,
@@ -82,7 +81,6 @@ const SIDEBAR_LABELS: Record<
   AppLanguage,
   {
     routes: Record<string, string>;
-    helpCenter: string;
     loading: string;
     account: string;
     accountSettings: string;
@@ -102,7 +100,6 @@ const SIDEBAR_LABELS: Record<
       "device-registry": "Device Registry",
       "audit-logs": "Audit Logs",
     },
-    helpCenter: "Help Center",
     loading: "Loading...",
     account: "Account",
     accountSettings: "Account & settings",
@@ -121,7 +118,6 @@ const SIDEBAR_LABELS: Record<
       "device-registry": "ทะเบียนอุปกรณ์",
       "audit-logs": "บันทึก Audit",
     },
-    helpCenter: "ศูนย์ช่วยเหลือ",
     loading: "กำลังโหลด...",
     account: "บัญชีผู้ใช้",
     accountSettings: "บัญชีและตั้งค่า",
@@ -500,24 +496,11 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* ── Footer: Help, User Profile ── */}
+      {/* ── Footer: User Profile ── */}
       <SidebarFooter className={cn(
         "pb-3 transition-[padding] duration-200 sm:pb-4 lg:pb-5",
         isCollapsed ? "px-2" : "px-3 sm:px-4 lg:px-5"
       )}>
-        <SidebarMenu>
-          <SidebarMenuItem className={cn(isCollapsed && "flex justify-center")}>
-            <SidebarMenuButton
-              id="sidebar-help-button"
-              tooltip={t.helpCenter}
-              className={cn("h-9 sm:h-[38px]", isCollapsed && "justify-center px-0")}
-            >
-              <HelpCircle className="size-4 sm:size-5" />
-              {!isCollapsed && <span className="text-[0.95rem]">{t.helpCenter}</span>}
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-
         <SidebarUserMenu
           isCollapsed={isCollapsed}
           currentUser={resolvedCurrentUser}

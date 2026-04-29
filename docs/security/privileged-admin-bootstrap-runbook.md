@@ -3,9 +3,7 @@
 This runbook explains how you bootstrap privileged admin access in a new
 environment and how you remove bootstrap-only controls after the system is
 live. Use it together with
-[admin access policy](/Volumes/P1Back/telemed-monorepo/docs/security/admin-access-policy.md)
-and
-[admin emergency access runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md).
+[admin access policy](/Volumes/P1Back/telemed-monorepo/docs/security/admin-access-policy.md).
 
 ## Overview
 
@@ -68,7 +66,7 @@ bootstrap surface.
 
 ## Break-glass expectations
 
-Treat `SUPER_ADMIN_EMAILS` as emergency-only after bootstrap. Do not use it as
+Treat `SUPER_ADMIN_EMAILS` as fallback-only after bootstrap. Do not use it as
 the day-to-day source of truth for privileged access.
 
 If you must keep a break-glass email in the env allowlist:
@@ -96,5 +94,4 @@ After you complete bootstrap, keep the other security runbooks aligned with the
 deployed environment:
 
 - [Admin access policy](/Volumes/P1Back/telemed-monorepo/docs/security/admin-access-policy.md)
-- [Admin emergency access runbook](/Volumes/P1Back/telemed-monorepo/docs/security/admin-emergency-access-runbook.md)
 - [Secret rotation runbook](/Volumes/P1Back/telemed-monorepo/docs/security/secret-rotation-runbook.md)

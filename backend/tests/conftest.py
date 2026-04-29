@@ -10,7 +10,6 @@ _project_root = Path(__file__).resolve().parent.parent
 _TEST_ENV_PATH = _project_root / ".env.test"
 _ENFORCED_TEST_ENV_KEYS = {
     "ADMIN_JWT_EXPIRES_IN",
-    "ADMIN_UNLOCK_WHITELISTED_IPS",
     "ALLOW_INSECURE_SECRET_STORAGE",
     "APP_ENV",
     "AUTH_COOKIE_SECURE",
@@ -84,7 +83,6 @@ os.environ.setdefault(
 os.environ.setdefault("DEVICE_API_REQUIRE_REGISTERED_DEVICE", "false")
 os.environ.setdefault("DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE", "false")
 os.environ.setdefault("DEVICE_API_REQUIRE_NONCE", "false")
-os.environ.setdefault("ADMIN_UNLOCK_WHITELISTED_IPS", "127.0.0.1,::1,testclient")
 os.environ.setdefault("AUTH_COOKIE_SECURE", "false")
 
 from app.core.config import get_settings

@@ -95,7 +95,6 @@ class Settings(BaseSettings):
     patient_app_token_ttl_seconds: int = 86_400 * 7
     min_active_admin_accounts: int = 2
     super_admin_emails: Union[List[str], str] = ["admin@example.com"]
-    admin_unlock_whitelisted_ips: Union[List[str], str] = ["127.0.0.1", "::1"]
     admin_jwt_expires_in: int = 2592000
     privileged_action_mfa_max_age_seconds: int = 900
     # Phase policy toggles
@@ -218,7 +217,6 @@ class Settings(BaseSettings):
         "allowed_hosts",
         "rate_limit_whitelist",
         "super_admin_emails",
-        "admin_unlock_whitelisted_ips",
         "trusted_proxy_ips",
         "admin_oidc_scopes",
         "admin_oidc_allowed_email_domains",

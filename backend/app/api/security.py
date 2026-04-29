@@ -5,7 +5,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -21,7 +21,6 @@ from app.models.login_attempt import LoginAttempt
 from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment
 from app.models.user import User
 from app.services import auth as auth_service
-from app.services import auth_sessions
 from app.services import security as security_service
 from app.services.auth import get_admin_user, get_db
 from app.services.redis_cache import clear_cached_device_secret
@@ -36,44 +35,6 @@ HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS = 30 * 60
 from app.core.request_utils import get_client_ip as _client_ip  # noqa: E402
 
 
-def _write_unlock_audit(
-    db: Session,
-    *,
-    actor: Optional[User],
-    ip_address: str,
-    success: bool,
-    target_user: Optional[User],
-    reason: Optional[str],
-    authorized_by: str,
-    message: str,
-) -> None:
-    details = {
-        "success": success,
-        "authorized_by": authorized_by,
-        "message": message,
-        "reason": reason or "",
-    }
-    if target_user:
-        details["target_user_id"] = str(target_user.id)
-        details["target_email"] = target_user.email
-    if actor:
-        details["actor_email"] = actor.email
-
-    db.add(
-        AuditLog(
-            user_id=actor.id if actor else None,
-            action="admin_emergency_unlock",
-            resource_type="user",
-            resource_id=target_user.id if target_user else None,
-            details=details,
-            ip_address=ip_address,
-            is_break_glass=False,
-            status="success" if success else "failure",
-        )
-    )
-    db.commit()
-
-
 def _normalize_privileged_reason(raw_reason: str) -> str:
     reason = raw_reason.strip()
     if len(reason) < 8:
@@ -82,39 +43,6 @@ def _normalize_privileged_reason(raw_reason: str) -> str:
             detail="Reason must be at least 8 characters.",
         )
     return reason
-
-
-def _emit_security_monitoring_event(
-    *,
-    action: str,
-    status: str,
-    actor: Optional[User],
-    target_user: Optional[User],
-    ip_address: str | None,
-    details: Optional[dict[str, object]] = None,
-) -> None:
-    logger.info(
-        "security_audit_event",
-        extra={
-            "event": "security_audit_event",
-            "security_action": action,
-            "security_status": status,
-            "actor_user_id": str(actor.id) if actor else None,
-            "target_user_id": str(target_user.id) if target_user else None,
-            "ip_address": ip_address,
-            "details": details or {},
-        },
-    )
-
-
-def _security_recovery_denial_code(exc: HTTPException) -> str:
-    if exc.status_code == status.HTTP_403_FORBIDDEN and exc.detail == (
-        "Security recovery actions are only allowed from approved IP addresses."
-    ):
-        return "ip_not_allowed"
-    if exc.status_code == status.HTTP_401_UNAUTHORIZED:
-        return "stale_mfa"
-    return "not_security_admin"
 
 
 def _require_privileged_admin_management(
@@ -132,27 +60,6 @@ def _require_privileged_admin_management(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Super admin only.")
 
 
-def _require_security_recovery_access(
-    *,
-    request: Request,
-    db: Session,
-    current_user: User,
-) -> None:
-    client_ip = _client_ip(request)
-    if not security_service.is_admin_unlock_ip_whitelisted(client_ip):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Security recovery actions are only allowed from approved IP addresses.",
-        )
-    auth_service.require_recent_privileged_session(
-        request,
-        current_user,
-        max_age_seconds=HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS,
-    )
-    if not auth_service.can_manage_security_recovery(current_user, db):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security admin only.")
-
-
 def _require_device_registry_management(
     *,
     request: Request,
@@ -164,7 +71,7 @@ def _require_device_registry_management(
         current_user,
         max_age_seconds=HIGH_RISK_PRIVILEGED_MFA_MAX_AGE_SECONDS,
     )
-    if not auth_service.can_manage_security_recovery(current_user, db):
+    if not auth_service.can_manage_security_operations(current_user, db):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security admin only.")
 
 
@@ -216,45 +123,6 @@ class SecurityStatsResponse(BaseModel):
     forbidden_403_baseline_24h: int
     forbidden_403_spike: bool
     purge_actions_24h: int
-    emergency_actions_24h: int
-
-
-class AdminEmergencyUnlockRequest(BaseModel):
-    email: EmailStr | None = None
-    user_id: UUID | None = None
-    reason: str | None = None
-
-    @model_validator(mode="after")
-    def validate_target(self):
-        if not self.email and not self.user_id:
-            raise ValueError("Either email or user_id is required.")
-        return self
-
-
-class AdminEmergencyUnlockResponse(BaseModel):
-    message: str
-    user_id: str
-    email: str
-    was_locked: bool
-
-
-class AdminSecurityUserLookupResponse(BaseModel):
-    user_id: str
-    email: str
-    role: str
-    is_locked: bool
-
-
-class AdminUserPasswordResetRequest(BaseModel):
-    reason: str
-
-
-class AdminUserPasswordResetResponse(BaseModel):
-    message: str
-    user_id: str
-    email: str
-    reset_token: str
-    reset_token_expires_in: int
 
 
 class PrivilegedRoleAssignmentCreateRequest(BaseModel):
@@ -596,246 +464,6 @@ def revoke_privileged_role_assignment(
     return _to_privileged_role_assignment_view(assignment, target)
 
 
-@router.post("/admin-unlock", response_model=AdminEmergencyUnlockResponse)
-@limiter.limit("5/minute")
-def emergency_unlock_admin(
-    request: Request,
-    payload: AdminEmergencyUnlockRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_admin_user),
-):
-    ip = _client_ip(request)
-    reason = _normalize_privileged_reason(payload.reason or "")
-    try:
-        _require_security_recovery_access(request=request, db=db, current_user=current_user)
-    except HTTPException as exc:
-        denial_code = _security_recovery_denial_code(exc)
-        _write_unlock_audit(
-            db,
-            actor=current_user,
-            ip_address=ip,
-            success=False,
-            target_user=None,
-            reason=reason,
-            authorized_by=denial_code,
-            message=(
-                "Unauthorized emergency admin unlock attempt from non-allowlisted IP"
-                if denial_code == "ip_not_allowed"
-                else "Unauthorized emergency admin unlock attempt (security admin required)"
-            ),
-        )
-        raise
-
-    if payload.user_id:
-        target = db.scalar(
-            select(User)
-            .where(User.id == payload.user_id, User.deleted_at.is_(None))
-            .with_for_update()
-        )
-    else:
-        target = db.scalar(
-            select(User)
-            .where(User.email == payload.email.lower(), User.deleted_at.is_(None))
-            .with_for_update()
-        )
-
-    if not target:
-        _write_unlock_audit(
-            db,
-            actor=current_user,
-            ip_address=ip,
-            success=False,
-            target_user=None,
-            reason=reason,
-            authorized_by="security_admin",
-            message="Target user not found for emergency unlock",
-        )
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    if target.role != UserRole.admin:
-        _write_unlock_audit(
-            db,
-            actor=current_user,
-            ip_address=ip,
-            success=False,
-            target_user=target,
-            reason=reason,
-            authorized_by="security_admin",
-            message="Emergency unlock denied: target is not an admin account",
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Emergency unlock is only available for admin accounts.",
-        )
-
-    now = datetime.now(timezone.utc)
-    locked_until = target.account_locked_until
-    if locked_until and locked_until.tzinfo is None:
-        locked_until = locked_until.replace(tzinfo=timezone.utc)
-    was_locked = bool((locked_until and locked_until > now) or (target.failed_login_attempts or 0) > 0)
-
-    target.failed_login_attempts = 0
-    target.account_locked_until = None
-    target.last_failed_login_at = None
-    db.add(target)
-    db.flush()
-
-    _write_unlock_audit(
-        db,
-        actor=current_user,
-        ip_address=ip,
-        success=True,
-        target_user=target,
-        reason=reason,
-        authorized_by="security_admin",
-        message="Admin account emergency unlock completed",
-    )
-
-    logger.info(
-        "Admin account emergency unlock completed",
-        extra={
-            "event": "admin_emergency_unlock_completed",
-            "target_user_id": str(target.id),
-            "was_locked": was_locked,
-            "authorized_by": "security_admin",
-            "actor_user_id": str(current_user.id),
-        },
-    )
-    return AdminEmergencyUnlockResponse(
-        message=f"Admin account {target.email} has been unlocked.",
-        user_id=str(target.id),
-        email=target.email,
-        was_locked=was_locked,
-    )
-
-
-@router.get("/users/resolve", response_model=AdminSecurityUserLookupResponse)
-@limiter.limit("30/minute")
-def resolve_user_for_security_actions(
-    request: Request,
-    email: EmailStr,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_admin_user),
-):
-    _require_security_recovery_access(request=request, db=db, current_user=current_user)
-    user = db.scalar(
-        select(User).where(
-            User.email == str(email).lower(),
-            User.deleted_at.is_(None),
-        )
-    )
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    now = datetime.now(timezone.utc)
-    locked_until = user.account_locked_until
-    if locked_until and locked_until.tzinfo is None:
-        locked_until = locked_until.replace(tzinfo=timezone.utc)
-
-    return AdminSecurityUserLookupResponse(
-        user_id=str(user.id),
-        email=user.email,
-        role=user.role.value if user.role else "unknown",
-        is_locked=bool(locked_until and locked_until > now),
-    )
-
-
-@router.post("/users/{user_id}/password/reset", response_model=AdminUserPasswordResetResponse)
-@limiter.limit("5/minute")
-def reset_user_password_by_super_admin(
-    request: Request,
-    user_id: UUID,
-    payload: AdminUserPasswordResetRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(auth_service.get_current_user),
-):
-    ip = _client_ip(request)
-    reason = _normalize_privileged_reason(payload.reason)
-    try:
-        _require_security_recovery_access(request=request, db=db, current_user=current_user)
-    except HTTPException as exc:
-        db.add(
-            AuditLog(
-                user_id=current_user.id,
-                action="admin_force_password_reset_denied",
-                resource_type="user",
-                resource_id=user_id,
-                details={"reason": reason, "error": _security_recovery_denial_code(exc)},
-                ip_address=ip,
-                is_break_glass=False,
-                status="failure",
-            )
-        )
-        db.commit()
-        raise
-
-    target = db.scalar(
-        select(User)
-        .where(User.id == user_id, User.deleted_at.is_(None))
-        .with_for_update()
-    )
-    if not target:
-        db.add(
-            AuditLog(
-                user_id=current_user.id,
-                action="admin_force_password_reset_denied",
-                resource_type="user",
-                resource_id=user_id,
-                details={"reason": reason, "error": "target_not_found"},
-                ip_address=ip,
-                is_break_glass=False,
-                status="failure",
-            )
-        )
-        db.commit()
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-
-    # Immediately invalidate old credentials, then issue a short-lived reset token.
-    auth_service.reset_user_password(db, target, secrets.token_urlsafe(24))
-    target.failed_login_attempts = 0
-    target.account_locked_until = None
-    target.last_failed_login_at = None
-    revoked_sessions = auth_sessions.revoke_user_sessions(db, user_id=target.id)
-    reset_token = auth_service.create_password_reset_token(target)
-    db.add(
-        AuditLog(
-            user_id=current_user.id,
-            action="admin_force_password_reset",
-            resource_type="user",
-            resource_id=target.id,
-            details={
-                "reason": reason,
-                "target_email": target.email,
-                "reset_token_expires_in": settings.password_reset_expires_in,
-                "revoked_sessions": revoked_sessions,
-            },
-            ip_address=ip,
-            is_break_glass=False,
-            status="success",
-        )
-    )
-    db.commit()
-    _emit_security_monitoring_event(
-        action="admin_force_password_reset",
-        status="success",
-        actor=current_user,
-        target_user=target,
-        ip_address=ip,
-        details={
-            "reason_present": bool(reason),
-            "revoked_sessions": revoked_sessions,
-        },
-    )
-
-    return AdminUserPasswordResetResponse(
-        message=f"Password has been reset for {target.email}.",
-        user_id=str(target.id),
-        email=target.email,
-        reset_token=reset_token,
-        reset_token_expires_in=settings.password_reset_expires_in,
-    )
-
-
 @router.get("/devices", response_model=DeviceRegistrationListResponse)
 @limiter.limit("30/minute")
 def list_registered_devices(
@@ -1052,7 +680,7 @@ def rotate_registered_device_secret(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
-    _require_security_recovery_access(request=request, db=db, current_user=current_user)
+    _require_device_registry_management(request=request, db=db, current_user=current_user)
     normalized_device_id = device_id.strip()
     if not normalized_device_id:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="device_id is required.")
@@ -1159,18 +787,6 @@ def get_security_stats(
         )
     ) or 0
 
-    emergency_actions_24h = db.scalar(
-        select(func.count()).select_from(AuditLog).where(
-            AuditLog.action.in_(
-                (
-                    "admin_emergency_unlock",
-                    "admin_force_password_reset",
-                )
-            ),
-            AuditLog.created_at >= day_ago,
-        )
-    ) or 0
-
     forbidden_403_spike = forbidden_403_1h >= settings.security_403_spike_threshold_1h
 
     return SecurityStatsResponse(
@@ -1183,7 +799,6 @@ def get_security_stats(
         forbidden_403_baseline_24h=forbidden_403_baseline_24h,
         forbidden_403_spike=forbidden_403_spike,
         purge_actions_24h=purge_actions_24h,
-        emergency_actions_24h=emergency_actions_24h,
     )
 
 

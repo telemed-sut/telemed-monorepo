@@ -392,7 +392,7 @@ describe("LoginClientPage", () => {
         code: "account_locked",
         message: "Account temporarily locked due to multiple failed login attempts.",
         retry_after_seconds: 120,
-        recovery_options: ["wait", "contact_security_admin"],
+        recovery_options: ["wait", "contact_admin"],
       },
     });
 
@@ -409,7 +409,7 @@ describe("LoginClientPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(await screen.findByText("Account temporarily locked")).toBeInTheDocument();
-    expect(screen.getByText("Contact a security admin for an emergency unlock.")).toBeInTheDocument();
+    expect(screen.getByText("Contact an admin for help unlocking this account.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Authenticator or backup code")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
     expect(screen.queryByText("Confirm sign-in")).not.toBeInTheDocument();

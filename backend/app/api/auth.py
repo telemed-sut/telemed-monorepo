@@ -190,7 +190,7 @@ def _account_locked_detail(locked_until: datetime) -> dict[str, object]:
 
 def _lock_recovery_options_for_user(user: User | None) -> list[str]:
     if user and user.role == UserRole.admin:
-        return ["wait", "contact_security_admin"]
+        return ["wait", "contact_admin"]
     return ["wait", "forgot_password", "contact_admin"]
 
 

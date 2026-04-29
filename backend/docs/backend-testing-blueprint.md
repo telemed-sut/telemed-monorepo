@@ -118,7 +118,7 @@ The table below summarizes backend coverage based on the current test files in
 | Stats overview under `/stats/overview` | Strong | `test_meetings_access.py`, `test_role_based_access.py`, and `test_stats_and_audit_contracts.py` cover role visibility plus payload-contract assertions | add deeper aggregation edge cases only if bugs appear |
 | Device ingest under `/device/v1/pressure` and `/add_pressure` | Strong | `test_pressure_security.py`, `test_device_ingest_flow.py`, and `test_device_error_diagnostics.py` cover signature modes, body hash, nonce replay, registered devices, schema validation logging, and admin-to-device flow | add explicit time-skew boundary cases if device fleet issues appear |
 | Device monitor APIs under `/device/v1/health`, `/stats`, `/errors` | Strong | `test_device_monitor_api.py` covers public health behavior, admin-only stats/errors access, counts, filters, and serialized diagnostics payloads | extend only when monitor schema changes |
-| Security admin toolkit under `/security/*` | Strong | `test_admin_security_policies.py` plus `test_security_admin_endpoints.py` cover emergency unlock, password reset, device registry, IP ban CRUD, login-attempt filtering, and deny paths | add only when new admin security operations are introduced |
+| Security admin toolkit under `/security/*` | Strong | `test_admin_security_policies.py` plus `test_security_admin_endpoints.py` cover device registry, IP ban CRUD, login-attempt filtering, and deny paths | add only when new admin security operations are introduced |
 | Cross-cutting request and config helpers | Strong | `test_request_utils.py`, `test_settings_config.py`, `test_auth.py` | keep extending only when config or proxy behavior changes |
 
 ## Highest-priority gaps

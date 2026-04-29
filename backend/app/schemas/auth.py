@@ -36,7 +36,7 @@ class AccessProfileResponse(BaseModel):
     access_class: str | None = None
     access_class_revealed: bool = False
     can_manage_privileged_admins: bool = False
-    can_manage_security_recovery: bool = False
+    can_manage_security_operations: bool = False
     can_bootstrap_privileged_roles: bool = False
 
 

@@ -182,7 +182,7 @@ describe("SettingsContent validation toasts", () => {
       access_class: null,
       access_class_revealed: false,
       can_manage_privileged_admins: false,
-      can_manage_security_recovery: false,
+      can_manage_security_operations: false,
       can_bootstrap_privileged_roles: false,
     });
     mockFetch2FAStatus.mockResolvedValue({
@@ -284,7 +284,7 @@ describe("SettingsContent validation toasts", () => {
       access_class: "privileged",
       access_class_revealed: true,
       can_manage_privileged_admins: true,
-      can_manage_security_recovery: true,
+      can_manage_security_operations: true,
       can_bootstrap_privileged_roles: false,
     });
 

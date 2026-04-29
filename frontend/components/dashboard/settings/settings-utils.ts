@@ -7,8 +7,6 @@ import type {
 import type { SettingsLanguage } from "./settings-types";
 
 export const SETTINGS_VALIDATION_TOAST_IDS = {
-  resolveUser: "settings-resolve-user-required",
-  emergencyReason: "settings-emergency-reason-required",
   adminInviteEmail: "settings-admin-invite-email-required",
   adminInviteReason: "settings-admin-invite-reason-required",
 } as const;

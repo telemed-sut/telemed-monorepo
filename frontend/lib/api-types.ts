@@ -62,7 +62,7 @@ export interface AccessProfile {
   access_class?: string | null;
   access_class_revealed: boolean;
   can_manage_privileged_admins: boolean;
-  can_manage_security_recovery: boolean;
+  can_manage_security_operations: boolean;
   can_bootstrap_privileged_roles: boolean;
 }
 
@@ -81,8 +81,7 @@ export interface AdminSsoLogoutResponse {
 export type LockedRecoveryOption =
   | "wait"
   | "forgot_password"
-  | "contact_admin"
-  | "contact_security_admin";
+  | "contact_admin";
 
 export interface LoginChallengeDetail {
   code?: string;
@@ -146,34 +145,6 @@ export interface PatientAssignmentListResponse {
 }
 
 export type SortOrder = "asc" | "desc";
-
-export interface AdminSecurityUserLookup {
-  user_id: string;
-  email: string;
-  role: string;
-  is_locked: boolean;
-}
-
-export interface AdminEmergencyUnlockPayload {
-  email?: string;
-  user_id?: string;
-  reason?: string;
-}
-
-export interface AdminEmergencyUnlockResponse {
-  message: string;
-  user_id: string;
-  email: string;
-  was_locked: boolean;
-}
-
-export interface AdminPasswordResetResponse {
-  message: string;
-  user_id: string;
-  email: string;
-  reset_token: string;
-  reset_token_expires_in: number;
-}
 
 export interface FetchPatientsParams {
   page?: number;
@@ -895,7 +866,6 @@ export interface SecurityStats {
   forbidden_403_baseline_24h: number;
   forbidden_403_spike: boolean;
   purge_actions_24h: number;
-  emergency_actions_24h: number;
 }
 
 export interface DeviceRegistration {

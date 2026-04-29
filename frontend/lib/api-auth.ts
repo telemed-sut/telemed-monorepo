@@ -1,11 +1,7 @@
 import { apiFetch } from "./api-client";
 import type {
   AccessProfile,
-  AdminEmergencyUnlockPayload,
-  AdminEmergencyUnlockResponse,
-  AdminPasswordResetResponse,
   AdminSsoLogoutResponse,
-  AdminSecurityUserLookup,
   AdminSsoStatus,
   ForgotPasswordResponse,
   InviteInfoResponse,
@@ -51,7 +47,7 @@ export async function login(
 export async function stepUpAuth(
   password: string,
   _verificationCode?: string,
-  _rememberDevice = false,
+  _rememberDevice?: boolean,
   token?: string,
 ) {
   return apiFetch<LoginResponse>(
@@ -101,38 +97,4 @@ export async function fetchCurrentUser(token?: string) {
 
 export async function fetchAccessProfile(token?: string) {
   return apiFetch<AccessProfile>("/auth/access-profile", {}, token);
-}
-
-export async function resolveSecurityUserByEmail(email: string, token: string) {
-  const query = new URLSearchParams();
-  query.set("email", email.trim().toLowerCase());
-  return apiFetch<AdminSecurityUserLookup>(`/security/users/resolve?${query.toString()}`, {}, token);
-}
-
-export async function adminEmergencyUnlock(payload: AdminEmergencyUnlockPayload, token: string) {
-  return apiFetch<AdminEmergencyUnlockResponse>(
-    "/security/admin-unlock",
-    {
-      method: "POST",
-      body: JSON.stringify(payload),
-    },
-    token
-  );
-}
-
-export async function superAdminResetUserPassword(
-  userId: string,
-  reason: string,
-  token: string
-) {
-  return apiFetch<AdminPasswordResetResponse>(
-    `/security/users/${userId}/password/reset`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        reason,
-      }),
-    },
-    token
-  );
 }

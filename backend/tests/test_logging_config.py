@@ -2,9 +2,7 @@ import logging
 import json
 import sys
 from types import ModuleType
-from types import SimpleNamespace
 
-from app.api import security as security_api
 from app.core.logging_config import (
     RedactingJsonFormatter,
     get_request_id,
@@ -212,40 +210,6 @@ def test_novu_send_failure_log_does_not_include_exception_message(monkeypatch, c
     assert record.getMessage() == "Failed to send notification"
     assert "secret token should not appear" not in caplog.text
     assert getattr(record, "exception_type", None) == "RuntimeError"
-
-
-def test_security_monitoring_event_uses_structured_logging(caplog):
-    actor = SimpleNamespace(id="actor-1")
-    target = SimpleNamespace(id="target-1")
-
-    with caplog.at_level(logging.INFO):
-        security_api._emit_security_monitoring_event(
-            action="admin_force_password_reset",
-            status="success",
-            actor=actor,
-            target_user=target,
-            ip_address="10.0.0.1",
-            details={
-                "reason_present": True,
-                "target_email": "sensitive@example.com",
-            },
-        )
-
-    assert len(caplog.records) == 1
-    record = caplog.records[0]
-    assert record.getMessage() == "security_audit_event"
-    assert getattr(record, "event", None) == "security_audit_event"
-    assert getattr(record, "security_action", None) == "admin_force_password_reset"
-    assert getattr(record, "security_status", None) == "success"
-    assert getattr(record, "actor_user_id", None) == "actor-1"
-    assert getattr(record, "target_user_id", None) == "target-1"
-
-    payload = json.loads(RedactingJsonFormatter().format(record))
-    assert payload["message"] == "security_audit_event"
-    assert payload["event"] == "security_audit_event"
-    assert payload["security_action"] == "admin_force_password_reset"
-    assert payload["details"]["reason_present"] is True
-    assert payload["details"]["target_email"] == "[REDACTED]"
 
 
 def test_redis_runtime_snapshot_event_uses_structured_logging(caplog, monkeypatch):

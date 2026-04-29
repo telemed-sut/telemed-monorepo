@@ -123,7 +123,7 @@ def _require_audit_reader(
             detail="Access denied. Required roles: ['admin']",
         )
     auth_service.require_recent_privileged_session(request, current_user)
-    if not auth_service.can_manage_security_recovery(current_user, db):
+    if not auth_service.can_manage_security_operations(current_user, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Security admin only.",

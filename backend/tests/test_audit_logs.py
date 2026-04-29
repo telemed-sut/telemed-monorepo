@@ -271,7 +271,7 @@ def test_audit_export_serializes_dict_details_for_csv_reports(client: TestClient
     assert '"reason": "export dict payload"' in rows[0]["Details"]
 
 
-def test_audit_logs_deny_ordinary_admin_without_security_recovery_access(client: TestClient, db: Session):
+def test_audit_logs_deny_ordinary_admin_without_security_operations_access(client: TestClient, db: Session):
     admin = _make_user(db, email="regular-audit-admin@example.com", role=UserRole.admin)
     token = _mint_token(db, admin)
 
@@ -284,7 +284,7 @@ def test_audit_logs_deny_ordinary_admin_without_security_recovery_access(client:
     assert export_response.json()["detail"] == "Security admin only."
 
 
-def test_audit_logs_require_recent_mfa_for_security_recovery_admin(client: TestClient, db: Session):
+def test_audit_logs_require_recent_mfa_for_security_operations_admin(client: TestClient, db: Session):
     bootstrap_admin = _make_user(db, email="admin@example.com", role=UserRole.admin)
     security_admin = _make_user(db, email="security-audit-admin@example.com", role=UserRole.admin)
     _grant_privileged_role(
