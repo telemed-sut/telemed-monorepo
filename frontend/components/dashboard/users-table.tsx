@@ -482,7 +482,7 @@ export function UsersTable({
                 limit: pagination.pageSize,
                 q: debouncedSearch.trim() || undefined,
                 sort: sortField,
-                order: sorting.length > 0 && sorting[0].desc ? "desc" : "asc",
+                order: sorting.length > 0 ? (sorting[0].desc ? "desc" : "asc") : "desc",
                 role: roleFilter !== "all" ? roleFilter : undefined,
                 verification_status: statusFilterLocal !== "all" ? statusFilterLocal : undefined,
                 include_deleted: accountView !== "active",

@@ -44,18 +44,18 @@ load_env_file_if_present() {
 }
 
 load_default_runtime_env() {
-  # Priority: .env.local > .env
-  load_env_file_if_present "$ROOT_DIR/.env"
-  load_env_file_if_present "$ROOT_DIR/.env.local"
-
-  # Also try dir-specific env files if we are in a sub-project
+  # Higher-priority files are loaded first because load_env_file_if_present
+  # preserves values that are already present in the shell environment.
   if [[ "$target_dir" == "$ROOT_DIR/backend" ]]; then
-    load_env_file_if_present "$ROOT_DIR/backend/.env"
     load_env_file_if_present "$ROOT_DIR/backend/.env.local"
+    load_env_file_if_present "$ROOT_DIR/backend/.env"
   elif [[ "$target_dir" == "$ROOT_DIR/frontend" ]]; then
-    load_env_file_if_present "$ROOT_DIR/frontend/.env"
     load_env_file_if_present "$ROOT_DIR/frontend/.env.local"
+    load_env_file_if_present "$ROOT_DIR/frontend/.env"
   fi
+
+  load_env_file_if_present "$ROOT_DIR/.env.local"
+  load_env_file_if_present "$ROOT_DIR/.env"
 }
 
 main() {

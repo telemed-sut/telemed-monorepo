@@ -50,6 +50,9 @@ jwt_secret = (os.environ.get("JWT_SECRET") or "").strip()
 device_api_secret = (os.environ.get("DEVICE_API_SECRET") or "").strip()
 device_api_secrets = (os.environ.get("DEVICE_API_SECRETS") or "").strip()
 meeting_signing_secret = (os.environ.get("MEETING_SIGNING_SECRET") or "").strip()
+meeting_signing_allow_jwt_secret_fallback = (
+    os.environ.get("MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK") or ""
+).strip().lower() in {"1", "true", "yes", "on"}
 redis_url = (os.environ.get("REDIS_URL") or "").strip()
 azure_blob_storage_connection_string = (
     os.environ.get("AZURE_BLOB_STORAGE_CONNECTION_STRING") or ""
@@ -135,6 +138,11 @@ if meeting_signing_secret:
         add_issue("invalid", "MEETING_SIGNING_SECRET must be at least 32 characters long.")
 elif app_env == "production":
     add_issue("missing", "MEETING_SIGNING_SECRET")
+elif meeting_signing_allow_jwt_secret_fallback:
+    add_issue(
+        "warning",
+        "MEETING_SIGNING_SECRET is not set. Local meeting invite signing will use JWT_SECRET fallback.",
+    )
 else:
     add_issue(
         "warning",

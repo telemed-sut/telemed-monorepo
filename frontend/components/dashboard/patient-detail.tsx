@@ -26,7 +26,13 @@ import {
   Stethoscope,
   UserRound,
   Volume2,
+  Smartphone,
 } from "lucide-react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  SmartPhone01Icon,
+  Clock01Icon,
+} from "@hugeicons/core-free-icons";
 
 import type { AppLanguage } from "@/store/language-config";
 import {
@@ -34,10 +40,12 @@ import {
   fetchPatient,
   fetchPatientContactDetails,
   fetchPatientPressureReadings,
+  generatePatientRegistrationCode,
   getErrorMessage,
   type Meeting,
   type Patient,
   type PatientContactDetails,
+  type PatientRegistrationCodeResponse,
   type PressureRecord,
   type PressureRiskLevel,
 } from "@/lib/api";
@@ -351,6 +359,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
   const token = useAuthStore((state) => state.token);
   const clearToken = useAuthStore((state) => state.clearToken);
   const userId = useAuthStore((state) => state.userId);
+  const userRole = useAuthStore((state) => state.role);
   const language = useLanguageStore((state) => state.language);
   const router = useRouter();
   const canUseProtectedCache = Boolean(token && userId);
@@ -386,6 +395,24 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
   const [demoPressureReadings, setDemoPressureReadings] = useState<PressureRecord[]>([]);
   const [isPressureDemoRunning, setIsPressureDemoRunning] = useState(false);
   const pressureDemoSequenceRef = React.useRef(0);
+
+  const [registrationCode, setRegistrationCode] = useState<PatientRegistrationCodeResponse | null>(null);
+  const [generatingCode, setGeneratingCode] = useState(false);
+
+  const handleGenerateCode = React.useCallback(async () => {
+    if (!token) return;
+    setGeneratingCode(true);
+    try {
+      const res = await generatePatientRegistrationCode(patientId, token);
+      setRegistrationCode(res);
+      toast.success(tr(language, "Registration code generated", "สร้างรหัสลงทะเบียนสำเร็จ"));
+    } catch (err) {
+      toast.error(getErrorMessage(err, tr(language, "Failed to generate code", "สร้างรหัสไม่สำเร็จ")));
+    } finally {
+      setGeneratingCode(false);
+    }
+  }, [language, patientId, token]);
+
   const patientWorkspaceHrefs = React.useMemo(
     () => getPatientWorkspaceHrefs(patientId),
     [patientId]
@@ -1368,6 +1395,69 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                     }
                     empty={contactDetailsRevealed ? !contactDetails?.address : false}
                   />
+
+                  {/* Mobile App Access Section (Admin Only) */}
+                  {userRole === "admin" && (
+                    <div className="mt-6 rounded-2xl border border-border/80 bg-blue-50/20 p-4">
+                      <div className="flex flex-col gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex size-10 items-center justify-center rounded-xl bg-blue-100/50 text-blue-600">
+                            <HugeiconsIcon icon={SmartPhone01Icon} className="size-6" />
+                          </div>
+                          <div className="space-y-0.5">
+                            <p className="font-semibold text-foreground">
+                              {tr(language, "Mobile App Access", "การเข้าถึงแอปมือถือ")}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {tr(language, "Generate a one-time code for patient registration.", "สร้างรหัสใช้ครั้งเดียวสำหรับการลงทะเบียนผู้ป่วย")}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="flex-1 sm:flex-none"
+                            onClick={() => void handleGenerateCode()}
+                            disabled={generatingCode}
+                          >
+                            {generatingCode ? (
+                              <RefreshCcw className="mr-2 size-4 animate-spin" />
+                            ) : (
+                              <Smartphone className="mr-2 size-4" />
+                            )}
+                            {tr(language, "Generate code", "สร้างรหัสลงทะเบียน")}
+                          </Button>
+
+                          {registrationCode && (
+                            <div className="flex flex-1 items-center justify-between rounded-xl bg-background px-4 py-2 border border-blue-200">
+                              <div className="flex items-center gap-3">
+                                <span className="text-xl font-bold tracking-widest text-blue-700">
+                                  {registrationCode.code}
+                                </span>
+                                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
+                                  <HugeiconsIcon icon={Clock01Icon} className="size-3" />
+                                  {tr(language, "Expires in 15 min", "หมดอายุใน 15 นาที")}
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(registrationCode.code);
+                                  toast.success(tr(language, "Code copied", "คัดลอกรหัสแล้ว"));
+                                }}
+                              >
+                                {tr(language, "Copy", "คัดลอก")}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

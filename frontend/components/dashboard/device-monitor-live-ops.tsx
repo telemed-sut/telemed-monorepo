@@ -1014,11 +1014,6 @@ export function DeviceMonitorLiveOps({
                   return null;
                 })()
               )}
-              {selectedDevice && !selectedDevice.session_id ? (
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-                  {tr(language, "Ready to assign this device.", "เครื่องนี้พร้อมผูกกับผู้ป่วย")}
-                </div>
-              ) : null}
             </div>
             <div className="grid gap-2">
               <Label htmlFor="device-session-notes">{tr(language, "Notes", "หมายเหตุ")}</Label>

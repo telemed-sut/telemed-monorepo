@@ -155,6 +155,43 @@ describe("Patient join bootstrap", () => {
     expect(mockLeavePatientMeetingPresence).not.toHaveBeenCalled();
   });
 
+  it("does not pre-acquire patient camera when joining with camera on", async () => {
+    const mockGetUserMedia = vi.fn().mockResolvedValue({
+      getTracks: () => [
+        {
+          stop: vi.fn(),
+        },
+      ],
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: mockGetUserMedia,
+      },
+    });
+    mockJoinRoom.mockImplementation(() => {});
+
+    await renderPatientJoinPage();
+
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Taylor Patient" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Camera off" }));
+    fireEvent.click(screen.getByRole("button", { name: "Microphone off" }));
+    fireEvent.click(screen.getByRole("button", { name: "Join" }));
+
+    await waitFor(() => {
+      expect(mockJoinRoom).toHaveBeenCalledTimes(1);
+    });
+    expect(mockGetUserMedia).not.toHaveBeenCalled();
+    expect(mockJoinRoom).toHaveBeenCalledWith(
+      expect.objectContaining({
+        turnOnCameraWhenJoining: true,
+        turnOnMicrophoneWhenJoining: true,
+      })
+    );
+  });
+
   it("sends leave only after a heartbeat has succeeded", async () => {
     mockJoinRoom.mockImplementation(() => {});
 

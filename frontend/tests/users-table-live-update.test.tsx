@@ -159,6 +159,21 @@ describe("UsersTable immediate live updates", () => {
     expect(screen.getByText("verified")).toBeInTheDocument();
   });
 
+  it("requests the default page in newest-first order to match dashboard seed data", async () => {
+    const { UsersTable } = await import("@/components/dashboard/users-table");
+
+    render(<UsersTable />);
+
+    await waitFor(() => expect(mockFetchUsers).toHaveBeenCalled());
+    expect(mockFetchUsers.mock.calls[0][0]).toMatchObject({
+      page: 1,
+      limit: 10,
+      sort: "created_at",
+      order: "desc",
+      skipCache: true,
+    });
+  });
+
   it("removes the row immediately after delete", async () => {
     const user = userEvent.setup();
     const { UsersTable } = await import("@/components/dashboard/users-table");

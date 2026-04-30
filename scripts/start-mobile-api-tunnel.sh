@@ -6,6 +6,8 @@ TMP_ROOT="${TMPDIR:-/tmp}"
 TUNNEL_LOG_FILE="$TMP_ROOT/telemed-mobile-api-cloudflared.log"
 TUNNEL_PID_FILE="$TMP_ROOT/telemed-mobile-api-cloudflared.pid"
 BACKEND_URL="${BACKEND_URL:-http://localhost:8000}"
+TUNNEL_NAME="${TUNNEL_NAME:-}"
+TUNNEL_DOMAIN="${TUNNEL_DOMAIN:-}"
 CONFIG_FILE="${CONFIG_FILE:-$ROOT_DIR/mobile/patient_flutter_app/config/dart_defines.local.json}"
 CONFIG_TEMPLATE="${CONFIG_TEMPLATE:-$ROOT_DIR/mobile/patient_flutter_app/config/dart_defines.example.json}"
 SYNC_INFISICAL="${SYNC_INFISICAL:-false}"
@@ -138,15 +140,24 @@ PY
 }
 
 start_backend_containers() {
+  local tunnel_url="${1:-}"
   echo "Starting backend containers..."
   (
     cd "$ROOT_DIR"
+    # Ensure we include the tunnel hostname in ALLOWED_HOSTS to prevent "Invalid host header"
+    if [[ -n "$tunnel_url" ]]; then
+      local tunnel_host
+      tunnel_host=$(echo "$tunnel_url" | sed -E 's|https?://||' | sed -E 's|/.*||')
+      export ALLOWED_HOSTS="${ALLOWED_HOSTS:-localhost,127.0.0.1,::1,backend,patient-backend,frontend,patient-frontend},${tunnel_host}"
+      echo "- Added $tunnel_host to ALLOWED_HOSTS"
+    fi
+
     if is_enabled "$SYNC_INFISICAL"; then
       require_command infisical
       build_infisical_flags
-      infisical run "${INFISICAL_FLAGS[@]}" -- env COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d --build db backend >/dev/null
+      infisical run "${INFISICAL_FLAGS[@]}" -- ./scripts/start-compose.sh -d db backend >/dev/null
     else
-      COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d --build db backend >/dev/null
+      ./scripts/start-compose.sh -d db backend >/dev/null
     fi
   )
 }
@@ -171,34 +182,47 @@ main() {
   require_command curl
   require_command python3
 
-  start_backend_containers
-
   echo "Starting backend Cloudflare tunnel..."
   stop_previous_tunnel_if_any
   : >"$TUNNEL_LOG_FILE"
-  cloudflared tunnel --url "$BACKEND_URL" >"$TUNNEL_LOG_FILE" 2>&1 &
+
+  if [[ -n "$TUNNEL_NAME" ]]; then
+    echo "- Using named tunnel: $TUNNEL_NAME"
+    cloudflared tunnel run --url "$BACKEND_URL" "$TUNNEL_NAME" >"$TUNNEL_LOG_FILE" 2>&1 &
+  else
+    echo "- Using ephemeral tunnel (random URL)"
+    cloudflared tunnel --url "$BACKEND_URL" >"$TUNNEL_LOG_FILE" 2>&1 &
+  fi
+
   local tunnel_pid=$!
   printf "%s" "$tunnel_pid" >"$TUNNEL_PID_FILE"
 
   local tunnel_url=""
-  for _ in $(seq 1 30); do
-    tunnel_url="$(extract_tunnel_url)"
-    if [[ -n "$tunnel_url" ]]; then
-      break
-    fi
-    sleep 1
-  done
+  if [[ -n "$TUNNEL_DOMAIN" ]]; then
+    tunnel_url="https://$TUNNEL_DOMAIN"
+    echo "- Using custom domain: $tunnel_url"
+  else
+    for _ in $(seq 1 30); do
+      tunnel_url="$(extract_tunnel_url)"
+      if [[ -n "$tunnel_url" ]]; then
+        break
+      fi
+      sleep 1
+    done
+  fi
 
   if [[ -z "$tunnel_url" ]]; then
     echo "Unable to detect backend tunnel URL. Check log: $TUNNEL_LOG_FILE" >&2
     exit 1
   fi
 
-  if ! is_valid_tunnel_url "$tunnel_url"; then
+  if [[ -z "$TUNNEL_DOMAIN" ]] && ! is_valid_tunnel_url "$tunnel_url"; then
     echo "Detected invalid backend tunnel URL: $tunnel_url" >&2
     echo "Check log: $TUNNEL_LOG_FILE" >&2
     exit 1
   fi
+
+  start_backend_containers "$tunnel_url"
 
   verify_tunnel_health "$tunnel_url"
   sync_mobile_api_base_url "$tunnel_url"

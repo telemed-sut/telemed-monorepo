@@ -69,6 +69,8 @@ import {
   ArrowUp01Icon,
   ArrowDown01Icon,
   FilterHorizontalIcon,
+  SmartPhone01Icon,
+  Clock01Icon,
 } from "@hugeicons/core-free-icons";
 import {
   canManageUsers,
@@ -77,8 +79,10 @@ import {
   deletePatient,
   fetchPatientContactDetails,
   fetchPatients,
+  generatePatientRegistrationCode,
   type Patient,
   type PatientContactDetails,
+  type PatientRegistrationCodeResponse,
   updatePatient,
 } from "@/lib/api";
 import { preloadPatientWorkspaceBundles } from "@/lib/patient-workspace-prefetch";
@@ -206,6 +210,29 @@ export function PatientsTable({
   const [contactDetailsVisible, setContactDetailsVisible] = useState(false);
   const [revealingContactDetails, setRevealingContactDetails] = useState(false);
   const [contactDetailsError, setContactDetailsError] = useState<string | null>(null);
+
+  const [regCodeOpen, setRegCodeOpen] = useState(false);
+  const [regCodeData, setRegCodeData] = useState<PatientRegistrationCodeResponse | null>(null);
+  const [regCodePatient, setRegCodePatient] = useState<{ id: string; name: string } | null>(null);
+  const [generatingRegCode, setGeneratingRegCode] = useState(false);
+
+  const handleGenerateRegCode = useCallback(async (patientId: string, patientName: string) => {
+    if (!token) return;
+    setRegCodePatient({ id: patientId, name: patientName });
+    setRegCodeOpen(true);
+    setRegCodeData(null);
+    setGeneratingRegCode(true);
+    try {
+      const res = await generatePatientRegistrationCode(patientId, token);
+      setRegCodeData(res);
+      toast.success(tr(language, "Registration code generated", "สร้างรหัสลงทะเบียนสำเร็จ"));
+    } catch (err) {
+      toast.error(getLocalizedDashboardErrorMessage(err, tr(language, "Failed to generate code", "สร้างรหัสไม่สำเร็จ"), language));
+    } finally {
+      setGeneratingRegCode(false);
+    }
+  }, [language, token]);
+
   const canManagePatients = canWriteClinicalData(role);
   const canDeletePatients = canManageUsers(role);
   const isAssignmentScopedRole = role === "doctor" || role === "medical_student";
@@ -1385,6 +1412,12 @@ export function PatientsTable({
                                     <HugeiconsIcon icon={Copy01Icon} className="size-4 mr-2" />
                                     {tr(language, "Copy ID", "คัดลอก ID")}
                                   </DropdownMenuItem>
+                                  {role === "admin" && (
+                                    <DropdownMenuItem onClick={() => { void handleGenerateRegCode(patient.id, `${patient.first_name} ${patient.last_name}`); }}>
+                                      <HugeiconsIcon icon={SmartPhone01Icon} className="size-4 mr-2" />
+                                      {tr(language, "Generate App Code", "สร้างรหัสแอป")}
+                                    </DropdownMenuItem>
+                                  )}
                                   {canManagePatients ? (
                                     <DropdownMenuItem onClick={() => { void openEditForm(patient); }}>
                                       <HugeiconsIcon icon={Edit01Icon} className="size-4 mr-2" />
@@ -1832,6 +1865,69 @@ export function PatientsTable({
                 </Button>
               </div>
             </form>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Registration Code Dialog */}
+      <Dialog open={regCodeOpen} onOpenChange={setRegCodeOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {tr(language, "Mobile App Registration", "การลงทะเบียนแอปมือถือ")}
+            </DialogTitle>
+            <DialogDescription>
+              {tr(language, "Registration code for patient:", "รหัสลงทะเบียนสำหรับผู้ป่วย:")}{" "}
+              <span className="font-semibold text-foreground">{regCodePatient?.name}</span>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col items-center justify-center space-y-6 py-6">
+            <div className="flex size-16 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+              <HugeiconsIcon icon={SmartPhone01Icon} className="size-8" />
+            </div>
+
+            {generatingRegCode ? (
+              <div className="flex flex-col items-center space-y-3">
+                <HugeiconsIcon icon={RefreshIcon} className="size-8 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  {tr(language, "Generating code...", "กำลังสร้างรหัส...")}
+                </p>
+              </div>
+            ) : regCodeData ? (
+              <div className="flex flex-col items-center space-y-4 w-full">
+                <div className="rounded-2xl bg-muted/50 px-8 py-4 border-2 border-dashed border-blue-200 text-center">
+                  <span className="text-4xl font-bold tracking-[0.2em] text-blue-700">
+                    {regCodeData.code}
+                  </span>
+                </div>
+                
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium uppercase tracking-wider">
+                  <HugeiconsIcon icon={Clock01Icon} className="size-3.5" />
+                  {tr(language, "Expires in 15 minutes", "หมดอายุใน 15 นาที")}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 w-full mt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      navigator.clipboard.writeText(regCodeData.code);
+                      toast.success(tr(language, "Code copied", "คัดลอกรหัสแล้ว"));
+                    }}
+                  >
+                    <HugeiconsIcon icon={Copy01Icon} className="mr-2 size-4" />
+                    {tr(language, "Copy Code", "คัดลอกรหัส")}
+                  </Button>
+                  <Button onClick={() => setRegCodeOpen(false)}>
+                    {tr(language, "Done", "เสร็จสิ้น")}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-red-500">
+                {tr(language, "Failed to generate code.", "ไม่สามารถสร้างรหัสได้")}
+              </p>
+            )}
           </div>
         </DialogContent>
       </Dialog>
