@@ -5,20 +5,15 @@ from pydantic import BaseModel, Field, UUID4, field_validator, model_validator
 PressureRiskLevel = Literal["normal", "moderate", "danger"]
 
 class PressureCreate(BaseModel):
-    # Map patient_id to user_id in the JSON input
-    patient_id: UUID4 | None = Field(default=None, alias="user_id")
-    session_id: UUID4 | None = None
     device_id: str = Field(..., min_length=1, max_length=128)
     
-    heart_rate: int = Field(..., ge=20, le=300)
-    sys_rate: int = Field(..., ge=30, le=300) 
-    dia_rate: int = Field(..., ge=10, le=250) 
+    heart_rate: int = Field(..., ge=0, le=300)
+    sys_rate: int = Field(..., ge=0, le=300) 
+    dia_rate: int = Field(..., ge=0, le=250) 
     
     # Map wave_a/wave_b to a/b in the JSON input
     wave_a: Optional[List[int]] = Field(default=None, max_length=5000, alias="a")
     wave_b: Optional[List[int]] = Field(default=None, max_length=5000, alias="b")
-    
-    measured_at: Optional[datetime] = Field(default=None)
 
     @field_validator("device_id")
     @classmethod
@@ -37,7 +32,7 @@ class PressureCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_pressure_and_waveform(self):
-        if self.sys_rate <= self.dia_rate:
+        if self.sys_rate > 0 and self.dia_rate > 0 and self.sys_rate <= self.dia_rate:
             raise ValueError("sys_rate must be greater than dia_rate")
 
         if self.wave_a is not None and self.wave_b is not None and len(self.wave_a) != len(self.wave_b):

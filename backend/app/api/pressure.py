@@ -322,14 +322,10 @@ def create_pressure_record(
     Receive blood pressure data from physical device.
     """
     try:
-        # If the device omits measured_at, use signed request timestamp (UTC) to preserve ordering.
-        if pressure_in.measured_at is None:
-            signed_ts = getattr(request.state, "device_request_timestamp", int(time.time()))
-            pressure_in = pressure_in.model_copy(
-                update={"measured_at": datetime.fromtimestamp(signed_ts, tz=timezone.utc)}
-            )
+        signed_ts = getattr(request.state, "device_request_timestamp", int(time.time()))
+        measured_at = datetime.fromtimestamp(signed_ts, tz=timezone.utc)
 
-        pressure_service.create_pressure(db, pressure_in)
+        pressure_service.create_pressure(db, pressure_in, measured_at=measured_at)
         # Keep device acknowledgement minimal; do not leak internal record identifiers.
         return {"status": "ok"}
     except HTTPException as e:

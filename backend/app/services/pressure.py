@@ -93,12 +93,12 @@ class PressureService:
         ).all()
         return list(items), total
 
-    def create_pressure(self, db: Session, pressure_in: PressureCreate) -> PressureRecord:
+    def create_pressure(self, db: Session, pressure_in: PressureCreate, measured_at: datetime) -> PressureRecord:
         resolved_patient_id, resolved_session_id = device_exam_session_service.resolve_ingest_context(
             db,
             device_id=pressure_in.device_id,
-            requested_patient_id=pressure_in.patient_id,
-            requested_session_id=pressure_in.session_id,
+            requested_patient_id=None,
+            requested_session_id=None,
             measurement_type=DeviceExamMeasurementType.blood_pressure,
         )
         # Check if patient exists
@@ -113,7 +113,6 @@ class PressureService:
                 detail=f"Patient with ID {resolved_patient_id} not found"
             )
 
-        measured_at = pressure_in.measured_at or datetime.now(timezone.utc)
         if measured_at.tzinfo is None:
             measured_at = measured_at.replace(tzinfo=timezone.utc)
 

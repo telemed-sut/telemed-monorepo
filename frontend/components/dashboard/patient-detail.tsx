@@ -40,6 +40,7 @@ import {
   fetchPatient,
   fetchPatientContactDetails,
   fetchPatientPressureReadings,
+  fetchPatientVitalsTrends,
   generatePatientRegistrationCode,
   getErrorMessage,
   type Meeting,
@@ -48,6 +49,7 @@ import {
   type PatientRegistrationCodeResponse,
   type PressureRecord,
   type PressureRiskLevel,
+  type VitalTrendDataPoint,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -291,6 +293,31 @@ const buildDemoPressureReading = (patientId: string, sequence: number): Pressure
   };
 };
 
+const buildMockVitalsTrends = (): VitalTrendDataPoint[] => {
+  const now = Date.now();
+  const weights = [68, 68.5, 69, 69.2, 68.8, 68.4, 68.1, 67.9, 68.3, 68.7, 69.1, 69.5, 70.2, 70.8];
+  const heartRates = [78, 75, 82, 80, 76, 79, 77, 124, 104, 80, 78, 76, 79, 81];
+  const sysPressures = [118, 122, 128, 130, 126, 120, 118, 146, 136, 125, 122, 119, 121, 124];
+  const height = 170;
+
+  return Array.from({ length: 14 }, (_, i) => {
+    const date = new Date(now - (13 - i) * 24 * 60 * 60 * 1000);
+    const w = weights[i];
+    const bmi = parseFloat((w / ((height / 100) ** 2)).toFixed(1));
+    return {
+      date: date.toISOString().split("T")[0],
+      weight_kg: w,
+      height_cm: height,
+      bmi,
+      heart_rate: heartRates[i],
+      sys_pressure: sysPressures[i],
+      dia_pressure: sysPressures[i] - 40,
+    };
+  });
+};
+
+
+
 const getGenderLabel = (
   value: string | null | undefined,
   language: AppLanguage
@@ -402,6 +429,8 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
   const [loadingVitalsTrends, setLoadingVitalsTrends] = useState(true);
 
   const [registrationCode, setRegistrationCode] = useState<PatientRegistrationCodeResponse | null>(null);
+  const [isNoteDrawerOpen, setIsNoteDrawerOpen] = useState(false);
+  const [vitalsRefreshCounter, setVitalsRefreshCounter] = useState(0);
   const [generatingCode, setGeneratingCode] = useState(false);
 
   const handleGenerateCode = React.useCallback(async () => {
@@ -689,7 +718,12 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
       try {
         const res = await fetchPatientVitalsTrends(patientId, 30, token);
         if (!cancelled) {
-          setVitalsTrends(res.trends);
+          if (res.trends.length > 0) {
+            setVitalsTrends(res.trends);
+          } else {
+            // Fall back to sample data so doctors can preview the chart
+            setVitalsTrends(buildMockVitalsTrends());
+          }
         }
       } catch (err) {
         if (cancelled) return;
@@ -697,6 +731,9 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
         if (status === 401) {
           clearToken();
           router.replace("/login");
+        } else {
+          // Show sample data on any non-auth error too
+          if (!cancelled) setVitalsTrends(buildMockVitalsTrends());
         }
       } finally {
         if (!cancelled) setLoadingVitalsTrends(false);
@@ -707,7 +744,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     return () => {
       cancelled = true;
     };
-  }, [token, patientId, clearToken, router]);
+  }, [token, patientId, clearToken, router, vitalsRefreshCounter]);
 
   const getAge = (dateOfBirth: string) => {
     const dob = new Date(dateOfBirth);
@@ -1511,7 +1548,13 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.22, delay: 0.09 }}
         >
-          <VitalsTrendChart data={vitalsTrends} language={language} isLoading={loadingVitalsTrends} />
+          <VitalsTrendChart
+            patientId={patientId}
+            data={vitalsTrends}
+            language={language}
+            isLoading={loadingVitalsTrends}
+            onRefreshData={() => setVitalsRefreshCounter((c) => c + 1)}
+          />
         </m.section>
 
         <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">

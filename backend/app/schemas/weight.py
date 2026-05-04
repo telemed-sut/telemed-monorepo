@@ -34,6 +34,12 @@ class WeightRecordCreate(WeightRecordBase):
     )
 
 
+class WeightRecordUpdate(BaseModel):
+    weight_kg: Optional[float] = Field(None, description="Patient weight in kilograms.")
+    height_cm: Optional[float] = Field(None, description="Patient height in centimeters.")
+    measured_at: Optional[datetime] = Field(None, description="When the patient measured the weight.")
+
+
 class WeightRecordOut(WeightRecordBase):
     id: UUID
     patient_id: UUID
