@@ -64,7 +64,9 @@ load_env_file_if_present() {
 load_default_runtime_env() {
   load_env_file_if_present "$ROOT_DIR/.env"
   load_env_file_if_present "$ROOT_DIR/.env.local"
+  load_env_file_if_present "$ROOT_DIR/backend/.env"
   load_env_file_if_present "$ROOT_DIR/backend/.env.local"
+  load_env_file_if_present "$ROOT_DIR/frontend/.env"
   load_env_file_if_present "$ROOT_DIR/frontend/.env.local"
 }
 
