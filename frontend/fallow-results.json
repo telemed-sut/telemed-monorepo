@@ -1,0 +1,2823 @@
+{
+  "schema_version": 4,
+  "version": "2.59.0",
+  "elapsed_ms": 102,
+  "total_issues": 129,
+  "entry_points": {
+    "total": 113,
+    "sources": {
+      "plugin": 112,
+      "package.json": 1
+    }
+  },
+  "summary": {
+    "total_issues": 129,
+    "unused_files": 19,
+    "unused_exports": 86,
+    "unused_types": 13,
+    "private_type_leaks": 0,
+    "unused_dependencies": 0,
+    "unused_enum_members": 0,
+    "unused_class_members": 1,
+    "unresolved_imports": 1,
+    "unlisted_dependencies": 0,
+    "duplicate_exports": 0,
+    "type_only_dependencies": 0,
+    "test_only_dependencies": 0,
+    "circular_dependencies": 9,
+    "boundary_violations": 0,
+    "stale_suppressions": 0
+  },
+  "unused_files": [
+    {
+      "path": "components/dashboard/data-table-pagination.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/dashboard/data-table-toolbar.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/dashboard/month-calendar-popover.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/dashboard/nav-main.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/dashboard/nav-notifications.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/dashboard/patient-assignments-dialog.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/dashboard/security-content.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/dashboard/team-switcher.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/theme-toggle.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/admin-logo.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/chart.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/combobox.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/input-group.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "components/ui-tone-initializer.tsx",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "lib/login-recent-account.ts",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "lib/profile-avatar.ts",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "lib/ui-tone.ts",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "lib/zego-call-ui.ts",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    },
+    {
+      "path": "tests/mocks/server-only.ts",
+      "actions": [
+        {
+          "type": "delete-file",
+          "auto_fixable": false,
+          "description": "Delete this file",
+          "note": "File deletion may remove runtime functionality not visible to static analysis"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with a file-level comment at the top of the file",
+          "comment": "// fallow-ignore-file unused-file"
+        }
+      ]
+    }
+  ],
+  "unused_exports": [
+    {
+      "path": "app/server-api.ts",
+      "export_name": "serverApiFetch",
+      "is_type_only": false,
+      "line": 18,
+      "col": 22,
+      "span_start": 476,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "app/server-api.ts",
+      "export_name": "fetchCurrentUserRoleServer",
+      "is_type_only": false,
+      "line": 43,
+      "col": 22,
+      "span_start": 961,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/alert-dialog.tsx",
+      "export_name": "AlertDialogOverlay",
+      "is_type_only": false,
+      "line": 171,
+      "col": 2,
+      "span_start": 5005,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/alert-dialog.tsx",
+      "export_name": "AlertDialogPortal",
+      "is_type_only": false,
+      "line": 172,
+      "col": 2,
+      "span_start": 5027,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/alert-dialog.tsx",
+      "export_name": "AlertDialogTrigger",
+      "is_type_only": false,
+      "line": 174,
+      "col": 2,
+      "span_start": 5068,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/avatar.tsx",
+      "export_name": "AvatarGroup",
+      "is_type_only": false,
+      "line": 121,
+      "col": 2,
+      "span_start": 3387,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/avatar.tsx",
+      "export_name": "AvatarGroupCount",
+      "is_type_only": false,
+      "line": 122,
+      "col": 2,
+      "span_start": 3402,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/avatar.tsx",
+      "export_name": "AvatarBadge",
+      "is_type_only": false,
+      "line": 123,
+      "col": 2,
+      "span_start": 3422,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/badge.tsx",
+      "export_name": "badgeVariants",
+      "is_type_only": false,
+      "line": 48,
+      "col": 16,
+      "span_start": 1887,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/calendar.tsx",
+      "export_name": "CalendarDayButton",
+      "is_type_only": false,
+      "line": 216,
+      "col": 19,
+      "span_start": 8253,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/card.tsx",
+      "export_name": "CardFooter",
+      "is_type_only": false,
+      "line": 89,
+      "col": 2,
+      "span_start": 2479,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/card.tsx",
+      "export_name": "CardAction",
+      "is_type_only": false,
+      "line": 91,
+      "col": 2,
+      "span_start": 2506,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/dialog.tsx",
+      "export_name": "DialogClose",
+      "is_type_only": false,
+      "line": 154,
+      "col": 2,
+      "span_start": 4218,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/dialog.tsx",
+      "export_name": "DialogOverlay",
+      "is_type_only": false,
+      "line": 159,
+      "col": 2,
+      "span_start": 4303,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/dialog.tsx",
+      "export_name": "DialogPortal",
+      "is_type_only": false,
+      "line": 160,
+      "col": 2,
+      "span_start": 4320,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/dialog.tsx",
+      "export_name": "DialogTrigger",
+      "is_type_only": false,
+      "line": 162,
+      "col": 2,
+      "span_start": 4351,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/dropdown-menu.tsx",
+      "export_name": "DropdownMenuPortal",
+      "is_type_only": false,
+      "line": 250,
+      "col": 2,
+      "span_start": 8457,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/field.tsx",
+      "export_name": "FieldLegend",
+      "is_type_only": false,
+      "line": 222,
+      "col": 2,
+      "span_start": 5849,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/field.tsx",
+      "export_name": "FieldSeparator",
+      "is_type_only": false,
+      "line": 223,
+      "col": 2,
+      "span_start": 5864,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/field.tsx",
+      "export_name": "FieldSet",
+      "is_type_only": false,
+      "line": 224,
+      "col": 2,
+      "span_start": 5882,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/field.tsx",
+      "export_name": "FieldContent",
+      "is_type_only": false,
+      "line": 225,
+      "col": 2,
+      "span_start": 5894,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/field.tsx",
+      "export_name": "FieldTitle",
+      "is_type_only": false,
+      "line": 226,
+      "col": 2,
+      "span_start": 5910,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/input-group.tsx",
+      "export_name": "InputGroup",
+      "is_type_only": false,
+      "line": 151,
+      "col": 2,
+      "span_start": 5152,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/input-group.tsx",
+      "export_name": "InputGroupAddon",
+      "is_type_only": false,
+      "line": 152,
+      "col": 2,
+      "span_start": 5166,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/input-group.tsx",
+      "export_name": "InputGroupButton",
+      "is_type_only": false,
+      "line": 153,
+      "col": 2,
+      "span_start": 5185,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/input-group.tsx",
+      "export_name": "InputGroupText",
+      "is_type_only": false,
+      "line": 154,
+      "col": 2,
+      "span_start": 5205,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/input-group.tsx",
+      "export_name": "InputGroupInput",
+      "is_type_only": false,
+      "line": 155,
+      "col": 2,
+      "span_start": 5223,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/input-group.tsx",
+      "export_name": "InputGroupTextarea",
+      "is_type_only": false,
+      "line": 156,
+      "col": 2,
+      "span_start": 5242,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/popover.tsx",
+      "export_name": "PopoverDescription",
+      "is_type_only": false,
+      "line": 86,
+      "col": 2,
+      "span_start": 2404,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/popover.tsx",
+      "export_name": "PopoverHeader",
+      "is_type_only": false,
+      "line": 87,
+      "col": 2,
+      "span_start": 2426,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/popover.tsx",
+      "export_name": "PopoverTitle",
+      "is_type_only": false,
+      "line": 88,
+      "col": 2,
+      "span_start": 2443,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/select.tsx",
+      "export_name": "SelectScrollDownButton",
+      "is_type_only": false,
+      "line": 194,
+      "col": 2,
+      "span_start": 7003,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/select.tsx",
+      "export_name": "SelectScrollUpButton",
+      "is_type_only": false,
+      "line": 195,
+      "col": 2,
+      "span_start": 7029,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/sheet.tsx",
+      "export_name": "SheetTrigger",
+      "is_type_only": false,
+      "line": 131,
+      "col": 2,
+      "span_start": 5039,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/sidebar.tsx",
+      "export_name": "SidebarGroupAction",
+      "is_type_only": false,
+      "line": 726,
+      "col": 2,
+      "span_start": 22409,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/sidebar.tsx",
+      "export_name": "SidebarGroupLabel",
+      "is_type_only": false,
+      "line": 728,
+      "col": 2,
+      "span_start": 22454,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/sidebar.tsx",
+      "export_name": "SidebarInput",
+      "is_type_only": false,
+      "line": 730,
+      "col": 2,
+      "span_start": 22492,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/sidebar.tsx",
+      "export_name": "SidebarInset",
+      "is_type_only": false,
+      "line": 731,
+      "col": 2,
+      "span_start": 22508,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/sidebar.tsx",
+      "export_name": "SidebarMenuAction",
+      "is_type_only": false,
+      "line": 733,
+      "col": 2,
+      "span_start": 22539,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/sidebar.tsx",
+      "export_name": "SidebarMenuBadge",
+      "is_type_only": false,
+      "line": 734,
+      "col": 2,
+      "span_start": 22560,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/sidebar.tsx",
+      "export_name": "SidebarMenuSkeleton",
+      "is_type_only": false,
+      "line": 737,
+      "col": 2,
+      "span_start": 22620,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/sidebar.tsx",
+      "export_name": "SidebarMenuSubButton",
+      "is_type_only": false,
+      "line": 739,
+      "col": 2,
+      "span_start": 22661,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/sidebar.tsx",
+      "export_name": "SidebarMenuSubItem",
+      "is_type_only": false,
+      "line": 740,
+      "col": 2,
+      "span_start": 22685,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/sidebar.tsx",
+      "export_name": "SidebarSeparator",
+      "is_type_only": false,
+      "line": 743,
+      "col": 2,
+      "span_start": 22741,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/table.tsx",
+      "export_name": "TableCaption",
+      "is_type_only": false,
+      "line": 100,
+      "col": 2,
+      "span_start": 2243,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/tooltip.tsx",
+      "export_name": "TooltipProvider",
+      "is_type_only": false,
+      "line": 84,
+      "col": 50,
+      "span_start": 2793,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-admin.ts",
+      "export_name": "activateDeviceExamSession",
+      "is_type_only": false,
+      "line": 361,
+      "col": 22,
+      "span_start": 9369,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-admin.ts",
+      "export_name": "cancelDeviceExamSession",
+      "is_type_only": false,
+      "line": 381,
+      "col": 22,
+      "span_start": 9951,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-client.ts",
+      "export_name": "clampPage",
+      "is_type_only": false,
+      "line": 353,
+      "col": 16,
+      "span_start": 15166,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-client.ts",
+      "export_name": "rawFetch",
+      "is_type_only": false,
+      "line": 674,
+      "col": 22,
+      "span_start": 26052,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-client.ts",
+      "export_name": "invalidateAllCache",
+      "is_type_only": false,
+      "line": 814,
+      "col": 16,
+      "span_start": 30180,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-fetch-all.ts",
+      "export_name": "BULK_FETCH_DEFAULT_PAGE_SIZE",
+      "is_type_only": false,
+      "line": 6,
+      "col": 13,
+      "span_start": 168,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-fetch-all.ts",
+      "export_name": "BULK_FETCH_DEFAULT_MAX_ITEMS",
+      "is_type_only": false,
+      "line": 7,
+      "col": 13,
+      "span_start": 229,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-fetch-all.ts",
+      "export_name": "normalizeMaxItems",
+      "is_type_only": false,
+      "line": 9,
+      "col": 16,
+      "span_start": 283,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-meetings.ts",
+      "export_name": "fetchMeetingReliabilitySnapshot",
+      "is_type_only": false,
+      "line": 149,
+      "col": 22,
+      "span_start": 3791,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-passkeys.ts",
+      "export_name": "verifyPasskeyRegistration",
+      "is_type_only": false,
+      "line": 49,
+      "col": 22,
+      "span_start": 1327,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-passkeys.ts",
+      "export_name": "verifyPasskeyLogin",
+      "is_type_only": false,
+      "line": 72,
+      "col": 22,
+      "span_start": 1993,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-patients.ts",
+      "export_name": "fetchActiveOrders",
+      "is_type_only": false,
+      "line": 247,
+      "col": 22,
+      "span_start": 6985,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-patients.ts",
+      "export_name": "fetchLabTrends",
+      "is_type_only": false,
+      "line": 255,
+      "col": 22,
+      "span_start": 7222,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-patients.ts",
+      "export_name": "acknowledgeAlert",
+      "is_type_only": false,
+      "line": 282,
+      "col": 22,
+      "span_start": 8092,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-patients.ts",
+      "export_name": "breakGlassAccess",
+      "is_type_only": false,
+      "line": 290,
+      "col": 22,
+      "span_start": 8336,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-patients.ts",
+      "export_name": "bulkDeletePatients",
+      "is_type_only": false,
+      "line": 298,
+      "col": 22,
+      "span_start": 8585,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-patients.ts",
+      "export_name": "fetchPatientVitalsTrends",
+      "is_type_only": false,
+      "line": 317,
+      "col": 22,
+      "span_start": 9080,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-roles.ts",
+      "export_name": "ROLE_LABEL_MAP_TH",
+      "is_type_only": false,
+      "line": 11,
+      "col": 13,
+      "span_start": 316,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-roles.ts",
+      "export_name": "PRIVILEGED_ROLE_LABEL_MAP",
+      "is_type_only": false,
+      "line": 17,
+      "col": 13,
+      "span_start": 516,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-roles.ts",
+      "export_name": "PRIVILEGED_ROLE_LABEL_MAP_TH",
+      "is_type_only": false,
+      "line": 23,
+      "col": 13,
+      "span_start": 707,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-types.ts",
+      "export_name": "MEETING_STATUS_LABELS_TH",
+      "is_type_only": false,
+      "line": 307,
+      "col": 13,
+      "span_start": 6648,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api.ts",
+      "export_name": "PRIVILEGED_ROLE_LABEL_MAP",
+      "is_type_only": false,
+      "line": 4,
+      "col": 2,
+      "span_start": 59,
+      "is_re_export": true,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API",
+          "note": "This finding originates from a re-export; verify it is not part of your public API before removing"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api.ts",
+      "export_name": "PRIVILEGED_ROLE_LABEL_MAP_TH",
+      "is_type_only": false,
+      "line": 5,
+      "col": 2,
+      "span_start": 88,
+      "is_re_export": true,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API",
+          "note": "This finding originates from a re-export; verify it is not part of your public API before removing"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/api.ts",
+      "export_name": "ROLE_LABEL_MAP_TH",
+      "is_type_only": false,
+      "line": 7,
+      "col": 2,
+      "span_start": 138,
+      "is_re_export": true,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API",
+          "note": "This finding originates from a re-export; verify it is not part of your public API before removing"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/appearance.ts",
+      "export_name": "saveAppearance",
+      "is_type_only": false,
+      "line": 194,
+      "col": 16,
+      "span_start": 4421,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/i18n/messages.ts",
+      "export_name": "APP_INTL_MESSAGES",
+      "is_type_only": false,
+      "line": 7,
+      "col": 13,
+      "span_start": 199,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/meeting-call-prefetch.ts",
+      "export_name": "preloadMeetingCallChrome",
+      "is_type_only": false,
+      "line": 6,
+      "col": 16,
+      "span_start": 200,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/ui-tone.ts",
+      "export_name": "getStoredUITone",
+      "is_type_only": false,
+      "line": 22,
+      "col": 16,
+      "span_start": 388,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/ui-tone.ts",
+      "export_name": "applyUITone",
+      "is_type_only": false,
+      "line": 34,
+      "col": 16,
+      "span_start": 733,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/zego-uikit.ts",
+      "export_name": "readCallStartupHistory",
+      "is_type_only": false,
+      "line": 177,
+      "col": 16,
+      "span_start": 4657,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/zego-uikit.ts",
+      "export_name": "clearCallStartupHistory",
+      "is_type_only": false,
+      "line": 185,
+      "col": 16,
+      "span_start": 4867,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/zego-uikit.ts",
+      "export_name": "recordCallStartupHistory",
+      "is_type_only": false,
+      "line": 193,
+      "col": 16,
+      "span_start": 5031,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "lib/zego-uikit.ts",
+      "export_name": "detectIosSafari",
+      "is_type_only": false,
+      "line": 278,
+      "col": 16,
+      "span_start": 7686,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "mock-data/employees.ts",
+      "export_name": "financialFlowData",
+      "is_type_only": false,
+      "line": 99,
+      "col": 13,
+      "span_start": 4694,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "store/calendar-store.ts",
+      "export_name": "getEventTop",
+      "is_type_only": false,
+      "line": 117,
+      "col": 16,
+      "span_start": 3881,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "store/calendar-store.ts",
+      "export_name": "getEventHeight",
+      "is_type_only": false,
+      "line": 124,
+      "col": 16,
+      "span_start": 4182,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "store/calendar-store.ts",
+      "export_name": "formatMeetingTime",
+      "is_type_only": false,
+      "line": 146,
+      "col": 16,
+      "span_start": 5021,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "store/calendar-store.ts",
+      "export_name": "getLocalTimezoneAbbr",
+      "is_type_only": false,
+      "line": 159,
+      "col": 16,
+      "span_start": 5509,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "store/language-config.ts",
+      "export_name": "DEFAULT_APP_LANGUAGE",
+      "is_type_only": false,
+      "line": 5,
+      "col": 13,
+      "span_start": 174,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    },
+    {
+      "path": "store/language-config.ts",
+      "export_name": "isAppLanguage",
+      "is_type_only": false,
+      "line": 17,
+      "col": 16,
+      "span_start": 492,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the unused export from the public API"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-export"
+        }
+      ]
+    }
+  ],
+  "unused_types": [
+    {
+      "path": "components/ui/calender.tsx",
+      "export_name": "CalendarMode",
+      "is_type_only": true,
+      "line": 67,
+      "col": 12,
+      "span_start": 1054,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/calender.tsx",
+      "export_name": "CalendarView",
+      "is_type_only": true,
+      "line": 68,
+      "col": 12,
+      "span_start": 1114,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/calender.tsx",
+      "export_name": "CalendarSize",
+      "is_type_only": true,
+      "line": 69,
+      "col": 12,
+      "span_start": 1179,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/calender.tsx",
+      "export_name": "PresetRange",
+      "is_type_only": true,
+      "line": 76,
+      "col": 17,
+      "span_start": 1314,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/calender.tsx",
+      "export_name": "CalendarLocale",
+      "is_type_only": true,
+      "line": 81,
+      "col": 17,
+      "span_start": 1394,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/eye-icon.tsx",
+      "export_name": "EyeIconHandle",
+      "is_type_only": true,
+      "line": 9,
+      "col": 17,
+      "span_start": 257,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/maximize-2.tsx",
+      "export_name": "Maximize2IconHandle",
+      "is_type_only": true,
+      "line": 10,
+      "col": 17,
+      "span_start": 306,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    },
+    {
+      "path": "components/ui/toast.ts",
+      "export_name": "ToastOptions",
+      "is_type_only": true,
+      "line": 207,
+      "col": 14,
+      "span_start": 6001,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    },
+    {
+      "path": "lib/api-passkeys.ts",
+      "export_name": "PasskeyListResponse",
+      "is_type_only": true,
+      "line": 21,
+      "col": 17,
+      "span_start": 539,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    },
+    {
+      "path": "lib/meeting-call-test-profiles.ts",
+      "export_name": "MeetingCallDiagnosticsEvent",
+      "is_type_only": true,
+      "line": 9,
+      "col": 12,
+      "span_start": 157,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    },
+    {
+      "path": "lib/meeting-call-test-profiles.ts",
+      "export_name": "MeetingCallDiagnosticsSnapshot",
+      "is_type_only": true,
+      "line": 15,
+      "col": 12,
+      "span_start": 254,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    },
+    {
+      "path": "store/calendar-store.ts",
+      "export_name": "EventTypeFilter",
+      "is_type_only": true,
+      "line": 13,
+      "col": 12,
+      "span_start": 213,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    },
+    {
+      "path": "store/dashboard-store.ts",
+      "export_name": "LayoutDensity",
+      "is_type_only": true,
+      "line": 3,
+      "col": 12,
+      "span_start": 47,
+      "is_re_export": false,
+      "actions": [
+        {
+          "type": "remove-export",
+          "auto_fixable": true,
+          "description": "Remove the `export` (or `export type`) keyword from the type declaration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-type"
+        }
+      ]
+    }
+  ],
+  "private_type_leaks": [],
+  "unused_dependencies": [],
+  "unused_dev_dependencies": [],
+  "unused_optional_dependencies": [],
+  "unused_enum_members": [],
+  "unused_class_members": [
+    {
+      "path": "lib/zego-uikit.ts",
+      "parent_name": "CallStartupMetrics",
+      "member_name": "logSummary",
+      "kind": "class_method",
+      "line": 249,
+      "col": 2,
+      "actions": [
+        {
+          "type": "remove-class-member",
+          "auto_fixable": false,
+          "description": "Remove this class member",
+          "note": "Class member may be used via dependency injection or decorators"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unused-class-member"
+        }
+      ]
+    }
+  ],
+  "unresolved_imports": [
+    {
+      "path": "app/globals.css",
+      "specifier": "./shadcn/tailwind.css",
+      "line": 1,
+      "col": 0,
+      "specifier_col": 0,
+      "actions": [
+        {
+          "type": "resolve-import",
+          "auto_fixable": false,
+          "description": "Fix the import specifier or install the missing module",
+          "note": "Verify the module path and check tsconfig paths configuration"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line unresolved-import"
+        }
+      ]
+    }
+  ],
+  "unlisted_dependencies": [],
+  "duplicate_exports": [],
+  "type_only_dependencies": [],
+  "test_only_dependencies": [],
+  "circular_dependencies": [
+    {
+      "files": [
+        "components/dashboard/patient-detail.tsx",
+        "lib/patient-workspace-prefetch.ts"
+      ],
+      "length": 2,
+      "line": 68,
+      "col": 9,
+      "actions": [
+        {
+          "type": "refactor-cycle",
+          "auto_fixable": false,
+          "description": "Extract shared logic into a separate module to break the cycle",
+          "note": "Circular imports can cause initialization issues and make code harder to reason about"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line circular-dependency"
+        }
+      ]
+    },
+    {
+      "files": [
+        "components/dashboard/patient-heart-sound.tsx",
+        "lib/patient-workspace-prefetch.ts"
+      ],
+      "length": 2,
+      "line": 56,
+      "col": 9,
+      "actions": [
+        {
+          "type": "refactor-cycle",
+          "auto_fixable": false,
+          "description": "Extract shared logic into a separate module to break the cycle",
+          "note": "Circular imports can cause initialization issues and make code harder to reason about"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line circular-dependency"
+        }
+      ]
+    },
+    {
+      "files": [
+        "lib/api-admin.ts",
+        "lib/api-client.ts",
+        "store/auth-store.ts",
+        "lib/api.ts"
+      ],
+      "length": 4,
+      "line": 2,
+      "col": 2,
+      "actions": [
+        {
+          "type": "refactor-cycle",
+          "auto_fixable": false,
+          "description": "Extract shared logic into a separate module to break the cycle",
+          "note": "Circular imports can cause initialization issues and make code harder to reason about"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line circular-dependency"
+        }
+      ]
+    },
+    {
+      "files": [
+        "lib/api-auth.ts",
+        "lib/api-client.ts",
+        "store/auth-store.ts",
+        "lib/api.ts"
+      ],
+      "length": 4,
+      "line": 1,
+      "col": 9,
+      "actions": [
+        {
+          "type": "refactor-cycle",
+          "auto_fixable": false,
+          "description": "Extract shared logic into a separate module to break the cycle",
+          "note": "Circular imports can cause initialization issues and make code harder to reason about"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line circular-dependency"
+        }
+      ]
+    },
+    {
+      "files": [
+        "lib/api-client.ts",
+        "store/auth-store.ts",
+        "lib/api.ts"
+      ],
+      "length": 3,
+      "line": 873,
+      "col": 2,
+      "actions": [
+        {
+          "type": "refactor-cycle",
+          "auto_fixable": false,
+          "description": "Extract shared logic into a separate module to break the cycle",
+          "note": "Circular imports can cause initialization issues and make code harder to reason about"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line circular-dependency"
+        }
+      ]
+    },
+    {
+      "files": [
+        "lib/api-client.ts",
+        "store/auth-store.ts",
+        "lib/api.ts",
+        "lib/api-meetings.ts"
+      ],
+      "length": 4,
+      "line": 873,
+      "col": 2,
+      "actions": [
+        {
+          "type": "refactor-cycle",
+          "auto_fixable": false,
+          "description": "Extract shared logic into a separate module to break the cycle",
+          "note": "Circular imports can cause initialization issues and make code harder to reason about"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line circular-dependency"
+        }
+      ]
+    },
+    {
+      "files": [
+        "lib/api-client.ts",
+        "store/auth-store.ts",
+        "lib/api.ts",
+        "lib/api-meetings.ts",
+        "lib/api-fetch-all.ts"
+      ],
+      "length": 5,
+      "line": 873,
+      "col": 2,
+      "actions": [
+        {
+          "type": "refactor-cycle",
+          "auto_fixable": false,
+          "description": "Extract shared logic into a separate module to break the cycle",
+          "note": "Circular imports can cause initialization issues and make code harder to reason about"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line circular-dependency"
+        }
+      ]
+    },
+    {
+      "files": [
+        "lib/api-client.ts",
+        "store/auth-store.ts",
+        "lib/api.ts",
+        "lib/api-patients.ts"
+      ],
+      "length": 4,
+      "line": 873,
+      "col": 2,
+      "actions": [
+        {
+          "type": "refactor-cycle",
+          "auto_fixable": false,
+          "description": "Extract shared logic into a separate module to break the cycle",
+          "note": "Circular imports can cause initialization issues and make code harder to reason about"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line circular-dependency"
+        }
+      ]
+    },
+    {
+      "files": [
+        "lib/api-client.ts",
+        "store/auth-store.ts",
+        "lib/api.ts",
+        "lib/api-patients.ts",
+        "lib/api-fetch-all.ts"
+      ],
+      "length": 5,
+      "line": 873,
+      "col": 2,
+      "actions": [
+        {
+          "type": "refactor-cycle",
+          "auto_fixable": false,
+          "description": "Extract shared logic into a separate module to break the cycle",
+          "note": "Circular imports can cause initialization issues and make code harder to reason about"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the line",
+          "comment": "// fallow-ignore-next-line circular-dependency"
+        }
+      ]
+    }
+  ],
+  "boundary_violations": [],
+  "stale_suppressions": []
+}

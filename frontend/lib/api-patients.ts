@@ -24,6 +24,7 @@ import type {
   TimelineEvent,
   TimelineResponse,
   UploadPatientHeartSoundPayload,
+  PatientVitalsTrendResponse,
 } from "./api-types";
 
 interface FetchAllOptions {
@@ -309,5 +310,13 @@ export async function generatePatientRegistrationCode(
     `/patient-app/${patientId}/code`,
     { method: "POST" },
     token,
+  );
+}
+
+export async function fetchPatientVitalsTrends(patientId: string, days: number, token: string) {
+  return apiFetch<PatientVitalsTrendResponse>(
+    `/patients/${patientId}/trends/vitals?days=${days}`,
+    { method: "GET" },
+    token
   );
 }

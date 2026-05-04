@@ -23,4 +23,6 @@ from app.models import (  # noqa: F401,E402
     lung_sound_record,
     user_privileged_role_assignment,
     user_session,
+    weight_record,
+    patient_vital_threshold,
 )

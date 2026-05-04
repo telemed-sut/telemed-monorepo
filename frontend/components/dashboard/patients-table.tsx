@@ -1415,7 +1415,7 @@ export function PatientsTable({
                                   {role === "admin" && (
                                     <DropdownMenuItem onClick={() => { void handleGenerateRegCode(patient.id, `${patient.first_name} ${patient.last_name}`); }}>
                                       <HugeiconsIcon icon={SmartPhone01Icon} className="size-4 mr-2" />
-                                      {tr(language, "Generate App Code", "สร้างรหัสแอป")}
+                                      {tr(language, "Generate App Registration Code", "สร้างรหัสลงทะเบียนแอป")}
                                     </DropdownMenuItem>
                                   )}
                                   {canManagePatients ? (
@@ -1874,10 +1874,14 @@ export function PatientsTable({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {tr(language, "Mobile App Registration", "การลงทะเบียนแอปมือถือ")}
+              {tr(language, "Mobile App Registration Code", "รหัสลงทะเบียนแอปมือถือ")}
             </DialogTitle>
             <DialogDescription>
-              {tr(language, "Registration code for patient:", "รหัสลงทะเบียนสำหรับผู้ป่วย:")}{" "}
+              {tr(
+                language,
+                "Use this code only on the patient app registration screen for:",
+                "ใช้รหัสนี้เฉพาะหน้าลงทะเบียนแอปมือถือของผู้ป่วย:",
+              )}{" "}
               <span className="font-semibold text-foreground">{regCodePatient?.name}</span>
             </DialogDescription>
           </DialogHeader>
@@ -1907,6 +1911,14 @@ export function PatientsTable({
                   {tr(language, "Expires in 15 minutes", "หมดอายุใน 15 นาที")}
                 </div>
 
+                <p className="max-w-sm text-center text-sm leading-6 text-muted-foreground">
+                  {tr(
+                    language,
+                    "This is not the login PIN. In the mobile app, register with phone + this code, then choose a 4-6 digit numeric PIN.",
+                    "นี่ไม่ใช่ PIN สำหรับเข้าสู่ระบบ ให้แอปมือถือใช้เบอร์ + รหัสนี้ในหน้าลงทะเบียน แล้วตั้ง PIN เป็นตัวเลข 4-6 หลัก",
+                  )}
+                </p>
+
                 <div className="grid grid-cols-2 gap-3 w-full mt-4">
                   <Button
                     variant="outline"
@@ -1916,7 +1928,7 @@ export function PatientsTable({
                     }}
                   >
                     <HugeiconsIcon icon={Copy01Icon} className="mr-2 size-4" />
-                    {tr(language, "Copy Code", "คัดลอกรหัส")}
+                    {tr(language, "Copy Registration Code", "คัดลอกรหัสลงทะเบียน")}
                   </Button>
                   <Button onClick={() => setRegCodeOpen(false)}>
                     {tr(language, "Done", "เสร็จสิ้น")}

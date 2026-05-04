@@ -28,8 +28,11 @@ from app.schemas.patient import (
     PatientWardListResponse,
     PatientUpdate,
 )
+from app.schemas.weight import WeightRecordCreate
 from app.services import auth as auth_service
 from app.services import patient as patient_service
+from app.services import trend as trend_service
+from app.services import weight as weight_service
 from app.services import audit as audit_service
 from app.core.request_utils import get_client_ip
 
@@ -551,3 +554,68 @@ def bulk_delete_patients(
         raise
 
     return BulkDeleteResponse(deleted=len(deleted_ids), errors=[])
+@limiter.limit("60/minute")
+def create_patient_weight_record(
+    request: Request,
+    patient_id: UUID,
+    payload: WeightRecordCreate,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """Record patient weight manually or via app."""
+    patient = patient_service.get_patient(db, str(patient_id))
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient.id,
+        ip_address=get_client_ip(request),
+    )
+
+    weight_record = weight_service.create_weight_record(
+        db=db,
+        patient_id=patient.id,
+        payload=payload,
+        recorded_by=current_user.id,
+    )
+    
+    audit_service.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="create_weight_record",
+        resource_type="weight_record",
+        resource_id=weight_record.id,
+        details=f"Recorded weight {weight_record.weight_kg}kg for patient {patient_id}",
+        ip_address=get_client_ip(request),
+    )
+    return weight_record
+
+
+@router.get("/{patient_id}/trends/vitals", response_model=PatientVitalsTrendResponse)
+@limiter.limit("120/minute")
+def get_patient_vitals_trends_endpoint(
+    request: Request,
+    patient_id: UUID,
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """Get aggregated time-series data for patient vitals (weight, heart rate, BP)."""
+    patient = patient_service.get_patient(db, str(patient_id))
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient.id,
+        ip_address=get_client_ip(request),
+    )
+
+    return trend_service.get_patient_vitals_trends(
+        db=db,
+        patient_id=patient.id,
+        days=days,
+    )

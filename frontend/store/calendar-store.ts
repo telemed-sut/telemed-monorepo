@@ -8,7 +8,7 @@ import {
   format,
   isSameDay,
 } from "date-fns";
-import type { Meeting } from "@/lib/api";
+import type { Meeting } from "@/lib/api-types";
 
 export type EventTypeFilter = "all" | "with-room" | "without-room";
 export type DisplayTimezone = "local" | "utc";

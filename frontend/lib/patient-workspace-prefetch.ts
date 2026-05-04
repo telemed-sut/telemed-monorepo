@@ -1,3 +1,4 @@
+// fallow-ignore-file circular-dependency
 type PreloadKey = "patient-detail" | "patient-heart-sound";
 
 const preloadedBundles = new Map<PreloadKey, Promise<void>>();

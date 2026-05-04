@@ -60,10 +60,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
 import { PatientDeviceSessionHistory } from "@/components/dashboard/patient-device-session-history";
 import { getPatientLoadErrorTitle } from "@/components/dashboard/patient-load-error";
+import { VitalsTrendChart } from "@/components/dashboard/vitals-trend-chart";
 import {
   readPatientDetailCache,
   writePatientDetailCache,
 } from "@/lib/patient-workspace-cache";
+// fallow-ignore-next-line circular-dependency
 import { preloadPatientHeartSoundBundle } from "@/lib/patient-workspace-prefetch";
 import { toast } from "@/components/ui/toast";
 
@@ -396,6 +398,9 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
   const [isPressureDemoRunning, setIsPressureDemoRunning] = useState(false);
   const pressureDemoSequenceRef = React.useRef(0);
 
+  const [vitalsTrends, setVitalsTrends] = useState<VitalTrendDataPoint[]>([]);
+  const [loadingVitalsTrends, setLoadingVitalsTrends] = useState(true);
+
   const [registrationCode, setRegistrationCode] = useState<PatientRegistrationCodeResponse | null>(null);
   const [generatingCode, setGeneratingCode] = useState(false);
 
@@ -674,6 +679,35 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
 
     return () => window.clearInterval(intervalId);
   }, [isPressureDemoRunning, pushDemoPressureReading]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    setLoadingVitalsTrends(true);
+
+    const loadTrends = async () => {
+      try {
+        const res = await fetchPatientVitalsTrends(patientId, 30, token);
+        if (!cancelled) {
+          setVitalsTrends(res.trends);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const status = (err as { status?: number }).status;
+        if (status === 401) {
+          clearToken();
+          router.replace("/login");
+        }
+      } finally {
+        if (!cancelled) setLoadingVitalsTrends(false);
+      }
+    };
+
+    loadTrends();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, patientId, clearToken, router]);
 
   const getAge = (dateOfBirth: string) => {
     const dob = new Date(dateOfBirth);
@@ -1470,6 +1504,14 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
           transition={{ duration: 0.22, delay: 0.08 }}
         >
           <PatientDeviceSessionHistory token={token} patientId={patientId} language={language} />
+        </m.section>
+
+        <m.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22, delay: 0.09 }}
+        >
+          <VitalsTrendChart data={vitalsTrends} language={language} isLoading={loadingVitalsTrends} />
         </m.section>
 
         <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">

@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -5,6 +7,8 @@ class AuthStorage {
   static const _keyToken = 'patient_access_token';
   static const _keyPatientName = 'patient_name';
   static const _keyPatientId = 'patient_id';
+  static const _keyPatientDeviceId = 'patient_device_id';
+  static final Random _secureRandom = Random.secure();
   static final FlutterSecureStorage _secureStorage = FlutterSecureStorage(
     aOptions: const AndroidOptions(encryptedSharedPreferences: true),
     iOptions: const IOSOptions(
@@ -51,6 +55,20 @@ class AuthStorage {
 
   static Future<String?> getPatientId() async {
     return _backend.read(_keyPatientId);
+  }
+
+  static Future<String> getOrCreatePatientDeviceId() async {
+    final existing = await _backend.read(_keyPatientDeviceId);
+    if (existing != null && existing.isNotEmpty) {
+      return existing;
+    }
+
+    final deviceId = List<int>.generate(
+      16,
+      (_) => _secureRandom.nextInt(256),
+    ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+    await _backend.write(_keyPatientDeviceId, deviceId);
+    return deviceId;
   }
 
   static Future<bool> hasSession() async {

@@ -191,6 +191,21 @@ export interface HeartSoundListResponse {
   offset: number;
 }
 
+export interface VitalTrendDataPoint {
+  date: string;
+  heart_rate?: number | null;
+  sys_pressure?: number | null;
+  dia_pressure?: number | null;
+  weight_kg?: number | null;
+  height_cm?: number | null;
+  bmi?: number | null;
+}
+
+export interface PatientVitalsTrendResponse {
+  patient_id: string;
+  trends: VitalTrendDataPoint[];
+}
+
 export type PressureRiskLevel = "normal" | "moderate" | "danger";
 
 export interface PressureRiskAssessment {

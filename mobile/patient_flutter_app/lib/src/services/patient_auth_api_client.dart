@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/patient_auth.dart';
+import 'auth_storage.dart';
 
 class PatientAuthApiException implements Exception {
   const PatientAuthApiException(this.message, {this.statusCode});
@@ -63,10 +64,7 @@ class PatientAuthApiClient {
     try {
       final response = await _httpClient.get(
         endpoint,
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
+        headers: await _patientAppHeaders(token: token),
       );
       final body = _decodeBody(response.body);
       _assertSuccess(response, body);
@@ -91,15 +89,40 @@ class PatientAuthApiClient {
     try {
       final response = await _httpClient.post(
         endpoint,
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
+        headers: await _patientAppHeaders(token: token),
       );
       final body = _decodeBody(response.body);
       _assertSuccess(response, body);
       return PatientMeetingInviteResponse.fromJson(
           body as Map<String, dynamic>);
+    } catch (e) {
+      if (e is PatientAuthApiException) rethrow;
+      throw const PatientAuthApiException(_networkErrorMessage);
+    }
+  }
+
+  Future<void> recordWeight({
+    required String token,
+    required double weightKg,
+    double? heightCm,
+  }) async {
+    final endpoint = _baseUri.resolve('/patient-app/me/weight');
+    final payload = <String, dynamic>{
+      'weight_kg': weightKg,
+      if (heightCm != null) 'height_cm': heightCm,
+      'measured_at': DateTime.now().toUtc().toIso8601String(),
+    };
+    try {
+      final response = await _httpClient.post(
+        endpoint,
+        headers: await _patientAppHeaders(
+          token: token,
+          jsonBody: true,
+        ),
+        body: jsonEncode(payload),
+      );
+      final body = _decodeBody(response.body);
+      _assertSuccess(response, body);
     } catch (e) {
       if (e is PatientAuthApiException) rethrow;
       throw const PatientAuthApiException(_networkErrorMessage);
@@ -117,10 +140,7 @@ class PatientAuthApiClient {
     try {
       return await _httpClient.post(
         endpoint,
-        headers: const {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: await _patientAppHeaders(jsonBody: true),
         body: jsonEncode(payload),
       );
     } catch (e) {
@@ -142,6 +162,19 @@ class PatientAuthApiClient {
       _sanitizeErrorMessage(response.statusCode, body),
       statusCode: response.statusCode,
     );
+  }
+
+  Future<Map<String, String>> _patientAppHeaders({
+    String? token,
+    bool jsonBody = false,
+  }) async {
+    final deviceId = await AuthStorage.getOrCreatePatientDeviceId();
+    return {
+      if (jsonBody) 'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'x-patient-device-id': deviceId,
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
   }
 }
 

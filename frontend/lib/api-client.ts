@@ -1,3 +1,4 @@
+// fallow-ignore-file circular-dependency
 import { APP_LANGUAGE_STORAGE_KEY, resolveAppLanguage, type AppLanguage } from "@/store/language-config";
 import { useLanguageStore } from "@/store/language-store";
 import type { LoginResponse } from "./api-types";

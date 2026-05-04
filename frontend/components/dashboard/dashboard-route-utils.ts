@@ -83,6 +83,10 @@ export function getDashboardPageTitle(
       return language === "th" ? "เสียงหัวใจ" : "Heart Sound";
     }
 
+    if (normalizedPathname.endsWith("/trends")) {
+      return language === "th" ? "แนวโน้มผู้ป่วย" : "Patient Trends";
+    }
+
     return normalizedPathname.endsWith("/dense")
       ? language === "th"
         ? "โหมดโฟกัสทางคลินิก"

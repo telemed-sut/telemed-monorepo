@@ -53,6 +53,7 @@ import {
   readPatientHeartSoundCache,
   writePatientHeartSoundCache,
 } from "@/lib/patient-workspace-cache";
+// fallow-ignore-next-line circular-dependency
 import { preloadPatientDetailBundle } from "@/lib/patient-workspace-prefetch";
 
 interface PatientHeartSoundContentProps {
