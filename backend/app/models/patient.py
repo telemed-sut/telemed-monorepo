@@ -78,3 +78,17 @@ class Patient(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    weight_records = relationship(
+        "WeightRecord",
+        back_populates="patient",
+        order_by="WeightRecord.measured_at.desc()",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    vital_thresholds = relationship(
+        "PatientVitalThreshold",
+        back_populates="patient",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

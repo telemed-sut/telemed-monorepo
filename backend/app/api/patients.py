@@ -28,8 +28,17 @@ from app.schemas.patient import (
     PatientWardListResponse,
     PatientUpdate,
 )
+from app.schemas.weight import (
+    WeightRecordCreate, 
+    WeightRecordUpdate, 
+    WeightRecordOut,
+    WeightRecordListResponse
+)
+from app.schemas.trend import PatientVitalsTrendResponse
 from app.services import auth as auth_service
 from app.services import patient as patient_service
+from app.services import trend as trend_service
+from app.services import weight as weight_service
 from app.services import audit as audit_service
 from app.core.request_utils import get_client_ip
 
@@ -551,3 +560,182 @@ def bulk_delete_patients(
         raise
 
     return BulkDeleteResponse(deleted=len(deleted_ids), errors=[])
+
+
+@router.post("/{patient_id}/weight-records", response_model=WeightRecordOut, status_code=status.HTTP_201_CREATED)
+@limiter.limit("60/minute")
+def create_patient_weight_record(
+    request: Request,
+    patient_id: UUID,
+    payload: WeightRecordCreate,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """Record patient weight manually or via app."""
+    patient = patient_service.get_patient(db, str(patient_id))
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient.id,
+        ip_address=get_client_ip(request),
+    )
+
+    weight_record = weight_service.create_weight_record(
+        db=db,
+        patient_id=patient.id,
+        payload=payload,
+        recorded_by=current_user.id,
+    )
+    
+    audit_service.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="create_weight_record",
+        resource_type="weight_record",
+        resource_id=weight_record.id,
+        details=f"Recorded weight {weight_record.weight_kg}kg for patient {patient_id}",
+        ip_address=get_client_ip(request),
+    )
+    return weight_record
+
+
+@router.get("/{patient_id}/weight-records", response_model=WeightRecordListResponse)
+@limiter.limit("120/minute")
+def list_patient_weight_records(
+    request: Request,
+    patient_id: UUID,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """List weight records for a patient."""
+    patient = patient_service.get_patient(db, str(patient_id))
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient.id,
+        ip_address=get_client_ip(request),
+    )
+
+    records = weight_service.list_weight_records(db=db, patient_id=patient.id)
+    return WeightRecordListResponse(items=records, total=len(records))
+
+
+@router.put("/{patient_id}/weight-records/{record_id}", response_model=WeightRecordOut)
+@limiter.limit("60/minute")
+def update_patient_weight_record(
+    request: Request,
+    patient_id: UUID,
+    record_id: UUID,
+    payload: WeightRecordUpdate,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """Update a patient's weight record."""
+    patient = patient_service.get_patient(db, str(patient_id))
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient.id,
+        ip_address=get_client_ip(request),
+    )
+
+    if not auth_service.can_write_clinical_data(current_user.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    updated_record = weight_service.update_weight_record(
+        db=db,
+        patient_id=patient.id,
+        record_id=record_id,
+        payload=payload,
+    )
+    
+    audit_service.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="update_weight_record",
+        resource_type="weight_record",
+        resource_id=updated_record.id,
+        details=f"Updated weight record {record_id} for patient {patient_id}",
+        ip_address=get_client_ip(request),
+    )
+    return updated_record
+
+
+@router.delete("/{patient_id}/weight-records/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("60/minute")
+def delete_patient_weight_record(
+    request: Request,
+    patient_id: UUID,
+    record_id: UUID,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """Delete a patient's weight record."""
+    patient = patient_service.get_patient(db, str(patient_id))
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient.id,
+        ip_address=get_client_ip(request),
+    )
+
+    if not auth_service.can_write_clinical_data(current_user.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    deleted_record = weight_service.delete_weight_record(
+        db=db,
+        patient_id=patient.id,
+        record_id=record_id,
+    )
+    
+    audit_service.log_action(
+        db=db,
+        user_id=current_user.id,
+        action="delete_weight_record",
+        resource_type="weight_record",
+        resource_id=record_id,
+        details=f"Deleted weight record {record_id} for patient {patient_id}",
+        ip_address=get_client_ip(request),
+    )
+    return None
+
+
+
+@router.get("/{patient_id}/trends/vitals", response_model=PatientVitalsTrendResponse)
+@limiter.limit("120/minute")
+def get_patient_vitals_trends_endpoint(
+    request: Request,
+    patient_id: UUID,
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    """Get aggregated time-series data for patient vitals (weight, heart rate, BP)."""
+    patient = patient_service.get_patient(db, str(patient_id))
+    if not patient:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
+
+    patient_service.verify_doctor_patient_access(
+        db,
+        current_user=current_user,
+        patient_id=patient.id,
+        ip_address=get_client_ip(request),
+    )
+
+    return trend_service.get_patient_vitals_trends(
+        db=db,
+        patient_id=patient.id,
+        days=days,
+    )

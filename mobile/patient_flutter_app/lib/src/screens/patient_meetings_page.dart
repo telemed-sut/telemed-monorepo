@@ -30,6 +30,7 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
   List<PatientMeeting>? _meetings;
   bool _isLoading = true;
   bool _isRefreshingMeetings = false;
+  bool _isSavingVitals = false;
   String? _errorMessage;
   String _patientName = '';
   String? _joiningMeetingId;
@@ -236,6 +237,186 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
   Future<void> _handleLogout() async {
     await AuthStorage.clearSession();
     if (mounted) _navigateToLogin();
+  }
+
+  Future<void> _openVitalsSheet() async {
+    final weightController = TextEditingController();
+    final heightController = TextEditingController();
+    String? formError;
+    bool sheetIsSaving = false;
+    bool sheetClosed = false;
+
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (sheetContext) {
+          return StatefulBuilder(
+            builder: (context, setSheetState) {
+              Future<void> submit() async {
+                final weight = double.tryParse(weightController.text.trim());
+                final heightText = heightController.text.trim();
+                final height = heightText.isEmpty
+                    ? null
+                    : double.tryParse(heightText);
+
+                if (weight == null || weight <= 0) {
+                  setSheetState(() {
+                    formError = 'กรุณากรอกน้ำหนักเป็นตัวเลข';
+                  });
+                  return;
+                }
+                if (heightText.isNotEmpty && (height == null || height <= 0)) {
+                  setSheetState(() {
+                    formError = 'กรุณากรอกส่วนสูงเป็นตัวเลข';
+                  });
+                  return;
+                }
+
+                final token = await AuthStorage.getToken();
+                if (token == null || token.isEmpty) {
+                  if (!mounted) return;
+                  sheetClosed = true;
+                  Navigator.of(sheetContext).pop();
+                  _stopPolling();
+                  await AuthStorage.clearSession();
+                  if (mounted) _navigateToLogin();
+                  return;
+                }
+
+                setSheetState(() {
+                  formError = null;
+                  sheetIsSaving = true;
+                });
+                if (mounted) {
+                  setState(() {
+                    _isSavingVitals = true;
+                  });
+                }
+
+                try {
+                  await _authApiClient.recordWeight(
+                    token: token,
+                    weightKg: weight,
+                    heightCm: height,
+                  );
+                  if (!mounted) return;
+                  sheetClosed = true;
+                  Navigator.of(sheetContext).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('บันทึกน้ำหนัก/ส่วนสูงแล้ว')),
+                  );
+                } on PatientAuthApiException catch (e) {
+                  if (e.statusCode == 401) {
+                    sheetClosed = true;
+                    Navigator.of(sheetContext).pop();
+                    _stopPolling();
+                    await AuthStorage.clearSession();
+                    if (mounted) _navigateToLogin();
+                    return;
+                  }
+                  setSheetState(() {
+                    formError = e.message;
+                  });
+                } catch (e) {
+                  setSheetState(() {
+                    formError = 'เกิดข้อผิดพลาด: $e';
+                  });
+                } finally {
+                  if (!sheetClosed) {
+                    setSheetState(() {
+                      sheetIsSaving = false;
+                    });
+                  }
+                  if (mounted) {
+                    setState(() {
+                      _isSavingVitals = false;
+                    });
+                  }
+                }
+              }
+
+              final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+              return Padding(
+                padding: EdgeInsets.fromLTRB(20, 20, 20, bottomInset + 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'บันทึกน้ำหนัก/ส่วนสูง',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'ข้อมูลนี้จะส่งให้แพทย์เห็นในหน้าแนวโน้มผู้ป่วย',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF64748B),
+                          ),
+                    ),
+                    const SizedBox(height: 18),
+                    TextField(
+                      controller: weightController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'น้ำหนัก (kg)',
+                        prefixIcon: Icon(Icons.monitor_weight_outlined),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: heightController,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        labelText: 'ส่วนสูง (cm)',
+                        prefixIcon: Icon(Icons.height_rounded),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    if (formError != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        formError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: FilledButton.icon(
+                        onPressed: sheetIsSaving ? null : submit,
+                        icon: sheetIsSaving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.check_rounded),
+                        label: Text(sheetIsSaving ? 'กำลังบันทึก...' : 'บันทึก'),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      weightController.dispose();
+      heightController.dispose();
+    }
   }
 
   Future<PatientInviteLink> _resolveInviteLink(PatientMeeting meeting) async {
@@ -569,32 +750,43 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
 
     final meetings = _meetings ?? [];
     if (meetings.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.calendar_today,
-                  size: 48,
-                  color: theme.colorScheme.primary.withValues(alpha: 0.4)),
-              const SizedBox(height: 16),
-              Text(
-                'ยังไม่มีนัดหมาย',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
+      return RefreshIndicator(
+        onRefresh: _loadData,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          children: [
+            _VitalsEntryCard(
+              isSaving: _isSavingVitals,
+              onRecord: _openVitalsSheet,
+            ),
+            const SizedBox(height: 18),
+            Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.calendar_today,
+                      size: 48,
+                      color: theme.colorScheme.primary.withValues(alpha: 0.4)),
+                  const SizedBox(height: 16),
+                  Text(
+                    'ยังไม่มีนัดหมาย',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'เมื่อแพทย์สร้างนัดหมายให้ จะแสดงที่นี่',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                'เมื่อแพทย์สร้างนัดหมายให้ จะแสดงที่นี่',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
@@ -608,23 +800,104 @@ class _PatientMeetingsPageState extends State<PatientMeetingsPage>
       onRefresh: _loadData,
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-        itemCount: meetings.length + 1,
+        itemCount: meetings.length + 2,
         separatorBuilder: (_, __) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
           if (index == 0) {
+            return _VitalsEntryCard(
+              isSaving: _isSavingVitals,
+              onRecord: _openVitalsSheet,
+            );
+          }
+          if (index == 1) {
             return _MeetingsSummaryCard(
               totalCount: meetings.length,
               activeCount: activeCount,
               waitingCount: waitingCount,
             );
           }
-          final meeting = meetings[index - 1];
+          final meeting = meetings[index - 2];
           return _MeetingCard(
             meeting: meeting,
             isJoining: _joiningMeetingId == meeting.meetingId,
             onJoin: () => _handleJoinMeeting(meeting),
           );
         },
+      ),
+    );
+  }
+}
+
+class _VitalsEntryCard extends StatelessWidget {
+  const _VitalsEntryCard({
+    required this.isSaving,
+    required this.onRecord,
+  });
+
+  final bool isSaving;
+  final VoidCallback onRecord;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFDDE7F3)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(
+                Icons.monitor_weight_outlined,
+                color: Color(0xFF2563EB),
+              ),
+            ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'น้ำหนัก/ส่วนสูงวันนี้',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'บันทึกเองที่บ้านเพื่อให้แพทย์เห็นแนวโน้ม',
+                    style: TextStyle(
+                      color: Color(0xFF64748B),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            FilledButton(
+              onPressed: isSaving ? null : onRecord,
+              child: Text(isSaving ? '...' : 'บันทึก'),
+            ),
+          ],
+        ),
       ),
     );
   }

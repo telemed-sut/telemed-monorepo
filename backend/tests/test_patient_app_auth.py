@@ -11,6 +11,7 @@ from app.models.enums import UserRole
 from app.models.patient import Patient
 from app.models.patient_app_registration import PatientAppRegistration
 from app.models.user import User
+from app.models.weight_record import WeightRecord
 from app.services import patient_app as patient_app_service
 from app.services import patient_app_sessions as patient_app_session_service
 from app.services.auth import create_login_response
@@ -294,6 +295,24 @@ def test_patient_app_login_rejects_invalid_pin(
     assert patient.app_account_locked_until is None
 
 
+def test_patient_app_login_explains_registration_code_used_as_pin(
+    client: TestClient,
+):
+    response = client.post(
+        "/patient-app/login",
+        json={
+            "phone": "0934456858",
+            "pin": "HEBPD2",
+        },
+    )
+
+    assert response.status_code == 422
+    detail = response.json()["detail"][0]
+    assert detail["loc"] == ["body", "pin"]
+    assert "Registration codes such as HEBPD2" in detail["msg"]
+    assert "/patient-app/register" in detail["msg"]
+
+
 def test_patient_app_login_locks_account_after_repeated_invalid_pin_attempts(
     client: TestClient,
     db: Session,
@@ -358,7 +377,7 @@ def test_patient_app_logout_revokes_current_token(
     client: TestClient,
     db: Session,
 ):
-    patient = _create_patient(
+    _create_patient(
         db,
         first_name="Logout",
         last_name="Patient",
@@ -567,6 +586,43 @@ def test_patient_app_rejects_legacy_tokens_without_device_context(
     assert "re-authenticated" in response.json()["detail"].lower()
 
 
+def test_patient_app_can_use_token_when_client_sends_blank_device_context(
+    client: TestClient,
+    db: Session,
+):
+    _create_patient(
+        db,
+        first_name="Blank",
+        last_name="Context",
+        phone="+66812345678",
+        pin="2468",
+    )
+    headers = {"user-agent": ""}
+
+    login_response = client.post(
+        "/patient-app/login",
+        json={
+            "phone": "+66812345678",
+            "pin": "2468",
+        },
+        headers=headers,
+    )
+    assert login_response.status_code == 200, login_response.text
+    token = login_response.json()["access_token"]
+
+    response = client.post(
+        "/patient-app/me/weight",
+        json={
+            "weight_kg": 64.2,
+            "height_cm": 168,
+            "measured_at": "2026-05-01T08:30:00+07:00",
+        },
+        headers={**_patient_headers(token), **headers},
+    )
+
+    assert response.status_code == 201, response.text
+
+
 def test_patient_app_logout_requires_matching_device_context(
     client: TestClient,
     db: Session,
@@ -667,6 +723,51 @@ def test_patient_app_logout_all_revokes_all_active_sessions(
         headers=_patient_headers(secondary_token, user_agent="patient-app-secondary-agent/1.0"),
     )
     assert secondary_follow_up.status_code == 401
+
+
+def test_patient_app_can_record_own_weight_without_patient_id(
+    client: TestClient,
+    db: Session,
+):
+    patient = _create_patient(
+        db,
+        first_name="Weight",
+        last_name="Mobile",
+        phone="+66812345678",
+        pin="123456",
+    )
+    login_user_agent = "patient-app-weight-agent/1.0"
+    login_response = client.post(
+        "/patient-app/login",
+        json={"phone": "0812345678", "pin": "123456"},
+        headers={"user-agent": login_user_agent},
+    )
+    assert login_response.status_code == 200, login_response.text
+    token = login_response.json()["access_token"]
+
+    response = client.post(
+        "/patient-app/me/weight",
+        json={
+            "weight_kg": 72.5,
+            "height_cm": 170,
+            "measured_at": "2026-05-01T08:30:00+07:00",
+        },
+        headers=_patient_headers(token, user_agent=login_user_agent),
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["patient_id"] == str(patient.id)
+    assert body["weight_kg"] == 72.5
+    assert body["height_cm"] == 170
+    assert body["bmi"] == 25.1
+    assert body["recorded_by"] is None
+
+    record = db.scalar(select(WeightRecord).where(WeightRecord.patient_id == patient.id))
+    assert record is not None
+    assert record.weight_kg == 72.5
+    assert record.height_cm == 170
+    assert record.bmi == 25.1
 
 
 def test_admin_can_generate_patient_app_registration_code(

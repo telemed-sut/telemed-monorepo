@@ -9,11 +9,14 @@ from sqlalchemy.orm import Session, object_session
 
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
+from app.models.alert import Alert
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
+from app.models.enums import AlertCategory, AlertSeverity
 from app.models.heart_sound_record import HeartSoundRecord
 from app.models.patient import Patient
 from app.models.pressure_record import PressureRecord
 from app.models.user import User, UserRole
+from app.models.weight_record import WeightRecord
 from app.schemas.patient import PatientCreate
 from app.api.patients import notify_care_team
 from app.services.auth import create_login_response
@@ -185,6 +188,118 @@ def test_list_patients_does_not_match_email_or_phone_queries(db: Session):
     assert email_matches == []
     assert phone_total == 0
     assert phone_matches == []
+
+
+def test_patient_trend_overview_is_assignment_scoped_and_prioritizes_review(
+    client: TestClient,
+    db: Session,
+):
+    doctor = create_test_user(db, UserRole.doctor)
+    assigned_patient = create_patient(
+        db,
+        PatientCreate(
+            first_name="Trend",
+            last_name="Review",
+            date_of_birth=date(1975, 1, 1),
+            ward="Cardio",
+        ),
+    )
+    other_patient = create_patient(
+        db,
+        PatientCreate(
+            first_name="Trend",
+            last_name="Hidden",
+            date_of_birth=date(1978, 1, 1),
+        ),
+    )
+    assign_doctor_to_patient(db, doctor.id, assigned_patient.id)
+    measured_at = datetime.now(timezone.utc) - timedelta(days=1)
+    db.add_all(
+        [
+            PressureRecord(
+                patient_id=assigned_patient.id,
+                device_id="trend-overview-assigned",
+                heart_rate=132,
+                sys_rate=148,
+                dia_rate=92,
+                measured_at=measured_at,
+            ),
+            WeightRecord(
+                patient_id=assigned_patient.id,
+                weight_kg=82.4,
+                height_cm=170,
+                measured_at=measured_at,
+                recorded_by=doctor.id,
+            ),
+            Alert(
+                patient_id=assigned_patient.id,
+                severity=AlertSeverity.warning,
+                category=AlertCategory.vital_sign,
+                title="Abnormal vitals",
+                message="Heart rate is above threshold",
+            ),
+            PressureRecord(
+                patient_id=other_patient.id,
+                device_id="trend-overview-hidden",
+                heart_rate=140,
+                sys_rate=160,
+                dia_rate=96,
+                measured_at=measured_at,
+            ),
+        ]
+    )
+    db.commit()
+
+    response = client.get(
+        "/patients/trends/overview?days=30",
+        headers=get_auth_headers(doctor, db),
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 1
+    assert body["summary"]["needs_review"] == 1, body
+    assert body["summary"]["normal"] == 0
+    assert [item["patient_id"] for item in body["items"]] == [str(assigned_patient.id)]
+    item = body["items"][0]
+    assert item["first_name"] == "Trend"
+    assert item["ward"] == "Cardio"
+    assert item["latest"]["heart_rate"] == 132
+    assert item["latest"]["weight_kg"] == 82.4
+    assert item["latest"]["height_cm"] == 170
+    assert item["latest"]["bmi"] == 28.5
+    assert item["alert_summary"]["count"] == 1
+    assert item["risk_status"] == "needs_review"
+    assert len(item["trends"]) == 1
+    assert item["trends"][0]["height_cm"] == 170
+    assert item["trends"][0]["bmi"] == 28.5
+
+
+def test_patient_trend_overview_separates_patients_without_recent_data(
+    client: TestClient,
+    db: Session,
+):
+    admin = create_test_user(db, UserRole.admin)
+    patient = create_patient(
+        db,
+        PatientCreate(
+            first_name="No",
+            last_name="Vitals",
+            date_of_birth=date(1980, 1, 1),
+        ),
+    )
+
+    response = client.get(
+        "/patients/trends/overview?days=30",
+        headers=get_auth_headers(admin, db),
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    item = next(entry for entry in body["items"] if entry["patient_id"] == str(patient.id))
+    assert item["risk_status"] == "no_data"
+    assert "no_recent_vital_data" in item["risk_reasons"]
+    assert body["summary"]["no_recent_data"] >= 1
 
 
 def test_patient_pressure_readings_are_patient_scoped_and_classified(

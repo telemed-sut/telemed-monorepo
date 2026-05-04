@@ -2,7 +2,15 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Camera, CameraOff, Mic, MicOff, ShieldCheck, Video } from "lucide-react";
+import {
+  Camera,
+  CameraOff,
+  Mic,
+  MicOff,
+  ShieldCheck,
+  Video,
+  type LucideIcon,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,9 +63,19 @@ type PatientDeviceToggleButtonProps = {
   activeLabel: string;
   inactiveLabel: string;
   onClick: () => void;
-  activeIcon: typeof Camera;
-  inactiveIcon: typeof CameraOff;
+  activeIcon: LucideIcon;
+  inactiveIcon: LucideIcon;
 };
+
+function ExtensionSafeIcon({
+  icon: Icon,
+  className,
+}: {
+  icon: LucideIcon;
+  className?: string;
+}) {
+  return <Icon className={className} suppressHydrationWarning />;
+}
 
 function PatientDeviceToggleButton({
   active,
@@ -82,7 +100,7 @@ function PatientDeviceToggleButton({
       ].join(" ")}
       onClick={onClick}
     >
-      <Icon className="size-5" />
+      <ExtensionSafeIcon icon={Icon} className="size-5" />
     </Button>
   );
 }
@@ -178,10 +196,25 @@ function unlockBrowserAudioPlayback() {
 }
 
 async function warmupPatientMediaDevices(
-  networkProfile: "slow" | "standard" = "standard"
+  networkProfile: "slow" | "standard" = "standard",
+  options?: {
+    cameraWillStartInRoom?: boolean;
+    microphoneWillStartInRoom?: boolean;
+  }
 ): Promise<void> {
   if (!navigator.mediaDevices?.getUserMedia) return;
-  const constraints = getAdaptiveMediaConstraints(networkProfile);
+  if (options?.cameraWillStartInRoom && options?.microphoneWillStartInRoom) {
+    return;
+  }
+
+  const adaptiveConstraints = getAdaptiveMediaConstraints(networkProfile);
+  const constraints: MediaStreamConstraints = {
+    video: options?.cameraWillStartInRoom ? false : adaptiveConstraints.video,
+    audio: options?.microphoneWillStartInRoom ? false : adaptiveConstraints.audio,
+  };
+  if (!constraints.video && !constraints.audio) {
+    return;
+  }
   const releaseDelay = getMediaReleaseDelay();
   try {
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -468,7 +501,10 @@ function PatientJoinPageContent() {
         "Patient video token API"
       ));
       metrics.mark("media-warmup-start");
-      await warmupPatientMediaDevices(networkProfile);
+      await warmupPatientMediaDevices(networkProfile, {
+        cameraWillStartInRoom: cameraEnabled,
+        microphoneWillStartInRoom: microphoneEnabled,
+      });
       if (activeJoinAttemptRef.current !== attemptId) {
         return;
       }
@@ -761,7 +797,7 @@ function PatientJoinPageContent() {
                 <div className="relative z-10 flex items-start justify-between gap-3">
                   <div className="space-y-1.5">
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-slate-400 sm:px-3 sm:text-xs">
-                      <Video className="size-3 sm:size-3.5" />
+                      <ExtensionSafeIcon icon={Video} className="size-3 sm:size-3.5" />
                       <span className="hidden sm:inline">Patient video room</span>
                       <span className="sm:hidden">Video room</span>
                     </span>
@@ -777,10 +813,16 @@ function PatientJoinPageContent() {
                       {cameraEnabled ? (
                         <div className="relative mx-auto mb-3 size-9 sm:size-11">
                           <div className="absolute inset-0 animate-ping rounded-full bg-blue-500/20" />
-                          <Camera className="relative size-full text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.5)]" />
+                          <ExtensionSafeIcon
+                            icon={Camera}
+                            className="relative size-full text-blue-400 drop-shadow-[0_0_8px_rgba(96,165,250,0.5)]"
+                          />
                         </div>
                       ) : (
-                        <CameraOff className="mx-auto mb-3 size-9 text-slate-500/70 sm:size-11" />
+                        <ExtensionSafeIcon
+                          icon={CameraOff}
+                          className="mx-auto mb-3 size-9 text-slate-500/70 sm:size-11"
+                        />
                       )}
                       <p className="text-xl font-medium text-slate-200 sm:text-2xl">
                         {cameraEnabled ? "Camera ready" : "Camera is off"}
@@ -822,7 +864,7 @@ function PatientJoinPageContent() {
                 <div className="mx-auto flex w-full max-w-md flex-col gap-5 sm:gap-6">
                   <div className="space-y-2">
                     <div className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-[10px] font-medium text-blue-400 sm:px-3 sm:text-xs">
-                      <ShieldCheck className="size-3 sm:size-3.5" />
+                      <ExtensionSafeIcon icon={ShieldCheck} className="size-3 sm:size-3.5" />
                       Protected call link
                     </div>
                     <div>

@@ -11,6 +11,7 @@ INFISICAL_ENV="${INFISICAL_ENV:-dev}"
 INFISICAL_PATH="${INFISICAL_PATH:-/}"
 INFISICAL_PROJECT_ID="${INFISICAL_PROJECT_ID:-}"
 VERIFY_TUNNEL="${VERIFY_TUNNEL:-true}"
+TUNNEL_VERIFY_ATTEMPTS="${TUNNEL_VERIFY_ATTEMPTS:-90}"
 
 is_enabled() {
   case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in
@@ -99,8 +100,9 @@ restart_backend_to_apply_changes() {
     else
       FRONTEND_BASE_URL="http://localhost:3000" \
       MEETING_PATIENT_JOIN_BASE_URL="$meeting_patient_join_base_url" \
+      MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK="${MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK:-true}" \
       CORS_ORIGINS="$cors_origins" \
-      COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d backend >/dev/null
+      ./scripts/start-compose.sh -d backend >/dev/null
     fi
   )
 }
@@ -109,6 +111,8 @@ verify_tunnel_url() {
   local tunnel_url="$1"
   local check_url="${tunnel_url}/login"
   local status_code=""
+  local curl_output=""
+  local curl_status=0
 
   if ! is_enabled "$VERIFY_TUNNEL"; then
     return 0
@@ -116,7 +120,7 @@ verify_tunnel_url() {
 
   echo "Verifying tunnel URL is reachable..."
   local attempt=0
-  while [ "$attempt" -lt 20 ]; do
+  while [ "$attempt" -lt "$TUNNEL_VERIFY_ATTEMPTS" ]; do
     if [[ -f "$TUNNEL_PID_FILE" ]]; then
       local active_pid
       active_pid="$(cat "$TUNNEL_PID_FILE" 2>/dev/null || true)"
@@ -127,12 +131,18 @@ verify_tunnel_url() {
       fi
     fi
 
-    status_code="$(
-      curl -fsS -o /dev/null -w "%{http_code}" \
+    curl_status=0
+    curl_output="$(
+      curl -fsS -o /dev/null -w "HTTP_STATUS:%{http_code}" \
         --connect-timeout 5 \
         --max-time 10 \
-        "$check_url" 2>/dev/null || true
-    )"
+        "$check_url" 2>&1
+    )" || curl_status=$?
+    status_code="${curl_output##*HTTP_STATUS:}"
+    if [[ "$status_code" == "$curl_output" ]]; then
+      status_code=""
+    fi
+    curl_output="${curl_output%HTTP_STATUS:*}"
 
     case "$status_code" in
       200|301|302|307|308)
@@ -141,13 +151,67 @@ verify_tunnel_url() {
         ;;
     esac
 
+    if [[ "$curl_status" -eq 6 && "$((attempt % 10))" -eq 0 ]]; then
+      echo "- Waiting for trycloudflare DNS to propagate..."
+    elif [[ "$curl_status" -ne 0 && -n "${curl_output//[[:space:]]/}" ]]; then
+      echo "- Tunnel check attempt $((attempt + 1)) failed: $(printf '%s' "$curl_output" | tail -n 1)" >&2
+    elif [[ -n "$status_code" && "$status_code" != "000" ]]; then
+      echo "- Tunnel check attempt $((attempt + 1)) returned HTTP $status_code; retrying..."
+    fi
+
     attempt=$((attempt + 1))
-    sleep 1
+    sleep 2
   done
+
+  status_code="$(
+    curl -fsS -o /dev/null -w "%{http_code}" \
+      --connect-timeout 5 \
+      --max-time 10 \
+      "$check_url" 2>/dev/null || true
+    )"
+
+  case "$status_code" in
+    200|301|302|307|308)
+      echo "- Tunnel reachable: $check_url (HTTP $status_code)"
+      return 0
+      ;;
+  esac
 
   echo "Tunnel URL is still not reachable after retries: $check_url" >&2
   echo "Last observed HTTP status: ${status_code:-none}" >&2
+  if [[ -n "${curl_output//[[:space:]]/}" ]]; then
+    echo "Last curl error: $(printf '%s' "$curl_output" | tail -n 1)" >&2
+  fi
   echo "Check log: $TUNNEL_LOG_FILE" >&2
+  return 1
+}
+
+verify_frontend_origin() {
+  local check_url="${FRONTEND_URL%/}/login"
+  local status_code=""
+
+  echo "Checking local frontend before opening tunnel..."
+  status_code="$(
+    curl -fsS -o /dev/null -w "%{http_code}" \
+      --connect-timeout 3 \
+      --max-time 5 \
+      "$check_url" 2>/dev/null || true
+  )"
+
+  case "$status_code" in
+    200|301|302|307|308)
+      echo "- Local frontend reachable: $check_url (HTTP $status_code)"
+      return 0
+      ;;
+  esac
+
+  echo "Local frontend is not reachable: $check_url" >&2
+  echo "Last observed HTTP status: ${status_code:-none}" >&2
+  echo "Start the frontend in another terminal first:" >&2
+  echo "  cd \"$ROOT_DIR\"" >&2
+  echo "  ./scripts/dev-frontend.sh" >&2
+  echo "Then rerun:" >&2
+  echo "  ./scripts/dev-share-link.sh" >&2
   return 1
 }
 
@@ -179,6 +243,8 @@ main() {
   require_command grep
   require_command curl
 
+  verify_frontend_origin
+
   echo "Starting backend containers (with backend rebuild)..."
   (
     cd "$ROOT_DIR"
@@ -187,7 +253,8 @@ main() {
       build_infisical_flags
       infisical run "${INFISICAL_FLAGS[@]}" -- env COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d --build db backend >/dev/null
     else
-      COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d --build db backend >/dev/null
+      MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK="${MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK:-true}" \
+      ./scripts/start-compose.sh -d db backend >/dev/null
     fi
   )
 

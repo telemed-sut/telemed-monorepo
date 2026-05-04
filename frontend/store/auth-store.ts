@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { LoginResponse, UserMe } from "@/lib/api";
+import type { LoginResponse, UserMe } from "@/lib/api-types";
 import { clearPatientWorkspaceCache } from "@/lib/patient-workspace-cache";
 import { clearProtectedClientStorage } from "@/lib/protected-client-state";
 import {
@@ -356,7 +356,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       };
 
       try {
-        const { fetchCurrentUser, refreshToken } = await import("@/lib/api");
+        const { fetchCurrentUser, refreshToken } = await import("@/lib/api-auth");
 
         try {
           // Attempt to fetch user using the HttpOnly cookie

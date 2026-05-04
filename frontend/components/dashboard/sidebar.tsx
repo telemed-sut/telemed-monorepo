@@ -93,6 +93,7 @@ const SIDEBAR_LABELS: Record<
     routes: {
       overview: "Overview",
       patients: "Patients",
+      "patient-trends": "Patient Trends",
       meetings: "Meetings",
       "device-operations": "Device Operations",
       users: "Users",
@@ -111,6 +112,7 @@ const SIDEBAR_LABELS: Record<
     routes: {
       overview: "ภาพรวม",
       patients: "ผู้ป่วย",
+      "patient-trends": "แนวโน้มผู้ป่วย",
       meetings: "การนัดหมาย",
       "device-operations": "ปฏิบัติการอุปกรณ์",
       users: "ผู้ใช้",

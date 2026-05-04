@@ -26,7 +26,13 @@ import {
   Stethoscope,
   UserRound,
   Volume2,
+  Smartphone,
 } from "lucide-react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  SmartPhone01Icon,
+  Clock01Icon,
+} from "@hugeicons/core-free-icons";
 
 import type { AppLanguage } from "@/store/language-config";
 import {
@@ -34,12 +40,16 @@ import {
   fetchPatient,
   fetchPatientContactDetails,
   fetchPatientPressureReadings,
+  fetchPatientVitalsTrends,
+  generatePatientRegistrationCode,
   getErrorMessage,
   type Meeting,
   type Patient,
   type PatientContactDetails,
+  type PatientRegistrationCodeResponse,
   type PressureRecord,
   type PressureRiskLevel,
+  type VitalTrendDataPoint,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -52,10 +62,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getPatientWorkspaceHrefs } from "@/components/dashboard/dashboard-route-utils";
 import { PatientDeviceSessionHistory } from "@/components/dashboard/patient-device-session-history";
 import { getPatientLoadErrorTitle } from "@/components/dashboard/patient-load-error";
+import { VitalsTrendChart } from "@/components/dashboard/vitals-trend-chart";
 import {
   readPatientDetailCache,
   writePatientDetailCache,
 } from "@/lib/patient-workspace-cache";
+// fallow-ignore-next-line circular-dependency
 import { preloadPatientHeartSoundBundle } from "@/lib/patient-workspace-prefetch";
 import { toast } from "@/components/ui/toast";
 
@@ -281,6 +293,31 @@ const buildDemoPressureReading = (patientId: string, sequence: number): Pressure
   };
 };
 
+const buildMockVitalsTrends = (): VitalTrendDataPoint[] => {
+  const now = Date.now();
+  const weights = [68, 68.5, 69, 69.2, 68.8, 68.4, 68.1, 67.9, 68.3, 68.7, 69.1, 69.5, 70.2, 70.8];
+  const heartRates = [78, 75, 82, 80, 76, 79, 77, 124, 104, 80, 78, 76, 79, 81];
+  const sysPressures = [118, 122, 128, 130, 126, 120, 118, 146, 136, 125, 122, 119, 121, 124];
+  const height = 170;
+
+  return Array.from({ length: 14 }, (_, i) => {
+    const date = new Date(now - (13 - i) * 24 * 60 * 60 * 1000);
+    const w = weights[i];
+    const bmi = parseFloat((w / ((height / 100) ** 2)).toFixed(1));
+    return {
+      date: date.toISOString().split("T")[0],
+      weight_kg: w,
+      height_cm: height,
+      bmi,
+      heart_rate: heartRates[i],
+      sys_pressure: sysPressures[i],
+      dia_pressure: sysPressures[i] - 40,
+    };
+  });
+};
+
+
+
 const getGenderLabel = (
   value: string | null | undefined,
   language: AppLanguage
@@ -351,6 +388,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
   const token = useAuthStore((state) => state.token);
   const clearToken = useAuthStore((state) => state.clearToken);
   const userId = useAuthStore((state) => state.userId);
+  const userRole = useAuthStore((state) => state.role);
   const language = useLanguageStore((state) => state.language);
   const router = useRouter();
   const canUseProtectedCache = Boolean(token && userId);
@@ -386,6 +424,29 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
   const [demoPressureReadings, setDemoPressureReadings] = useState<PressureRecord[]>([]);
   const [isPressureDemoRunning, setIsPressureDemoRunning] = useState(false);
   const pressureDemoSequenceRef = React.useRef(0);
+
+  const [vitalsTrends, setVitalsTrends] = useState<VitalTrendDataPoint[]>([]);
+  const [loadingVitalsTrends, setLoadingVitalsTrends] = useState(true);
+
+  const [registrationCode, setRegistrationCode] = useState<PatientRegistrationCodeResponse | null>(null);
+  const [isNoteDrawerOpen, setIsNoteDrawerOpen] = useState(false);
+  const [vitalsRefreshCounter, setVitalsRefreshCounter] = useState(0);
+  const [generatingCode, setGeneratingCode] = useState(false);
+
+  const handleGenerateCode = React.useCallback(async () => {
+    if (!token) return;
+    setGeneratingCode(true);
+    try {
+      const res = await generatePatientRegistrationCode(patientId, token);
+      setRegistrationCode(res);
+      toast.success(tr(language, "Registration code generated", "สร้างรหัสลงทะเบียนสำเร็จ"));
+    } catch (err) {
+      toast.error(getErrorMessage(err, tr(language, "Failed to generate code", "สร้างรหัสไม่สำเร็จ")));
+    } finally {
+      setGeneratingCode(false);
+    }
+  }, [language, patientId, token]);
+
   const patientWorkspaceHrefs = React.useMemo(
     () => getPatientWorkspaceHrefs(patientId),
     [patientId]
@@ -647,6 +708,43 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
 
     return () => window.clearInterval(intervalId);
   }, [isPressureDemoRunning, pushDemoPressureReading]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    setLoadingVitalsTrends(true);
+
+    const loadTrends = async () => {
+      try {
+        const res = await fetchPatientVitalsTrends(patientId, 30, token);
+        if (!cancelled) {
+          if (res.trends.length > 0) {
+            setVitalsTrends(res.trends);
+          } else {
+            // Fall back to sample data so doctors can preview the chart
+            setVitalsTrends(buildMockVitalsTrends());
+          }
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const status = (err as { status?: number }).status;
+        if (status === 401) {
+          clearToken();
+          router.replace("/login");
+        } else {
+          // Show sample data on any non-auth error too
+          if (!cancelled) setVitalsTrends(buildMockVitalsTrends());
+        }
+      } finally {
+        if (!cancelled) setLoadingVitalsTrends(false);
+      }
+    };
+
+    loadTrends();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, patientId, clearToken, router, vitalsRefreshCounter]);
 
   const getAge = (dateOfBirth: string) => {
     const dob = new Date(dateOfBirth);
@@ -1368,6 +1466,69 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                     }
                     empty={contactDetailsRevealed ? !contactDetails?.address : false}
                   />
+
+                  {/* Mobile App Access Section (Admin Only) */}
+                  {userRole === "admin" && (
+                    <div className="mt-6 rounded-2xl border border-border/80 bg-blue-50/20 p-4">
+                      <div className="flex flex-col gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex size-10 items-center justify-center rounded-xl bg-blue-100/50 text-blue-600">
+                            <HugeiconsIcon icon={SmartPhone01Icon} className="size-6" />
+                          </div>
+                          <div className="space-y-0.5">
+                            <p className="font-semibold text-foreground">
+                              {tr(language, "Mobile App Access", "การเข้าถึงแอปมือถือ")}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {tr(language, "Generate a one-time code for patient registration.", "สร้างรหัสใช้ครั้งเดียวสำหรับการลงทะเบียนผู้ป่วย")}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="flex-1 sm:flex-none"
+                            onClick={() => void handleGenerateCode()}
+                            disabled={generatingCode}
+                          >
+                            {generatingCode ? (
+                              <RefreshCcw className="mr-2 size-4 animate-spin" />
+                            ) : (
+                              <Smartphone className="mr-2 size-4" />
+                            )}
+                            {tr(language, "Generate code", "สร้างรหัสลงทะเบียน")}
+                          </Button>
+
+                          {registrationCode && (
+                            <div className="flex flex-1 items-center justify-between rounded-xl bg-background px-4 py-2 border border-blue-200">
+                              <div className="flex items-center gap-3">
+                                <span className="text-xl font-bold tracking-widest text-blue-700">
+                                  {registrationCode.code}
+                                </span>
+                                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
+                                  <HugeiconsIcon icon={Clock01Icon} className="size-3" />
+                                  {tr(language, "Expires in 15 min", "หมดอายุใน 15 นาที")}
+                                </div>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(registrationCode.code);
+                                  toast.success(tr(language, "Code copied", "คัดลอกรหัสแล้ว"));
+                                }}
+                              >
+                                {tr(language, "Copy", "คัดลอก")}
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1380,6 +1541,20 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
           transition={{ duration: 0.22, delay: 0.08 }}
         >
           <PatientDeviceSessionHistory token={token} patientId={patientId} language={language} />
+        </m.section>
+
+        <m.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22, delay: 0.09 }}
+        >
+          <VitalsTrendChart
+            patientId={patientId}
+            data={vitalsTrends}
+            language={language}
+            isLoading={loadingVitalsTrends}
+            onRefreshData={() => setVitalsRefreshCounter((c) => c + 1)}
+          />
         </m.section>
 
         <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">

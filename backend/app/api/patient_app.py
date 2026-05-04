@@ -3,6 +3,7 @@
 Endpoints:
   POST /patient-app/register          — Register patient device (phone + code → set PIN)
   POST /patient-app/login             — Login with phone + PIN
+  POST /patient-app/me/weight         — Record my weight from the patient app
   GET  /patient-app/me/meetings       — List my meetings with current invite snapshot
   POST /patient-app/me/meetings/{id}/invite — Issue/refresh my invite explicitly
   POST /patient-app/{patient_id}/code — Admin/Doctor: generate registration code
@@ -11,6 +12,7 @@ Endpoints:
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.limiter import get_strict_failed_login_key, get_strict_client_ip_rate_limit_key, limiter
@@ -24,13 +26,27 @@ from app.schemas.patient_app import (
     PatientMeetingListResponse,
     PatientRegistrationCodeResponse,
 )
+from app.schemas.weight import WeightRecordCreate, WeightRecordOut
 from app.schemas.meeting_video import MeetingPatientInviteResponse
 from app.services import patient_app as patient_app_service
 from app.services import patient as patient_service
-from app.services.auth import get_current_user, get_db, oauth2_scheme
+from app.services import weight as weight_service
+from app.services.auth import get_current_user, get_db
 from app.core.request_utils import get_client_ip
 
 router = APIRouter(prefix="/patient-app", tags=["patient-app"])
+patient_app_bearer_scheme = HTTPBearer(
+    scheme_name="PatientAppBearer",
+    auto_error=False,
+    bearerFormat="JWT",
+    description="Use the latest access_token returned by /patient-app/register or /patient-app/login.",
+)
+
+
+def get_patient_app_bearer_token(
+    credentials: HTTPAuthorizationCredentials | None = Depends(patient_app_bearer_scheme),
+) -> str | None:
+    return credentials.credentials if credentials else None
 
 
 def _parse_updated_after(value: str | None) -> datetime | None:
@@ -101,7 +117,11 @@ def register_patient(
     payload: PatientAppRegisterRequest,
     db: Session = Depends(get_db),
 ):
-    """Patient registers with phone + code, sets PIN, gets access token."""
+    """Patient registers with phone + code, sets PIN, gets an access token.
+
+    Use the returned access_token as a Bearer token for /patient-app/me/* requests.
+    If the patient logs in again after registration, use the newest token from login.
+    """
     return patient_app_service.register_patient_app(
         db=db,
         phone=payload.phone,
@@ -125,7 +145,11 @@ def login_patient(
     payload: PatientAppLoginRequest,
     db: Session = Depends(get_db),
 ):
-    """Patient logs in with phone + PIN."""
+    """Patient logs in with phone + PIN and gets the latest access token.
+
+    In Swagger, copy access_token from this response, click Authorize, paste it as
+    the Bearer token, then call /patient-app/me/weight.
+    """
     return patient_app_service.login_patient_app(
         db=db,
         phone=payload.phone,
@@ -143,7 +167,7 @@ def login_patient(
 def refresh_patient(
     request: Request,
     db: Session = Depends(get_db),
-    token: str = Depends(oauth2_scheme),
+    token: str | None = Depends(get_patient_app_bearer_token),
 ):
     """Refresh the authenticated patient app token."""
     if not token:
@@ -165,7 +189,7 @@ def refresh_patient(
 def logout_patient(
     request: Request,
     db: Session = Depends(get_db),
-    token: str = Depends(oauth2_scheme),
+    token: str | None = Depends(get_patient_app_bearer_token),
 ):
     """Logout the authenticated patient app session."""
     if not token:
@@ -187,7 +211,7 @@ def logout_patient(
 def logout_all_patient(
     request: Request,
     db: Session = Depends(get_db),
-    token: str = Depends(oauth2_scheme),
+    token: str | None = Depends(get_patient_app_bearer_token),
 ):
     """Logout every active patient app session for the authenticated patient."""
     if not token:
@@ -198,6 +222,46 @@ def logout_all_patient(
         token=token,
         user_agent=request.headers.get("user-agent"),
         device_id=patient_app_service.get_patient_device_id_from_headers(request.headers),
+    )
+
+
+# ---------- Patient: my vitals ----------
+
+@router.post(
+    "/me/weight",
+    response_model=WeightRecordOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Record my weight",
+)
+@limiter.limit("30/minute")
+def create_my_weight_record(
+    request: Request,
+    payload: WeightRecordCreate,
+    db: Session = Depends(get_db),
+    token: str | None = Depends(get_patient_app_bearer_token),
+):
+    """Record the authenticated patient's weight from the mobile app.
+
+    In Swagger, click Authorize and paste the latest access_token from
+    /patient-app/register or /patient-app/login before calling this endpoint.
+
+    The patient identity is resolved from the patient-app token; mobile clients
+    must not send a patient_id in the request body.
+    """
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    patient = patient_app_service.get_current_patient(
+        token,
+        db,
+        user_agent=request.headers.get("user-agent"),
+        device_id=patient_app_service.get_patient_device_id_from_headers(request.headers),
+    )
+    return weight_service.create_weight_record(
+        db=db,
+        patient_id=patient.id,
+        payload=payload,
+        recorded_by=None,
     )
 
 
@@ -215,7 +279,7 @@ def get_my_meetings(
         description="Optional ISO-8601 timestamp to return only meetings updated after that point.",
     ),
     db: Session = Depends(get_db),
-    token: str = Depends(oauth2_scheme),
+    token: str | None = Depends(get_patient_app_bearer_token),
 ):
     """Get all meetings for the authenticated patient."""
     if not token:
@@ -245,7 +309,7 @@ def issue_my_meeting_invite(
     request: Request,
     meeting_id: str,
     db: Session = Depends(get_db),
-    token: str = Depends(oauth2_scheme),
+    token: str | None = Depends(get_patient_app_bearer_token),
 ):
     """Issue or refresh an invite for the authenticated patient's meeting."""
     if not token:

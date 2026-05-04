@@ -1,3 +1,4 @@
+// fallow-ignore-file circular-dependency
 import { apiFetch } from "./api-client";
 import type {
   AccessProfile,

@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
+  ChevronUp,
   Clock3,
   Copy,
   ExternalLink,
@@ -80,109 +83,138 @@ export function MeetingCallChrome({
   onBack,
   onRetryJoin,
 }: MeetingCallChromeProps) {
+  const [chromeHidden, setChromeHidden] = useState(false);
+
   return (
     <>
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-16 bg-[linear-gradient(180deg,rgba(2,6,23,0.42),rgba(2,6,23,0))]" />
-      <div className="absolute left-3 right-3 top-3 z-30 flex flex-col gap-2.5 md:flex-row md:items-start md:justify-between">
-        <div className="pointer-events-auto max-w-[min(100%,320px)] rounded-[22px] border border-white/10 bg-slate-950/56 px-3 py-2.5 text-white shadow-[0_12px_32px_rgba(15,23,42,0.2)] backdrop-blur-lg">
-          <div className="flex items-center gap-2.5">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] text-sm font-semibold text-white/95">
-              {patientName ? patientInitial : <UserRound className="size-4 text-white/80" />}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-white/95">
-                {patientName || tr(language, "Doctor Video Call", "ห้องวิดีโอแพทย์")}
-              </p>
-              {appointmentLabel ? (
-                <div className="mt-0.5 inline-flex max-w-full items-center gap-1.5 text-[11px] text-slate-200/68">
-                  <Clock3 className="size-3 shrink-0" />
-                  <span className="truncate">{appointmentLabel}</span>
+      {chromeHidden ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          aria-label={tr(language, "Show call controls", "แสดงแถบควบคุมคอล")}
+          title={tr(language, "Show call controls", "แสดงแถบควบคุมคอล")}
+          className="absolute right-3 top-3 z-40 h-9 rounded-full border border-white/12 bg-slate-950/50 px-3 text-[11px] font-medium text-white shadow-[0_12px_32px_rgba(15,23,42,0.18)] backdrop-blur-lg hover:bg-slate-900/70 focus-visible:ring-white/50"
+          onClick={() => setChromeHidden(false)}
+        >
+          <ChevronDown className="mr-1.5 size-3.5" />
+          {tr(language, "Show", "แสดง")}
+        </Button>
+      ) : (
+        <>
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-16 bg-[linear-gradient(180deg,rgba(2,6,23,0.42),rgba(2,6,23,0))]" />
+          <div className="absolute left-3 right-3 top-3 z-30 flex flex-col gap-2.5 md:flex-row md:items-start md:justify-between">
+            <div className="pointer-events-auto max-w-[min(100%,320px)] rounded-[22px] border border-white/10 bg-slate-950/56 px-3 py-2.5 text-white shadow-[0_12px_32px_rgba(15,23,42,0.2)] backdrop-blur-lg">
+              <div className="flex items-center gap-2.5">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] text-sm font-semibold text-white/95">
+                  {patientName ? patientInitial : <UserRound className="size-4 text-white/80" />}
                 </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-white/95">
+                    {patientName || tr(language, "Doctor Video Call", "ห้องวิดีโอแพทย์")}
+                  </p>
+                  {appointmentLabel ? (
+                    <div className="mt-0.5 inline-flex max-w-full items-center gap-1.5 text-[11px] text-slate-200/68">
+                      <Clock3 className="size-3 shrink-0" />
+                      <span className="truncate">{appointmentLabel}</span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {isPopupWindow ? (
+                  <span className="inline-flex items-center rounded-full border border-white/12 bg-white/[0.06] px-2 py-1 text-[10px] font-medium text-white/78">
+                    {modeSummary}
+                  </span>
+                ) : null}
+                {callDuration !== null ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/18 bg-emerald-400/10 px-2 py-1 text-[10px] font-medium tabular-nums text-white/92">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    {callDuration}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1.5 rounded-full border border-white/10 bg-slate-950/56 p-1.5 shadow-[0_12px_32px_rgba(15,23,42,0.18)] backdrop-blur-lg">
+              {patientInviteUrl && !isPopupWindow ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-full border border-cyan-200/35 bg-cyan-200 px-3 text-[11px] font-semibold text-slate-950 shadow-[0_10px_24px_rgba(34,211,238,0.18)] hover:bg-cyan-100 focus-visible:ring-cyan-200/70"
+                  onClick={onCopyInvite}
+                >
+                  {copiedInvite ? (
+                    <Check className="mr-1.5 size-3.5" />
+                  ) : (
+                    <Copy className="mr-1.5 size-3.5" />
+                  )}
+                  {copiedInvite
+                    ? tr(language, "Copied!", "คัดลอกแล้ว!")
+                    : tr(language, "Copy patient link", "คัดลอกลิงก์คนไข้")}
+                </Button>
               ) : null}
+              {!isPopupWindow && !showStandbyState ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 rounded-full border border-white/18 bg-white/96 px-3 text-[11px] font-medium text-slate-900 shadow-sm hover:bg-white focus-visible:ring-white/60"
+                  onClick={onOpenMiniWindow}
+                  disabled={isMiniWindowPending}
+                >
+                  <ExternalLink className="mr-1.5 size-3.5" />
+                  {isMiniWindowPending
+                    ? tr(language, "Opening mini window", "กำลังเปิดหน้าต่างเล็ก")
+                    : tr(language, "Open mini window", "เปิดหน้าต่างเล็ก")}
+                </Button>
+              ) : null}
+              {showStandbyState ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="h-8 rounded-full border border-white/18 bg-white/96 px-3 text-[11px] font-medium text-slate-900 shadow-sm hover:bg-white focus-visible:ring-white/60"
+                  onClick={onReturnFromMiniWindow}
+                >
+                  <ArrowLeft className="mr-1.5 size-3.5" />
+                  {tr(language, "Return to main call", "กลับมาที่หน้าหลัก")}
+                </Button>
+              ) : null}
+              {showStandbyState ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 rounded-full border border-white/12 bg-white/[0.05] px-3 text-[11px] font-medium text-white shadow-sm backdrop-blur-md hover:bg-white/[0.09] focus-visible:ring-white/50"
+                  onClick={onFocusMiniWindow}
+                >
+                  <ExternalLink className="mr-1.5 size-3.5" />
+                  {tr(language, "Focus mini window", "โฟกัสหน้าต่างเล็ก")}
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-full border border-white/12 bg-white/[0.05] px-3 text-[11px] font-medium text-white shadow-sm backdrop-blur-md hover:bg-white/[0.09] focus-visible:ring-white/50"
+                onClick={() => setChromeHidden(true)}
+              >
+                <ChevronUp className="mr-1.5 size-3.5" />
+                {tr(language, "Hide", "ซ่อน")}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-full border border-white/12 bg-white/[0.05] px-3 text-[11px] font-medium text-white shadow-sm backdrop-blur-md hover:bg-white/[0.09] focus-visible:ring-white/50"
+                onClick={onBack}
+              >
+                <ArrowLeft className="mr-1.5 size-3.5" />
+                {isPopupWindow
+                  ? tr(language, "Close Mini", "ปิดหน้าต่างเล็ก")
+                  : tr(language, "Back to meetings", "กลับหน้านัดหมาย")}
+              </Button>
             </div>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {isPopupWindow ? (
-              <span className="inline-flex items-center rounded-full border border-white/12 bg-white/[0.06] px-2 py-1 text-[10px] font-medium text-white/78">
-                {modeSummary}
-              </span>
-            ) : null}
-            {callDuration !== null ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/18 bg-emerald-400/10 px-2 py-1 text-[10px] font-medium tabular-nums text-white/92">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                {callDuration}
-              </span>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1.5 rounded-full border border-white/10 bg-slate-950/56 p-1.5 shadow-[0_12px_32px_rgba(15,23,42,0.18)] backdrop-blur-lg">
-          {patientInviteUrl && !isPopupWindow ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 rounded-full border border-cyan-200/35 bg-cyan-200 px-3 text-[11px] font-semibold text-slate-950 shadow-[0_10px_24px_rgba(34,211,238,0.18)] hover:bg-cyan-100 focus-visible:ring-cyan-200/70"
-              onClick={onCopyInvite}
-            >
-              {copiedInvite ? (
-                <Check className="mr-1.5 size-3.5" />
-              ) : (
-                <Copy className="mr-1.5 size-3.5" />
-              )}
-              {copiedInvite
-                ? tr(language, "Copied!", "คัดลอกแล้ว!")
-                : tr(language, "Copy patient link", "คัดลอกลิงก์คนไข้")}
-            </Button>
-          ) : null}
-          {!isPopupWindow && !showStandbyState ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="h-8 rounded-full border border-white/18 bg-white/96 px-3 text-[11px] font-medium text-slate-900 shadow-sm hover:bg-white focus-visible:ring-white/60"
-              onClick={onOpenMiniWindow}
-              disabled={isMiniWindowPending}
-            >
-              <ExternalLink className="mr-1.5 size-3.5" />
-              {isMiniWindowPending
-                ? tr(language, "Opening mini window", "กำลังเปิดหน้าต่างเล็ก")
-                : tr(language, "Open mini window", "เปิดหน้าต่างเล็ก")}
-            </Button>
-          ) : null}
-          {showStandbyState ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              className="h-8 rounded-full border border-white/18 bg-white/96 px-3 text-[11px] font-medium text-slate-900 shadow-sm hover:bg-white focus-visible:ring-white/60"
-              onClick={onReturnFromMiniWindow}
-            >
-              <ArrowLeft className="mr-1.5 size-3.5" />
-              {tr(language, "Return to main call", "กลับมาที่หน้าหลัก")}
-            </Button>
-          ) : null}
-          {showStandbyState ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 rounded-full border border-white/12 bg-white/[0.05] px-3 text-[11px] font-medium text-white shadow-sm backdrop-blur-md hover:bg-white/[0.09] focus-visible:ring-white/50"
-              onClick={onFocusMiniWindow}
-            >
-              <ExternalLink className="mr-1.5 size-3.5" />
-              {tr(language, "Focus mini window", "โฟกัสหน้าต่างเล็ก")}
-            </Button>
-          ) : null}
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 rounded-full border border-white/12 bg-white/[0.05] px-3 text-[11px] font-medium text-white shadow-sm backdrop-blur-md hover:bg-white/[0.09] focus-visible:ring-white/50"
-            onClick={onBack}
-          >
-            <ArrowLeft className="mr-1.5 size-3.5" />
-            {isPopupWindow
-              ? tr(language, "Close Mini", "ปิดหน้าต่างเล็ก")
-              : tr(language, "Back to meetings", "กลับหน้านัดหมาย")}
-          </Button>
-        </div>
-      </div>
+        </>
+      )}
 
       {showStandbyState ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center p-5">

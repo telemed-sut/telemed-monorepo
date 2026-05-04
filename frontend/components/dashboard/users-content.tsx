@@ -983,7 +983,10 @@ export function UsersContent() {
       const allUsers: User[] = [];
 
       do {
-        const res = await fetchUsers({ page, limit: pageSize, skipCache: true }, token);
+        const res = await fetchUsers(
+          { page, limit: pageSize, sort: "created_at", order: "desc", skipCache: true },
+          token
+        );
         allUsers.push(...res.items);
         total = res.total;
         page += 1;

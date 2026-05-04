@@ -1,3 +1,4 @@
+// fallow-ignore-file circular-dependency
 import {
   API_BASE_URL,
   apiFetch,

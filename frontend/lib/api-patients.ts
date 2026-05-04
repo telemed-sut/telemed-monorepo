@@ -24,6 +24,9 @@ import type {
   TimelineEvent,
   TimelineResponse,
   UploadPatientHeartSoundPayload,
+  PatientVitalsTrendResponse,
+  WeightRecord,
+  WeightRecordListResponse,
 } from "./api-types";
 
 interface FetchAllOptions {
@@ -309,5 +312,49 @@ export async function generatePatientRegistrationCode(
     `/patient-app/${patientId}/code`,
     { method: "POST" },
     token,
+  );
+}
+
+export async function fetchPatientVitalsTrends(patientId: string, days: number, token: string) {
+  return apiFetch<PatientVitalsTrendResponse>(
+    `/patients/${patientId}/trends/vitals?days=${days}`,
+    { method: "GET" },
+    token
+  );
+}
+
+export async function fetchPatientWeightRecords(patientId: string, token: string) {
+  return apiFetch<WeightRecordListResponse>(
+    `/patients/${patientId}/weight-records`,
+    { method: "GET" },
+    token
+  );
+}
+
+export async function updatePatientWeightRecord(
+  patientId: string,
+  recordId: string,
+  payload: Partial<WeightRecord>,
+  token: string
+) {
+  return apiFetch<WeightRecord>(
+    `/patients/${patientId}/weight-records/${recordId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+}
+
+export async function deletePatientWeightRecord(
+  patientId: string,
+  recordId: string,
+  token: string
+) {
+  return apiFetch<void>(
+    `/patients/${patientId}/weight-records/${recordId}`,
+    { method: "DELETE" },
+    token
   );
 }

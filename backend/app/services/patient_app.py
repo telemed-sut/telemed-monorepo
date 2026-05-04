@@ -212,8 +212,6 @@ def get_patient_device_id_from_headers(headers) -> str | None:
 def build_patient_device_context(*, user_agent: str | None, device_id: str | None) -> str | None:
     normalized_user_agent = _normalize_device_context_value(user_agent)
     normalized_device_id = _normalize_device_context_value(device_id)
-    if not normalized_user_agent and not normalized_device_id:
-        return None
     return hash_security_token(
         f"patient-app:{normalized_device_id or 'no-device'}:{normalized_user_agent or 'no-user-agent'}"
     )
