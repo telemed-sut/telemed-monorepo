@@ -22,35 +22,34 @@ async def stream_patient_events(
     """
     Server-Sent Events (SSE) endpoint for real-time patient updates.
     """
-    async def event_generator() -> AsyncGenerator[dict, None]:
-        # Connect to Redis Pub/Sub
-        pubsub = redis_manager.client.pubsub()
-        channel = f"telemed:stream:patient:{patient_id}"
-        pubsub.subscribe(channel)
-        
-        logger.info(f"Client connected to stream: {channel}")
+    channel = f"telemed:stream:patient:{patient_id}"
+    pubsub = redis_manager.client.pubsub(ignore_subscribe_messages=True)
+    await asyncio.to_thread(pubsub.subscribe, channel)
+    logger.info(f"Client connected to stream: {channel}")
 
+    async def event_generator() -> AsyncGenerator[dict, None]:
         try:
             while True:
-                # Check if client is still connected
                 if await request.is_disconnected():
                     logger.info(f"Client disconnected from stream: {channel}")
                     break
 
-                # Get message from Redis
-                message = pubsub.get_message(ignore_subscribe_none=True, timeout=1.0)
-                if message and message["type"] == "message":
-                    yield {
-                        "event": "message",
-                        "data": message["data"]
-                    }
-                
-                # Keep-alive heartbeat (optional)
-                await asyncio.sleep(0.01)
+                # redis-py is synchronous — running it on the event loop would
+                # block every other request for `timeout` seconds. Offload it.
+                message = await asyncio.to_thread(
+                    pubsub.get_message,
+                    ignore_subscribe_messages=True,
+                    timeout=1.0,
+                )
+                if message and message.get("type") == "message":
+                    yield {"event": "message", "data": message["data"]}
         except Exception as e:
             logger.error(f"Stream error: {e}")
         finally:
-            pubsub.unsubscribe(channel)
-            pubsub.close()
+            try:
+                await asyncio.to_thread(pubsub.unsubscribe, channel)
+                await asyncio.to_thread(pubsub.close)
+            except Exception:
+                logger.debug("pubsub cleanup failed", exc_info=True)
 
     return EventSourceResponse(event_generator())
