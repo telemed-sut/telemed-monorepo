@@ -16,15 +16,12 @@ def create_weight_record(
     payload: WeightRecordCreate,
     recorded_by: UUID | None = None,
 ) -> WeightRecord:
-    measured_at = payload.measured_at or datetime.now(timezone.utc)
-    if measured_at.tzinfo is None:
-        measured_at = measured_at.replace(tzinfo=timezone.utc)
-
+    # measured_at is always server-generated — clients cannot supply it.
     record = WeightRecord(
         patient_id=patient_id,
         weight_kg=payload.weight_kg,
         height_cm=payload.height_cm,
-        measured_at=measured_at,
+        measured_at=datetime.now(timezone.utc),
         recorded_by=recorded_by,
     )
     db.add(record)
@@ -63,12 +60,9 @@ def update_weight_record(
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Weight record not found")
 
+    # measured_at is server-generated and not editable; the schema already
+    # excludes it from inbound updates.
     update_data = payload.model_dump(exclude_unset=True)
-    if "measured_at" in update_data and update_data["measured_at"] is not None:
-        measured_at = update_data["measured_at"]
-        if measured_at.tzinfo is None:
-            update_data["measured_at"] = measured_at.replace(tzinfo=timezone.utc)
-
     for key, value in update_data.items():
         setattr(record, key, value)
         
