@@ -40,15 +40,18 @@ class PatientAppRegisterRequest(BaseModel):
         description="Patient phone number as registered by the hospital.",
         examples=["0934456858"],
     )
-    code: str = Field(
-        min_length=4,
-        max_length=10,
-        description="Registration code generated from the doctor/admin web page. This is not the login PIN.",
-        examples=["HEBPD2"],
-    )
     pin: str = Field(
         description="New 4-6 digit numeric PIN chosen by the patient during registration.",
-        examples=["123456"],
+        examples=["1234"],
+    )
+    code: Optional[str] = Field(
+        default=None,
+        max_length=10,
+        description=(
+            "Deprecated. Old clients may send a registration code; the backend "
+            "ignores it. Patients now register with phone + PIN directly."
+        ),
+        examples=[None],
     )
 
     @field_validator("pin")
@@ -60,8 +63,7 @@ class PatientAppRegisterRequest(BaseModel):
         json_schema_extra={
             "example": {
                 "phone": "0934456858",
-                "code": "HEBPD2",
-                "pin": "123456",
+                "pin": "1234",
             },
         },
     )

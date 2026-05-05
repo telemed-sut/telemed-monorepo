@@ -347,61 +347,47 @@ def register_patient_app(
     *,
     db: Session,
     phone: str,
-    code: str,
     pin: str,
+    code: str | None = None,
     user_agent: str | None = None,
     device_id: str | None = None,
 ) -> dict:
-    """Verify phone + code, set PIN, return access token."""
-    normalized_phone = _normalize_phone(phone)
-    normalized_code = code.strip().upper()
+    """Bind a PIN to the patient with this phone number, return access token.
 
-    # Find registration code.
-    reg = _resolve_active_registration(
-        db=db,
-        normalized_code=normalized_code,
+    Simplified flow (registration code no longer required): the patient must
+    already exist in the patients table with a matching phone number (the
+    hospital creates them via the admin web app). Calling /register sets or
+    overwrites their PIN and returns a session token.
+
+    The optional `code` parameter is accepted for backward compatibility with
+    older mobile builds and is silently ignored.
+    """
+    del code  # Ignored — kept in signature for backward compatibility.
+
+    normalized_phone = _normalize_phone(phone)
+    phone_candidates = sorted(_phone_variants(normalized_phone))
+
+    patient = db.scalar(
+        select(Patient)
+        .where(
+            and_(
+                Patient.phone.in_(phone_candidates),
+                Patient.deleted_at.is_(None),
+                Patient.is_active.is_(True),
+            )
+        )
+        .order_by(Patient.created_at.desc())
     )
-    if not reg:
+    if not patient:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired registration code.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Phone number not found. Please contact your hospital to register first.",
         )
 
     now = datetime.now(timezone.utc)
-    expires_at = reg.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if expires_at <= now:
-        _clear_registration_code_cache(normalized_code)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Registration code has expired. Please ask your care team for a new one.",
-        )
-
-    # Find patient and verify phone.
-    patient = db.get(Patient, reg.patient_id)
-    if not patient or patient.deleted_at is not None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Patient record not found.",
-        )
-
-    patient_phone = patient.phone or ""
-    if not patient_phone or not _phones_match(normalized_phone, patient_phone):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Phone number does not match our records.",
-        )
-
-    # Set PIN.
     patient.pin_hash = get_pin_hash(pin)
-    patient.app_registered_at = now
+    patient.app_registered_at = patient.app_registered_at or now
     _reset_patient_login_failures(db, patient)
-
-    # Mark code as used.
-    reg.is_used = True
-    reg.used_at = now
-    _clear_registration_code_cache(normalized_code)
 
     response = create_patient_login_response(
         db=db,

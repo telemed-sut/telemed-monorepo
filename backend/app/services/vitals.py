@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -7,6 +8,8 @@ from sqlalchemy import select
 from app.models.patient_vital_threshold import PatientVitalThreshold
 from app.models.alert import Alert
 from app.models.enums import AlertSeverity, AlertCategory
+
+logger = logging.getLogger(__name__)
 
 
 def check_vitals_and_alert(
@@ -67,3 +70,24 @@ def check_vitals_and_alert(
         )
         db.add(alert)
         db.commit()
+
+        # Real-time push to the patient's mobile app: create a PatientNotification
+        # which fans out via Redis pub/sub to /patient-app/me/stream listeners.
+        # Local import avoids any future circular dependency risk.
+        try:
+            from app.services import patient_notification as patient_notification_service
+
+            patient_notification_service.create_for_patient(
+                db=db,
+                patient_id=patient_id,
+                title="พบสัญญาณชีพผิดปกติ",
+                message=" | ".join(alerts),
+                category="warning",
+                data={"alert_id": str(alert.id), "source": "vital_threshold"},
+            )
+        except Exception:
+            logger.warning(
+                "Failed to publish patient notification for vitals alert",
+                extra={"patient_id": str(patient_id), "alert_id": str(alert.id)},
+                exc_info=True,
+            )

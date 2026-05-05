@@ -31,32 +31,20 @@ def get_password_hash(password: str) -> str:
 
 
 def get_pin_hash(pin: str) -> str:
-    """Hash a patient PIN using the application-level pepper if configured."""
-    from app.core.config import get_settings
-    pepper = get_settings().patient_pin_pepper
-    if pepper:
-        # Use HMAC-SHA256 to mix the pepper with the PIN before hashing with bcrypt.
-        pin_peppered = hmac.new(
-            pepper.encode("utf-8"),
-            pin.encode("utf-8"),
-            hashlib.sha256
-        ).hexdigest()
-        return get_password_hash(pin_peppered)
-    return get_password_hash(pin)
+    """Store the patient PIN as-is (plaintext).
+
+    Simplified flow: the patient app uses a 4-digit numeric PIN that's stored
+    directly in patients.pin_hash without bcrypt or pepper. The column name
+    stays 'pin_hash' to avoid a schema rename.
+    """
+    return (pin or "").strip()
 
 
 def verify_pin(plain_pin: str, hashed_pin: str) -> bool:
-    """Verify a patient PIN against its hash, incorporating the pepper if configured."""
-    from app.core.config import get_settings
-    pepper = get_settings().patient_pin_pepper
-    if pepper:
-        pin_peppered = hmac.new(
-            pepper.encode("utf-8"),
-            plain_pin.encode("utf-8"),
-            hashlib.sha256
-        ).hexdigest()
-        return verify_password(pin_peppered, hashed_pin)
-    return verify_password(plain_pin, hashed_pin)
+    """Plaintext string equality check (see get_pin_hash)."""
+    if plain_pin is None or hashed_pin is None:
+        return False
+    return plain_pin.strip() == hashed_pin.strip()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

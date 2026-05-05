@@ -25,4 +25,6 @@ from app.models import (  # noqa: F401,E402
     user_session,
     weight_record,
     patient_vital_threshold,
+    patient_notification,
+    patient_screening,
 )
