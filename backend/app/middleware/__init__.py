@@ -127,6 +127,8 @@ def _extract_actor_id(request: Request) -> UUID | None:
         payload = decode_token(token)
     except Exception:
         return None
+    if payload.get("type") not in (None, "access"):
+        return None
     user_id = payload.get("sub")
     if not user_id:
         return None
