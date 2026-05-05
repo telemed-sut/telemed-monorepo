@@ -6,7 +6,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Path, Request, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPBearer
 from jwt.exceptions import PyJWTError as JWTError
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
@@ -67,7 +67,25 @@ from .auth_tokens import (
 )
 
 settings = get_settings()
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+
+
+class _BearerTokenScheme(HTTPBearer):
+    """Swagger 'Authorize' shows a single field: paste a JWT, no login form."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            scheme_name="BearerAuth",
+            bearerFormat="JWT",
+            auto_error=False,
+            description="Paste a JWT access token. No 'Bearer ' prefix needed.",
+        )
+
+    async def __call__(self, request: Request) -> str | None:  # type: ignore[override]
+        credentials = await super().__call__(request)
+        return credentials.credentials if credentials else None
+
+
+oauth2_scheme = _BearerTokenScheme()
 
 
 def get_db():
