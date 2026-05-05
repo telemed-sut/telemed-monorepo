@@ -159,11 +159,13 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
 
   const filteredData = useMemo(() => {
     const sorted = [...data].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      (a, b) =>
+        new Date(a.recorded_at ?? a.date).getTime() -
+        new Date(b.recorded_at ?? b.date).getTime()
     );
     return sorted.slice(-periodDays).map((d) => ({
       ...d,
-      label: format(parseISO(d.date), "d MMM", { locale: dateLocale }),
+      label: format(parseISO(d.recorded_at ?? d.date), "d MMM HH:mm", { locale: dateLocale }),
     }));
   }, [data, periodDays, dateLocale]);
 
@@ -202,6 +204,8 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
     setShowHeartRate(true);
     setShowSys(true);
   };
+
+  const effectiveChartType: ChartType = filteredData.length < 2 ? "bar" : chartType;
 
   if (isLoading) {
     return (
@@ -405,7 +409,7 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
       {/* Chart area — same size as FinancialFlowChart */}
       <div className="h-[220px] px-2 pb-4 sm:h-[260px]">
         <ResponsiveContainer width="100%" height="100%">
-          {chartType === "bar" ? (
+          {effectiveChartType === "bar" ? (
             <BarChart data={filteredData} barGap={4}>
               <defs>
                 <linearGradient id="vtWeightGrad" x1="0" y1="0" x2="0" y2="1">
@@ -440,7 +444,7 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
                 <Bar dataKey="sys_pressure" name={tr(language, "SYS Pressure", "ความดัน SYS")} fill="url(#vtSysGrad)" radius={[4, 4, 0, 0]} maxBarSize={22} />
               )}
             </BarChart>
-          ) : chartType === "line" ? (
+          ) : effectiveChartType === "line" ? (
             <LineChart data={filteredData}>
               {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />}
               <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />

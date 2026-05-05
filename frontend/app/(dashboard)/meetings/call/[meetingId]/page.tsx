@@ -859,14 +859,6 @@ export default function MeetingCallPage() {
               console.log("[ZEGO] Successfully joined the room");
             }
           },
-          onRoomStateUpdate: (state) => {
-            if (state === "CONNECTED" || state === "DISCONNECTED") {
-              setLoading(false);
-            }
-            if (process.env.NODE_ENV === "development") {
-              console.log("[ZEGO] Room state update:", state);
-            }
-          },
           onLeaveRoom: () => {
             if (suppressLeaveRoomNavigationRef.current) {
               return;

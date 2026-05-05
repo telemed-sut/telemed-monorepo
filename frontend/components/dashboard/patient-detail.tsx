@@ -42,7 +42,9 @@ import {
   fetchPatientPressureReadings,
   fetchPatientVitalsTrends,
   generatePatientRegistrationCode,
+  API_BASE_URL,
   getErrorMessage,
+  isProbablyJwt,
   type Meeting,
   type Patient,
   type PatientContactDetails,
@@ -99,12 +101,113 @@ interface InfoRowProps {
 }
 
 const CONTACT_REVEAL_TIMEOUT_MS = 60_000;
-const PRESSURE_POLL_INTERVAL_MS = 3_000;
-const PRESSURE_DEMO_INTERVAL_MS = 1_600;
-const MAX_DEMO_PRESSURE_READINGS = 10;
 
 const tr = (language: AppLanguage, en: string, th: string) =>
   language === "th" ? th : en;
+
+type PatientStreamEnvelope = {
+  type?: unknown;
+  event?: unknown;
+  data?: unknown;
+};
+
+type ParsedSseEvent = {
+  event?: string;
+  data?: string;
+};
+
+type SseBoundary = {
+  index: number;
+  length: number;
+};
+
+function parsePatientStreamEnvelope(rawData: string): PatientStreamEnvelope | null {
+  try {
+    const parsed = JSON.parse(rawData) as PatientStreamEnvelope;
+    if (typeof parsed.data === "string") {
+      try {
+        parsed.data = JSON.parse(parsed.data) as unknown;
+      } catch {
+        return parsed;
+      }
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function getPatientStreamEventType(envelope: PatientStreamEnvelope | null): string | null {
+  if (!envelope) {
+    return null;
+  }
+
+  if (typeof envelope.type === "string") {
+    return envelope.type;
+  }
+  if (typeof envelope.event === "string") {
+    return envelope.event;
+  }
+
+  const data = envelope.data;
+  if (data && typeof data === "object") {
+    const nested = data as PatientStreamEnvelope;
+    if (typeof nested.type === "string") {
+      return nested.type;
+    }
+    if (typeof nested.event === "string") {
+      return nested.event;
+    }
+  }
+
+  return null;
+}
+
+function parseSseEvent(rawEvent: string): ParsedSseEvent | null {
+  const parsed: ParsedSseEvent = {};
+  const dataLines: string[] = [];
+
+  for (const line of rawEvent.split(/\r?\n/)) {
+    if (!line || line.startsWith(":")) {
+      continue;
+    }
+
+    const separatorIndex = line.indexOf(":");
+    const field = separatorIndex === -1 ? line : line.slice(0, separatorIndex);
+    const rawValue = separatorIndex === -1 ? "" : line.slice(separatorIndex + 1);
+    const value = rawValue.startsWith(" ") ? rawValue.slice(1) : rawValue;
+
+    if (field === "event") {
+      parsed.event = value;
+    } else if (field === "data") {
+      dataLines.push(value);
+    }
+  }
+
+  if (dataLines.length > 0) {
+    parsed.data = dataLines.join("\n");
+  }
+
+  return parsed.event || parsed.data ? parsed : null;
+}
+
+function findSseEventBoundary(buffer: string): SseBoundary | null {
+  const boundaries = ["\r\n\r\n", "\n\n", "\r\r"]
+    .map((separator) => ({
+      index: buffer.indexOf(separator),
+      length: separator.length,
+    }))
+    .filter((boundary) => boundary.index >= 0)
+    .sort((left, right) => left.index - right.index);
+
+  return boundaries[0] ?? null;
+}
+
+function getPatientStreamUrl(patientId: string): string {
+  const directApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
+  const baseUrl = directApiBaseUrl || API_BASE_URL;
+  return `${baseUrl}/patients/${patientId}/stream`;
+}
 
 const getPressureRiskLabel = (level: PressureRiskLevel, language: AppLanguage) => {
   if (level === "danger") return tr(language, "Danger", "อันตราย");
@@ -221,76 +324,6 @@ const buildMockPressureReadings = (patientId: string): PressureRecord[] => {
       },
     },
   ];
-};
-
-const demoPressureSequence: Array<{
-  heartRate: number;
-  sysRate: number;
-  diaRate: number;
-  risk: PressureRecord["risk"];
-}> = [
-  {
-    heartRate: 76,
-    sysRate: 118,
-    diaRate: 76,
-    risk: {
-      level: "normal",
-      heart_rate_level: "normal",
-      blood_pressure_level: "normal",
-      reasons: [],
-    },
-  },
-  {
-    heartRate: 82,
-    sysRate: 130,
-    diaRate: 85,
-    risk: {
-      level: "moderate",
-      heart_rate_level: "normal",
-      blood_pressure_level: "moderate",
-      reasons: ["sys_rate between 120-139 mmHg (130)", "dia_rate between 80-89 mmHg (85)"],
-    },
-  },
-  {
-    heartRate: 126,
-    sysRate: 148,
-    diaRate: 94,
-    risk: {
-      level: "danger",
-      heart_rate_level: "danger",
-      blood_pressure_level: "danger",
-      reasons: ["heart_rate above 120 bpm (126)", "sys_rate at least 140 mmHg (148)"],
-    },
-  },
-  {
-    heartRate: 104,
-    sysRate: 136,
-    diaRate: 86,
-    risk: {
-      level: "moderate",
-      heart_rate_level: "moderate",
-      blood_pressure_level: "moderate",
-      reasons: ["heart_rate above normal range 60-100 bpm (104)", "sys_rate between 120-139 mmHg (136)"],
-    },
-  },
-];
-
-const buildDemoPressureReading = (patientId: string, sequence: number): PressureRecord => {
-  const sample = demoPressureSequence[sequence % demoPressureSequence.length];
-  const measuredAt = new Date().toISOString();
-
-  return {
-    id: `${patientId}-demo-pressure-${sequence}-${Date.now()}`,
-    patient_id: patientId,
-    device_exam_session_id: null,
-    device_id: "demo-bp-device-001",
-    heart_rate: sample.heartRate,
-    sys_rate: sample.sysRate,
-    dia_rate: sample.diaRate,
-    measured_at: measuredAt,
-    created_at: measuredAt,
-    risk: sample.risk,
-  };
 };
 
 const buildMockVitalsTrends = (): VitalTrendDataPoint[] => {
@@ -421,9 +454,6 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
   const [pressureTotal, setPressureTotal] = useState(0);
   const [loadingPressureReadings, setLoadingPressureReadings] = useState(true);
   const [pressureReadingsError, setPressureReadingsError] = useState<string | null>(null);
-  const [demoPressureReadings, setDemoPressureReadings] = useState<PressureRecord[]>([]);
-  const [isPressureDemoRunning, setIsPressureDemoRunning] = useState(false);
-  const pressureDemoSequenceRef = React.useRef(0);
 
   const [vitalsTrends, setVitalsTrends] = useState<VitalTrendDataPoint[]>([]);
   const [loadingVitalsTrends, setLoadingVitalsTrends] = useState(true);
@@ -474,9 +504,6 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     setPressureTotal(0);
     setLoadingPressureReadings(true);
     setPressureReadingsError(null);
-    setDemoPressureReadings([]);
-    setIsPressureDemoRunning(false);
-    pressureDemoSequenceRef.current = 0;
   }, [cachedSnapshot]);
 
   useEffect(() => {
@@ -532,35 +559,6 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
 
     await revealContactDetails();
   }, [contactDetailsRevealed, revealContactDetails]);
-
-  const pushDemoPressureReading = React.useCallback(() => {
-    const nextReading = buildDemoPressureReading(
-      patientId,
-      pressureDemoSequenceRef.current
-    );
-    pressureDemoSequenceRef.current += 1;
-    setDemoPressureReadings((current) => [
-      nextReading,
-      ...current,
-    ].slice(0, MAX_DEMO_PRESSURE_READINGS));
-  }, [patientId]);
-
-  const handleTogglePressureDemo = React.useCallback(() => {
-    setPressureReadingsError(null);
-    setLoadingPressureReadings(false);
-
-    if (isPressureDemoRunning) {
-      setIsPressureDemoRunning(false);
-      setDemoPressureReadings([]);
-      pressureDemoSequenceRef.current = 0;
-      return;
-    }
-
-    setDemoPressureReadings([]);
-    pressureDemoSequenceRef.current = 0;
-    pushDemoPressureReading();
-    setIsPressureDemoRunning(true);
-  }, [isPressureDemoRunning, pushDemoPressureReading]);
 
   const loadPressureReadings = React.useCallback(
     async (options: { showLoading?: boolean } = {}) => {
@@ -690,24 +688,119 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
 
   useEffect(() => {
     if (!token) return;
+    let active = true;
+    let retryTimeoutId: number | null = null;
+    let controller: AbortController | null = null;
 
     void loadPressureReadings({ showLoading: true });
-    const intervalId = window.setInterval(() => {
-      void loadPressureReadings({ showLoading: false });
-    }, PRESSURE_POLL_INTERVAL_MS);
 
-    return () => window.clearInterval(intervalId);
-  }, [loadPressureReadings, token]);
+    const handlePatientStreamData = (rawData: string | undefined) => {
+      if (!rawData) {
+        return;
+      }
 
-  useEffect(() => {
-    if (!isPressureDemoRunning) return;
+      const eventType = getPatientStreamEventType(parsePatientStreamEnvelope(rawData));
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
 
-    const intervalId = window.setInterval(() => {
-      pushDemoPressureReading();
-    }, PRESSURE_DEMO_INTERVAL_MS);
+      if (eventType === "new_pressure_reading") {
+        void loadPressureReadings({ showLoading: false });
+        setVitalsRefreshCounter((counter) => counter + 1);
+        return;
+      }
 
-    return () => window.clearInterval(intervalId);
-  }, [isPressureDemoRunning, pushDemoPressureReading]);
+      if (eventType === "new_weight_record" || eventType === "new_patient_screening") {
+        setVitalsRefreshCounter((counter) => counter + 1);
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (!active || retryTimeoutId !== null) {
+        return;
+      }
+      retryTimeoutId = window.setTimeout(() => {
+        retryTimeoutId = null;
+        void connect();
+      }, 3000);
+    };
+
+    const connect = async () => {
+      controller?.abort();
+      controller = new AbortController();
+
+      const headers: HeadersInit = {};
+      if (token && isProbablyJwt(token)) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      try {
+        const response = await fetch(getPatientStreamUrl(patientId), {
+          method: "GET",
+          headers,
+          credentials: "include",
+          signal: controller.signal,
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error(`Patient stream failed (${response.status})`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (active) {
+          const { value, done } = await reader.read();
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          let boundary = findSseEventBoundary(buffer);
+
+          while (boundary) {
+            const rawEvent = buffer.slice(0, boundary.index).trim();
+            buffer = buffer.slice(boundary.index + boundary.length);
+            boundary = findSseEventBoundary(buffer);
+
+            if (!rawEvent) {
+              continue;
+            }
+
+            const parsedEvent = parseSseEvent(rawEvent);
+            handlePatientStreamData(parsedEvent?.data);
+          }
+        }
+      } catch (err) {
+        if (!active || (err instanceof DOMException && err.name === "AbortError")) {
+          return;
+        }
+      }
+
+      scheduleReconnect();
+    };
+
+    void connect();
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadPressureReadings({ showLoading: false });
+        setVitalsRefreshCounter((counter) => counter + 1);
+      }
+    };
+
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      active = false;
+      if (retryTimeoutId !== null) {
+        window.clearTimeout(retryTimeoutId);
+      }
+      controller?.abort();
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [loadPressureReadings, patientId, token]);
 
   useEffect(() => {
     if (!token) return;
@@ -846,20 +939,14 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     .join("")
     .toUpperCase();
   const mockPressureReadings = buildMockPressureReadings(patientId);
-  const isUsingDemoPressureReadings = demoPressureReadings.length > 0;
   const isUsingMockPressureReadings =
     !loadingPressureReadings &&
     !pressureReadingsError &&
-    pressureReadings.length === 0 &&
-    !isUsingDemoPressureReadings;
-  const displayPressureReadings = isUsingDemoPressureReadings
-    ? demoPressureReadings
-    : pressureReadings.length > 0
+    pressureReadings.length === 0;
+  const displayPressureReadings = pressureReadings.length > 0
     ? pressureReadings
     : mockPressureReadings;
-  const displayPressureTotal = isUsingDemoPressureReadings
-    ? demoPressureReadings.length
-    : pressureReadings.length > 0
+  const displayPressureTotal = pressureReadings.length > 0
     ? pressureTotal
     : mockPressureReadings.length;
   const latestPressureReading = displayPressureReadings[0] ?? null;
@@ -1053,14 +1140,6 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                           {tr(language, "Sample data", "ข้อมูลตัวอย่าง")}
                         </Badge>
                       ) : null}
-                      {isUsingDemoPressureReadings ? (
-                        <Badge
-                          variant="outline"
-                          className="rounded-full border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[0.7rem] text-emerald-700"
-                        >
-                          {tr(language, "Live demo", "จำลองสด")}
-                        </Badge>
-                      ) : null}
                     </div>
                     <h2 className="text-xl font-semibold tracking-tight text-foreground">
                       {tr(language, "Blood pressure risk", "ระดับความเสี่ยงความดันโลหิต")}
@@ -1072,12 +1151,6 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                             "Sample readings are shown until this patient receives real device data.",
                             "แสดงข้อมูลตัวอย่างไว้ก่อน จนกว่าผู้ป่วยรายนี้จะมีข้อมูลจริงจากอุปกรณ์"
                           )
-                        : isUsingDemoPressureReadings
-                          ? tr(
-                              language,
-                              "Live demo readings are showing in this patient view.",
-                              "กำลังแสดงข้อมูลจำลองสดในหน้าผู้ป่วยนี้"
-                            )
                         : tr(
                             language,
                             "Latest device reading for this patient only. This panel refreshes automatically.",
@@ -1088,26 +1161,8 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                   <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row lg:pt-1">
                     <Button
                       type="button"
-                      variant={isPressureDemoRunning ? "outline" : "default"}
-                      onClick={handleTogglePressureDemo}
-                      className="min-h-10 w-full rounded-xl px-4 sm:w-auto"
-                    >
-                      {isPressureDemoRunning ? (
-                        <Square className="size-4" />
-                      ) : (
-                        <Play className="size-4" />
-                      )}
-                      {isPressureDemoRunning
-                        ? tr(language, "Stop demo", "หยุดจำลอง")
-                        : tr(language, "Start live demo", "เริ่มจำลองสด")}
-                    </Button>
-                    <Button
-                      type="button"
                       variant="outline"
                       onClick={() => {
-                        setIsPressureDemoRunning(false);
-                        setDemoPressureReadings([]);
-                        pressureDemoSequenceRef.current = 0;
                         void loadPressureReadings({ showLoading: true });
                       }}
                       disabled={loadingPressureReadings}
@@ -1140,8 +1195,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
                       transition={{ duration: 0.22 }}
                       className={cn(
                         "relative flex flex-col gap-4 overflow-hidden rounded-xl border px-4 py-3.5 shadow-[0_1px_0_rgba(15,23,42,0.04)] sm:flex-row sm:items-center sm:justify-between sm:px-5",
-                        latestPressureRiskTone.bannerClass,
-                        isUsingDemoPressureReadings && "ring-1 ring-emerald-300/60"
+                        latestPressureRiskTone.bannerClass
                       )}
                     >
                       <div className="flex items-center gap-3">

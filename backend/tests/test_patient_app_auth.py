@@ -728,6 +728,7 @@ def test_patient_app_logout_all_revokes_all_active_sessions(
 def test_patient_app_can_record_own_weight_without_patient_id(
     client: TestClient,
     db: Session,
+    monkeypatch,
 ):
     patient = _create_patient(
         db,
@@ -736,14 +737,22 @@ def test_patient_app_can_record_own_weight_without_patient_id(
         phone="+66812345678",
         pin="123456",
     )
+    patient.pin_hash = "123456"
+    db.add(patient)
+    db.commit()
     login_user_agent = "patient-app-weight-agent/1.0"
     login_response = client.post(
         "/patient-app/login",
-        json={"phone": "0812345678", "pin": "123456"},
+        json={"phone": "+66812345678", "pin": "123456"},
         headers={"user-agent": login_user_agent},
     )
     assert login_response.status_code == 200, login_response.text
     token = login_response.json()["access_token"]
+    published_events: list[dict] = []
+    monkeypatch.setattr(
+        "app.services.weight.redis_manager.publish_patient_event",
+        lambda **kwargs: published_events.append(kwargs),
+    )
 
     response = client.post(
         "/patient-app/me/weight",
@@ -768,6 +777,81 @@ def test_patient_app_can_record_own_weight_without_patient_id(
     assert record.weight_kg == 72.5
     assert record.height_cm == 170
     assert record.bmi == 25.1
+    assert published_events == [
+        {
+            "patient_id": str(patient.id),
+            "event_type": "new_weight_record",
+            "data": {
+                "id": str(record.id),
+                "patient_id": str(patient.id),
+                "measured_at": record.measured_at.isoformat(),
+            },
+        }
+    ]
+    assert "weight_kg" not in published_events[0]["data"]
+    assert "height_cm" not in published_events[0]["data"]
+
+
+def test_patient_app_screening_publishes_minimal_patient_stream_event(
+    client: TestClient,
+    db: Session,
+    monkeypatch,
+):
+    patient = _create_patient(
+        db,
+        first_name="Screening",
+        last_name="Mobile",
+        phone="+66812345678",
+        pin="123456",
+    )
+    patient.pin_hash = "123456"
+    db.add(patient)
+    db.commit()
+    login_user_agent = "patient-app-screening-agent/1.0"
+    login_response = client.post(
+        "/patient-app/login",
+        json={"phone": "+66812345678", "pin": "123456"},
+        headers={"user-agent": login_user_agent},
+    )
+    assert login_response.status_code == 200, login_response.text
+    token = login_response.json()["access_token"]
+    published_events: list[dict] = []
+    monkeypatch.setattr(
+        "app.services.patient_screening.redis_manager.publish_patient_event",
+        lambda **kwargs: published_events.append(kwargs),
+    )
+
+    response = client.post(
+        "/patient-app/me/screenings",
+        json={
+            "symptom_more_tired": True,
+            "systolic_bp": 128,
+            "diastolic_bp": 82,
+            "heart_rate": 78,
+            "oxygen_saturation": 97,
+            "weight_kg": 70.5,
+            "notes": "เหนื่อยกว่าปกติเล็กน้อย",
+        },
+        headers=_patient_headers(token, user_agent=login_user_agent),
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["patient_id"] == str(patient.id)
+    assert published_events == [
+        {
+            "patient_id": str(patient.id),
+            "event_type": "new_patient_screening",
+            "data": {
+                "id": body["id"],
+                "patient_id": str(patient.id),
+                "recorded_at": body["recorded_at"],
+            },
+        }
+    ]
+    assert "notes" not in published_events[0]["data"]
+    assert "weight_kg" not in published_events[0]["data"]
+    assert "systolic_bp" not in published_events[0]["data"]
 
 
 def test_admin_can_generate_patient_app_registration_code(

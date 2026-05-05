@@ -1,21 +1,31 @@
 import type { HTMLAttributes, ReactNode } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockPush,
   mockPrefetch,
   mockReplace,
+  mockRouter,
   mockFetchPatient,
   mockFetchMeetings,
+  mockFetchPressureReadings,
+  mockFetchVitalsTrends,
   mockAuthState,
   mockLanguageState,
 } = vi.hoisted(() => ({
   mockPush: vi.fn(),
   mockPrefetch: vi.fn(),
   mockReplace: vi.fn(),
+  mockRouter: {} as {
+    push: ReturnType<typeof vi.fn>;
+    prefetch: ReturnType<typeof vi.fn>;
+    replace: ReturnType<typeof vi.fn>;
+  },
   mockFetchPatient: vi.fn(),
   mockFetchMeetings: vi.fn(),
+  mockFetchPressureReadings: vi.fn(),
+  mockFetchVitalsTrends: vi.fn(),
   mockAuthState: {
     token: "test-token" as string | null,
     userId: "user-a" as string | null,
@@ -27,16 +37,13 @@ const {
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: mockPush,
-    prefetch: mockPrefetch,
-    replace: mockReplace,
-  }),
+  useRouter: () => mockRouter,
   usePathname: () => "/patients/patient-1",
 }));
 
 vi.mock("@/store/auth-store", () => ({
-  useAuthStore: (selector: (state: typeof mockAuthState) => unknown) => selector(mockAuthState),
+  useAuthStore: (selector?: (state: typeof mockAuthState) => unknown) =>
+    typeof selector === "function" ? selector(mockAuthState) : mockAuthState,
 }));
 
 vi.mock("@/store/language-store", () => ({
@@ -57,14 +64,51 @@ vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
+    API_BASE_URL: "/api",
     fetchPatient: mockFetchPatient,
     fetchMeetings: mockFetchMeetings,
+    fetchPatientPressureReadings: mockFetchPressureReadings,
+    fetchPatientVitalsTrends: mockFetchVitalsTrends,
   };
 });
+
+let mockStreamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+
+const textEncoder = new TextEncoder();
+
+const createPatientStreamResponse = () => {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      mockStreamController = controller;
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+};
+
+const emitPatientStreamEvent = (payload: unknown) => {
+  mockStreamController?.enqueue(
+    textEncoder.encode(`event: message\r\ndata: ${JSON.stringify(payload)}\r\n\r\n`)
+  );
+};
+
+class MockResizeObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
 
 describe("patient workspace overview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(createPatientStreamResponse())));
+    mockRouter.push = mockPush;
+    mockRouter.prefetch = mockPrefetch;
+    mockRouter.replace = mockReplace;
+    mockStreamController = null;
     window.localStorage.clear();
     mockAuthState.token = "test-token";
     mockAuthState.userId = "user-a";
@@ -84,10 +128,23 @@ describe("patient workspace overview", () => {
       page: 1,
       limit: 100,
     });
+    mockFetchPressureReadings.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 10,
+      offset: 0,
+      latest: null,
+    });
+    mockFetchVitalsTrends.mockResolvedValue({
+      patient_id: "patient-1",
+      days: 30,
+      trends: [],
+    });
   });
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
   });
 
   it("renders workspace navigation and focus mode entry", async () => {
@@ -102,6 +159,57 @@ describe("patient workspace overview", () => {
     expect(screen.getByRole("button", { name: "Devices" })).toBeDisabled();
     expect(screen.getByText("Open Heart Sound")).toBeInTheDocument();
     expect(screen.getByText("Open Advanced Focus Mode")).toBeInTheDocument();
+  });
+
+  it("refreshes pressure readings from patient stream events instead of interval polling", async () => {
+    mockAuthState.token = "header.payload.signature";
+    const { PatientDetailContent } = await import("@/components/dashboard/patient-detail");
+    render(<PatientDetailContent patientId="patient-1" />);
+
+    expect(await screen.findByText("Patient Workspace")).toBeInTheDocument();
+    await waitFor(() => expect(mockFetchPressureReadings).toHaveBeenCalledTimes(1));
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/patients/patient-1/stream",
+      expect.objectContaining({
+        credentials: "include",
+        headers: { Authorization: "Bearer header.payload.signature" },
+        method: "GET",
+      })
+    );
+    await waitFor(() => expect(mockFetchVitalsTrends).toHaveBeenCalled());
+    const initialVitalsTrendCalls = mockFetchVitalsTrends.mock.calls.length;
+
+    act(() => {
+      emitPatientStreamEvent({ type: "new_heart_sound", data: { id: "heart-1" } });
+    });
+    expect(mockFetchPressureReadings).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      emitPatientStreamEvent({ type: "new_pressure_reading", data: { id: "pressure-1" } });
+    });
+
+    await waitFor(() => expect(mockFetchPressureReadings).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls + 1)
+    );
+
+    act(() => {
+      emitPatientStreamEvent({ type: "new_weight_record", data: { id: "weight-1" } });
+    });
+
+    await waitFor(() =>
+      expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls + 2)
+    );
+
+    act(() => {
+      emitPatientStreamEvent({ type: "new_patient_screening", data: { id: "screening-1" } });
+    });
+
+    await waitFor(() =>
+      expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls + 3)
+    );
   });
 
   it("localizes patient load errors instead of surfacing mixed-language API text", async () => {

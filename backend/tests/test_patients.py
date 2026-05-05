@@ -14,11 +14,14 @@ from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import AlertCategory, AlertSeverity
 from app.models.heart_sound_record import HeartSoundRecord
 from app.models.patient import Patient
+from app.models.patient_screening import PatientScreening
 from app.models.pressure_record import PressureRecord
 from app.models.user import User, UserRole
 from app.models.weight_record import WeightRecord
 from app.schemas.patient import PatientCreate
+from app.schemas.pressure import PressureCreate
 from app.api.patients import notify_care_team
+from app.services import trend as trend_service
 from app.services.auth import create_login_response
 from app.services.patient import create_patient, get_patient, list_patients
 from app.services.pressure import pressure_service
@@ -73,6 +76,89 @@ def test_create_patient(db: Session):
     assert patient.last_name == "Doe"
     assert patient.email == "john.doe@example.com"
     assert patient.id is not None
+
+
+def test_create_pressure_publishes_minimal_patient_stream_event(db: Session, monkeypatch):
+    patient = create_patient(
+        db,
+        PatientCreate(
+            first_name="Stream",
+            last_name="Patient",
+            date_of_birth=date(1980, 1, 1),
+        ),
+    )
+    published_events: list[dict] = []
+
+    monkeypatch.setattr(
+        "app.services.pressure.device_exam_session_service.resolve_ingest_context",
+        lambda *args, **kwargs: (patient.id, None),
+    )
+    monkeypatch.setattr(
+        "app.services.pressure.redis_manager.publish_patient_event",
+        lambda **kwargs: published_events.append(kwargs),
+    )
+
+    measured_at = datetime(2026, 5, 5, 10, 31, tzinfo=timezone.utc)
+    record = pressure_service.create_pressure(
+        db,
+        PressureCreate(device_id="bp-stream-1", heart_rate=78, sys_rate=130, dia_rate=85),
+        measured_at=measured_at,
+    )
+
+    assert record.patient_id == patient.id
+    assert published_events == [
+        {
+            "patient_id": str(patient.id),
+            "event_type": "new_pressure_reading",
+            "data": {
+                "id": str(record.id),
+                "patient_id": str(patient.id),
+                "device_exam_session_id": None,
+                "measured_at": record.measured_at.isoformat(),
+            },
+        }
+    ]
+    assert "sys_rate" not in published_events[0]["data"]
+    assert "dia_rate" not in published_events[0]["data"]
+    assert "heart_rate" not in published_events[0]["data"]
+
+
+def test_patient_vitals_trends_include_mobile_screening_vitals(db: Session):
+    patient = create_patient(
+        db,
+        PatientCreate(
+            first_name="Screening",
+            last_name="Trend",
+            date_of_birth=date(1980, 1, 1),
+        ),
+    )
+    recorded_at = datetime(2026, 5, 5, 10, 40, tzinfo=timezone.utc)
+    screening = PatientScreening(
+        patient_id=patient.id,
+        systolic_bp=128,
+        diastolic_bp=82,
+        heart_rate=150,
+        oxygen_saturation=97,
+        weight_kg=70.5,
+        recorded_at=recorded_at,
+    )
+    db.add(screening)
+    db.commit()
+
+    response = trend_service.get_patient_vitals_trends(
+        db=db,
+        patient_id=patient.id,
+        days=30,
+    )
+
+    assert len(response.trends) == 1
+    point = response.trends[0]
+    assert point.date == recorded_at.date()
+    assert point.recorded_at == recorded_at.replace(tzinfo=None)
+    assert point.weight_kg == 70.5
+    assert point.heart_rate == 150
+    assert point.sys_pressure == 128
+    assert point.dia_pressure == 82
 
 
 def test_get_patient(db: Session):

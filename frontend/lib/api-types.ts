@@ -193,6 +193,7 @@ export interface HeartSoundListResponse {
 
 export interface VitalTrendDataPoint {
   date: string;
+  recorded_at?: string | null;
   heart_rate?: number | null;
   sys_pressure?: number | null;
   dia_pressure?: number | null;

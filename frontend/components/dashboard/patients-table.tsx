@@ -227,7 +227,7 @@ export function PatientsTable({
       setRegCodeData(res);
       toast.success(tr(language, "Registration code generated", "สร้างรหัสลงทะเบียนสำเร็จ"));
     } catch (err) {
-      toast.error(getLocalizedDashboardErrorMessage(err, tr(language, "Failed to generate code", "สร้างรหัสไม่สำเร็จ"), language));
+      toast.error(getLocalizedDashboardErrorMessage(err, language, "Failed to generate code", "สร้างรหัสไม่สำเร็จ"));
     } finally {
       setGeneratingRegCode(false);
     }

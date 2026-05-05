@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.models.patient_screening import PatientScreening
 from app.schemas.patient_screening import PatientScreeningCreate
 from app.services import patient_notification as patient_notification_service
+from app.services.redis import redis_manager
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,23 @@ def submit(
     db.add(record)
     db.commit()
     db.refresh(record)
+
+    try:
+        redis_manager.publish_patient_event(
+            patient_id=str(patient_id),
+            event_type="new_patient_screening",
+            data={
+                "id": str(record.id),
+                "patient_id": str(patient_id),
+                "recorded_at": record.recorded_at.isoformat(),
+            },
+        )
+    except Exception:
+        logger.warning(
+            "Failed to publish patient screening event",
+            extra={"patient_id": str(patient_id), "screening_id": str(record.id)},
+            exc_info=True,
+        )
 
     _maybe_notify_screening(db=db, patient_id=patient_id, record=record)
 
