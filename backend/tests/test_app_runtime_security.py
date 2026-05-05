@@ -38,32 +38,6 @@ def test_create_app_disables_docs_in_production(monkeypatch):
         get_settings.cache_clear()
 
 
-def test_create_app_enforces_allowed_hosts(monkeypatch):
-    monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.setenv("REDIS_URL", "redis://rate-limit-cache:6379/0")
-    monkeypatch.setenv("DEVICE_API_REQUIRE_REGISTERED_DEVICE", "true")
-    monkeypatch.setenv("DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE", "true")
-    monkeypatch.setenv("DEVICE_API_REQUIRE_NONCE", "true")
-    monkeypatch.setenv(
-        "MEETING_SIGNING_SECRET",
-        "production_meeting_signing_secret_1234567890abcdef",
-    )
-    monkeypatch.setenv("ALLOWED_HOSTS", "api.example.com")
-    monkeypatch.setattr(app_main, "_run_redis_healthcheck", lambda settings: "ok")
-    get_settings.cache_clear()
-
-    try:
-        app = create_app()
-        with TestClient(app) as client:
-            allowed = client.get("/health", headers={"host": "api.example.com"})
-            blocked = client.get("/health", headers={"host": "malicious.example.com"})
-
-        assert allowed.status_code == 200
-        assert blocked.status_code == 400
-    finally:
-        get_settings.cache_clear()
-
-
 def test_create_app_sets_content_security_policy_header(monkeypatch):
     monkeypatch.setattr(app_main, "_run_database_healthcheck", lambda: "ok")
     monkeypatch.setattr(app_main, "_run_redis_healthcheck", lambda settings: "disabled")

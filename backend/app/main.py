@@ -12,7 +12,6 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import inspect, text
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api import alerts, audit, auth, dense_mode, device_sessions, meetings, patients, stats, users, pressure, device_monitor, events, heart_sound, lung_sound, passkeys, patient_stream
 from app.api import patient_app as patient_app_api
@@ -276,10 +275,6 @@ def create_app() -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(IPBanMiddleware)
     app.add_middleware(SecurityAuditMiddleware)
-
-    allowed_hosts = settings.resolved_allowed_hosts
-    if allowed_hosts:
-        app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
 
     @app.middleware("http")
     async def request_id_middleware(request: Request, call_next):
