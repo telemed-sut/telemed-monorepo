@@ -629,7 +629,7 @@ def delete_my_notification(
 # ---------- Patient: real-time SSE stream ----------
 
 _SSE_KEEPALIVE_SECONDS = 20.0
-_SSE_PUBSUB_POLL_SECONDS = 1.0
+_SSE_DB_POLL_SECONDS = 1.0
 
 
 @router.get("/me/stream")
@@ -642,7 +642,7 @@ async def stream_patient_app_events(
 
     Emits:
       - `event: notification\\ndata: {json}` whenever a new patient notification
-        is created and published to the per-patient Redis channel.
+        is created for this patient.
       - `event: heart_alert\\ndata: {json}` whenever a heart alert is published.
       - `: keepalive` comments every ~20s so clients/proxies do not idle-close.
 
@@ -651,82 +651,44 @@ async def stream_patient_app_events(
     """
     patient = _resolve_authenticated_patient(request=request, db=db, token=token)
 
-    channel = patient_notification_service.patient_stream_channel(patient.id)
-
-    pubsub = None
-    try:
-        from app.services.redis import redis_manager  # local to avoid hard dep at import
-
-        pubsub = redis_manager.client.pubsub(ignore_subscribe_messages=True)
-        pubsub.subscribe(channel)
-        redis_available = True
-    except Exception:
-        logger.warning(
-            "Patient SSE stream falling back to keepalive-only (Redis unavailable)",
-            extra={"patient_id": str(patient.id)},
-            exc_info=True,
-        )
-        redis_available = False
+    latest_seen_at = patient_notification_service.latest_created_at(
+        db=db,
+        patient_id=patient.id,
+    )
 
     async def event_generator() -> AsyncGenerator[dict, None]:
+        nonlocal latest_seen_at
         last_keepalive = asyncio.get_event_loop().time()
         try:
-            # Initial comment so the client knows the connection is alive.
             yield {"comment": "patient-app stream connected"}
 
             while True:
                 if await request.is_disconnected():
                     break
 
-                if redis_available and pubsub is not None:
-                    try:
-                        message = pubsub.get_message(
-                            ignore_subscribe_messages=True,
-                            timeout=_SSE_PUBSUB_POLL_SECONDS,
-                        )
-                    except Exception:
-                        logger.warning(
-                            "Patient SSE pubsub.get_message failed; closing stream",
-                            extra={"patient_id": str(patient.id)},
-                            exc_info=True,
-                        )
-                        break
-
-                    if message and message.get("type") == "message":
-                        raw = message.get("data")
-                        if isinstance(raw, bytes):
-                            raw = raw.decode("utf-8", errors="replace")
-                        try:
-                            envelope = json.loads(raw) if raw else {}
-                        except (TypeError, ValueError):
-                            envelope = {}
-
-                        event_name = envelope.get("event") or "message"
-                        data_payload = envelope.get("data", envelope)
-                        yield {
-                            "event": event_name,
-                            "data": json.dumps(data_payload, default=str),
-                        }
-                        last_keepalive = asyncio.get_event_loop().time()
-                        continue
-                else:
-                    await asyncio.sleep(_SSE_PUBSUB_POLL_SECONDS)
+                await asyncio.sleep(_SSE_DB_POLL_SECONDS)
+                notifications = patient_notification_service.list_created_after(
+                    db=db,
+                    patient_id=patient.id,
+                    created_after=latest_seen_at,
+                )
+                for notification in notifications:
+                    yield {
+                        "event": "notification",
+                        "data": json.dumps(
+                            patient_notification_service.serialize(notification),
+                            default=str,
+                        ),
+                    }
+                    latest_seen_at = notification.created_at
+                    last_keepalive = asyncio.get_event_loop().time()
 
                 now = asyncio.get_event_loop().time()
                 if now - last_keepalive >= _SSE_KEEPALIVE_SECONDS:
                     yield {"comment": "keepalive"}
                     last_keepalive = now
         finally:
-            if pubsub is not None:
-                try:
-                    pubsub.unsubscribe(channel)
-                    pubsub.close()
-                except Exception:
-                    logger.debug(
-                        "Patient SSE pubsub cleanup failed",
-                        extra={"patient_id": str(patient.id)},
-                        exc_info=True,
-                    )
+            logger.debug("Patient app stream closed", extra={"patient_id": str(patient.id)})
 
     return EventSourceResponse(event_generator())
 

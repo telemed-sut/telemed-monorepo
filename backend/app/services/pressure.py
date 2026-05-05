@@ -14,7 +14,6 @@ from app.schemas.pressure import PressureCreate, PressureRecordOut, PressureRisk
 
 from app.services.device_exam_session import device_exam_session_service
 from app.services.device_session_events import publish_device_session_event_sync
-from app.services.redis import redis_manager
 
 logger = logging.getLogger(__name__)
 
@@ -144,27 +143,6 @@ class PressureService:
             db.commit()
             db.refresh(db_obj)
             
-            try:
-                redis_manager.publish_patient_event(
-                    patient_id=str(db_obj.patient_id),
-                    event_type="new_pressure_reading",
-                    data={
-                        "id": str(db_obj.id),
-                        "patient_id": str(db_obj.patient_id),
-                        "device_exam_session_id": (
-                            str(db_obj.device_exam_session_id)
-                            if db_obj.device_exam_session_id
-                            else None
-                        ),
-                        "measured_at": db_obj.measured_at.isoformat(),
-                    },
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to publish pressure reading event",
-                    extra={"patient_id": str(db_obj.patient_id), "pressure_record_id": str(db_obj.id)},
-                    exc_info=True,
-                )
             if resolved_session_id is not None:
                 publish_device_session_event_sync(
                     event_type="device_session.measurement_received",

@@ -146,7 +146,6 @@ class Settings(BaseSettings):
     admin_oidc_cache_ttl_seconds: int = 3600
 
     # Rate Limiting
-    redis_url: str | None = None
     rate_limit_whitelist: Union[List[str], str] = ["127.0.0.1", "::1"]
     redis_runtime_degraded_scope_alert_threshold: int = 1
     redis_runtime_operation_failure_alert_threshold: int = 5
@@ -473,45 +472,6 @@ class Settings(BaseSettings):
             raise ValueError("MEETING_PATIENT_JOIN_BASE_URL must start with http:// or https://.")
         return value.rstrip("/")
 
-    @field_validator("redis_url")
-    @classmethod
-    def validate_redis_url(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        value = v.strip()
-        if not value:
-            return None
-        if not os.path.exists("/.dockerenv"):
-            return value
-
-        parsed = urlsplit(value)
-        if parsed.scheme not in {"redis", "rediss"}:
-            return value
-        if parsed.hostname not in {"localhost", "127.0.0.1"}:
-            return value
-
-        password = parsed.password
-        if password is None:
-            password = os.environ.get("REDIS_PASSWORD", "telemed-dev-redis-password")
-
-        username = quote(parsed.username or "", safe="")
-        quoted_password = quote(password or "", safe="")
-        auth = username
-        if password is not None:
-            auth = f"{auth}:{quoted_password}" if auth else f":{quoted_password}"
-        if auth:
-            auth = f"{auth}@"
-        port = f":{parsed.port}" if parsed.port else ""
-        return urlunsplit(
-            (
-                parsed.scheme,
-                f"{auth}redis{port}",
-                parsed.path,
-                parsed.query,
-                parsed.fragment,
-            )
-        )
-
     @field_validator(
         "admin_oidc_issuer_url",
         "admin_oidc_redirect_uri",
@@ -570,12 +530,6 @@ class Settings(BaseSettings):
         if isinstance(v, str) and not v.strip():
             return None
         return v
-
-    @model_validator(mode="after")
-    def validate_production_requirements(self):
-        if self.app_env == "production" and not self.redis_url:
-            raise ValueError("REDIS_URL is required when APP_ENV=production.")
-        return self
 
     @model_validator(mode="after")
     def expand_local_dev_cors_origins(self):

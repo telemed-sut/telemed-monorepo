@@ -2,7 +2,6 @@ import base64
 from types import SimpleNamespace
 from urllib.parse import urlparse
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -36,12 +35,13 @@ def test_passkey_store_preserves_base64url_and_metadata():
     }
 
 
-def test_passkey_store_requires_redis_backed_state_outside_dev(monkeypatch):
-    monkeypatch.setattr(passkey_store, "_allows_local_fallback", lambda: False)
+def test_passkey_store_uses_local_runtime_state_without_redis(monkeypatch):
     monkeypatch.setattr(passkey_store, "get_redis_client", lambda: None)
 
-    with pytest.raises(RuntimeError, match="passkey challenge store requires Redis-backed shared runtime state"):
-        passkey_store.store_challenge("prod-like-passkey-session", b"challenge")
+    passkey_store.store_challenge("prod-like-passkey-session", b"challenge")
+
+    stored = passkey_store.pop_challenge("prod-like-passkey-session")
+    assert stored == {"challenge": "Y2hhbGxlbmdl"}
 
 
 def test_passkey_registration_options_unauthorized(client: TestClient):

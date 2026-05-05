@@ -19,7 +19,7 @@ from app.api import security as security_api
 from app.core.config import get_settings
 from app.core.limiter import limiter, get_strict_client_ip_rate_limit_key
 from app.core.logging_config import configure_logging, redact_sensitive_data, reset_request_id, set_request_id
-from app.db.session import SessionLocal, get_redis_client
+from app.db.session import SessionLocal
 from app.middleware import IPBanMiddleware, SecurityAuditMiddleware, SecurityHeadersMiddleware
 from app.models.device_error_log import DeviceErrorLog
 from app.schemas.health import HealthCheckResponse, LiveHealthCheckResponse, RootResponse
@@ -218,18 +218,6 @@ def _run_database_healthcheck() -> str:
     return "ok"
 
 
-def _run_redis_healthcheck(settings) -> str:
-    if not (settings.redis_url or "").strip():
-        return "disabled"
-
-    redis_client = get_redis_client()
-    if redis_client is None:
-        return "error"
-
-    redis_client.ping()
-    return "ok"
-
-
 @asynccontextmanager
 async def _application_lifespan(app: FastAPI):
     settings = get_settings()
@@ -335,14 +323,6 @@ def create_app() -> FastAPI:
             checks["status"] = "degraded"
             status_code = 503
             logger.exception("Database health check failed")
-
-        try:
-            checks["redis"] = _run_redis_healthcheck(settings)
-        except Exception:
-            checks["redis"] = "error"
-            checks["status"] = "degraded"
-            status_code = 503
-            logger.exception("Redis health check failed")
 
         checks["redis_runtime"] = get_runtime_diagnostics()
         checks["redis_runtime_alert"] = evaluate_runtime_alert(

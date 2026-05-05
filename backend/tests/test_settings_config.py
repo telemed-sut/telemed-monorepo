@@ -207,7 +207,6 @@ def test_settings_disable_api_docs_by_default_in_production(monkeypatch):
         monkeypatch,
         APP_ENV="production",
         API_DOCS_ENABLED=None,
-        REDIS_URL="redis://rate-limit-cache:6379/0",
         DEVICE_API_REQUIRE_REGISTERED_DEVICE="true",
         DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE="true",
         DEVICE_API_REQUIRE_NONCE="true",
@@ -285,7 +284,7 @@ def test_settings_default_db_pool_tuning(monkeypatch):
     assert settings.db_pool_recycle_seconds == 300
 
 
-def test_settings_require_redis_url_in_production(monkeypatch):
+def test_settings_do_not_require_redis_url_in_production(monkeypatch):
     _apply_env(
         monkeypatch,
         APP_ENV="production",
@@ -295,15 +294,15 @@ def test_settings_require_redis_url_in_production(monkeypatch):
         DEVICE_API_REQUIRE_NONCE="true",
     )
 
-    with pytest.raises(ValidationError, match="REDIS_URL is required when APP_ENV=production"):
-        _build_settings()
+    settings = _build_settings()
+
+    assert settings.app_env == "production"
 
 
 def test_settings_require_strict_device_ingest_flags_in_production(monkeypatch):
     _apply_env(
         monkeypatch,
         APP_ENV="production",
-        REDIS_URL="redis://rate-limit-cache:6379/0",
         DEVICE_API_REQUIRE_REGISTERED_DEVICE="true",
         DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE="false",
         DEVICE_API_REQUIRE_NONCE="true",
@@ -320,7 +319,6 @@ def test_settings_require_meeting_signing_secret_in_production(monkeypatch):
     _apply_env(
         monkeypatch,
         APP_ENV="production",
-        REDIS_URL="redis://rate-limit-cache:6379/0",
         DEVICE_API_REQUIRE_REGISTERED_DEVICE="true",
         DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE="true",
         DEVICE_API_REQUIRE_NONCE="true",
@@ -349,7 +347,6 @@ def test_settings_require_secret_encryption_keys_in_production(monkeypatch):
     _apply_env(
         monkeypatch,
         APP_ENV="production",
-        REDIS_URL="redis://rate-limit-cache:6379/0",
         DEVICE_API_REQUIRE_REGISTERED_DEVICE="true",
         DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE="true",
         DEVICE_API_REQUIRE_NONCE="true",

@@ -1,4 +1,3 @@
-import json
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -27,7 +26,6 @@ from app.services import audit as audit_service
 from app.services.auth import get_admin_user, get_db, verify_patient_access, verify_patient_access_doctor
 from app.services.blob_storage import BlobStorageConfigurationError, azure_blob_storage_service
 from app.services.heart_sound import heart_sound_service
-from app.services.redis import redis_manager
 from app.services.heart_sound_upload_sessions import (
     create_upload_session,
     delete_upload_session,
@@ -133,15 +131,6 @@ def get_patient_heart_sounds(
     db: Session = Depends(get_db),
     current_user: User = Depends(verify_patient_access),
 ):
-    # Phase 2: Redis Read-Cache for high-frequency polling
-    cache_key = f"telemed:cache:heart_sounds:{patient_id}:{limit}:{offset}"
-    try:
-        cached = redis_manager.client.get(cache_key)
-        if cached:
-            return json.loads(cached)
-    except Exception:
-        pass
-
     items, total = heart_sound_service.list_patient_heart_sounds(db, patient_id, limit=limit, offset=offset)
     
     # Do not log action if it's likely a frequent polling (optional logic)
@@ -153,11 +142,6 @@ def get_patient_heart_sounds(
         "limit": limit,
         "offset": offset,
     }
-
-    try:
-        redis_manager.client.set(cache_key, json.dumps(response_data), ex=10)
-    except Exception:
-        pass
 
     return response_data
 

@@ -78,7 +78,7 @@ def test_create_patient(db: Session):
     assert patient.id is not None
 
 
-def test_create_pressure_publishes_minimal_patient_stream_event(db: Session, monkeypatch):
+def test_create_pressure_is_available_to_patient_trends(db: Session, monkeypatch):
     patient = create_patient(
         db,
         PatientCreate(
@@ -87,15 +87,10 @@ def test_create_pressure_publishes_minimal_patient_stream_event(db: Session, mon
             date_of_birth=date(1980, 1, 1),
         ),
     )
-    published_events: list[dict] = []
 
     monkeypatch.setattr(
         "app.services.pressure.device_exam_session_service.resolve_ingest_context",
         lambda *args, **kwargs: (patient.id, None),
-    )
-    monkeypatch.setattr(
-        "app.services.pressure.redis_manager.publish_patient_event",
-        lambda **kwargs: published_events.append(kwargs),
     )
 
     measured_at = datetime(2026, 5, 5, 10, 31, tzinfo=timezone.utc)
@@ -106,21 +101,20 @@ def test_create_pressure_publishes_minimal_patient_stream_event(db: Session, mon
     )
 
     assert record.patient_id == patient.id
-    assert published_events == [
-        {
-            "patient_id": str(patient.id),
-            "event_type": "new_pressure_reading",
-            "data": {
-                "id": str(record.id),
-                "patient_id": str(patient.id),
-                "device_exam_session_id": None,
-                "measured_at": record.measured_at.isoformat(),
-            },
-        }
-    ]
-    assert "sys_rate" not in published_events[0]["data"]
-    assert "dia_rate" not in published_events[0]["data"]
-    assert "heart_rate" not in published_events[0]["data"]
+
+    response = trend_service.get_patient_vitals_trends(
+        db=db,
+        patient_id=patient.id,
+        days=30,
+    )
+
+    assert len(response.trends) == 1
+    point = response.trends[0]
+    assert point.date == measured_at.date()
+    assert point.recorded_at == measured_at.replace(tzinfo=None)
+    assert point.heart_rate == 78
+    assert point.sys_pressure == 130
+    assert point.dia_pressure == 85
 
 
 def test_patient_vitals_trends_include_mobile_screening_vitals(db: Session):

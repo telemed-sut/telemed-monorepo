@@ -13,9 +13,9 @@ def _bypass_ip_ban_middleware(monkeypatch) -> None:
 
 
 def test_deep_health_check_reports_ok_without_redis(monkeypatch):
+    redis_runtime_service.reset_runtime_diagnostics()
     _bypass_ip_ban_middleware(monkeypatch)
     monkeypatch.setattr("app.main._run_database_healthcheck", lambda: "ok")
-    monkeypatch.setattr("app.main._run_redis_healthcheck", lambda settings: "disabled")
 
     app = create_app()
 
@@ -49,12 +49,12 @@ def test_deep_health_check_reports_ok_without_redis(monkeypatch):
 
 
 def test_deep_health_check_reports_degraded_when_database_fails(monkeypatch):
+    redis_runtime_service.reset_runtime_diagnostics()
     _bypass_ip_ban_middleware(monkeypatch)
     monkeypatch.setattr(
         "app.main._run_database_healthcheck",
         lambda: (_ for _ in ()).throw(RuntimeError("db down")),
     )
-    monkeypatch.setattr("app.main._run_redis_healthcheck", lambda settings: "ok")
 
     app = create_app()
 
@@ -65,7 +65,7 @@ def test_deep_health_check_reports_degraded_when_database_fails(monkeypatch):
     assert response.json() == {
         "status": "degraded",
         "db": "error",
-        "redis": "ok",
+        "redis": "disabled",
         "redis_runtime": {
             "unavailable_scopes": [],
             "unavailable_scope_counts": {},
@@ -93,10 +93,6 @@ def test_live_health_check_stays_shallow(monkeypatch):
         "app.main._run_database_healthcheck",
         lambda: (_ for _ in ()).throw(RuntimeError("should not run")),
     )
-    monkeypatch.setattr(
-        "app.main._run_redis_healthcheck",
-        lambda settings: (_ for _ in ()).throw(RuntimeError("should not run")),
-    )
 
     app = create_app()
 
@@ -122,12 +118,6 @@ def test_health_check_exposes_redis_runtime_diagnostics(monkeypatch):
     redis_runtime_service.reset_runtime_diagnostics()
     _bypass_ip_ban_middleware(monkeypatch)
     monkeypatch.setattr("app.main._run_database_healthcheck", lambda: "ok")
-    monkeypatch.setattr("app.main._run_redis_healthcheck", lambda settings: "ok")
-    monkeypatch.setattr(
-        redis_runtime_service,
-        "get_redis_client",
-        lambda: (_ for _ in ()).throw(RuntimeError("redis unavailable")),
-    )
 
     logger = logging.getLogger("test")
     redis_runtime_service.get_redis_client_or_log(
@@ -168,11 +158,6 @@ def test_health_check_exposes_redis_runtime_diagnostics(monkeypatch):
 
 def test_emit_runtime_diagnostics_event_logs_structured_snapshot_once(monkeypatch, caplog):
     redis_runtime_service.reset_runtime_diagnostics()
-    monkeypatch.setattr(
-        redis_runtime_service,
-        "get_redis_client",
-        lambda: (_ for _ in ()).throw(RuntimeError("redis unavailable")),
-    )
 
     logger = logging.getLogger("test")
     redis_runtime_service.get_redis_client_or_log(
@@ -209,7 +194,6 @@ def test_health_check_raises_warning_alert_for_operation_failure_threshold(monke
     redis_runtime_service.reset_runtime_diagnostics()
     _bypass_ip_ban_middleware(monkeypatch)
     monkeypatch.setattr("app.main._run_database_healthcheck", lambda: "ok")
-    monkeypatch.setattr("app.main._run_redis_healthcheck", lambda settings: "ok")
     settings = app_main.get_settings()
     monkeypatch.setattr(settings, "redis_runtime_degraded_scope_alert_threshold", 10)
     monkeypatch.setattr(settings, "redis_runtime_operation_failure_alert_threshold", 1)

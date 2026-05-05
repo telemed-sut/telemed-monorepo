@@ -53,7 +53,6 @@ meeting_signing_secret = (os.environ.get("MEETING_SIGNING_SECRET") or "").strip(
 meeting_signing_allow_jwt_secret_fallback = (
     os.environ.get("MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK") or ""
 ).strip().lower() in {"1", "true", "yes", "on"}
-redis_url = (os.environ.get("REDIS_URL") or "").strip()
 azure_blob_storage_connection_string = (
     os.environ.get("AZURE_BLOB_STORAGE_CONNECTION_STRING") or ""
 ).strip()
@@ -147,17 +146,6 @@ else:
     add_issue(
         "warning",
         "MEETING_SIGNING_SECRET is not set. Local backend can still run, but meeting invite signing flows will stay disabled.",
-    )
-
-if redis_url:
-    if "replace_with" in redis_url.lower():
-        add_issue("invalid", "REDIS_URL still contains placeholder text like 'replace_with'.")
-elif app_env == "production":
-    add_issue("missing", "REDIS_URL")
-else:
-    add_issue(
-        "warning",
-        "REDIS_URL is not set. Local backend can still run, but production-grade rate limiting and shared transient state are unavailable.",
     )
 
 if not azure_blob_storage_connection_string:

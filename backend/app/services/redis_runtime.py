@@ -1,4 +1,9 @@
-"""Shared Redis runtime helpers for optional cache-backed services."""
+"""Runtime fallback helpers for legacy Redis-backed call sites.
+
+Redis has been removed from the application runtime. These helpers keep older
+service code on its local/database fallback paths while those call sites are
+gradually renamed.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +11,6 @@ import logging
 from datetime import datetime, timezone
 from threading import Lock
 from typing import Any, NoReturn
-
-from app.db.session import get_redis_client
 
 _warned_unavailable_scopes: set[str] = set()
 _runtime_lock = Lock()
@@ -56,38 +59,27 @@ def get_redis_client_or_log(
     scope: str,
     fallback_label: str,
 ):
-    try:
-        return get_redis_client()
-    except Exception:
-        now = _utc_now()
-        with _runtime_lock:
-            _unavailable_scope_counts[scope] = _unavailable_scope_counts.get(scope, 0) + 1
-            global _last_unavailable_at
-            _last_unavailable_at = now
-            first_warning_for_scope = scope not in _warned_unavailable_scopes
-            if first_warning_for_scope:
-                _warned_unavailable_scopes.add(scope)
-
+    now = _utc_now()
+    with _runtime_lock:
+        _unavailable_scope_counts[scope] = _unavailable_scope_counts.get(scope, 0) + 1
+        global _last_unavailable_at
+        _last_unavailable_at = now
+        first_warning_for_scope = scope not in _warned_unavailable_scopes
         if first_warning_for_scope:
-            logger.warning(
-                "%s unavailable; falling back to %s.",
-                scope,
-                fallback_label,
-                exc_info=True,
-                extra={
-                    "event": "redis_runtime_unavailable",
-                    "redis_scope": scope,
-                    "fallback": fallback_label,
-                },
-            )
-        else:
-            logger.debug(
-                "%s still unavailable; continuing with %s fallback.",
-                scope,
-                fallback_label,
-                exc_info=True,
-            )
-        return None
+            _warned_unavailable_scopes.add(scope)
+
+    if first_warning_for_scope:
+        logger.info(
+            "%s using %s fallback because Redis is disabled.",
+            scope,
+            fallback_label,
+            extra={
+                "event": "runtime_fallback_active",
+                "runtime_scope": scope,
+                "fallback": fallback_label,
+            },
+        )
+    return None
 
 
 def log_redis_operation_failure(
@@ -119,7 +111,7 @@ def log_redis_operation_failure(
 
 
 def allows_local_runtime_fallback(app_env: str) -> bool:
-    return (app_env or "").strip().lower() in {"development", "test"}
+    return True
 
 
 def raise_redis_runtime_required(
@@ -129,18 +121,18 @@ def raise_redis_runtime_required(
     app_env: str,
 ) -> NoReturn:
     normalized_env = (app_env or "").strip().lower() or "unknown"
-    logger.error(
-        "%s requires Redis-backed shared runtime state in %s.",
+    logger.warning(
+        "%s requested shared runtime state in %s; using local fallback because Redis is disabled.",
         scope,
         normalized_env,
         extra={
-            "event": "redis_runtime_required",
-            "redis_scope": scope,
+            "event": "runtime_shared_state_unavailable",
+            "runtime_scope": scope,
             "app_env": normalized_env,
         },
     )
     raise RuntimeError(
-        f"{scope} requires Redis-backed shared runtime state in {normalized_env}."
+        f"{scope} requires shared runtime state, but Redis is disabled."
     )
 
 

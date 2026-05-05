@@ -68,7 +68,6 @@ x-backend-common-env: &backend-common-env
   MEETING_VIDEO_ROOM_PREFIX: "${MEETING_VIDEO_ROOM_PREFIX:-telemed}"
   ZEGO_APP_ID: "${ZEGO_APP_ID:-}"
   ZEGO_SERVER_SECRET: "${ZEGO_SERVER_SECRET:-}"
-  REDIS_URL: "${REDIS_URL:-}"
   AZURE_BLOB_STORAGE_CONNECTION_STRING: "${AZURE_BLOB_STORAGE_CONNECTION_STRING:-}"
   AZURE_BLOB_STORAGE_CONTAINER: "${AZURE_BLOB_STORAGE_CONTAINER:-}"
   AZURE_BLOB_STORAGE_PATH_PREFIX: "${AZURE_BLOB_STORAGE_PATH_PREFIX:-}"
@@ -137,8 +136,6 @@ services:
       RUN_SEED_ON_STARTUP: "${RUN_SEED_ON_STARTUP:-false}"
     depends_on:
       db:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -342,28 +339,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-
-
-  redis:
-    image: redis:7-alpine
-    container_name: telemed-redis
-    restart: unless-stopped
-    environment:
-      REDIS_PASSWORD: "${REDIS_PASSWORD:-telemed-dev-redis-password}"
-    command:
-      [
-        "sh",
-        "-c",
-        "exec redis-server --save '' --appendonly no --requirepass \"$${REDIS_PASSWORD}\"",
-      ]
-    networks:
-      - backend-net
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
 volumes:
   postgres_data:
   authentik_postgres_data:

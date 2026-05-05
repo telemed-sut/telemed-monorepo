@@ -1,4 +1,3 @@
-import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -8,11 +7,7 @@ from fastapi import HTTPException, status
 
 from app.models.weight_record import WeightRecord
 from app.schemas.weight import WeightRecordCreate, WeightRecordUpdate
-from app.services.redis import redis_manager
 from app.services.vitals import check_vitals_and_alert
-
-logger = logging.getLogger(__name__)
-
 
 def create_weight_record(
     db: Session,
@@ -31,23 +26,6 @@ def create_weight_record(
     db.add(record)
     db.commit()
     db.refresh(record)
-
-    try:
-        redis_manager.publish_patient_event(
-            patient_id=str(patient_id),
-            event_type="new_weight_record",
-            data={
-                "id": str(record.id),
-                "patient_id": str(patient_id),
-                "measured_at": record.measured_at.isoformat(),
-            },
-        )
-    except Exception:
-        logger.warning(
-            "Failed to publish weight record event",
-            extra={"patient_id": str(patient_id), "weight_record_id": str(record.id)},
-            exc_info=True,
-        )
 
     # Check threshold and alert
     check_vitals_and_alert(

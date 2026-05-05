@@ -5,7 +5,6 @@ from slowapi import Limiter
 
 from app.core.config import get_settings
 from app.core.request_utils import is_local_development_ip
-from app.db.session import get_redis_connection_pool
 from app.core.request_utils import get_client_ip
 
 settings = get_settings()
@@ -130,11 +129,6 @@ def get_device_ingest_rate_limit_key(request: Request):
 
 
 def _build_limiter_storage_configuration() -> tuple[str, dict[str, object]]:
-    redis_url = (settings.redis_url or "").strip() or None
-    if redis_url:
-        return redis_url, {"connection_pool": get_redis_connection_pool()}
-    if settings.app_env == "production":
-        raise RuntimeError("REDIS_URL is required for rate limiting in production.")
     return "memory://", {}
 
 

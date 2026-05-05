@@ -55,7 +55,7 @@ def check_redis_connection() -> bool:
 
 
 def _should_fail_open_for_lock() -> bool:
-    return settings.app_env in {"development", "test"}
+    return True
 
 
 @contextmanager
@@ -66,18 +66,16 @@ def distributed_lock(
     retry_interval: float = 0.1,
 ) -> Generator[bool, None, None]:
     """
-    Acquire a Redis-backed distributed lock when available.
+    Acquire a best-effort lock when a shared runtime is available.
 
-    In development/test environments without Redis, this becomes a permissive
-    no-op lock so local workflows and isolated tests can still proceed.
+    Redis has been removed from the app runtime, so this currently behaves as a
+    permissive no-op lock.
     """
     client = get_shared_redis_client()
     if client is None:
-        if settings.app_env in {"development", "test"}:
-            _warn_missing_client("distributed lock")
-            yield True
-            return
-        raise RuntimeError("Distributed lock requires Redis in non-development environments.")
+        _warn_missing_client("distributed lock")
+        yield True
+        return
 
     lock_key = f"lock:{lock_name}"
     lock_value = str(uuid.uuid4())

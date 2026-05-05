@@ -6,13 +6,11 @@ Public functions:
     mark_all_read(...)           — bulk mark
     delete(...)                  — hard delete one notification
     create_for_patient(...)      — used by other services to push a notification;
-                                   also fan-out via Redis pub/sub for SSE listeners
+                                   SSE listeners discover new rows from DB
 """
 
 from __future__ import annotations
 
-import json
-import logging
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -26,17 +24,14 @@ from app.models.patient_notification import (
     PatientNotificationCategory,
 )
 
-logger = logging.getLogger(__name__)
-
-_PATIENT_STREAM_CHANNEL_PREFIX = "telemed:patient_app:"
 _DEFAULT_LIST_LIMIT = 100
 
 
 def patient_stream_channel(patient_id: UUID | str) -> str:
-    return f"{_PATIENT_STREAM_CHANNEL_PREFIX}{patient_id}"
+    return f"patient_app:{patient_id}"
 
 
-def _serialize(notification: PatientNotification) -> dict[str, Any]:
+def serialize(notification: PatientNotification) -> dict[str, Any]:
     category = notification.category
     category_value = category.value if hasattr(category, "value") else str(category)
     return {
@@ -80,9 +75,36 @@ def list_for_patient(
         or 0
     )
     return {
-        "items": [_serialize(item) for item in items],
+        "items": [serialize(item) for item in items],
         "total": int(total),
     }
+
+
+def latest_created_at(*, db: Session, patient_id: UUID) -> datetime | None:
+    return db.scalar(
+        select(func.max(PatientNotification.created_at)).where(
+            PatientNotification.patient_id == patient_id
+        )
+    )
+
+
+def list_created_after(
+    *,
+    db: Session,
+    patient_id: UUID,
+    created_after: datetime | None,
+) -> list[PatientNotification]:
+    stmt = select(PatientNotification).where(PatientNotification.patient_id == patient_id)
+    if created_after is not None:
+        stmt = stmt.where(PatientNotification.created_at > created_after)
+    return list(
+        db.scalars(
+            stmt.order_by(
+                PatientNotification.created_at.asc(),
+                PatientNotification.id.asc(),
+            )
+        ).all()
+    )
 
 
 def mark_read(
@@ -147,31 +169,6 @@ def delete_for_patient(
     db.commit()
 
 
-def _publish_notification_event(
-    *,
-    patient_id: UUID,
-    payload: dict[str, Any],
-) -> None:
-    """Fan out the new notification through Redis pub/sub so any SSE listener
-    for this patient receives an `event: notification` immediately.
-
-    Failures are logged and swallowed — the DB row is the source of truth and
-    polling fallback in the mobile app will still pick it up.
-    """
-    try:
-        from app.services.redis import redis_manager  # local import to avoid cycles
-
-        channel = patient_stream_channel(patient_id)
-        message = json.dumps({"event": "notification", "data": payload})
-        redis_manager.client.publish(channel, message)
-    except Exception:
-        logger.warning(
-            "Failed to publish patient notification to Redis",
-            extra={"patient_id": str(patient_id)},
-            exc_info=True,
-        )
-
-
 def create_for_patient(
     *,
     db: Session,
@@ -182,7 +179,7 @@ def create_for_patient(
     data: dict[str, Any] | None = None,
     publish: bool = True,
 ) -> PatientNotification:
-    """Insert a notification row and (optionally) fan it out via Redis pub/sub."""
+    """Insert a notification row. SSE streams discover new rows from DB."""
     try:
         category_enum = PatientNotificationCategory(category)
     except ValueError as exc:
@@ -205,11 +202,5 @@ def create_for_patient(
     db.add(notification)
     db.commit()
     db.refresh(notification)
-
-    if publish:
-        _publish_notification_event(
-            patient_id=patient_id,
-            payload=_serialize(notification),
-        )
 
     return notification
