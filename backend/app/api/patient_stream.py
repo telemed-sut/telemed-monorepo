@@ -4,6 +4,7 @@ import logging
 from typing import AsyncGenerator
 from uuid import UUID
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
 from app.services.auth import get_db, verify_patient_access
@@ -17,11 +18,16 @@ logger = logging.getLogger(__name__)
 async def stream_patient_events(
     request: Request,
     patient_id: UUID,
+    db: Session = Depends(get_db),
     current_user: User = Depends(verify_patient_access),
 ):
     """
     Server-Sent Events (SSE) endpoint for real-time patient updates.
     """
+    # Auth ran above. Drop the pool slot now — the SSE loop will run for the
+    # life of the connection and must not hold a DB connection while it idles.
+    db.close()
+
     channel = f"telemed:stream:patient:{patient_id}"
     pubsub = redis_manager.client.pubsub(ignore_subscribe_messages=True)
     await asyncio.to_thread(pubsub.subscribe, channel)
