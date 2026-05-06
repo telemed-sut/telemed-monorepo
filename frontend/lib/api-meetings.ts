@@ -1,4 +1,4 @@
-import { apiFetch, appendPagination } from "./api-client";
+import { apiFetch, appendPagination, invalidateCache } from "./api-client";
 import { fetchAllPages } from "./api-fetch-all";
 import type {
   FetchMeetingsParams,
@@ -45,27 +45,33 @@ export async function fetchAllMeetings(
 }
 
 export async function createMeeting(payload: MeetingCreatePayload, token: string) {
-  return apiFetch<Meeting>(
+  const meeting = await apiFetch<Meeting>(
     "/meetings",
     { method: "POST", body: JSON.stringify(payload) },
     token
   );
+  invalidateCache("/meetings");
+  return meeting;
 }
 
 export async function updateMeeting(id: string, payload: MeetingUpdatePayload, token: string) {
-  return apiFetch<Meeting>(
+  const meeting = await apiFetch<Meeting>(
     `/meetings/${id}`,
     { method: "PUT", body: JSON.stringify(payload) },
     token
   );
+  invalidateCache("/meetings");
+  return meeting;
 }
 
 export async function deleteMeeting(id: string, token: string) {
-  return apiFetch<void>(
+  const result = await apiFetch<void>(
     `/meetings/${id}`,
     { method: "DELETE" },
     token
   );
+  invalidateCache("/meetings");
+  return result;
 }
 
 export async function issueMeetingVideoToken(

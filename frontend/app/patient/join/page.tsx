@@ -26,6 +26,7 @@ import {
   getDefaultZegoVideoResolution,
   loadZegoUIKitPrebuilt,
   preloadZegoUIKitPrebuilt,
+  destroyZegoInstanceSafely,
   withTimeout,
   withRetry,
   markPromiseHandled,
@@ -534,7 +535,7 @@ function PatientJoinPageContent() {
       metrics.measure("sdk-load", "sdk-load-start", "sdk-load-end");
 
       if (zegoInstanceRef.current?.destroy) {
-        zegoInstanceRef.current.destroy();
+        destroyZegoInstanceSafely(zegoInstanceRef.current);
       }
       if (containerRef.current) {
         containerRef.current.textContent = "";
@@ -630,7 +631,7 @@ function PatientJoinPageContent() {
     return () => {
       activeJoinAttemptRef.current += 1;
       if (zegoInstanceRef.current?.destroy) {
-        zegoInstanceRef.current.destroy();
+        destroyZegoInstanceSafely(zegoInstanceRef.current);
       }
       zegoInstanceRef.current = null;
     };

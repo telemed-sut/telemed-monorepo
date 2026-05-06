@@ -1640,6 +1640,7 @@ export function MeetingsContent() {
   const includeCancelled = useCalendarStore((s) => s.includeCancelled);
   const setIncludeCancelled = useCalendarStore((s) => s.setIncludeCancelled);
   const setMeetings = useCalendarStore((s) => s.setMeetings);
+  const upsertMeeting = useCalendarStore((s) => s.upsertMeeting);
   const meetings = useCalendarStore((s) => s.meetings);
 
   const [viewMode, setViewMode] = useState<"calendar" | "month" | "queue">("calendar");
@@ -1807,6 +1808,17 @@ export function MeetingsContent() {
 
   const handleMeetingCreated = useCallback(
     async (meeting?: Meeting) => {
+      const shouldShowCreatedMeeting =
+        !meeting ||
+        userRole !== "doctor" ||
+        doctorScope === "all-visible" ||
+        (doctorScope === "my-meetings" && meeting.doctor_id === userId) ||
+        (doctorScope === "care-team" && meeting.doctor_id !== userId);
+
+      if (meeting && shouldShowCreatedMeeting) {
+        upsertMeeting(meeting);
+      }
+
       // If we have a date (new meeting), go to it
       // But if we just edited an existing one, user might want to stay in current view
       if (meeting?.date_time && viewMode !== "queue") {
@@ -1818,8 +1830,12 @@ export function MeetingsContent() {
 
       // Refresh list in background so view doesn't flicker/reset
       await loadMeetings(true);
+
+      if (meeting && shouldShowCreatedMeeting) {
+        upsertMeeting(meeting);
+      }
     },
-    [goToDate, viewMode, loadMeetings]
+    [doctorScope, goToDate, loadMeetings, upsertMeeting, userId, userRole, viewMode]
   );
 
   const handleSlotSelect = useCallback((slot: CalendarSlotSelection) => {

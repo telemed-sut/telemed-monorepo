@@ -7,7 +7,19 @@ from fastapi import HTTPException, status
 
 from app.models.weight_record import WeightRecord
 from app.schemas.weight import WeightRecordCreate, WeightRecordUpdate
+from app.services.patient_events import publish_patient_event_sync
 from app.services.vitals import check_vitals_and_alert
+
+
+def _trend_point(record: WeightRecord) -> dict[str, object]:
+    return {
+        "date": record.measured_at.date().isoformat(),
+        "recorded_at": record.measured_at.isoformat(),
+        "weight_kg": record.weight_kg,
+        "height_cm": record.height_cm,
+        "bmi": record.bmi,
+    }
+
 
 def create_weight_record(
     db: Session,
@@ -26,6 +38,16 @@ def create_weight_record(
     db.add(record)
     db.commit()
     db.refresh(record)
+
+    publish_patient_event_sync(
+        patient_id=patient_id,
+        event_type="new_weight_record",
+        recorded_at=record.measured_at,
+        data={
+            "weight_id": str(record.id),
+            "trend_point": _trend_point(record),
+        },
+    )
 
     # Check threshold and alert
     check_vitals_and_alert(

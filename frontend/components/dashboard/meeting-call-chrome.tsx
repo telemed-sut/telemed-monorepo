@@ -9,7 +9,6 @@ import {
   Clock3,
   Copy,
   ExternalLink,
-  PhoneOff,
   UserRound,
 } from "lucide-react";
 
@@ -38,7 +37,6 @@ interface MeetingCallChromeProps {
   copiedInvite: boolean;
   isMiniWindowPending: boolean;
   showStandbyState: boolean;
-  callEnded: boolean;
   loading: boolean;
   error: string | null;
   overallTimedOut: boolean;
@@ -67,7 +65,6 @@ export function MeetingCallChrome({
   copiedInvite,
   isMiniWindowPending,
   showStandbyState,
-  callEnded,
   loading,
   error,
   overallTimedOut,
@@ -253,94 +250,7 @@ export function MeetingCallChrome({
         </div>
       ) : null}
 
-      {callEnded && !showStandbyState ? (
-        <div className="absolute inset-0 z-20 flex items-center justify-center p-5">
-          <div className="w-full max-w-[580px] rounded-[30px] border border-slate-700/70 bg-slate-950/94 p-6 text-white shadow-[0_24px_72px_rgba(2,6,23,0.42)] backdrop-blur-xl sm:p-7">
-            <div className="flex flex-col gap-5">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 flex size-12 shrink-0 items-center justify-center rounded-[18px] border border-slate-700 bg-slate-900 text-slate-100">
-                    <PhoneOff className="size-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <span className="inline-flex items-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-200">
-                      <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                      {tr(language, "Session closed", "ปิดเซสชันแล้ว")}
-                    </span>
-                    <h2 className="mt-3 text-[30px] font-semibold leading-[1.08] tracking-tight text-white sm:text-[32px]">
-                      {tr(language, "You have left the room", "คุณได้ออกจากห้องแล้ว")}
-                    </h2>
-                    <p className="mt-2 max-w-[40ch] text-sm leading-6 text-slate-300 sm:text-[15px]">
-                      {tr(
-                        language,
-                        "Restart the consultation from here, or return to the appointments view if this session is finished.",
-                        "คุณสามารถเริ่มคอลใหม่จากหน้านี้ หรือกลับไปที่หน้านัดหมายหากเซสชันนี้เสร็จสิ้นแล้ว"
-                      )}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid shrink-0 gap-2 sm:min-w-[200px]">
-                  <div className="rounded-2xl border border-slate-700/80 bg-slate-900/80 px-3 py-2.5">
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
-                      {tr(language, "Patient", "ผู้ป่วย")}
-                    </p>
-                    <div className="mt-1 flex items-center gap-2 text-sm font-medium text-slate-100">
-                      <UserRound className="size-4 text-slate-400" />
-                      <span className="truncate">
-                        {patientName || tr(language, "Current appointment", "นัดหมายปัจจุบัน")}
-                      </span>
-                    </div>
-                  </div>
-                  {appointmentLabel ? (
-                    <div className="rounded-2xl border border-slate-700/80 bg-slate-900/80 px-3 py-2.5">
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
-                        {tr(language, "Appointment time", "เวลานัดหมาย")}
-                      </p>
-                      <div className="mt-1 flex items-center gap-2 text-sm font-medium text-slate-100">
-                        <Clock3 className="size-4 text-slate-400" />
-                        <span className="truncate">{appointmentLabel}</span>
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="rounded-[24px] border border-slate-700/80 bg-slate-900/70 p-4">
-                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
-                  {tr(language, "Next action", "การทำงานต่อ")}
-                </p>
-                <p className="mt-1 text-sm leading-6 text-slate-300">
-                  {tr(
-                    language,
-                    "Use restart when the consultation should continue now. Go back to appointments when you are done and want to manage other work.",
-                    "ใช้ปุ่มเริ่มคอลใหม่เมื่อต้องการตรวจต่อทันที หรือกลับหน้านัดหมายเมื่อทำรายการนี้เสร็จแล้วและต้องไปทำงานอื่น"
-                  )}
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-3">
-                <Button
-                  className="h-12 w-full cursor-pointer rounded-2xl bg-cyan-100 px-5 text-sm font-semibold text-slate-950 shadow-[0_10px_24px_rgba(103,232,249,0.16)] transition-colors duration-200 hover:bg-cyan-50"
-                  onClick={onRetryJoin}
-                >
-                  {tr(language, "Start call again", "เริ่มคอลใหม่")}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-11 cursor-pointer rounded-2xl border border-slate-700 bg-slate-900/90 px-4 text-sm font-medium text-slate-100 transition-colors duration-200 hover:border-slate-500 hover:bg-slate-800 hover:text-white"
-                  onClick={onBack}
-                >
-                  <ArrowLeft className="mr-2 size-4" />
-                  {tr(language, "Back to meetings", "กลับหน้านัดหมาย")}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {error && !loading && !callEnded && !showStandbyState ? (
+      {error && !loading && !showStandbyState ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center p-5">
           <div className="w-full max-w-md rounded-[28px] border border-white/12 bg-slate-950/82 p-6 text-white shadow-[0_28px_80px_rgba(15,23,42,0.42)] backdrop-blur-2xl">
             <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-amber-100/80">

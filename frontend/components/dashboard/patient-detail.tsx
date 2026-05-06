@@ -109,6 +109,11 @@ type PatientStreamEnvelope = {
   data?: unknown;
 };
 
+type PatientStreamData = {
+  trend_point?: unknown;
+  pressure_record?: unknown;
+};
+
 type ParsedSseEvent = {
   event?: string;
   data?: string;
@@ -163,6 +168,152 @@ function getPatientStreamEventType(envelope: PatientStreamEnvelope | null): stri
   return null;
 }
 
+function getPatientStreamData(envelope: PatientStreamEnvelope | null): PatientStreamData | null {
+  if (!envelope?.data || typeof envelope.data !== "object") {
+    return null;
+  }
+  return envelope.data as PatientStreamData;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function pickTrendNumber(source: Record<string, unknown>, key: keyof VitalTrendDataPoint) {
+  const value = source[key];
+  return isFiniteNumber(value) ? value : undefined;
+}
+
+function parsePatientTrendPoint(value: unknown): VitalTrendDataPoint | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const date = typeof source.date === "string" ? source.date : null;
+  if (!date) {
+    return null;
+  }
+
+  const trendPoint: VitalTrendDataPoint = { date };
+  if (typeof source.recorded_at === "string") {
+    trendPoint.recorded_at = source.recorded_at;
+  }
+
+  for (const key of [
+    "heart_rate",
+    "sys_pressure",
+    "dia_pressure",
+    "weight_kg",
+    "height_cm",
+    "bmi",
+  ] as const) {
+    const numberValue = pickTrendNumber(source, key);
+    if (numberValue !== undefined) {
+      trendPoint[key] = numberValue;
+    }
+  }
+
+  return trendPoint;
+}
+
+function isPressureRiskLevel(value: unknown): value is PressureRiskLevel {
+  return value === "normal" || value === "moderate" || value === "danger";
+}
+
+function parsePatientPressureRecord(value: unknown): PressureRecord | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const risk = source.risk;
+  const riskSource = risk && typeof risk === "object" ? (risk as Record<string, unknown>) : null;
+
+  if (
+    typeof source.id !== "string" ||
+    typeof source.patient_id !== "string" ||
+    typeof source.device_id !== "string" ||
+    !isFiniteNumber(source.heart_rate) ||
+    !isFiniteNumber(source.sys_rate) ||
+    !isFiniteNumber(source.dia_rate) ||
+    typeof source.measured_at !== "string" ||
+    typeof source.created_at !== "string" ||
+    !riskSource ||
+    !isPressureRiskLevel(riskSource.level) ||
+    !isPressureRiskLevel(riskSource.heart_rate_level) ||
+    !isPressureRiskLevel(riskSource.blood_pressure_level)
+  ) {
+    return null;
+  }
+
+  return {
+    id: source.id,
+    patient_id: source.patient_id,
+    device_exam_session_id:
+      typeof source.device_exam_session_id === "string" ? source.device_exam_session_id : null,
+    device_id: source.device_id,
+    heart_rate: source.heart_rate,
+    sys_rate: source.sys_rate,
+    dia_rate: source.dia_rate,
+    measured_at: source.measured_at,
+    created_at: source.created_at,
+    risk: {
+      level: riskSource.level,
+      heart_rate_level: riskSource.heart_rate_level,
+      blood_pressure_level: riskSource.blood_pressure_level,
+      reasons: Array.isArray(riskSource.reasons)
+        ? riskSource.reasons.filter((item): item is string => typeof item === "string")
+        : [],
+    },
+  };
+}
+
+function getTrendSortTime(point: VitalTrendDataPoint) {
+  const parsed = new Date(point.recorded_at ?? point.date).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mergeTrendValue<T extends keyof VitalTrendDataPoint>(
+  target: VitalTrendDataPoint,
+  source: VitalTrendDataPoint,
+  key: T
+) {
+  const value = source[key];
+  if (value !== undefined && value !== null) {
+    target[key] = value;
+  }
+}
+
+function mergeVitalTrendPoint(
+  points: VitalTrendDataPoint[],
+  nextPoint: VitalTrendDataPoint
+): VitalTrendDataPoint[] {
+  const index = points.findIndex((point) => point.date === nextPoint.date);
+  if (index === -1) {
+    return [...points, nextPoint].sort((a, b) => getTrendSortTime(a) - getTrendSortTime(b));
+  }
+
+  const next = [...points];
+  const merged: VitalTrendDataPoint = { ...next[index] };
+  mergeTrendValue(merged, nextPoint, "recorded_at");
+  mergeTrendValue(merged, nextPoint, "heart_rate");
+  mergeTrendValue(merged, nextPoint, "sys_pressure");
+  mergeTrendValue(merged, nextPoint, "dia_pressure");
+  mergeTrendValue(merged, nextPoint, "weight_kg");
+  mergeTrendValue(merged, nextPoint, "height_cm");
+  mergeTrendValue(merged, nextPoint, "bmi");
+  next[index] = merged;
+  return next.sort((a, b) => getTrendSortTime(a) - getTrendSortTime(b));
+}
+
+function appendRealtimePressureRecord(
+  readings: PressureRecord[],
+  nextRecord: PressureRecord
+): PressureRecord[] {
+  return [nextRecord, ...readings.filter((record) => record.id !== nextRecord.id)].slice(0, 10);
+}
+
 function parseSseEvent(rawEvent: string): ParsedSseEvent | null {
   const parsed: ParsedSseEvent = {};
   const dataLines: string[] = [];
@@ -204,9 +355,7 @@ function findSseEventBoundary(buffer: string): SseBoundary | null {
 }
 
 function getPatientStreamUrl(patientId: string): string {
-  const directApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
-  const baseUrl = directApiBaseUrl || API_BASE_URL;
-  return `${baseUrl}/patients/${patientId}/stream`;
+  return `${API_BASE_URL}/patients/${patientId}/stream`;
 }
 
 const getPressureRiskLabel = (level: PressureRiskLevel, language: AppLanguage) => {
@@ -626,6 +775,47 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     [loadPressureReadings]
   );
 
+  const applyPatientStreamPayload = React.useCallback(
+    (envelope: PatientStreamEnvelope | null, eventType: string | null) => {
+      const data = getPatientStreamData(envelope);
+      if (!data) {
+        return false;
+      }
+
+      let applied = false;
+      const trendPoint = parsePatientTrendPoint(data.trend_point);
+      if (trendPoint) {
+        setVitalsTrends((current) => mergeVitalTrendPoint(current, trendPoint));
+        setLoadingVitalsTrends(false);
+        hasLoadedVitalsTrendsRef.current = true;
+        applied = true;
+      }
+
+      if (eventType === "new_pressure_reading") {
+        const pressureRecord = parsePatientPressureRecord(data.pressure_record);
+        if (pressureRecord) {
+          setPressureReadings((current) => {
+            const alreadyExists = current.some((record) => record.id === pressureRecord.id);
+            if (!alreadyExists) {
+              setPressureTotal((total) => Math.max(total + 1, current.length + 1));
+            }
+            return appendRealtimePressureRecord(current, pressureRecord);
+          });
+          setPressureReadingsError(null);
+          setLoadingPressureReadings(false);
+          applied = true;
+        }
+      }
+
+      if (applied) {
+        setLastRealtimeSyncAt(new Date());
+      }
+
+      return applied;
+    },
+    []
+  );
+
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -721,8 +911,13 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
         return;
       }
 
-      const eventType = getPatientStreamEventType(parsePatientStreamEnvelope(rawData));
+      const envelope = parsePatientStreamEnvelope(rawData);
+      const eventType = getPatientStreamEventType(envelope);
       if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
+
+      if (applyPatientStreamPayload(envelope, eventType)) {
         return;
       }
 
@@ -840,7 +1035,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, [loadPressureReadings, patientId, refreshRealtimeVitals, token]);
+  }, [applyPatientStreamPayload, loadPressureReadings, patientId, refreshRealtimeVitals, token]);
 
   useEffect(() => {
     if (!token) return;
@@ -854,10 +1049,17 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
         const res = await fetchPatientVitalsTrends(patientId, 30, token);
         if (!cancelled) {
           if (res.trends.length > 0) {
-            setVitalsTrends(res.trends);
+            setVitalsTrends((current) =>
+              current.reduce(
+                (merged, trendPoint) => mergeVitalTrendPoint(merged, trendPoint),
+                res.trends
+              )
+            );
           } else {
             // Fall back to sample data so doctors can preview the chart
-            setVitalsTrends(buildMockVitalsTrends());
+            setVitalsTrends((current) =>
+              current.length > 0 ? current : buildMockVitalsTrends()
+            );
           }
           hasLoadedVitalsTrendsRef.current = true;
         }

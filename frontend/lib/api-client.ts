@@ -12,7 +12,7 @@ export const API_BASE_URL =
       process.env.NEXT_SERVER_API_BASE_URL ||
       process.env.NEXT_SERVER_API_PROXY_TARGET ||
       process.env.NEXT_PUBLIC_API_BASE_URL ||
-      "http://localhost:8000"
+      "http://127.0.0.1:8000"
     );
 
 export type ApiError = Error & { status?: number; detail?: unknown; code?: string };

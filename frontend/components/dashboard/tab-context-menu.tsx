@@ -21,6 +21,10 @@ import {
   ContextMenuShortcut,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  isMeetingCallHref,
+  requestMeetingCallNavigation,
+} from "@/lib/meeting-call-navigation";
 import type { WorkspaceTab } from "@/store/workspace-tabs-store";
 import { useWorkspaceTabsStore } from "@/store/workspace-tabs-store";
 import { useLanguageStore } from "@/store/language-store";
@@ -97,6 +101,10 @@ export function WorkspaceTabContextMenu({
     }
 
     if (nextTab.href !== pathname) {
+      if (isMeetingCallHref(pathname) && !isMeetingCallHref(nextTab.href)) {
+        requestMeetingCallNavigation(nextTab.href);
+        return;
+      }
       router.push(nextTab.href);
     }
   };

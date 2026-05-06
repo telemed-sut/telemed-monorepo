@@ -23,10 +23,16 @@ import {
   CallStartupMetrics,
   getAdaptiveMediaConstraints,
   getMediaReleaseDelay,
+  destroyZegoInstanceSafely,
   API_TIMEOUT_MS,
   type ZegoUIKitPrebuiltInstance,
 } from "@/lib/zego-uikit";
 import { generateSecureId } from "@/lib/secure-random";
+import {
+  MEETING_CALL_NAVIGATION_REQUEST,
+  isMeetingCallHref,
+  type MeetingCallNavigationRequestDetail,
+} from "@/lib/meeting-call-navigation";
 import { useAuthStore } from "@/store/auth-store";
 import { useLanguageStore } from "@/store/language-store";
 import type { AppLanguage } from "@/store/language-config";
@@ -285,6 +291,43 @@ function formatAppointmentTime(language: AppLanguage, isoString: string): string
   });
 }
 
+function formatMeetingsDateParam(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getWeekStartForMeetings(date: Date): Date {
+  const weekStart = new Date(date);
+  const day = weekStart.getDay();
+  const daysSinceMonday = (day + 6) % 7;
+  weekStart.setDate(weekStart.getDate() - daysSinceMonday);
+  weekStart.setHours(0, 0, 0, 0);
+  return weekStart;
+}
+
+function isSafeMeetingsReturnPath(value: string): boolean {
+  return value === "/meetings" || value.startsWith("/meetings?");
+}
+
+function resolveMeetingsReturnUrl(
+  returnTo: string,
+  patientTime: string
+): string {
+  if (returnTo && isSafeMeetingsReturnPath(returnTo)) {
+    return returnTo;
+  }
+
+  const appointmentDate = new Date(patientTime);
+  if (Number.isNaN(appointmentDate.getTime())) {
+    return "/meetings?view=week";
+  }
+
+  const weekStart = getWeekStartForMeetings(appointmentDate);
+  return `/meetings?view=week&date=${formatMeetingsDateParam(weekStart)}`;
+}
+
 function formatCallDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -330,6 +373,7 @@ export default function MeetingCallPage() {
   const endedFromSearch = searchParams.get("ended") === "1";
   const patientName = searchParams.get("pn") ?? "";
   const patientTime = searchParams.get("pt") ?? "";
+  const returnToParam = searchParams.get("returnTo") ?? "";
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -339,7 +383,6 @@ export default function MeetingCallPage() {
   const [callSeconds, setCallSeconds] = useState(0);
   const [retryNonce, setRetryNonce] = useState(0);
   const [handoffState, setHandoffState] = useState<HandoffState>("idle");
-  const [callEnded, setCallEnded] = useState(endedFromSearch);
   const [loadingStep, setLoadingStep] = useState<CallLoadingStep>("checking-media");
   const [isSlowLoading, setIsSlowLoading] = useState(false);
   const [stageStuck, setStageStuck] = useState(false);
@@ -355,6 +398,7 @@ export default function MeetingCallPage() {
   const activeHandoffIdRef = useRef<string | null>(null);
   const skipDoctorPresenceLeaveRef = useRef(false);
   const popupActivationAnnouncedRef = useRef(false);
+  const pendingNavigationHrefRef = useRef<string | null>(null);
 
   const meetingId = useMemo(() => {
     const raw = params?.meetingId;
@@ -367,17 +411,24 @@ export default function MeetingCallPage() {
   const isMainWindowParked = !isPopupWindow && handoffState === "popup-active";
   const isMiniWindowPending =
     handoffState === "popup-opening" || handoffState === "popup-joining";
+  const meetingsReturnUrl = useMemo(
+    () => resolveMeetingsReturnUrl(returnToParam, patientTime),
+    [patientTime, returnToParam]
+  );
 
   const buildCallUrl = useCallback(
     (options?: { ended?: boolean }) => {
       const nextParams = new URLSearchParams();
       if (patientName) nextParams.set("pn", patientName);
       if (patientTime) nextParams.set("pt", patientTime);
+      if (returnToParam && isSafeMeetingsReturnPath(returnToParam)) {
+        nextParams.set("returnTo", returnToParam);
+      }
       if (options?.ended) nextParams.set("ended", "1");
       const qs = nextParams.toString();
       return `/meetings/call/${meetingId}${qs ? `?${qs}` : ""}`;
     },
-    [meetingId, patientName, patientTime]
+    [meetingId, patientName, patientTime, returnToParam]
   );
 
   const postMiniWindowMessage = useCallback(
@@ -453,6 +504,15 @@ export default function MeetingCallPage() {
   }, [buildCallUrl, endedFromSearch, isPopupWindow, resumeFromMiniWindow]);
 
   useEffect(() => {
+    if (isPopupWindow || !endedFromSearch) {
+      return;
+    }
+
+    skipUnloadGuardRef.current = true;
+    router.replace(meetingsReturnUrl);
+  }, [endedFromSearch, isPopupWindow, meetingsReturnUrl, router]);
+
+  useEffect(() => {
     if (isPopupWindow) {
       return;
     }
@@ -475,7 +535,6 @@ export default function MeetingCallPage() {
     if (loading) {
       return;
     }
-    setCallEnded(false);
     window.history.replaceState(window.history.state, "", buildCallUrl());
     skipDoctorPresenceLeaveRef.current = false;
     setHandoffState("idle");
@@ -501,7 +560,6 @@ export default function MeetingCallPage() {
     resumeOnNextJoinRef.current = true;
     skipDoctorPresenceLeaveRef.current = false;
     setHandoffState("resuming");
-    setCallEnded(false);
     setLoading(true);
     setError(null);
     setRetryNonce((current) => current + 1);
@@ -515,10 +573,8 @@ export default function MeetingCallPage() {
     skipDoctorPresenceLeaveRef.current = false;
     setHandoffState("idle");
     setSession(null);
-    setCallEnded(true);
     setLoading(false);
     setError(null);
-    window.history.replaceState(window.history.state, "", buildCallUrl({ ended: true }));
 
     if (isPopupWindow) {
       if (window.opener && !window.opener.closed) {
@@ -528,6 +584,7 @@ export default function MeetingCallPage() {
               source: MINI_WINDOW_MESSAGE_SOURCE,
               meetingId,
               type: "popup-ended" satisfies MiniWindowMessageType,
+              handoffId: handoffIdFromSearch || undefined,
             },
             window.location.origin
           );
@@ -539,9 +596,12 @@ export default function MeetingCallPage() {
       window.close();
       return;
     }
-  }, [buildCallUrl, isPopupWindow, meetingId]);
 
-  const openMiniWindowAndSwitch = () => {
+    skipUnloadGuardRef.current = true;
+    router.push(meetingsReturnUrl);
+  }, [handoffIdFromSearch, isPopupWindow, meetingId, meetingsReturnUrl, router]);
+
+  const openMiniWindowAndSwitch = useCallback(() => {
     if (!meetingId || handoffState !== "idle") {
       return;
     }
@@ -550,6 +610,9 @@ export default function MeetingCallPage() {
     const popupParams = new URLSearchParams({ popup: "1", handoff: handoffId });
     if (patientName) popupParams.set("pn", patientName);
     if (patientTime) popupParams.set("pt", patientTime);
+    if (returnToParam && isSafeMeetingsReturnPath(returnToParam)) {
+      popupParams.set("returnTo", returnToParam);
+    }
     const popupUrl = `${window.location.origin}/meetings/call/${meetingId}?${popupParams.toString()}`;
     const width = 480;
     const height = 860;
@@ -562,6 +625,7 @@ export default function MeetingCallPage() {
     );
 
     if (!popup) {
+      pendingNavigationHrefRef.current = null;
       setError(
         tr(
           language,
@@ -579,11 +643,11 @@ export default function MeetingCallPage() {
     setHandoffState("popup-opening");
     setError(null);
     popup.focus();
-  };
+  }, [handoffState, language, meetingId, patientName, patientTime, returnToParam]);
 
   const handleBackToMeetings = () => {
     skipUnloadGuardRef.current = true;
-    router.push("/meetings");
+    router.push(meetingsReturnUrl);
   };
 
   const handleClosePopupWindow = () => {
@@ -598,7 +662,7 @@ export default function MeetingCallPage() {
     window.close();
     window.setTimeout(() => {
       if (!window.closed) {
-        router.push("/meetings");
+        router.push(meetingsReturnUrl);
       }
     }, 120);
   };
@@ -705,7 +769,7 @@ export default function MeetingCallPage() {
       setLoading(false);
       return;
     }
-    if (callEnded && !resumeOnNextJoinRef.current) {
+    if (!isPopupWindow && endedFromSearch) {
       setLoading(false);
       return;
     }
@@ -922,7 +986,7 @@ export default function MeetingCallPage() {
           instance &&
           typeof instance.destroy === "function"
         ) {
-          instance.destroy();
+          destroyZegoInstanceSafely(instance);
         }
       } catch {
         // ignore SDK cleanup errors on teardown/retry
@@ -942,9 +1006,9 @@ export default function MeetingCallPage() {
     language,
     currentUser,
     isPopupWindow,
+    endedFromSearch,
     postMiniWindowMessage,
     handleLeaveCallRoute,
-    callEnded,
     isMainWindowParked,
     resumeFromMiniWindow,
     retryNonce,
@@ -1009,12 +1073,19 @@ export default function MeetingCallPage() {
       }
 
       if (data.type === "popup-active") {
+        const pendingNavigationHref = pendingNavigationHrefRef.current;
+        pendingNavigationHrefRef.current = null;
         skipDoctorPresenceLeaveRef.current = true;
         setHandoffState("popup-active");
+        if (pendingNavigationHref) {
+          skipUnloadGuardRef.current = true;
+          router.push(pendingNavigationHref);
+        }
         return;
       }
 
       if (data.type === "popup-failed") {
+        pendingNavigationHrefRef.current = null;
         popupWindowRef.current = null;
         activeHandoffIdRef.current = null;
         skipDoctorPresenceLeaveRef.current = false;
@@ -1034,6 +1105,7 @@ export default function MeetingCallPage() {
           requestResumeFromMiniWindow();
           return;
         }
+        pendingNavigationHrefRef.current = null;
         popupWindowRef.current = null;
         activeHandoffIdRef.current = null;
         skipDoctorPresenceLeaveRef.current = false;
@@ -1042,20 +1114,17 @@ export default function MeetingCallPage() {
       }
 
       if (data.type === "popup-ended") {
+        pendingNavigationHrefRef.current = null;
         popupWindowRef.current = null;
         activeHandoffIdRef.current = null;
         resumeOnNextJoinRef.current = false;
         skipDoctorPresenceLeaveRef.current = false;
         setHandoffState("idle");
         setSession(null);
-        setCallEnded(true);
         setLoading(false);
         setError(null);
-        window.history.replaceState(
-          window.history.state,
-          "",
-          buildCallUrl({ ended: true })
-        );
+        skipUnloadGuardRef.current = true;
+        router.push(meetingsReturnUrl);
       }
     };
 
@@ -1064,13 +1133,50 @@ export default function MeetingCallPage() {
       window.removeEventListener("message", handleMessage);
     };
   }, [
-    buildCallUrl,
     handoffState,
     isPopupWindow,
     language,
+    meetingsReturnUrl,
     meetingId,
     requestResumeFromMiniWindow,
+    router,
   ]);
+
+  useEffect(() => {
+    if (isPopupWindow) {
+      return;
+    }
+
+    const handleNavigationRequest = (event: Event) => {
+      const href = (event as CustomEvent<MeetingCallNavigationRequestDetail>)
+        .detail?.href;
+      if (!href || isMeetingCallHref(href)) {
+        return;
+      }
+
+      if (handoffState === "popup-active") {
+        skipUnloadGuardRef.current = true;
+        router.push(href);
+        return;
+      }
+
+      pendingNavigationHrefRef.current = href;
+      if (handoffState === "idle") {
+        openMiniWindowAndSwitch();
+      }
+    };
+
+    window.addEventListener(
+      MEETING_CALL_NAVIGATION_REQUEST,
+      handleNavigationRequest
+    );
+    return () => {
+      window.removeEventListener(
+        MEETING_CALL_NAVIGATION_REQUEST,
+        handleNavigationRequest
+      );
+    };
+  }, [handoffState, isPopupWindow, openMiniWindowAndSwitch, router]);
 
   useEffect(() => {
     if (isPopupWindow || handoffState === "idle") {
@@ -1084,6 +1190,7 @@ export default function MeetingCallPage() {
           requestResumeFromMiniWindow();
           return;
         }
+        pendingNavigationHrefRef.current = null;
         popupWindowRef.current = null;
         activeHandoffIdRef.current = null;
         skipDoctorPresenceLeaveRef.current = false;
@@ -1247,7 +1354,6 @@ export default function MeetingCallPage() {
           copiedInvite={copiedInvite}
           isMiniWindowPending={isMiniWindowPending}
           showStandbyState={showStandbyState}
-          callEnded={callEnded}
           loading={loading}
           error={error}
           overallTimedOut={overallTimedOut}

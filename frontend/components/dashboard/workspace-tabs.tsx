@@ -39,6 +39,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/toast";
+import {
+  isMeetingCallHref,
+  requestMeetingCallNavigation,
+} from "@/lib/meeting-call-navigation";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
 import { APP_LOCALE_MAP } from "@/store/language-config";
@@ -581,11 +585,22 @@ export function WorkspaceTabs() {
     }, 0);
   };
 
+  const navigatePreservingActiveCall = (href: string) => {
+    if (href === pathname) {
+      return;
+    }
+
+    if (isMeetingCallHref(pathname) && !isMeetingCallHref(href)) {
+      requestMeetingCallNavigation(href);
+      return;
+    }
+
+    router.push(href);
+  };
+
   const handleTabSelect = (tab: WorkspaceTab) => {
     activateTab(tab.id);
-    if (tab.href !== pathname) {
-      router.push(tab.href);
-    }
+    navigatePreservingActiveCall(tab.href);
   };
 
   const handleClose = (
@@ -594,8 +609,8 @@ export function WorkspaceTabs() {
   ) => {
     event.stopPropagation();
     const nextTab = closeTab(tab.id);
-    if (nextTab && nextTab.href !== pathname) {
-      router.push(nextTab.href);
+    if (nextTab) {
+      navigatePreservingActiveCall(nextTab.href);
     }
   };
 
@@ -659,8 +674,8 @@ export function WorkspaceTabs() {
 
   const handleResetTabs = () => {
     const nextTab = resetTabs(language, pathname, userId);
-    if (nextTab && nextTab.href !== pathname) {
-      router.push(nextTab.href);
+    if (nextTab) {
+      navigatePreservingActiveCall(nextTab.href);
     }
     setConfigOpen(false);
   };
@@ -670,9 +685,7 @@ export function WorkspaceTabs() {
 
     if (existingTab) {
       activateTab(existingTab.id);
-      if (existingTab.href !== pathname) {
-        router.push(existingTab.href);
-      }
+      navigatePreservingActiveCall(existingTab.href);
       setConfigOpen(false);
       return;
     }
@@ -683,7 +696,7 @@ export function WorkspaceTabs() {
       return;
     }
 
-    router.push(workspace.href);
+    navigatePreservingActiveCall(workspace.href);
     setConfigOpen(false);
   };
 

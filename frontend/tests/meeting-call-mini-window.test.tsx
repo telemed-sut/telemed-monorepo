@@ -1,8 +1,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MEETING_CALL_NAVIGATION_REQUEST } from "@/lib/meeting-call-navigation";
+
 const {
   mockPush,
+  mockRouter,
   mockIssueMeetingVideoToken,
   mockCreateMeetingPatientInvite,
   mockHeartbeatDoctorMeetingPresence,
@@ -13,27 +16,32 @@ const {
   mockGenerateKitTokenForProduction,
   mockCreateZegoInstance,
   mockWindowOpen,
-} = vi.hoisted(() => ({
-  mockPush: vi.fn(),
-  mockIssueMeetingVideoToken: vi.fn(),
-  mockCreateMeetingPatientInvite: vi.fn(),
-  mockHeartbeatDoctorMeetingPresence: vi.fn(),
-  mockLeaveDoctorMeetingPresence: vi.fn(),
-  mockHydrate: vi.fn().mockResolvedValue(undefined),
-  mockJoinRoom: vi.fn(),
-  mockDestroy: vi.fn(),
-  mockGenerateKitTokenForProduction: vi.fn(() => "kit-token"),
-  mockCreateZegoInstance: vi.fn(),
-  mockWindowOpen: vi.fn(),
-}));
+  mockSearchParams,
+} = vi.hoisted(() => {
+  const push = vi.fn();
+  const replace = vi.fn();
+  return {
+    mockPush: push,
+    mockReplace: replace,
+    mockRouter: { push, replace },
+    mockIssueMeetingVideoToken: vi.fn(),
+    mockCreateMeetingPatientInvite: vi.fn(),
+    mockHeartbeatDoctorMeetingPresence: vi.fn(),
+    mockLeaveDoctorMeetingPresence: vi.fn(),
+    mockHydrate: vi.fn().mockResolvedValue(undefined),
+    mockJoinRoom: vi.fn(),
+    mockDestroy: vi.fn(),
+    mockGenerateKitTokenForProduction: vi.fn(() => "kit-token"),
+    mockCreateZegoInstance: vi.fn(),
+    mockWindowOpen: vi.fn(),
+    mockSearchParams: { value: "pn=Taylor%20Patient" },
+  };
+});
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ meetingId: "meeting-1" }),
-  useRouter: () => ({
-    push: mockPush,
-    replace: vi.fn(),
-  }),
-  useSearchParams: () => new URLSearchParams("pn=Taylor%20Patient"),
+  useRouter: () => mockRouter,
+  useSearchParams: () => new URLSearchParams(mockSearchParams.value),
 }));
 
 vi.mock("@/store/auth-store", () => ({
@@ -83,6 +91,9 @@ vi.mock("@/lib/zego-uikit", () => ({
   },
   getAdaptiveMediaConstraints: () => ({}),
   getMediaReleaseDelay: () => 0,
+  destroyZegoInstanceSafely: (instance: { destroy: () => void }) => {
+    instance.destroy();
+  },
   API_TIMEOUT_MS: 5000,
 }));
 
@@ -133,8 +144,17 @@ function dispatchPopupMessage({
   );
 }
 
+function dispatchCallNavigationRequest(href: string) {
+  window.dispatchEvent(
+    new CustomEvent(MEETING_CALL_NAVIGATION_REQUEST, {
+      detail: { href },
+    })
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  mockSearchParams.value = "pn=Taylor%20Patient";
 
   Object.defineProperty(window, "isSecureContext", {
     configurable: true,
@@ -273,6 +293,55 @@ describe("Meeting call mini-window handoff", () => {
     expect(mockDestroy).not.toHaveBeenCalled();
   });
 
+  it("moves the active call to a mini window before navigating away", async () => {
+    await renderMeetingCallPage();
+
+    await waitFor(() => {
+      expect(mockJoinRoom).toHaveBeenCalledTimes(1);
+    });
+
+    dispatchCallNavigationRequest("/patients");
+
+    await waitFor(() => {
+      expect(mockWindowOpen).toHaveBeenCalledTimes(1);
+    });
+    expect(mockPush).not.toHaveBeenCalledWith("/patients");
+    expect(mockDestroy).not.toHaveBeenCalled();
+
+    const popupUrl = mockWindowOpen.mock.calls[0]?.[0];
+    const handoffId = new URL(String(popupUrl)).searchParams.get("handoff");
+    expect(handoffId).toBeTruthy();
+
+    dispatchPopupMessage({ handoffId: String(handoffId), type: "popup-active" });
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith("/patients");
+    });
+  });
+
+  it("stays on the active call when navigation handoff pop-up is blocked", async () => {
+    mockWindowOpen.mockReturnValueOnce(null);
+
+    await renderMeetingCallPage();
+
+    await waitFor(() => {
+      expect(mockJoinRoom).toHaveBeenCalledTimes(1);
+    });
+
+    dispatchCallNavigationRequest("/patients");
+
+    await waitFor(() => {
+      expect(mockWindowOpen).toHaveBeenCalledTimes(1);
+    });
+    expect(mockPush).not.toHaveBeenCalledWith("/patients");
+    expect(mockDestroy).not.toHaveBeenCalled();
+    expect(
+      screen.getByText(
+        "Mini window was blocked by browser. Please allow pop-ups for this site and try again."
+      )
+    ).toBeInTheDocument();
+  });
+
   it("resumes the main call when the popup closes after takeover", async () => {
     const handoffId = await openMiniWindowAndGetHandoffId();
 
@@ -293,5 +362,43 @@ describe("Meeting call mini-window handoff", () => {
     await waitFor(() => {
       expect(mockJoinRoom.mock.calls.length).toBeGreaterThan(joinCallsBeforeResume);
     });
+  });
+
+  it("returns to the originating meetings week when the doctor leaves the room", async () => {
+    mockSearchParams.value =
+      "pn=Taylor%20Patient&pt=2026-05-07T10%3A30%3A00.000Z&returnTo=%2Fmeetings%3Fview%3Dweek%26date%3D2026-05-04";
+
+    await renderMeetingCallPage();
+
+    await waitFor(() => {
+      expect(mockJoinRoom).toHaveBeenCalledTimes(1);
+    });
+
+    const joinOptions = mockJoinRoom.mock.calls[0]?.[0] as
+      | { onLeaveRoom?: () => void }
+      | undefined;
+    expect(joinOptions?.onLeaveRoom).toBeTypeOf("function");
+
+    joinOptions?.onLeaveRoom?.();
+
+    expect(mockPush).toHaveBeenCalledWith("/meetings?view=week&date=2026-05-04");
+    expect(screen.queryByText("You have left the room")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the appointment week when no meetings return URL is available", async () => {
+    mockSearchParams.value = "pn=Taylor%20Patient&pt=2026-05-07T10%3A30%3A00.000Z";
+
+    await renderMeetingCallPage();
+
+    await waitFor(() => {
+      expect(mockJoinRoom).toHaveBeenCalledTimes(1);
+    });
+
+    const joinOptions = mockJoinRoom.mock.calls[0]?.[0] as
+      | { onLeaveRoom?: () => void }
+      | undefined;
+    joinOptions?.onLeaveRoom?.();
+
+    expect(mockPush).toHaveBeenCalledWith("/meetings?view=week&date=2026-05-04");
   });
 });

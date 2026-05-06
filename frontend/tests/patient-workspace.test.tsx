@@ -145,6 +145,7 @@ describe("patient workspace overview", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("renders workspace navigation and focus mode entry", async () => {
@@ -162,6 +163,7 @@ describe("patient workspace overview", () => {
   });
 
   it("refreshes patient vitals from patient stream events", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "http://localhost:8000");
     mockAuthState.token = "header.payload.signature";
     const { PatientDetailContent } = await import("@/components/dashboard/patient-detail");
     render(<PatientDetailContent patientId="patient-1" />);
@@ -189,28 +191,84 @@ describe("patient workspace overview", () => {
     expect(mockFetchPressureReadings).toHaveBeenCalledTimes(1);
 
     act(() => {
-      emitPatientStreamEvent({ type: "new_pressure_reading", data: { id: "pressure-1" } });
+      emitPatientStreamEvent({
+        type: "new_pressure_reading",
+        data: {
+          trend_point: {
+            date: "2026-05-06",
+            recorded_at: "2026-05-06T07:15:00Z",
+            heart_rate: 88,
+            sys_pressure: 132,
+            dia_pressure: 82,
+          },
+          pressure_record: {
+            id: "pressure-1",
+            patient_id: "patient-1",
+            device_exam_session_id: null,
+            device_id: "device-1",
+            heart_rate: 88,
+            sys_rate: 132,
+            dia_rate: 82,
+            measured_at: "2026-05-06T07:15:00Z",
+            created_at: "2026-05-06T07:15:00Z",
+            risk: {
+              level: "moderate",
+              heart_rate_level: "normal",
+              blood_pressure_level: "moderate",
+              reasons: ["sys_rate between 120-139 mmHg (132)"],
+            },
+          },
+        },
+      });
     });
 
-    await waitFor(() => expect(mockFetchPressureReadings).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText("132/82")).toBeInTheDocument());
+    expect(mockFetchPressureReadings).toHaveBeenCalledTimes(1);
+    expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls);
+
+    act(() => {
+      emitPatientStreamEvent({
+        type: "new_weight_record",
+        data: {
+          trend_point: {
+            date: "2026-05-06",
+            recorded_at: "2026-05-06T07:16:00Z",
+            weight_kg: 121,
+            height_cm: 175,
+            bmi: 39.5,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("121 kg")).toBeInTheDocument());
+    expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls);
+
+    act(() => {
+      emitPatientStreamEvent({
+        type: "new_patient_screening",
+        data: {
+          trend_point: {
+            date: "2026-05-06",
+            recorded_at: "2026-05-06T07:17:00Z",
+            heart_rate: 115,
+            sys_pressure: 140,
+            dia_pressure: 90,
+            weight_kg: 122,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("122 kg")).toBeInTheDocument());
+    expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls);
+
+    act(() => {
+      emitPatientStreamEvent({ type: "new_weight_record", data: { id: "legacy-weight-1" } });
+    });
+
     await waitFor(() =>
       expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls + 1)
-    );
-
-    act(() => {
-      emitPatientStreamEvent({ type: "new_weight_record", data: { id: "weight-1" } });
-    });
-
-    await waitFor(() =>
-      expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls + 2)
-    );
-
-    act(() => {
-      emitPatientStreamEvent({ type: "new_patient_screening", data: { id: "screening-1" } });
-    });
-
-    await waitFor(() =>
-      expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls + 3)
     );
   });
 

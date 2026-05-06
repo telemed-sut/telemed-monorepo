@@ -14,6 +14,7 @@ from app.schemas.pressure import PressureCreate, PressureRecordOut, PressureRisk
 
 from app.services.device_exam_session import device_exam_session_service
 from app.services.device_session_events import publish_device_session_event_sync
+from app.services.patient_events import publish_patient_event_sync
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,15 @@ class PressureService:
             created_at=record.created_at,
             risk=self.assess_risk(record),
         )
+
+    def build_trend_point(self, record: PressureRecord) -> dict[str, object]:
+        return {
+            "date": record.measured_at.date().isoformat(),
+            "recorded_at": record.measured_at.isoformat(),
+            "heart_rate": record.heart_rate,
+            "sys_pressure": record.sys_rate,
+            "dia_pressure": record.dia_rate,
+        }
 
     def list_patient_pressure_records(
         self,
@@ -142,6 +152,17 @@ class PressureService:
             )
             db.commit()
             db.refresh(db_obj)
+
+            publish_patient_event_sync(
+                patient_id=resolved_patient_id,
+                event_type="new_pressure_reading",
+                recorded_at=db_obj.measured_at,
+                data={
+                    "pressure_id": str(db_obj.id),
+                    "pressure_record": self.serialize_pressure_record(db_obj).model_dump(mode="json"),
+                    "trend_point": self.build_trend_point(db_obj),
+                },
+            )
             
             if resolved_session_id is not None:
                 publish_device_session_event_sync(

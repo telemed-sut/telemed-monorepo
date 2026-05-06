@@ -40,6 +40,10 @@ import {
   UserMe,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  isMeetingCallHref,
+  requestMeetingCallNavigation,
+} from "@/lib/meeting-call-navigation";
 import { useLanguageStore } from "@/store/language-store";
 import { type AppLanguage } from "@/store/language-config";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -426,6 +430,10 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
 
   const handleRouteChange = (link: string) => {
     closeMobileSidebar();
+    if (isMeetingCallHref(pathname) && !isMeetingCallHref(link)) {
+      requestMeetingCallNavigation(link);
+      return;
+    }
     startTransition(() => {
       router.push(link);
     });
@@ -510,6 +518,10 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
           activeItem={activeProfileMenuItem}
           onSettings={() => {
             closeMobileSidebar();
+            if (isMeetingCallHref(pathname)) {
+              requestMeetingCallNavigation("/settings?panel=account");
+              return;
+            }
             startTransition(() => {
               router.push("/settings?panel=account");
             });
