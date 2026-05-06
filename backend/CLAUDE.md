@@ -25,7 +25,7 @@ Hard constraint: this is **regulated clinical data**. Most "obvious cleanups" (l
 - **SQLAlchemy 2.x** (Mapped/select style) + **Alembic** 1.13.
 - **PostgreSQL** via `psycopg[binary]` (driver URL is normalized to `postgresql+psycopg://…` in `app/core/config.py`). Production targets Neon/Supabase.
 - **JWT** via `python-jose` (HS256). **bcrypt** via `passlib[bcrypt]==1.7.4 / bcrypt==3.2.2` — do not bump independently, the pair is pinned for a reason.
-- **slowapi** for rate limiting (memory or Redis backend).
+- **slowapi** for in-process rate limiting.
 - **Novu** SDK for notifications (optional, gated by `NOVU_ENABLED`).
 - **pycryptodomex** for the Zego token signer.
 - Tests: `pytest`, `pytest-asyncio` (asyncio_mode=auto), `httpx`, FastAPI `TestClient`.

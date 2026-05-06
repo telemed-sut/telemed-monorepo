@@ -43,15 +43,3 @@ if not settings.database_url.startswith("sqlite"):
 _require_sslmode_for_remote_database_url(settings.database_url)
 engine = create_engine(settings.database_url, **engine_options)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, future=True)
-
-
-def get_redis_connection_pool():
-    return None
-
-
-def get_redis_client():
-    return None
-
-
-def reset_redis_runtime_state() -> None:
-    return None

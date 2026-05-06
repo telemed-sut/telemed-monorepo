@@ -222,30 +222,6 @@ services:
     networks:
       - db-net
 
-  authentik-redis:
-    profiles: ["identity"]
-    init: true
-    image: redis:7-alpine
-    container_name: telemed-authentik-redis
-    environment:
-      AUTHENTIK_REDIS_PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-telemed-dev-auth-password}"
-    command:
-      [
-        "sh",
-        "-c",
-        "exec redis-server --save '' --appendonly no --requirepass \"$${AUTHENTIK_REDIS_PASSWORD}\"",
-      ]
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
-        reservations:
-          cpus: "0.25"
-          memory: 128M
-    networks:
-      - db-net
-
   authentik-server:
     profiles: ["identity"]
     init: true
@@ -258,14 +234,11 @@ services:
       AUTHENTIK_POSTGRESQL__USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
       AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-telemed-dev-auth-password}"
       AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB:-authentik}"
-      AUTHENTIK_REDIS__HOST: authentik-redis
-      AUTHENTIK_REDIS__PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-telemed-dev-auth-password}"
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
     ports:
       - "127.0.0.1:9000:9000"
     depends_on:
       - authentik-postgresql
-      - authentik-redis
     healthcheck:
       test:
         [
@@ -312,12 +285,9 @@ services:
       AUTHENTIK_POSTGRESQL__USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
       AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-telemed-dev-auth-password}"
       AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB:-authentik}"
-      AUTHENTIK_REDIS__HOST: authentik-redis
-      AUTHENTIK_REDIS__PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-telemed-dev-auth-password}"
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
     depends_on:
       - authentik-postgresql
-      - authentik-redis
     deploy:
       resources:
         limits:

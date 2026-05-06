@@ -34,7 +34,6 @@ ISOLATED_ENV_KEYS = {
     "DEVICE_SECRET_ENCRYPTION_KEY",
     "ALLOW_INSECURE_SECRET_STORAGE",
     "MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK",
-    "REDIS_URL",
     "ADMIN_OIDC_ENABLED",
     "ADMIN_OIDC_ISSUER_URL",
     "ADMIN_OIDC_CLIENT_ID",
@@ -282,21 +281,6 @@ def test_settings_default_db_pool_tuning(monkeypatch):
     assert settings.db_pool_size == 20
     assert settings.db_max_overflow == 20
     assert settings.db_pool_recycle_seconds == 300
-
-
-def test_settings_do_not_require_redis_url_in_production(monkeypatch):
-    _apply_env(
-        monkeypatch,
-        APP_ENV="production",
-        REDIS_URL=None,
-        DEVICE_API_REQUIRE_REGISTERED_DEVICE="true",
-        DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE="true",
-        DEVICE_API_REQUIRE_NONCE="true",
-    )
-
-    settings = _build_settings()
-
-    assert settings.app_env == "production"
 
 
 def test_settings_require_strict_device_ingest_flags_in_production(monkeypatch):

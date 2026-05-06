@@ -35,9 +35,7 @@ def test_passkey_store_preserves_base64url_and_metadata():
     }
 
 
-def test_passkey_store_uses_local_runtime_state_without_redis(monkeypatch):
-    monkeypatch.setattr(passkey_store, "get_redis_client", lambda: None)
-
+def test_passkey_store_uses_local_runtime_state():
     passkey_store.store_challenge("prod-like-passkey-session", b"challenge")
 
     stored = passkey_store.pop_challenge("prod-like-passkey-session")

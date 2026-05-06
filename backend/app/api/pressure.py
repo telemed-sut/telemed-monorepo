@@ -24,8 +24,6 @@ from app.models.device_request_nonce import DeviceRequestNonce
 from app.models.user import User
 from app.core.request_utils import get_client_ip
 from app.core.secret_crypto import SecretDecryptionError
-from app.services.redis_cache import get_cached_device_secret, set_cached_device_secret
-from app.services.redis_runtime import get_redis_client_or_log, log_redis_operation_failure
 
 router = APIRouter()
 settings = get_settings()
@@ -35,9 +33,6 @@ MAX_TIMESTAMP_DIFF = 300  # 5 minutes
 GENERIC_AUTH_ERROR = "Invalid signature"
 _SAFE_DEVICE_ERROR_TOKEN_RE = re.compile(r"[^a-z0-9_:-]+")
 _MAX_DEVICE_ERROR_MESSAGE_LENGTH = 256
-_DEVICE_NONCE_REDIS_PREFIX = "device_nonce:v1:"
-_REDIS_SCOPE = "device nonce replay cache"
-_FALLBACK_LABEL = "database nonce table"
 
 
 def sanitize_device_error_message(error_msg: str) -> str:
@@ -87,18 +82,6 @@ def log_device_error(db: Session, device_id: str, error_msg: str, request: Reque
         logger.exception("Failed to log device error for device=%s", device_id)
 
 def _resolve_device_secret(db: Session, device_id: str) -> tuple[str, DeviceRegistration | None]:
-    # 1. Try to resolve from Redis cache first
-    cached_secret = get_cached_device_secret(device_id)
-    if cached_secret:
-        # If cached, we still might want the registration object if it exists
-        # But to avoid a DB hit just to check existence, we return the secret immediately
-        # if the caller (verify_device_signature) doesn't strictly need the DB object
-        # for authorization, only for secret resolution.
-        # However, verify_device_signature uses registered_device to update last_seen_at.
-        # So we only skip DB if it's not a registered device or if we accept delayed last_seen_at.
-        # For now, let's look up DB but only if secret is NOT in cache or if it's a registered device.
-        pass
-
     registered_device = db.scalar(
         select(DeviceRegistration).where(DeviceRegistration.device_id == device_id)
     )
@@ -112,21 +95,16 @@ def _resolve_device_secret(db: Session, device_id: str) -> tuple[str, DeviceRegi
         if not secret:
             raise ValueError("missing_device_secret")
         
-        # Cache it for next time
-        set_cached_device_secret(device_id, secret)
         return secret, registered_device
 
-    # 2. Check settings (static secrets)
     device_secret = settings.device_api_secrets.get(device_id)
     if device_secret:
-        set_cached_device_secret(device_id, device_secret)
         return device_secret, None
 
     if settings.device_api_require_registered_device:
         raise ValueError("unregistered_device")
 
     if settings.device_api_secret:
-        set_cached_device_secret(device_id, settings.device_api_secret)
         return settings.device_api_secret, None
 
     raise ValueError("missing_device_secret")
@@ -157,28 +135,6 @@ def _consume_nonce(db: Session, device_id: str, nonce: str) -> None:
     now_utc = datetime.now(timezone.utc)
     ttl_seconds = max(int(settings.device_api_nonce_ttl_seconds), 1)
     expires_at = now_utc + timedelta(seconds=ttl_seconds)
-
-    redis_client = get_redis_client_or_log(
-        logger,
-        scope=_REDIS_SCOPE,
-        fallback_label=_FALLBACK_LABEL,
-    )
-    if redis_client is not None:
-        redis_key = f"{_DEVICE_NONCE_REDIS_PREFIX}{device_id}:{nonce_hash}"
-        try:
-            stored = redis_client.set(redis_key, "1", ex=ttl_seconds, nx=True)
-            if not stored:
-                raise ValueError("replay_nonce")
-            return
-        except ValueError:
-            raise
-        except Exception:
-            log_redis_operation_failure(
-                logger,
-                scope=_REDIS_SCOPE,
-                operation="consume_nonce",
-                fallback_label=_FALLBACK_LABEL,
-            )
 
     # Opportunistic cleanup to keep nonce table bounded without a background scheduler.
     db.query(DeviceRequestNonce).filter(DeviceRequestNonce.expires_at <= now_utc).delete(

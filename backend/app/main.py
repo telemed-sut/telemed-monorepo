@@ -25,12 +25,6 @@ from app.models.device_error_log import DeviceErrorLog
 from app.schemas.health import HealthCheckResponse, LiveHealthCheckResponse, RootResponse
 from app.services import auth as auth_service
 from app.services import meeting_presence as meeting_presence_service
-from app.services.redis_runtime import (
-    emit_runtime_alert_event,
-    emit_runtime_diagnostics_event,
-    evaluate_runtime_alert,
-    get_runtime_diagnostics,
-)
 from app.services.security import record_login_attempt
 from app.core.request_utils import get_client_ip
 
@@ -304,15 +298,6 @@ def create_app() -> FastAPI:
         checks = {
             "status": "ok",
             "db": "ok",
-            "redis": "disabled",
-            "redis_runtime": get_runtime_diagnostics(),
-            "redis_runtime_alert": {
-                "status": "ok",
-                "should_alert": False,
-                "reasons": [],
-                "degraded_scope_threshold": max(int(settings.redis_runtime_degraded_scope_alert_threshold), 1),
-                "operation_failure_threshold": max(int(settings.redis_runtime_operation_failure_alert_threshold), 1),
-            },
         }
         status_code = 200
 
@@ -324,18 +309,6 @@ def create_app() -> FastAPI:
             status_code = 503
             logger.exception("Database health check failed")
 
-        checks["redis_runtime"] = get_runtime_diagnostics()
-        checks["redis_runtime_alert"] = evaluate_runtime_alert(
-            checks["redis_runtime"],
-            degraded_scope_threshold=settings.redis_runtime_degraded_scope_alert_threshold,
-            operation_failure_threshold=settings.redis_runtime_operation_failure_alert_threshold,
-        )
-        emit_runtime_diagnostics_event(logger)
-        emit_runtime_alert_event(
-            logger,
-            diagnostics=checks["redis_runtime"],
-            alert=checks["redis_runtime_alert"],
-        )
         return JSONResponse(status_code=status_code, content=checks)
 
     @app.get("/health/live", response_model=LiveHealthCheckResponse)

@@ -16,7 +16,6 @@ from app.services.auth import get_db
 
 def test_create_app_disables_docs_in_production(monkeypatch):
     monkeypatch.setenv("APP_ENV", "production")
-    monkeypatch.delenv("REDIS_URL", raising=False)
     monkeypatch.setenv("ALLOWED_HOSTS", "testserver")
     monkeypatch.setenv("DEVICE_API_REQUIRE_REGISTERED_DEVICE", "true")
     monkeypatch.setenv("DEVICE_API_REQUIRE_BODY_HASH_SIGNATURE", "true")

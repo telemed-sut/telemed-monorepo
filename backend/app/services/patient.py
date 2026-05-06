@@ -25,8 +25,6 @@ AssignmentRole = Literal["primary", "consulting"]
 ALLOWED_ASSIGNMENT_ROLES = {"primary", "consulting"}
 
 
-from app.services.redis_cache import clear_dashboard_stats_cache
-
 def create_patient(db: Session, payload: PatientCreate, doctor_id: Optional[UUID] = None) -> Patient:
     patient = Patient(**payload.model_dump())
     db.add(patient)
@@ -39,10 +37,7 @@ def create_patient(db: Session, payload: PatientCreate, doctor_id: Optional[UUID
 
     db.commit()
     db.refresh(patient)
-    
-    # Invalidate stats cache
-    clear_dashboard_stats_cache()
-    
+
     return patient
 
 

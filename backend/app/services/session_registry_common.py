@@ -2,15 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
-
-from app.services.redis_runtime import log_redis_operation_failure
 
 
 def now_utc() -> datetime:
@@ -21,101 +17,6 @@ def normalize_dt(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
-
-
-def build_session_cache_key(prefix: str, session_id: str) -> str:
-    hashed = hashlib.sha256(session_id.encode("utf-8")).hexdigest()
-    return f"{prefix}{hashed}"
-
-
-def cache_session_hash(
-    *,
-    redis_client_getter: Callable[[], Any],
-    logger: logging.Logger,
-    scope: str,
-    cache_key: str,
-    expires_at: datetime,
-    payload: dict[str, str],
-) -> None:
-    redis_client = redis_client_getter()
-    if redis_client is None:
-        return
-
-    ttl_seconds = int((normalize_dt(expires_at) - now_utc()).total_seconds())
-    if ttl_seconds <= 0:
-        try:
-            redis_client.delete(cache_key)
-        except Exception:
-            log_redis_operation_failure(
-                logger,
-                scope=scope,
-                operation="delete_expired_entry",
-                fallback_label="database",
-            )
-        return
-
-    try:
-        redis_client.hset(cache_key, mapping=payload)
-        redis_client.expire(cache_key, ttl_seconds)
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope=scope,
-            operation="write",
-            fallback_label="database",
-        )
-
-
-def clear_cached_session_hash(
-    *,
-    redis_client_getter: Callable[[], Any],
-    logger: logging.Logger,
-    scope: str,
-    cache_key: str | None,
-) -> None:
-    if not cache_key:
-        return
-
-    redis_client = redis_client_getter()
-    if redis_client is None:
-        return
-
-    try:
-        redis_client.delete(cache_key)
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope=scope,
-            operation="delete",
-            fallback_label="database",
-        )
-
-
-def load_cached_session_hash(
-    *,
-    redis_client_getter: Callable[[], Any],
-    logger: logging.Logger,
-    scope: str,
-    cache_key: str,
-) -> dict[Any, Any] | None:
-    redis_client = redis_client_getter()
-    if redis_client is None:
-        return None
-
-    try:
-        payload = redis_client.hgetall(cache_key)
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope=scope,
-            operation="read",
-            fallback_label="database",
-        )
-        return None
-
-    if not payload:
-        return None
-    return payload
 
 
 def revoke_owner_sessions(

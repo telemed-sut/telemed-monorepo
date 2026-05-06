@@ -24,7 +24,7 @@ Use `authentik` as the identity provider for `admin` accounts while keeping:
    - `ADMIN_OIDC_REDIRECT_URI=http://localhost:3000/api/auth/admin/sso/callback`
    - `ADMIN_OIDC_POST_LOGOUT_REDIRECT_URI=http://localhost:3000/login`
    - `ADMIN_OIDC_CACHE_TTL_SECONDS=3600`
-   - `REDIS_URL=redis://localhost:6379/0` when you want durable transient storage across multiple backend instances
+   - For multiple backend instances, use an external identity provider with durable transient state.
 2. Start the local identity profile:
 
 ```bash
@@ -62,8 +62,7 @@ Transient SSO artifacts are now stored server-side:
 
 - login artifacts contain `state`, `nonce`, `code_verifier`, and `next_path`,
 - logout artifacts keep `id_token_hint` off the browser and on the server side,
-- Redis is preferred when `REDIS_URL` is configured, and
-- local/dev falls back to an in-memory TTL store in a single-process setup.
+- local/dev uses an in-memory TTL store in a single-process setup.
 
 The app only admits SSO identities that:
 

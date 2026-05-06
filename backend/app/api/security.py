@@ -23,7 +23,6 @@ from app.models.user import User
 from app.services import auth as auth_service
 from app.services import security as security_service
 from app.services.auth import get_admin_user, get_db
-from app.services.redis_cache import clear_cached_device_secret
 
 router = APIRouter(prefix="/security", tags=["security"])
 settings = get_settings()
@@ -545,9 +544,6 @@ def create_registered_device(
             detail="Device ID already exists.",
         )
 
-    # Invalidate cache
-    clear_cached_device_secret(payload.device_id)
-
     _write_device_registry_audit(
         db,
         actor=current_user,
@@ -603,9 +599,6 @@ def update_registered_device(
     device.updated_by = current_user.id
     db.add(device)
 
-    # Invalidate cache
-    clear_cached_device_secret(device.device_id)
-
     _write_device_registry_audit(
         db,
         actor=current_user,
@@ -645,9 +638,6 @@ def delete_registered_device(
     deleted_device_id = device.device_id
     deleted_display_name = device.display_name
     deleted_is_active = bool(device.is_active)
-
-    # Invalidate cache
-    clear_cached_device_secret(deleted_device_id)
 
     _write_device_registry_audit(
         db,
@@ -695,9 +685,6 @@ def rotate_registered_device_secret(
     device.device_secret = secret_value
     device.updated_by = current_user.id
     db.add(device)
-
-    # Invalidate cache
-    clear_cached_device_secret(device.device_id)
 
     _write_device_registry_audit(
         db,

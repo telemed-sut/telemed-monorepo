@@ -147,8 +147,6 @@ class Settings(BaseSettings):
 
     # Rate Limiting
     rate_limit_whitelist: Union[List[str], str] = ["127.0.0.1", "::1"]
-    redis_runtime_degraded_scope_alert_threshold: int = 1
-    redis_runtime_operation_failure_alert_threshold: int = 5
     # Video meeting integration
     meeting_video_provider: Literal["disabled", "mock", "zego"] = "disabled"
     zego_app_id: int | None = None

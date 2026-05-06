@@ -274,80 +274,23 @@ def test_add_pressure_accepts_nonce_and_rejects_replay(client: TestClient, db: S
         pressure_api.settings.device_api_require_nonce = original_require_nonce
 
 
-def test_add_pressure_uses_redis_for_nonce_replay_protection(client: TestClient, db: Session, monkeypatch):
+def test_add_pressure_stores_nonce_in_database(client: TestClient, db: Session):
     patient = _create_patient(db)
     payload = {
         "user_id": str(patient.id),
-        "device_id": "device-redis-nonce-001",
+        "device_id": "device-db-nonce-001",
         "heart_rate": 81,
         "sys_rate": 124,
         "dia_rate": 82,
         "a": None,
         "b": None,
     }
-    nonce = f"nonce-redis-{int(time.time() * 1000)}"
+    nonce = f"nonce-db-{int(time.time() * 1000)}"
     headers = _sign_headers(
-        device_id="device-redis-nonce-001",
+        device_id="device-db-nonce-001",
         timestamp=str(int(time.time())),
         nonce=nonce,
     )
-
-    class FakeRedisClient:
-        def __init__(self):
-            self.keys = set()
-            self.calls = []
-
-        def set(self, key, value, ex=None, nx=False):
-            self.calls.append({"key": key, "value": value, "ex": ex, "nx": nx})
-            if nx and key in self.keys:
-                return False
-            self.keys.add(key)
-            return True
-
-    fake_redis = FakeRedisClient()
-    monkeypatch.setattr(pressure_api, "get_redis_client_or_log", lambda *args, **kwargs: fake_redis)
-
-    original_require_nonce = pressure_api.settings.device_api_require_nonce
-    pressure_api.settings.device_api_require_nonce = True
-    try:
-        first_response = client.post("/add_pressure", json=payload, headers=headers)
-        assert first_response.status_code == 201, first_response.text
-
-        replay_response = client.post("/add_pressure", json=payload, headers=headers)
-        assert replay_response.status_code == 403
-        assert "Invalid signature" in replay_response.text
-
-        stored_nonces = db.scalars(select(DeviceRequestNonce)).all()
-        assert stored_nonces == []
-        assert len(fake_redis.calls) == 2
-        assert fake_redis.calls[0]["nx"] is True
-    finally:
-        pressure_api.settings.device_api_require_nonce = original_require_nonce
-
-
-def test_add_pressure_falls_back_to_db_nonce_storage_when_redis_unavailable(client: TestClient, db: Session, monkeypatch):
-    patient = _create_patient(db)
-    payload = {
-        "user_id": str(patient.id),
-        "device_id": "device-db-fallback-nonce-001",
-        "heart_rate": 81,
-        "sys_rate": 124,
-        "dia_rate": 82,
-        "a": None,
-        "b": None,
-    }
-    nonce = f"nonce-db-fallback-{int(time.time() * 1000)}"
-    headers = _sign_headers(
-        device_id="device-db-fallback-nonce-001",
-        timestamp=str(int(time.time())),
-        nonce=nonce,
-    )
-
-    class BrokenRedisClient:
-        def set(self, *args, **kwargs):
-            raise RuntimeError("redis unavailable")
-
-    monkeypatch.setattr(pressure_api, "get_redis_client_or_log", lambda *args, **kwargs: BrokenRedisClient())
 
     original_require_nonce = pressure_api.settings.device_api_require_nonce
     pressure_api.settings.device_api_require_nonce = True
@@ -361,7 +304,7 @@ def test_add_pressure_falls_back_to_db_nonce_storage_when_redis_unavailable(clie
 
         stored_nonces = db.scalars(select(DeviceRequestNonce)).all()
         assert len(stored_nonces) == 1
-        assert stored_nonces[0].device_id == "device-db-fallback-nonce-001"
+        assert stored_nonces[0].device_id == "device-db-nonce-001"
     finally:
         pressure_api.settings.device_api_require_nonce = original_require_nonce
 

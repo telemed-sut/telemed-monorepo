@@ -41,9 +41,7 @@ def test_admin_sso_status_disabled_by_default(client: TestClient):
     }
 
 
-def test_admin_sso_store_uses_local_runtime_state_without_redis(monkeypatch):
-    monkeypatch.setattr(admin_sso_store, "get_redis_client", lambda: None)
-
+def test_admin_sso_store_uses_local_runtime_state():
     admin_sso_store.store_login_artifact(
         state_token="prod-like-state",
         nonce="nonce",

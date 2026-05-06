@@ -108,8 +108,8 @@ python scripts/seed_device_demo_flow.py
 The seed script creates or updates one local demo doctor, patient, registered
 lung device, doctor-patient assignment, and active device exam session. It
 prints the exact simulator command with the generated `DEVICE_SESSION_ID`.
-If Redis isn't running locally, the seed still works; cache invalidation is
-skipped for this development script.
+The seed reads current database state directly and does not require an external
+cache service.
 
 You can also register a device and start a device session manually in
 `/device-monitor`, then run:

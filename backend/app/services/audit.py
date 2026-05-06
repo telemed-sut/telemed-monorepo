@@ -1,4 +1,3 @@
-import logging
 from datetime import UTC, datetime
 from typing import Optional
 from uuid import UUID
@@ -7,9 +6,6 @@ from sqlalchemy.orm import Session
 
 from app.core.logging_config import redact_sensitive_data
 from app.models.audit_log import AuditLog
-from app.services.redis_runtime import get_redis_client_or_log, log_redis_operation_failure
-
-logger = logging.getLogger(__name__)
 
 
 def _audit_log_payload(entry: AuditLog) -> dict[str, str | None]:
@@ -30,35 +26,11 @@ def _audit_log_payload(entry: AuditLog) -> dict[str, str | None]:
         "timestamp": timestamp,
     }
 
-import json
-
 AUDIT_LOG_BUFFER_KEY = "audit_log:buffer:v1"
-_REDIS_SCOPE = "audit log buffer"
-_FALLBACK_LABEL = "direct database write"
 
 def push_to_audit_buffer(payload: dict) -> bool:
-    """Push audit log payload to Redis buffer."""
-    redis_client = get_redis_client_or_log(
-        logger,
-        scope=_REDIS_SCOPE,
-        fallback_label=_FALLBACK_LABEL,
-    )
-    if redis_client is None:
-        return False
-
-    try:
-        # Convert UUIDs and datetimes to strings for JSON serialization
-        # (Though log_action already prepares a scrubbed payload if we use it)
-        redis_client.lpush(AUDIT_LOG_BUFFER_KEY, json.dumps(payload))
-        return True
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope=_REDIS_SCOPE,
-            operation="push",
-            fallback_label=_FALLBACK_LABEL,
-        )
-        return False
+    """Preserve the historical hook; audit entries now write directly to the database."""
+    return False
 
 def log_action(
     db: Session,
@@ -99,7 +71,6 @@ def log_action(
     }
 
     if use_buffer and push_to_audit_buffer(payload):
-        logger.info("audit_log_buffered", extra={"action": action, "user_id": str(user_id) if user_id else None})
         return None
 
     entry = AuditLog(

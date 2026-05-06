@@ -60,7 +60,7 @@ review.
   development toolchain, so audit noise in this project is more likely to
   concentrate in build or test paths than in the deployed dashboard runtime.
 - `backend/requirements.txt` is intentionally compact and pins exact versions
-  for the FastAPI stack, database layer, Redis client, and Sentry runtime.
+  for the FastAPI stack, database layer, and Sentry runtime.
 - No dependency change was made in this hardening round because the local audit
   evidence was not stable enough to justify a safe package upgrade decision.
 

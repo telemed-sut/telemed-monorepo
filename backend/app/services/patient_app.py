@@ -20,12 +20,6 @@ from app.models.patient_app_registration import PatientAppRegistration
 from app.services import meeting_presence as meeting_presence_service
 from app.services import meeting_video as meeting_video_service
 from app.services import patient_app_sessions as patient_app_session_service
-from app.services.redis_runtime import (
-    decode_cached_value,
-    get_redis_client_or_log,
-    log_redis_operation_failure,
-    parse_cached_datetime,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +28,6 @@ _CODE_LENGTH = 6
 _CODE_MAX_RETRIES = 16
 _REGISTRATION_CODE_TTL_HOURS = 72
 _PATIENT_DEVICE_HEADER_NAMES = ("x-patient-device-id", "x-device-id")
-_PATIENT_REGISTRATION_REDIS_PREFIX = "patient_app_registration:v1:"
 settings = get_settings()
 
 
@@ -86,73 +79,12 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _registration_cache_key(code: str) -> str:
-    normalized = (code or "").strip().upper()
-    hashed = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-    return f"{_PATIENT_REGISTRATION_REDIS_PREFIX}{hashed}"
-
-
-def _get_patient_registration_redis_client():
-    return get_redis_client_or_log(
-        logger,
-        scope="patient_registration_cache",
-        fallback_label="database",
-    )
-
-
 def _cache_registration_code(registration: PatientAppRegistration) -> None:
-    redis_client = _get_patient_registration_redis_client()
-    if redis_client is None:
-        return
-
-    expires_at = _as_utc(registration.expires_at)
-    ttl_seconds = int((expires_at - _now_utc()).total_seconds())
-    cache_key = _registration_cache_key(registration.code)
-    if ttl_seconds <= 0 or registration.is_used:
-        try:
-            redis_client.delete(cache_key)
-        except Exception:
-            log_redis_operation_failure(
-                logger,
-                scope="patient_registration_cache",
-                operation="delete_expired_entry",
-                fallback_label="database",
-            )
-        return
-
-    payload = {
-        "registration_id": str(registration.id),
-        "patient_id": str(registration.patient_id),
-        "code": registration.code,
-        "expires_at": expires_at.isoformat(),
-    }
-    try:
-        redis_client.hset(cache_key, mapping=payload)
-        redis_client.expire(cache_key, ttl_seconds)
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope="patient_registration_cache",
-            operation="write",
-            fallback_label="database",
-        )
+    return None
 
 
 def _clear_registration_code_cache(code: str | None) -> None:
-    if not code:
-        return
-    redis_client = _get_patient_registration_redis_client()
-    if redis_client is None:
-        return
-    try:
-        redis_client.delete(_registration_cache_key(code))
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope="patient_registration_cache",
-            operation="delete",
-            fallback_label="database",
-        )
+    return None
 
 
 def _resolve_active_registration(
@@ -160,30 +92,6 @@ def _resolve_active_registration(
     db: Session,
     normalized_code: str,
 ) -> PatientAppRegistration | None:
-    redis_client = _get_patient_registration_redis_client()
-    if redis_client is not None:
-        try:
-            payload = redis_client.hgetall(_registration_cache_key(normalized_code))
-        except Exception:
-            log_redis_operation_failure(
-                logger,
-                scope="patient_registration_cache",
-                operation="read",
-                fallback_label="database",
-            )
-            payload = {}
-        if payload:
-            registration_id = decode_cached_value(payload.get("registration_id"))
-            expires_at = parse_cached_datetime(payload.get("expires_at"))
-            if registration_id and expires_at and expires_at > _now_utc():
-                try:
-                    reg = db.get(PatientAppRegistration, UUID(registration_id))
-                except (ValueError, TypeError):
-                    reg = None
-                if reg is not None and not reg.is_used:
-                    return reg
-            _clear_registration_code_cache(normalized_code)
-
     reg = db.scalar(
         select(PatientAppRegistration).where(
             and_(

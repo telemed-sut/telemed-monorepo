@@ -1,4 +1,3 @@
-import json
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -7,7 +6,6 @@ from sqlalchemy import extract, func, select
 from sqlalchemy.orm import Session
 
 from app.core.limiter import limiter
-from app.db.session import get_redis_client
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole
 from app.models.meeting import Meeting
@@ -16,15 +14,9 @@ from app.models.user import User
 from app.schemas.stats import StatsOverviewResponse
 from app.services import auth as auth_service
 from app.services import meeting as meeting_service
-from app.services.redis_cache import get_dashboard_stats_cache_key
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 logger = logging.getLogger(__name__)
-_OVERVIEW_STATS_CACHE_TTL_SECONDS = 300  # 5 minutes
-
-
-def _overview_stats_cache_key(*, user_id: str, role: str, year: int) -> str:
-    return get_dashboard_stats_cache_key(role=role, user_id=user_id, year=year)
 
 
 
@@ -51,21 +43,6 @@ def get_overview_stats(
     resolved_year = int(year)
     doctor_id = current_user.id
     is_scoped_clinical_user = current_user.role != UserRole.admin
-    cache_key = _overview_stats_cache_key(
-        user_id=str(current_user.id),
-        role=current_user.role.value,
-        year=resolved_year,
-    )
-    redis_client = get_redis_client()
-
-    # 1. Try to serve from cache
-    if redis_client is not None:
-        try:
-            cached_payload = redis_client.get(cache_key)
-            if cached_payload:
-                return json.loads(cached_payload)
-        except Exception:
-            logger.warning("Failed to read overview stats cache for user %s", current_user.id, exc_info=True)
 
     month_labels = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -229,16 +206,5 @@ def get_overview_stats(
             "this_month_new_patients": this_month_new_patients,
         },
     }
-
-    # 4. Save to cache
-    if redis_client is not None:
-        try:
-            redis_client.setex(
-                cache_key,
-                _OVERVIEW_STATS_CACHE_TTL_SECONDS,
-                json.dumps(payload),
-            )
-        except Exception:
-            logger.warning("Failed to write overview stats cache for user %s", current_user.id, exc_info=True)
 
     return payload

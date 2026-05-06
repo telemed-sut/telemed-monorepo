@@ -161,7 +161,7 @@ describe("patient workspace overview", () => {
     expect(screen.getByText("Open Advanced Focus Mode")).toBeInTheDocument();
   });
 
-  it("refreshes pressure readings from patient stream events instead of interval polling", async () => {
+  it("refreshes patient vitals from patient stream events", async () => {
     mockAuthState.token = "header.payload.signature";
     const { PatientDetailContent } = await import("@/components/dashboard/patient-detail");
     render(<PatientDetailContent patientId="patient-1" />);
@@ -179,6 +179,8 @@ describe("patient workspace overview", () => {
       })
     );
     await waitFor(() => expect(mockFetchVitalsTrends).toHaveBeenCalled());
+    expect(await screen.findByText("Realtime connected")).toBeInTheDocument();
+    expect(screen.getByText(/Last synced/)).toBeInTheDocument();
     const initialVitalsTrendCalls = mockFetchVitalsTrends.mock.calls.length;
 
     act(() => {

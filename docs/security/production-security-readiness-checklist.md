@@ -27,7 +27,7 @@ checks.
 - Set `ALLOW_INSECURE_SECRET_STORAGE=false`.
 - Set `AUTH_COOKIE_SECURE=true`.
 - Set explicit `ALLOWED_HOSTS` and `CORS_ORIGINS` for the deployed origins.
-- Set `REDIS_URL`; production rate limiting must not fall back to memory.
+- Confirm rate limiting, sessions, and realtime delivery are sized for the deployment topology.
 - Set `API_DOCS_ENABLED=false` unless there is an approved exception.
 
 ## Session and auth policy

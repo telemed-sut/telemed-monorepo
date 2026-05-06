@@ -67,7 +67,6 @@ def test_compose_defines_segmented_networks():
     authentik_server_block = _service_block(compose_text, "authentik-server")
     authentik_worker_block = _service_block(compose_text, "authentik-worker")
     authentik_postgres_block = _service_block(compose_text, "authentik-postgresql")
-    authentik_redis_block = _service_block(compose_text, "authentik-redis")
 
     assert "      - frontend-net" in frontend_block
     assert "      - backend-net" in frontend_block
@@ -79,7 +78,6 @@ def test_compose_defines_segmented_networks():
     assert "      - backend-net" in authentik_worker_block
     assert "      - db-net" in authentik_worker_block
     assert "      - db-net" in authentik_postgres_block
-    assert "      - db-net" in authentik_redis_block
 
 
 def test_compose_applies_resource_limits_and_health_checks():
@@ -91,7 +89,6 @@ def test_compose_applies_resource_limits_and_health_checks():
     authentik_server_block = _service_block(compose_text, "authentik-server")
     authentik_worker_block = _service_block(compose_text, "authentik-worker")
     authentik_postgres_block = _service_block(compose_text, "authentik-postgresql")
-    authentik_redis_block = _service_block(compose_text, "authentik-redis")
 
     assert "healthcheck:" in backend_block
     assert "http://127.0.0.1:8000/health" in backend_block
@@ -123,8 +120,6 @@ def test_compose_applies_resource_limits_and_health_checks():
     assert "memory: 512M" in authentik_worker_block
     assert 'cpus: "2.0"' in authentik_postgres_block
     assert "memory: 2G" in authentik_postgres_block
-    assert 'cpus: "0.5"' in authentik_redis_block
-    assert "memory: 256M" in authentik_redis_block
 
 
 def test_compose_backend_prefers_container_safe_database_url():
@@ -166,7 +161,7 @@ def test_infisical_project_defaults_to_dev_environment():
     assert '"defaultEnvironment": "dev"' in infisical_text
 
 
-def test_compose_hardens_runtime_services_and_requires_authentik_redis_password():
+def test_compose_hardens_runtime_services():
     compose_text = _read_text(REPO_ROOT / "docker-compose.yml")
 
     for service_name in ("frontend", "backend", "authentik-server", "authentik-worker"):
@@ -179,10 +174,6 @@ def test_compose_hardens_runtime_services_and_requires_authentik_redis_password(
         assert "tmpfs:" in block
         assert "      - /tmp" in block
 
-    authentik_redis_block = _service_block(compose_text, "authentik-redis")
-    assert "AUTHENTIK_REDIS_PASSWORD" in authentik_redis_block
-    assert "--requirepass" in authentik_redis_block
-
 
 def test_compose_enables_init_for_all_services():
     compose_text = _read_text(REPO_ROOT / "docker-compose.yml")
@@ -192,7 +183,6 @@ def test_compose_enables_init_for_all_services():
         "backend",
         "db",
         "authentik-postgresql",
-        "authentik-redis",
         "authentik-server",
         "authentik-worker",
     ):
@@ -258,7 +248,6 @@ def test_staging_compose_defines_segmented_networks_and_cookie_samesite():
     backend_block = _service_block(compose_text, "backend")
     frontend_block = _service_block(compose_text, "frontend")
     authentik_postgres_block = _service_block(compose_text, "authentik-postgresql")
-    authentik_redis_block = _service_block(compose_text, "authentik-redis")
     authentik_server_block = _service_block(compose_text, "authentik-server")
     authentik_worker_block = _service_block(compose_text, "authentik-worker")
 
@@ -269,12 +258,8 @@ def test_staging_compose_defines_segmented_networks_and_cookie_samesite():
     assert "      - frontend-net" in frontend_block
     assert "      - backend-net" in frontend_block
     assert "      - db-net" in authentik_postgres_block
-    assert "AUTHENTIK_REDIS_PASSWORD" in authentik_redis_block
-    assert "      - db-net" in authentik_redis_block
-    assert "AUTHENTIK_REDIS__PASSWORD" in authentik_server_block
     assert "      - backend-net" in authentik_server_block
     assert "      - db-net" in authentik_server_block
-    assert "AUTHENTIK_REDIS__PASSWORD" in authentik_worker_block
     assert "      - backend-net" in authentik_worker_block
     assert "      - db-net" in authentik_worker_block
 
@@ -286,7 +271,6 @@ def test_staging_compose_enables_init_for_all_services():
         "backend",
         "frontend",
         "authentik-postgresql",
-        "authentik-redis",
         "authentik-server",
         "authentik-worker",
     ):

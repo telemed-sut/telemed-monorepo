@@ -39,7 +39,7 @@ Mark each item as `pass`, `fail`, or `n-a`.
 | `AUTH_COOKIE_SECURE=true` | | | |
 | `ALLOWED_HOSTS` matches deployment | | | |
 | `CORS_ORIGINS` matches deployment | | | |
-| `REDIS_URL` is active and reachable | | | |
+| Runtime state dependencies are active and reachable | | | |
 | API docs are disabled | | | |
 | Admin login works | | | |
 | Admin refresh works | | | |

@@ -215,7 +215,6 @@ check_identity_env() {
   local missing=()
 
   [[ -n "${AUTHENTIK_POSTGRES_PASSWORD:-}" ]] || missing+=("AUTHENTIK_POSTGRES_PASSWORD")
-  [[ -n "${AUTHENTIK_REDIS_PASSWORD:-}" ]] || missing+=("AUTHENTIK_REDIS_PASSWORD")
   [[ -n "${AUTHENTIK_SECRET_KEY:-}" ]] || missing+=("AUTHENTIK_SECRET_KEY")
 
   if ((${#missing[@]} > 0)); then

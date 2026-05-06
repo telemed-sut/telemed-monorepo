@@ -19,10 +19,8 @@ import {
   Mail,
   MapPin,
   Phone,
-  Play,
   RefreshCcw,
   ShieldCheck,
-  Square,
   Stethoscope,
   UserRound,
   Volume2,
@@ -120,6 +118,8 @@ type SseBoundary = {
   index: number;
   length: number;
 };
+
+type PatientRealtimeStatus = "connecting" | "connected" | "reconnecting" | "offline";
 
 function parsePatientStreamEnvelope(rawData: string): PatientStreamEnvelope | null {
   try {
@@ -457,9 +457,11 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
 
   const [vitalsTrends, setVitalsTrends] = useState<VitalTrendDataPoint[]>([]);
   const [loadingVitalsTrends, setLoadingVitalsTrends] = useState(true);
+  const [realtimeStatus, setRealtimeStatus] = useState<PatientRealtimeStatus>("connecting");
+  const [lastRealtimeSyncAt, setLastRealtimeSyncAt] = useState<Date | null>(null);
+  const hasLoadedVitalsTrendsRef = React.useRef(false);
 
   const [registrationCode, setRegistrationCode] = useState<PatientRegistrationCodeResponse | null>(null);
-  const [isNoteDrawerOpen, setIsNoteDrawerOpen] = useState(false);
   const [vitalsRefreshCounter, setVitalsRefreshCounter] = useState(0);
   const [generatingCode, setGeneratingCode] = useState(false);
 
@@ -504,6 +506,11 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
     setPressureTotal(0);
     setLoadingPressureReadings(true);
     setPressureReadingsError(null);
+    setVitalsTrends([]);
+    setLoadingVitalsTrends(true);
+    hasLoadedVitalsTrendsRef.current = false;
+    setRealtimeStatus("connecting");
+    setLastRealtimeSyncAt(null);
   }, [cachedSnapshot]);
 
   useEffect(() => {
@@ -602,6 +609,21 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
       }
     },
     [clearToken, language, patientId, router, token]
+  );
+
+  const refreshRealtimeVitals = React.useCallback(
+    (options: { includePressure?: boolean } = {}) => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
+
+      if (options.includePressure ?? false) {
+        void loadPressureReadings({ showLoading: false });
+      }
+      setVitalsRefreshCounter((counter) => counter + 1);
+      setLastRealtimeSyncAt(new Date());
+    },
+    [loadPressureReadings]
   );
 
   useEffect(() => {
@@ -705,13 +727,12 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
       }
 
       if (eventType === "new_pressure_reading") {
-        void loadPressureReadings({ showLoading: false });
-        setVitalsRefreshCounter((counter) => counter + 1);
+        refreshRealtimeVitals({ includePressure: true });
         return;
       }
 
       if (eventType === "new_weight_record" || eventType === "new_patient_screening") {
-        setVitalsRefreshCounter((counter) => counter + 1);
+        refreshRealtimeVitals();
       }
     };
 
@@ -719,6 +740,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
       if (!active || retryTimeoutId !== null) {
         return;
       }
+      setRealtimeStatus(typeof navigator !== "undefined" && !navigator.onLine ? "offline" : "reconnecting");
       retryTimeoutId = window.setTimeout(() => {
         retryTimeoutId = null;
         void connect();
@@ -745,6 +767,9 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
         if (!response.ok || !response.body) {
           throw new Error(`Patient stream failed (${response.status})`);
         }
+
+        setRealtimeStatus("connected");
+        refreshRealtimeVitals();
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -785,12 +810,25 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
 
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") {
-        void loadPressureReadings({ showLoading: false });
-        setVitalsRefreshCounter((counter) => counter + 1);
+        refreshRealtimeVitals({ includePressure: true });
       }
     };
 
+    const handleOnline = () => {
+      setRealtimeStatus("reconnecting");
+      refreshRealtimeVitals({ includePressure: true });
+      if (retryTimeoutId === null) {
+        void connect();
+      }
+    };
+
+    const handleOffline = () => {
+      setRealtimeStatus("offline");
+    };
+
     document.addEventListener("visibilitychange", refreshWhenVisible);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
 
     return () => {
       active = false;
@@ -799,13 +837,17 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
       }
       controller?.abort();
       document.removeEventListener("visibilitychange", refreshWhenVisible);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
     };
-  }, [loadPressureReadings, patientId, token]);
+  }, [loadPressureReadings, patientId, refreshRealtimeVitals, token]);
 
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
-    setLoadingVitalsTrends(true);
+    if (!hasLoadedVitalsTrendsRef.current) {
+      setLoadingVitalsTrends(true);
+    }
 
     const loadTrends = async () => {
       try {
@@ -817,6 +859,7 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
             // Fall back to sample data so doctors can preview the chart
             setVitalsTrends(buildMockVitalsTrends());
           }
+          hasLoadedVitalsTrendsRef.current = true;
         }
       } catch (err) {
         if (cancelled) return;
@@ -826,7 +869,10 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
           router.replace("/login");
         } else {
           // Show sample data on any non-auth error too
-          if (!cancelled) setVitalsTrends(buildMockVitalsTrends());
+          if (!cancelled) {
+            setVitalsTrends(buildMockVitalsTrends());
+            hasLoadedVitalsTrendsRef.current = true;
+          }
         }
       } finally {
         if (!cancelled) setLoadingVitalsTrends(false);
@@ -863,6 +909,36 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
       hour: "2-digit",
       minute: "2-digit",
     });
+
+  const formatRealtimeSyncTime = (date: Date) =>
+    date.toLocaleString(language === "th" ? "th-TH" : "en-GB", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+  const realtimeStatusLabel =
+    realtimeStatus === "connected"
+      ? tr(language, "Realtime connected", "เชื่อมต่อ realtime แล้ว")
+      : realtimeStatus === "offline"
+      ? tr(language, "Offline", "ออฟไลน์")
+      : realtimeStatus === "reconnecting"
+      ? tr(language, "Reconnecting", "กำลังเชื่อมต่อใหม่")
+      : tr(language, "Connecting realtime", "กำลังเชื่อมต่อ realtime");
+  const realtimeStatusClass =
+    realtimeStatus === "connected"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : realtimeStatus === "offline"
+      ? "border-red-200 bg-red-50 text-red-700"
+      : "border-amber-200 bg-amber-50 text-amber-700";
+  const realtimeSyncLabel = lastRealtimeSyncAt
+    ? tr(
+        language,
+        `Last synced ${formatRealtimeSyncTime(lastRealtimeSyncAt)}`,
+        `ซิงก์ล่าสุด ${formatRealtimeSyncTime(lastRealtimeSyncAt)}`
+      )
+    : tr(language, "Waiting for first sync", "รอซิงก์ครั้งแรก");
 
   if (loadingPatient) {
     return (
@@ -1602,12 +1678,32 @@ export function PatientDetailContent({ patientId }: PatientDetailContentProps) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.22, delay: 0.09 }}
         >
+          <div className="mb-2 flex flex-wrap items-center justify-end gap-2" aria-live="polite">
+            <div
+              className={cn(
+                "inline-flex min-h-8 items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium shadow-sm",
+                realtimeStatusClass
+              )}
+            >
+              <Activity
+                className={cn(
+                  "size-3.5",
+                  realtimeStatus !== "connected" && realtimeStatus !== "offline" && "animate-pulse"
+                )}
+              />
+              <span>{realtimeStatusLabel}</span>
+            </div>
+            <div className="inline-flex min-h-8 items-center gap-2 rounded-full border border-border/80 bg-card px-3 py-1 text-xs font-medium text-muted-foreground shadow-sm">
+              <Clock3 className="size-3.5" />
+              <span>{realtimeSyncLabel}</span>
+            </div>
+          </div>
           <VitalsTrendChart
             patientId={patientId}
             data={vitalsTrends}
             language={language}
             isLoading={loadingVitalsTrends}
-            onRefreshData={() => setVitalsRefreshCounter((c) => c + 1)}
+            onRefreshData={() => refreshRealtimeVitals()}
           />
         </m.section>
 

@@ -12,43 +12,17 @@ from app.models.enums import MeetingStatus
 from app.models.meeting import Meeting
 from app.models.meeting_room_presence import MeetingRoomPresence
 from app.models.meeting_room_presence import ROOM_PRESENCE_HEARTBEAT_TIMEOUT_SECONDS
-from app.services.redis_runtime import (
-    get_redis_client_or_log,
-    log_redis_operation_failure,
-    parse_cached_datetime,
-)
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
 _reconcile_worker_lock = Lock()
 _reconcile_worker_stop = Event()
 _reconcile_worker_thread: Thread | None = None
-_PRESENCE_REDIS_PREFIX = "meeting_presence:v1:"
-_PRESENCE_REDIS_TTL_SECONDS = max(ROOM_PRESENCE_HEARTBEAT_TIMEOUT_SECONDS * 4, 120)
 _PRESENCE_DB_FLUSH_INTERVAL_SECONDS = 10
-_REDIS_SCOPE = "meeting_presence_runtime"
-_FALLBACK_LABEL = "database-only state"
 _UNSET = object()
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _presence_redis_key(meeting_id) -> str:
-    return f"{_PRESENCE_REDIS_PREFIX}{meeting_id}"
-
-
-def _serialize_dt(value: datetime | None) -> str | None:
-    normalized = MeetingRoomPresence._ensure_utc(value)
-    return normalized.isoformat() if normalized is not None else None
-
-
-def _get_presence_redis_client():
-    return get_redis_client_or_log(
-        logger,
-        scope=_REDIS_SCOPE,
-        fallback_label=_FALLBACK_LABEL,
-    )
 
 
 def _write_presence_runtime_state(
@@ -60,70 +34,11 @@ def _write_presence_runtime_state(
     patient_left_at: datetime | None | object = _UNSET,
     refreshed_at: datetime | None | object = _UNSET,
 ) -> None:
-    redis_client = _get_presence_redis_client()
-    if redis_client is None:
-        return
-
-    mapping = {}
-    fields = {
-        "doctor_last_seen_at": doctor_last_seen_at,
-        "patient_last_seen_at": patient_last_seen_at,
-        "doctor_left_at": doctor_left_at,
-        "patient_left_at": patient_left_at,
-        "refreshed_at": refreshed_at,
-    }
-    for field_name, value in fields.items():
-        if value is _UNSET:
-            continue
-        mapping[field_name] = _serialize_dt(value if value is not None else None) or ""
-
-    if not mapping:
-        return
-
-    key = _presence_redis_key(meeting_id)
-    try:
-        redis_client.hset(key, mapping=mapping)
-        redis_client.expire(key, _PRESENCE_REDIS_TTL_SECONDS)
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope=_REDIS_SCOPE,
-            operation="write",
-            fallback_label=_FALLBACK_LABEL,
-        )
+    return None
 
 
 def _read_presence_runtime_state(meeting_id) -> dict[str, datetime | None]:
-    redis_client = _get_presence_redis_client()
-    if redis_client is None:
-        return {}
-
-    try:
-        payload = redis_client.hgetall(_presence_redis_key(meeting_id))
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope=_REDIS_SCOPE,
-            operation="read",
-            fallback_label=_FALLBACK_LABEL,
-        )
-        return {}
-
-    if not payload:
-        return {}
-
-    runtime_state: dict[str, datetime | None] = {}
-    for field_name in (
-        "doctor_last_seen_at",
-        "patient_last_seen_at",
-        "doctor_left_at",
-        "patient_left_at",
-        "refreshed_at",
-    ):
-        if field_name not in payload:
-            continue
-        runtime_state[field_name] = parse_cached_datetime(payload.get(field_name))
-    return runtime_state
+    return {}
 
 
 def apply_runtime_presence_overlay(presence: MeetingRoomPresence | None) -> MeetingRoomPresence | None:
