@@ -81,6 +81,8 @@ jobs:
       JWT_SECRET: test-jwt-secret-key-must-be-at-least-32-chars
       JWT_EXPIRES_IN: 3600
       RUN_TEST_MIGRATIONS: "true"
+      SEED_ADMIN_PASSWORD: test-seed-admin-password-min-32-characters-long
+      SEED_DOCTOR_PASSWORD: test-seed-doctor-password-min-32-characters-long
       GITHUB_EVENT_BEFORE: ${{ github.event.before }}
     
     services:
