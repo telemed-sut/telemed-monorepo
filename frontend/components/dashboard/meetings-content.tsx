@@ -716,7 +716,7 @@ function SchedulePopover({
                       setDate(selectedDate);
                       setDatePickerOpen(false);
                     }}
-                    initialFocus
+                    autoFocus
                   />
                 </PopoverContent>
               </Popover>
