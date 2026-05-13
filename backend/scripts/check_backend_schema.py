@@ -22,7 +22,6 @@ REQUIRED_COLUMNS = {
         "last_app_failed_login_at",
     },
     "device_registrations": {"device_secret"},
-    "users": {"two_factor_secret"},
 }
 REQUIRED_INDEXES = {
     "user_sessions": {
