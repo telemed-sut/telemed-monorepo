@@ -15,6 +15,13 @@ function getServerApiBaseUrl(): string {
   return baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
 }
 
+export class ServerApiError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "ServerApiError";
+  }
+}
+
 export async function serverApiFetch<T>(
   path: string,
   token: string,
@@ -23,21 +30,24 @@ export async function serverApiFetch<T>(
   const headers = new Headers(init?.headers);
   headers.set("Authorization", `Bearer ${token}`);
 
-  try {
-    const response = await fetch(`${getServerApiBaseUrl()}${path}`, {
-      ...init,
-      headers,
-      cache: "no-store",
-    });
+  const response = await fetch(`${getServerApiBaseUrl()}${path}`, {
+    ...init,
+    headers,
+    cache: "no-store",
+  });
 
-    if (!response.ok) {
-      return null;
-    }
-
-    return (await response.json()) as T;
-  } catch {
+  if (response.status === 401 || response.status === 403 || response.status === 404) {
     return null;
   }
+
+  if (!response.ok) {
+    throw new ServerApiError(
+      response.status,
+      `Server API request failed: ${response.status} ${response.statusText}`
+    );
+  }
+
+  return (await response.json()) as T;
 }
 
 export async function fetchCurrentUserRoleServer(token: string): Promise<string | null> {

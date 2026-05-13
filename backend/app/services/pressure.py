@@ -93,6 +93,16 @@ class PressureService:
         limit: int,
         offset: int,
     ) -> tuple[list[PressureRecord], int]:
+        active_patient_id = db.scalar(
+            select(Patient.id).where(
+                Patient.id == patient_id,
+                Patient.deleted_at.is_(None),
+                Patient.is_active == True,  # noqa: E712
+            )
+        )
+        if active_patient_id is None:
+            return [], 0
+
         total = db.scalar(
             select(func.count(PressureRecord.id)).where(PressureRecord.patient_id == patient_id)
         ) or 0
@@ -114,11 +124,13 @@ class PressureService:
             measurement_type=DeviceExamMeasurementType.blood_pressure,
         )
         # Check if patient exists
-        patient = db.query(Patient).filter(
-            Patient.id == resolved_patient_id,
-            Patient.deleted_at.is_(None),
-            Patient.is_active == True,  # noqa: E712
-        ).first()
+        patient = db.scalar(
+            select(Patient).where(
+                Patient.id == resolved_patient_id,
+                Patient.deleted_at.is_(None),
+                Patient.is_active == True,  # noqa: E712
+            )
+        )
         if not patient:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -175,10 +187,12 @@ class PressureService:
             db.rollback()
             # If unique constraint violation (duplicate device_id + measured_at)
             # Find the existing record to be idempotent
-            existing = db.query(PressureRecord).filter(
-                PressureRecord.device_id == pressure_in.device_id,
-                PressureRecord.measured_at == measured_at
-            ).first()
+            existing = db.scalar(
+                select(PressureRecord).where(
+                    PressureRecord.device_id == pressure_in.device_id,
+                    PressureRecord.measured_at == measured_at,
+                )
+            )
             if existing:
                 return existing
             
