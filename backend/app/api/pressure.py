@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 
 from app.services.auth import get_db, verify_patient_access
@@ -137,8 +137,8 @@ def _consume_nonce(db: Session, device_id: str, nonce: str) -> None:
     expires_at = now_utc + timedelta(seconds=ttl_seconds)
 
     # Opportunistic cleanup to keep nonce table bounded without a background scheduler.
-    db.query(DeviceRequestNonce).filter(DeviceRequestNonce.expires_at <= now_utc).delete(
-        synchronize_session=False
+    db.execute(
+        delete(DeviceRequestNonce).where(DeviceRequestNonce.expires_at <= now_utc)
     )
 
     nonce_row = DeviceRequestNonce(
