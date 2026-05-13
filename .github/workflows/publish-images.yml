@@ -71,7 +71,7 @@ jobs:
         cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
     - name: Run Trivy scan for ${{ matrix.name }} image
-      uses: aquasecurity/trivy-action@0.33.1
+      uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: ${{ matrix.image }}:sha-${{ github.sha }}
         format: sarif
