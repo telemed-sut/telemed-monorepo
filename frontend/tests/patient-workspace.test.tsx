@@ -406,7 +406,6 @@ describe("patient workspace overview", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Manage Records" }));
 
     expect(await screen.findByText("Manage chart records")).toBeInTheDocument();
-    expect(screen.getByText("Doctor editable")).toBeInTheDocument();
     await waitFor(() => expect(mockFetchPatientWeightRecords).toHaveBeenCalledWith("patient-1", "header.payload.signature"));
     expect(screen.getAllByText("72 kg").length).toBeGreaterThan(0);
     expect(screen.getAllByText("24.9").length).toBeGreaterThan(0);

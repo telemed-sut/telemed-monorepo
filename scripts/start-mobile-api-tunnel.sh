@@ -10,10 +10,6 @@ TUNNEL_NAME="${TUNNEL_NAME:-}"
 TUNNEL_DOMAIN="${TUNNEL_DOMAIN:-}"
 CONFIG_FILE="${CONFIG_FILE:-$ROOT_DIR/mobile/patient_flutter_app/config/dart_defines.local.json}"
 CONFIG_TEMPLATE="${CONFIG_TEMPLATE:-$ROOT_DIR/mobile/patient_flutter_app/config/dart_defines.example.json}"
-SYNC_INFISICAL="${SYNC_INFISICAL:-false}"
-INFISICAL_ENV="${INFISICAL_ENV:-dev}"
-INFISICAL_PATH="${INFISICAL_PATH:-/}"
-INFISICAL_PROJECT_ID="${INFISICAL_PROJECT_ID:-}"
 VERIFY_TUNNEL="${VERIFY_TUNNEL:-true}"
 
 is_enabled() {
@@ -94,13 +90,6 @@ verify_tunnel_health() {
   return 0
 }
 
-build_infisical_flags() {
-  INFISICAL_FLAGS=(--env "$INFISICAL_ENV" --path "$INFISICAL_PATH")
-  if [[ -n "$INFISICAL_PROJECT_ID" ]]; then
-    INFISICAL_FLAGS+=(--projectId "$INFISICAL_PROJECT_ID")
-  fi
-}
-
 ensure_config_file() {
   if [[ ! -f "$CONFIG_FILE" ]]; then
     if [[ ! -f "$CONFIG_TEMPLATE" ]]; then
@@ -144,7 +133,6 @@ start_backend_containers() {
   echo "Starting backend containers..."
   (
     cd "$ROOT_DIR"
-    # Ensure we include the tunnel hostname in ALLOWED_HOSTS to prevent "Invalid host header"
     if [[ -n "$tunnel_url" ]]; then
       local tunnel_host
       tunnel_host=$(echo "$tunnel_url" | sed -E 's|https?://||' | sed -E 's|/.*||')
@@ -152,13 +140,7 @@ start_backend_containers() {
       echo "- Added $tunnel_host to ALLOWED_HOSTS"
     fi
 
-    if is_enabled "$SYNC_INFISICAL"; then
-      require_command infisical
-      build_infisical_flags
-      infisical run "${INFISICAL_FLAGS[@]}" -- ./scripts/start-compose.sh -d db backend >/dev/null
-    else
-      ./scripts/start-compose.sh -d db backend >/dev/null
-    fi
+    ./scripts/start-compose.sh -d db backend >/dev/null
   )
 }
 
@@ -167,12 +149,6 @@ sync_mobile_api_base_url() {
   ensure_config_file
   update_json_key "$CONFIG_FILE" "TELEMED_API_BASE_URL" "$tunnel_url"
   echo "- Updated mobile config: $CONFIG_FILE"
-
-  if is_enabled "$SYNC_INFISICAL"; then
-    build_infisical_flags
-    infisical secrets set "TELEMED_API_BASE_URL=${tunnel_url}" "${INFISICAL_FLAGS[@]}" >/dev/null
-    echo "- Updated Infisical: TELEMED_API_BASE_URL"
-  fi
 }
 
 main() {

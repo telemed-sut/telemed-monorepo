@@ -26,7 +26,6 @@ doctor:
   check_command python3 "Required for backend tooling."
   check_command npm "Required for frontend scripts."
   check_command docker "Required for the local backend stack."
-  check_command infisical "Required for default secret injection workflows."
 
   if docker compose version >/dev/null 2>&1; then
     echo "[ok] docker compose"
@@ -68,13 +67,9 @@ doctor:
 
   echo
   echo "Local setup looks ready."
-  echo "Next step: run \`just doctor-backend-env\` to validate Infisical-backed backend runtime config before \`just dev-backend\`."
 
 dev-backend:
   ./scripts/dev-backend.sh
-
-doctor-backend-env:
-  ./scripts/run-with-infisical.sh ./scripts/check-compose-env.sh db backend
 
 dev-frontend:
   ./scripts/dev-frontend.sh
@@ -166,14 +161,13 @@ backend-head-check:
   #!/usr/bin/env bash
   set -euo pipefail
 
-  ./scripts/run-with-infisical.sh --cwd backend bash -lc '
-    head_count=$(./venv/bin/alembic heads | grep -c "(head)")
-    if [ "$head_count" -ne 1 ]; then
-      echo "Expected exactly 1 alembic head, got $head_count" >&2
-      ./venv/bin/alembic heads
-      exit 1
-    fi
-  '
+  cd backend
+  head_count=$(./venv/bin/alembic heads | grep -c "(head)")
+  if [ "$head_count" -ne 1 ]; then
+    echo "Expected exactly 1 alembic head, got $head_count" >&2
+    ./venv/bin/alembic heads
+    exit 1
+  fi
 
 backend-compile:
   cd backend && ./venv/bin/python -m py_compile app/api/users.py app/api/meetings.py app/api/patients.py app/services/meeting.py

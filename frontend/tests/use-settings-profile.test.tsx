@@ -50,7 +50,6 @@ describe("useSettingsProfile", () => {
       last_name: "Doctor",
       role: "doctor",
       verification_status: "verified" as const,
-      two_factor_enabled: true,
       mfa_verified: true,
       mfa_authenticated_at: "2026-04-17T03:30:00.000Z",
       mfa_recent_for_privileged_actions: true,

@@ -4,4 +4,4 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 cd "$ROOT_DIR"
-exec ./scripts/compose-up-infisical.sh db backend "$@"
+exec ./scripts/start-compose.sh db backend "$@"

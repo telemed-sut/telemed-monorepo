@@ -3,5 +3,5 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-cd "$ROOT_DIR"
-exec ./scripts/run-with-infisical.sh --cwd backend ./venv/bin/alembic upgrade head "$@"
+cd "$ROOT_DIR/backend"
+exec ./venv/bin/alembic upgrade head "$@"

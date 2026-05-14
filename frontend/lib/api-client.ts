@@ -170,13 +170,6 @@ const TRANSLATED_MESSAGE_RULES: Array<{
     },
   },
   {
-    pattern: /invalid two-factor authentication code/i,
-    messages: {
-      en: "Secure verification failed. Please try again.",
-      th: "ยืนยันตัวตนไม่สำเร็จ กรุณาลองใหม่",
-    },
-  },
-  {
     pattern: /organization sso|admin account must continue with organization sso/i,
     messages: {
       en: "Please continue with Organization SSO.",
@@ -279,7 +272,6 @@ const AUTH_ERROR_RULES: Array<{
   {
     contexts: ["login", "step-up"],
     codes: ["mfa_verification_failed"],
-    patterns: [/invalid two-factor authentication code|invalid two-factor code/i],
     messages: {
       en: "Secure verification failed. Please try again.",
       th: "ยืนยันตัวตนไม่สำเร็จ กรุณาลองใหม่",

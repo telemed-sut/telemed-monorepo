@@ -162,7 +162,6 @@ def _detect_legacy_revision_mismatch(inspector, table_names: set[str]) -> list[s
 
     expected_column_types = {
         ("device_registrations", "device_secret"): {"VARCHAR", "TEXT", "STRING"},
-        ("users", "two_factor_secret"): {"VARCHAR", "TEXT", "STRING"},
     }
     for (table_name, column_name), allowed_type_names in expected_column_types.items():
         if table_name not in table_names:

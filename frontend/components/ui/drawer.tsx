@@ -57,7 +57,7 @@ function DrawerBackdrop({ className, ...props }: DrawerPrimitive.Backdrop.Props)
   return (
     <DrawerPrimitive.Backdrop
       className={cn(
-        "fixed inset-0 z-50 bg-black/30 backdrop-blur-sm transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0",
+        "fixed inset-0 z-50 bg-black/30 backdrop-blur-sm transition-opacity duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] data-ending-style:opacity-0 data-starting-style:opacity-0",
         className
       )}
       data-slot="drawer-backdrop"
@@ -110,7 +110,7 @@ function DrawerPopup({
       <DrawerViewport position={position}>
         <DrawerPrimitive.Popup
           className={cn(
-            "relative flex max-h-full min-h-0 min-w-0 flex-col border bg-popover text-popover-foreground shadow-lg outline-none transition-transform duration-300 data-ending-style:duration-200 data-starting-style:duration-200",
+            "relative flex max-h-full min-h-0 min-w-0 flex-col border bg-popover text-popover-foreground shadow-lg outline-none will-change-transform transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] data-ending-style:duration-300 data-starting-style:duration-300",
             position === "bottom" &&
               "max-h-[88dvh] w-full rounded-t-2xl border-b-0 data-ending-style:translate-y-full data-starting-style:translate-y-full",
             position === "top" &&
@@ -200,7 +200,7 @@ function DrawerPanel({
     <div
       className={cn(
         "flex min-h-0 flex-1 flex-col gap-5 p-6 pt-2",
-        scrollable && "overflow-y-auto overscroll-contain",
+        scrollable && "overflow-y-auto overscroll-contain scroll-smooth [-webkit-overflow-scrolling:touch]",
         className
       )}
       data-slot="drawer-panel"

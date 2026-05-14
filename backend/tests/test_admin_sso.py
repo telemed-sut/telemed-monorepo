@@ -476,7 +476,6 @@ def test_admin_sso_logout_post_uses_server_side_logout_hint(
         ttl_seconds=3600,
     )
     client.cookies.set(auth_api.settings.auth_cookie_name, token)
-    client.cookies.set(auth_api.settings.trusted_device_cookie_name, "trusted-cookie")
     monkeypatch.setattr(
         "app.services.admin_sso.build_logout_redirect_url",
         lambda *, id_token_hint: f"https://auth.example.com/logout?id_token_hint={id_token_hint}",
@@ -496,7 +495,6 @@ def test_admin_sso_logout_post_uses_server_side_logout_hint(
     cookie_header = response.headers.get("set-cookie", "")
     assert f"{auth_api.settings.auth_cookie_name}=" in cookie_header
     assert f"{auth_api.CSRF_COOKIE_NAME}=" in cookie_header
-    assert f"{auth_api.settings.trusted_device_cookie_name}=" in cookie_header
     assert admin_sso_store.pop_logout_hint(session_id) is None
     me_response = client.get(
         "/auth/me",

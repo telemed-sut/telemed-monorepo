@@ -4,7 +4,7 @@ import logging
 import os
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -268,6 +268,9 @@ def create_app() -> FastAPI:
             response = await call_next(request)
         finally:
             reset_request_id(request_id_token)
+
+        if response is None:
+            return Response(status_code=499)
 
         response.headers["X-Request-Id"] = request_id
         return response

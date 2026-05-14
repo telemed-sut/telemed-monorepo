@@ -1,0 +1,530 @@
+- generic [ref=e1]:
+  - alert [ref=e2]: E Med Help SUT — Telemedicine Dashboard
+  - generic [ref=e42]:
+    - generic [ref=e45]:
+      - generic [ref=e47]:
+        - img "E Med Help logo" [ref=e48]
+        - generic [ref=e49]: E Med Help
+      - list [ref=e53]:
+        - listitem [ref=e54]:
+          - button "Overview" [ref=e55] [cursor=pointer]:
+            - img [ref=e56]
+            - generic [ref=e59]: Overview
+        - listitem [ref=e60]:
+          - button "Patients" [ref=e61] [cursor=pointer]:
+            - img [ref=e62]
+            - generic [ref=e67]: Patients
+            - img [ref=e68]
+        - listitem [ref=e70]:
+          - button "Meetings" [ref=e71] [cursor=pointer]:
+            - img [ref=e72]
+            - generic [ref=e74]: Meetings
+      - button "Demo Doctor" [ref=e77] [cursor=pointer]:
+        - paragraph [ref=e80]: Demo Doctor
+        - img [ref=e81]
+    - generic [ref=e85]:
+      - banner [ref=e87]:
+        - button "Toggle Sidebar" [ref=e88] [cursor=pointer]:
+          - img
+          - generic [ref=e89]: Toggle Sidebar
+        - heading "Patients" [level=1] [ref=e91]
+        - generic [ref=e92]:
+          - button "English" [ref=e93] [cursor=pointer]:
+            - img [ref=e94]
+            - generic [ref=e98]: English
+          - button "Edit Layout" [ref=e99] [cursor=pointer]:
+            - img [ref=e100]
+            - generic [ref=e104]: Edit Layout
+      - main [active] [ref=e106]:
+        - generic [ref=e107]:
+          - generic [ref=e108]:
+            - generic [ref=e109]:
+              - img [ref=e111]
+              - generic [ref=e118]:
+                - generic [ref=e119]: Total Patients
+                - img [ref=e121]
+              - generic [ref=e128]:
+                - generic [ref=e129]: "100"
+                - paragraph [ref=e130]:
+                  - generic [ref=e131]: Synced
+                  - text: in system
+            - generic [ref=e132]:
+              - img [ref=e134]
+              - generic [ref=e137]:
+                - generic [ref=e138]: Profile Coverage
+                - img [ref=e140]
+              - generic [ref=e143]:
+                - generic [ref=e144]: "10"
+                - paragraph [ref=e145]:
+                  - generic [ref=e146]: 10%
+                  - text: records include profile markers
+            - generic [ref=e147]:
+              - img [ref=e149]
+              - generic [ref=e154]:
+                - generic [ref=e155]: New This Week
+                - img [ref=e157]
+              - generic [ref=e161]:
+                - generic [ref=e162]: "0"
+                - paragraph [ref=e163]:
+                  - generic [ref=e164]: "+0"
+                  - text: last 7 days
+          - generic [ref=e165]:
+            - generic [ref=e167]:
+              - generic [ref=e168]:
+                - generic [ref=e169]:
+                  - img [ref=e171]
+                  - text: Patient Directory
+                - generic [ref=e176]: This list shows only patients assigned to your account. Open this page to reveal contact details, or open a workspace for the full record.
+              - generic [ref=e177]:
+                - button "Open this page" [ref=e178] [cursor=pointer]:
+                  - generic [ref=e180]:
+                    - img
+                  - text: Open this page
+                - generic [ref=e181]:
+                  - img [ref=e182]
+                  - textbox "Search patients..." [ref=e185]
+                - button "Add Patient" [ref=e186] [cursor=pointer]:
+                  - img
+                  - text: Add Patient
+                - button "Reset Filters" [ref=e187] [cursor=pointer]:
+                  - img
+            - table [ref=e190]:
+              - rowgroup [ref=e191]:
+                - row "# Patient Age & DOB Gender Contact Actions" [ref=e192]:
+                  - columnheader "#" [ref=e193]
+                  - columnheader "Patient" [ref=e194]:
+                    - generic [ref=e195]:
+                      - img [ref=e196]
+                      - text: Patient
+                  - columnheader "Age & DOB" [ref=e199]:
+                    - generic [ref=e200]:
+                      - img [ref=e201]
+                      - text: Age & DOB
+                  - columnheader "Gender" [ref=e205]
+                  - columnheader "Contact" [ref=e206]:
+                    - generic [ref=e207]:
+                      - img [ref=e208]
+                      - text: Contact
+                  - columnheader "Actions" [ref=e212]
+              - rowgroup [ref=e213]:
+                - row "1 ประภา วงศ์วิชัย Open ประภา วงศ์วิชัย workspace 19 years old 13/08/2006 Other Protected in workspace Protected until secure reveal Reveal protected details for ประภา วงศ์วิชัย Open menu" [ref=e214]:
+                  - cell "1" [ref=e215]
+                  - cell "ประภา วงศ์วิชัย Open ประภา วงศ์วิชัย workspace" [ref=e216]:
+                    - generic [ref=e217]:
+                      - generic [ref=e220]: ประภา วงศ์วิชัย
+                      - button "Open ประภา วงศ์วิชัย workspace" [ref=e222] [cursor=pointer]: ประภา วงศ์วิชัย
+                  - cell "19 years old 13/08/2006" [ref=e223]:
+                    - generic [ref=e224]:
+                      - generic [ref=e225]: 19 years old
+                      - generic [ref=e226]: 13/08/2006
+                  - cell "Other" [ref=e227]:
+                    - generic [ref=e228]: Other
+                  - cell "Protected in workspace Protected until secure reveal" [ref=e229]:
+                    - generic [ref=e230]:
+                      - generic [ref=e231]:
+                        - img [ref=e233]
+                        - text: Protected in workspace
+                      - generic [ref=e237]:
+                        - img [ref=e239]
+                        - text: Protected until secure reveal
+                  - cell "Reveal protected details for ประภา วงศ์วิชัย Open menu" [ref=e242]:
+                    - generic [ref=e243]:
+                      - button "Reveal protected details for ประภา วงศ์วิชัย" [ref=e244] [cursor=pointer]:
+                        - generic [ref=e245]:
+                          - img
+                      - button "Open menu" [ref=e246] [cursor=pointer]:
+                        - generic [ref=e247]: Open menu
+                        - img [ref=e248]
+                - row "2 มานี ศรีวิชัย Open มานี ศรีวิชัย workspace 43 years old 02/08/1982 Female Protected in workspace Protected until secure reveal Reveal protected details for มานี ศรีวิชัย Open menu" [ref=e252]:
+                  - cell "2" [ref=e253]
+                  - cell "มานี ศรีวิชัย Open มานี ศรีวิชัย workspace" [ref=e254]:
+                    - generic [ref=e255]:
+                      - generic [ref=e258]: มานี ศรีวิชัย
+                      - button "Open มานี ศรีวิชัย workspace" [ref=e260] [cursor=pointer]: มานี ศรีวิชัย
+                  - cell "43 years old 02/08/1982" [ref=e261]:
+                    - generic [ref=e262]:
+                      - generic [ref=e263]: 43 years old
+                      - generic [ref=e264]: 02/08/1982
+                  - cell "Female" [ref=e265]:
+                    - generic [ref=e266]: Female
+                  - cell "Protected in workspace Protected until secure reveal" [ref=e267]:
+                    - generic [ref=e268]:
+                      - generic [ref=e269]:
+                        - img [ref=e271]
+                        - text: Protected in workspace
+                      - generic [ref=e275]:
+                        - img [ref=e277]
+                        - text: Protected until secure reveal
+                  - cell "Reveal protected details for มานี ศรีวิชัย Open menu" [ref=e280]:
+                    - generic [ref=e281]:
+                      - button "Reveal protected details for มานี ศรีวิชัย" [ref=e282] [cursor=pointer]:
+                        - generic [ref=e283]:
+                          - img
+                      - button "Open menu" [ref=e284] [cursor=pointer]:
+                        - generic [ref=e285]: Open menu
+                        - img [ref=e286]
+                - row "3 พชร วงศ์วิวัฒน์ Open พชร วงศ์วิวัฒน์ workspace 62 years old 07/01/1964 Female Protected in workspace Protected until secure reveal Reveal protected details for พชร วงศ์วิวัฒน์ Open menu" [ref=e290]:
+                  - cell "3" [ref=e291]
+                  - cell "พชร วงศ์วิวัฒน์ Open พชร วงศ์วิวัฒน์ workspace" [ref=e292]:
+                    - generic [ref=e293]:
+                      - generic [ref=e296]: พชร วงศ์วิวัฒน์
+                      - button "Open พชร วงศ์วิวัฒน์ workspace" [ref=e298] [cursor=pointer]: พชร วงศ์วิวัฒน์
+                  - cell "62 years old 07/01/1964" [ref=e299]:
+                    - generic [ref=e300]:
+                      - generic [ref=e301]: 62 years old
+                      - generic [ref=e302]: 07/01/1964
+                  - cell "Female" [ref=e303]:
+                    - generic [ref=e304]: Female
+                  - cell "Protected in workspace Protected until secure reveal" [ref=e305]:
+                    - generic [ref=e306]:
+                      - generic [ref=e307]:
+                        - img [ref=e309]
+                        - text: Protected in workspace
+                      - generic [ref=e313]:
+                        - img [ref=e315]
+                        - text: Protected until secure reveal
+                  - cell "Reveal protected details for พชร วงศ์วิวัฒน์ Open menu" [ref=e318]:
+                    - generic [ref=e319]:
+                      - button "Reveal protected details for พชร วงศ์วิวัฒน์" [ref=e320] [cursor=pointer]:
+                        - generic [ref=e321]:
+                          - img
+                      - button "Open menu" [ref=e322] [cursor=pointer]:
+                        - generic [ref=e323]: Open menu
+                        - img [ref=e324]
+                - row "4 พิมลพรรณ ศรีสมาน Open พิมลพรรณ ศรีสมาน workspace 65 years old 28/06/1960 Other Protected in workspace Protected until secure reveal Reveal protected details for พิมลพรรณ ศรีสมาน Open menu" [ref=e328]:
+                  - cell "4" [ref=e329]
+                  - cell "พิมลพรรณ ศรีสมาน Open พิมลพรรณ ศรีสมาน workspace" [ref=e330]:
+                    - generic [ref=e331]:
+                      - generic [ref=e334]: พิมลพรรณ ศรีสมาน
+                      - button "Open พิมลพรรณ ศรีสมาน workspace" [ref=e336] [cursor=pointer]: พิมลพรรณ ศรีสมาน
+                  - cell "65 years old 28/06/1960" [ref=e337]:
+                    - generic [ref=e338]:
+                      - generic [ref=e339]: 65 years old
+                      - generic [ref=e340]: 28/06/1960
+                  - cell "Other" [ref=e341]:
+                    - generic [ref=e342]: Other
+                  - cell "Protected in workspace Protected until secure reveal" [ref=e343]:
+                    - generic [ref=e344]:
+                      - generic [ref=e345]:
+                        - img [ref=e347]
+                        - text: Protected in workspace
+                      - generic [ref=e351]:
+                        - img [ref=e353]
+                        - text: Protected until secure reveal
+                  - cell "Reveal protected details for พิมลพรรณ ศรีสมาน Open menu" [ref=e356]:
+                    - generic [ref=e357]:
+                      - button "Reveal protected details for พิมลพรรณ ศรีสมาน" [ref=e358] [cursor=pointer]:
+                        - generic [ref=e359]:
+                          - img
+                      - button "Open menu" [ref=e360] [cursor=pointer]:
+                        - generic [ref=e361]: Open menu
+                        - img [ref=e362]
+                - row "5 ชวัลวิทย์ ศรีสมศักดิ์ Open ชวัลวิทย์ ศรีสมศักดิ์ workspace 87 years old 08/09/1938 Other Protected in workspace Protected until secure reveal Reveal protected details for ชวัลวิทย์ ศรีสมศักดิ์ Open menu" [ref=e366]:
+                  - cell "5" [ref=e367]
+                  - cell "ชวัลวิทย์ ศรีสมศักดิ์ Open ชวัลวิทย์ ศรีสมศักดิ์ workspace" [ref=e368]:
+                    - generic [ref=e369]:
+                      - generic [ref=e372]: ชวัลวิทย์ ศรีสมศักดิ์
+                      - button "Open ชวัลวิทย์ ศรีสมศักดิ์ workspace" [ref=e374] [cursor=pointer]: ชวัลวิทย์ ศรีสมศักดิ์
+                  - cell "87 years old 08/09/1938" [ref=e375]:
+                    - generic [ref=e376]:
+                      - generic [ref=e377]: 87 years old
+                      - generic [ref=e378]: 08/09/1938
+                  - cell "Other" [ref=e379]:
+                    - generic [ref=e380]: Other
+                  - cell "Protected in workspace Protected until secure reveal" [ref=e381]:
+                    - generic [ref=e382]:
+                      - generic [ref=e383]:
+                        - img [ref=e385]
+                        - text: Protected in workspace
+                      - generic [ref=e389]:
+                        - img [ref=e391]
+                        - text: Protected until secure reveal
+                  - cell "Reveal protected details for ชวัลวิทย์ ศรีสมศักดิ์ Open menu" [ref=e394]:
+                    - generic [ref=e395]:
+                      - button "Reveal protected details for ชวัลวิทย์ ศรีสมศักดิ์" [ref=e396] [cursor=pointer]:
+                        - generic [ref=e397]:
+                          - img
+                      - button "Open menu" [ref=e398] [cursor=pointer]:
+                        - generic [ref=e399]: Open menu
+                        - img [ref=e400]
+                - row "6 วิภา วงศ์วิวัฒน์ Open วิภา วงศ์วิวัฒน์ workspace 74 years old 15/08/1951 Male Protected in workspace Protected until secure reveal Reveal protected details for วิภา วงศ์วิวัฒน์ Open menu" [ref=e404]:
+                  - cell "6" [ref=e405]
+                  - cell "วิภา วงศ์วิวัฒน์ Open วิภา วงศ์วิวัฒน์ workspace" [ref=e406]:
+                    - generic [ref=e407]:
+                      - generic [ref=e410]: วิภา วงศ์วิวัฒน์
+                      - button "Open วิภา วงศ์วิวัฒน์ workspace" [ref=e412] [cursor=pointer]: วิภา วงศ์วิวัฒน์
+                  - cell "74 years old 15/08/1951" [ref=e413]:
+                    - generic [ref=e414]:
+                      - generic [ref=e415]: 74 years old
+                      - generic [ref=e416]: 15/08/1951
+                  - cell "Male" [ref=e417]:
+                    - generic [ref=e418]: Male
+                  - cell "Protected in workspace Protected until secure reveal" [ref=e419]:
+                    - generic [ref=e420]:
+                      - generic [ref=e421]:
+                        - img [ref=e423]
+                        - text: Protected in workspace
+                      - generic [ref=e427]:
+                        - img [ref=e429]
+                        - text: Protected until secure reveal
+                  - cell "Reveal protected details for วิภา วงศ์วิวัฒน์ Open menu" [ref=e432]:
+                    - generic [ref=e433]:
+                      - button "Reveal protected details for วิภา วงศ์วิวัฒน์" [ref=e434] [cursor=pointer]:
+                        - generic [ref=e435]:
+                          - img
+                      - button "Open menu" [ref=e436] [cursor=pointer]:
+                        - generic [ref=e437]: Open menu
+                        - img [ref=e438]
+                - row "7 ยุวดี ศรีสมบัติ Open ยุวดี ศรีสมบัติ workspace 41 years old 03/10/1984 Other Protected in workspace Protected until secure reveal Reveal protected details for ยุวดี ศรีสมบัติ Open menu" [ref=e442]:
+                  - cell "7" [ref=e443]
+                  - cell "ยุวดี ศรีสมบัติ Open ยุวดี ศรีสมบัติ workspace" [ref=e444]:
+                    - generic [ref=e445]:
+                      - generic [ref=e448]: ยุวดี ศรีสมบัติ
+                      - button "Open ยุวดี ศรีสมบัติ workspace" [ref=e450] [cursor=pointer]: ยุวดี ศรีสมบัติ
+                  - cell "41 years old 03/10/1984" [ref=e451]:
+                    - generic [ref=e452]:
+                      - generic [ref=e453]: 41 years old
+                      - generic [ref=e454]: 03/10/1984
+                  - cell "Other" [ref=e455]:
+                    - generic [ref=e456]: Other
+                  - cell "Protected in workspace Protected until secure reveal" [ref=e457]:
+                    - generic [ref=e458]:
+                      - generic [ref=e459]:
+                        - img [ref=e461]
+                        - text: Protected in workspace
+                      - generic [ref=e465]:
+                        - img [ref=e467]
+                        - text: Protected until secure reveal
+                  - cell "Reveal protected details for ยุวดี ศรีสมบัติ Open menu" [ref=e470]:
+                    - generic [ref=e471]:
+                      - button "Reveal protected details for ยุวดี ศรีสมบัติ" [ref=e472] [cursor=pointer]:
+                        - generic [ref=e473]:
+                          - img
+                      - button "Open menu" [ref=e474] [cursor=pointer]:
+                        - generic [ref=e475]: Open menu
+                        - img [ref=e476]
+                - row "8 ยุพิน ศรีทอง Open ยุพิน ศรีทอง workspace 59 years old 22/04/1967 Female Protected in workspace Protected until secure reveal Reveal protected details for ยุพิน ศรีทอง Open menu" [ref=e480]:
+                  - cell "8" [ref=e481]
+                  - cell "ยุพิน ศรีทอง Open ยุพิน ศรีทอง workspace" [ref=e482]:
+                    - generic [ref=e483]:
+                      - generic [ref=e486]: ยุพิน ศรีทอง
+                      - button "Open ยุพิน ศรีทอง workspace" [ref=e488] [cursor=pointer]: ยุพิน ศรีทอง
+                  - cell "59 years old 22/04/1967" [ref=e489]:
+                    - generic [ref=e490]:
+                      - generic [ref=e491]: 59 years old
+                      - generic [ref=e492]: 22/04/1967
+                  - cell "Female" [ref=e493]:
+                    - generic [ref=e494]: Female
+                  - cell "Protected in workspace Protected until secure reveal" [ref=e495]:
+                    - generic [ref=e496]:
+                      - generic [ref=e497]:
+                        - img [ref=e499]
+                        - text: Protected in workspace
+                      - generic [ref=e503]:
+                        - img [ref=e505]
+                        - text: Protected until secure reveal
+                  - cell "Reveal protected details for ยุพิน ศรีทอง Open menu" [ref=e508]:
+                    - generic [ref=e509]:
+                      - button "Reveal protected details for ยุพิน ศรีทอง" [ref=e510] [cursor=pointer]:
+                        - generic [ref=e511]:
+                          - img
+                      - button "Open menu" [ref=e512] [cursor=pointer]:
+                        - generic [ref=e513]: Open menu
+                        - img [ref=e514]
+                - row "9 สราวุธ ศรีปัญญา Open สราวุธ ศรีปัญญา workspace 87 years old 02/12/1938 Other Protected in workspace Protected until secure reveal Reveal protected details for สราวุธ ศรีปัญญา Open menu" [ref=e518]:
+                  - cell "9" [ref=e519]
+                  - cell "สราวุธ ศรีปัญญา Open สราวุธ ศรีปัญญา workspace" [ref=e520]:
+                    - generic [ref=e521]:
+                      - generic [ref=e524]: สราวุธ ศรีปัญญา
+                      - button "Open สราวุธ ศรีปัญญา workspace" [ref=e526] [cursor=pointer]: สราวุธ ศรีปัญญา
+                  - cell "87 years old 02/12/1938" [ref=e527]:
+                    - generic [ref=e528]:
+                      - generic [ref=e529]: 87 years old
+                      - generic [ref=e530]: 02/12/1938
+                  - cell "Other" [ref=e531]:
+                    - generic [ref=e532]: Other
+                  - cell "Protected in workspace Protected until secure reveal" [ref=e533]:
+                    - generic [ref=e534]:
+                      - generic [ref=e535]:
+                        - img [ref=e537]
+                        - text: Protected in workspace
+                      - generic [ref=e541]:
+                        - img [ref=e543]
+                        - text: Protected until secure reveal
+                  - cell "Reveal protected details for สราวุธ ศรีปัญญา Open menu" [ref=e546]:
+                    - generic [ref=e547]:
+                      - button "Reveal protected details for สราวุธ ศรีปัญญา" [ref=e548] [cursor=pointer]:
+                        - generic [ref=e549]:
+                          - img
+                      - button "Open menu" [ref=e550] [cursor=pointer]:
+                        - generic [ref=e551]: Open menu
+                        - img [ref=e552]
+                - row "10 ดวงใจ รัตนากุล Open ดวงใจ รัตนากุล workspace 46 years old 23/11/1979 Male Protected in workspace Protected until secure reveal Reveal protected details for ดวงใจ รัตนากุล Open menu" [ref=e556]:
+                  - cell "10" [ref=e557]
+                  - cell "ดวงใจ รัตนากุล Open ดวงใจ รัตนากุล workspace" [ref=e558]:
+                    - generic [ref=e559]:
+                      - generic [ref=e562]: ดวงใจ รัตนากุล
+                      - button "Open ดวงใจ รัตนากุล workspace" [ref=e564] [cursor=pointer]: ดวงใจ รัตนากุล
+                  - cell "46 years old 23/11/1979" [ref=e565]:
+                    - generic [ref=e566]:
+                      - generic [ref=e567]: 46 years old
+                      - generic [ref=e568]: 23/11/1979
+                  - cell "Male" [ref=e569]:
+                    - generic [ref=e570]: Male
+                  - cell "Protected in workspace Protected until secure reveal" [ref=e571]:
+                    - generic [ref=e572]:
+                      - generic [ref=e573]:
+                        - img [ref=e575]
+                        - text: Protected in workspace
+                      - generic [ref=e579]:
+                        - img [ref=e581]
+                        - text: Protected until secure reveal
+                  - cell "Reveal protected details for ดวงใจ รัตนากุล Open menu" [ref=e584]:
+                    - generic [ref=e585]:
+                      - button "Reveal protected details for ดวงใจ รัตนากุล" [ref=e586] [cursor=pointer]:
+                        - generic [ref=e587]:
+                          - img
+                      - button "Open menu" [ref=e588] [cursor=pointer]:
+                        - generic [ref=e589]: Open menu
+                        - img [ref=e590]
+            - generic [ref=e594]:
+              - generic [ref=e596]:
+                - button "Previous page" [disabled]:
+                  - img
+                - generic [ref=e597]:
+                  - button "1" [ref=e598] [cursor=pointer]
+                  - button "2" [ref=e599] [cursor=pointer]
+                  - button "3" [ref=e600] [cursor=pointer]
+                  - generic [ref=e601]: ...
+                  - button "10" [ref=e602] [cursor=pointer]
+                - button "Next page" [ref=e603] [cursor=pointer]:
+                  - img
+              - generic [ref=e604]:
+                - generic [ref=e605]: Showing 1-10 of 100
+                - generic [ref=e606]:
+                  - combobox [ref=e607] [cursor=pointer]:
+                    - generic [ref=e608]:
+                      - img
+                      - generic [ref=e609]: Newest First
+                    - img
+                  - textbox [ref=e610]: created_at-desc
+                  - button "10 / page" [ref=e611] [cursor=pointer]:
+                    - text: 10 / page
+                    - img [ref=e612]
+  - region "Notifications alt+T"
+  - status [ref=e33]
+  - alert [ref=e34]
+  - button "v3.0.2 Output Detail Standard React Components Hide Until Restart Marker Color Clear on copy/send Block page interactions Manage MCP & Webhooks Manage MCP & Webhooks MCP Connection MCP connection allows agents to receive and act on annotations. Learn more Webhooks Auto-Send The webhook URL will receive live annotation changes and annotation data." [ref=e36] [cursor=pointer]:
+    - img [ref=e38]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button "Switch to light mode":
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button "Standard":
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button "Indigo"
+              - button "Blue"
+              - button "Cyan"
+              - button "Green"
+              - button "Yellow"
+              - button "Orange"
+              - button "Red"
+          - generic:
+            - generic:
+              - generic:
+                - checkbox "Clear on copy/send"
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox "Block page interactions" [checked]
+                - img
+              - generic: Block page interactions
+          - button "Manage MCP & Webhooks":
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button "Manage MCP & Webhooks":
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link "Learn more":
+                - /url: https://agentation.dev/mcp
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox "Auto-Send" [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox "Webhook URL"

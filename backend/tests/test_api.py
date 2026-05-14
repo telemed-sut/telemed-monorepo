@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api import auth as auth_api
-from app.core.security import decode_token, generate_totp_code, generate_totp_secret
+from app.core.security import decode_token
 from app.models.audit_log import AuditLog
 from app.models.invite import UserInvite
 from app.models.patient import Patient
@@ -122,7 +122,6 @@ def test_refresh_endpoint_preserves_recent_mfa_and_session_metadata(client: Test
         email="refresh-mfa@example.com",
         password_hash=get_password_hash("TestPassword123"),
         role=UserRole.admin,
-        two_factor_enabled=True,
     )
     db.add(user)
     db.commit()
@@ -286,30 +285,24 @@ def test_logout_endpoint(client: TestClient, db: Session):
     assert refresh_response.status_code == 401
 
 
-def test_logout_clears_trusted_device_cookie(client: TestClient, db: Session):
+def test_logout_endpoint_clears_session_cookie(client: TestClient, db: Session):
     user = User(
-        email="logout-trusted@example.com",
+        email="logout-session@example.com",
         password_hash=get_password_hash("TestPassword123"),
         role=UserRole.admin,
     )
-    user.two_factor_secret = generate_totp_secret()
-    user.two_factor_enabled = True
-    user.two_factor_enabled_at = datetime.now(timezone.utc)
     db.add(user)
     db.commit()
 
     login_response = client.post(
         "/auth/login",
         json={
-            "email": "logout-trusted@example.com",
+            "email": "logout-session@example.com",
             "password": "TestPassword123",
-            "otp_code": generate_totp_code(user.two_factor_secret),
-            "remember_device": True,
         },
     )
     assert login_response.status_code == 200, login_response.text
     token = login_response.json()["access_token"]
-    assert auth_api.settings.trusted_device_cookie_name in login_response.headers.get("set-cookie", "")
 
     response = client.post(
         "/auth/logout",
@@ -318,7 +311,7 @@ def test_logout_clears_trusted_device_cookie(client: TestClient, db: Session):
 
     assert response.status_code == 200
     cookie_header = response.headers.get("set-cookie", "")
-    assert f"{auth_api.settings.trusted_device_cookie_name}=" in cookie_header
+    assert f"{auth_api.settings.auth_cookie_name}=" in cookie_header
 
 
 def test_protected_endpoint_without_token(client: TestClient):
@@ -722,15 +715,11 @@ def test_invite_acceptance_marks_used_and_writes_audit(client: TestClient, db: S
     assert audit is not None
 
 
-def test_super_admin_can_create_admin_invite_and_accept_it(client: TestClient, db: Session, monkeypatch):
-    monkeypatch.setattr(auth_api.settings, "admin_2fa_required", True)
-    monkeypatch.setattr(auth_service.settings, "admin_2fa_required", True)
-    secret = generate_totp_secret()
+def test_super_admin_can_create_admin_invite_and_accept_it(client: TestClient, db: Session):
     admin = User(
         email="admin@example.com",
         password_hash=get_password_hash("AdminPass123"),
         role=UserRole.admin,
-        two_factor_secret=secret,
     )
     db.add(admin)
     db.commit()
@@ -740,7 +729,6 @@ def test_super_admin_can_create_admin_invite_and_accept_it(client: TestClient, d
         json={
             "email": "admin@example.com",
             "password": "AdminPass123",
-            "otp_code": generate_totp_code(secret),
         },
     )
     assert login_response.status_code == 200, login_response.text
@@ -780,8 +768,8 @@ def test_super_admin_can_create_admin_invite_and_accept_it(client: TestClient, d
         "/auth/login",
         json={"email": "new-admin@example.com", "password": "AdminPass456"},
     )
-    assert login_new_user.status_code == 401
-    assert login_new_user.json()["detail"]["code"] == "two_factor_required"
+    assert login_new_user.status_code == 200, login_new_user.text
+    assert "access_token" in login_new_user.json()
 
 
 def test_invite_non_clinical_role_rejected(client: TestClient, db: Session):

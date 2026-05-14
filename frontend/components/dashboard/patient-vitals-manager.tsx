@@ -16,14 +16,12 @@ import {
 import {
   Drawer,
   DrawerClose,
-  DrawerDescription,
   DrawerFooter,
   DrawerHeader,
   DrawerPanel,
   DrawerPopup,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -91,6 +89,7 @@ export function PatientVitalsManager({
   const tr = useCallback((en: string, th: string) => (isTh ? th : en), [isTh]);
 
   const latestRecord = records[0] ?? null;
+  const loadingRecordRows = Math.max(records.length, 1);
   const averageWeight = useMemo(() => {
     if (records.length === 0) return null;
     const total = records.reduce((sum, record) => sum + record.weight_kg, 0);
@@ -262,20 +261,9 @@ export function PatientVitalsManager({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerPopup showBar className="mx-auto max-h-[88dvh] w-full max-w-4xl">
-        <DrawerHeader className="border-b border-border/70 pb-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <DrawerTitle>{tr("Manage chart records", "จัดการข้อมูลบนกราฟ")}</DrawerTitle>
-            <Badge variant="outline" className="rounded-full px-2 py-0 text-[0.68rem]">
-              {tr("Doctor editable", "หมอแก้ไขได้")}
-            </Badge>
-          </div>
-          <DrawerDescription>
-            {tr(
-              "Add, edit, or delete weight and height records used by this patient trend chart. Heart rate and blood pressure still come from device readings or patient screening submissions.",
-              "เพิ่ม แก้ไข หรือลบข้อมูลน้ำหนักและส่วนสูงที่ใช้กับกราฟแนวโน้มผู้ป่วยรายนี้ ส่วนชีพจรและความดันยังมาจากอุปกรณ์หรือแบบประเมินของผู้ป่วย"
-            )}
-          </DrawerDescription>
+      <DrawerPopup showBar className="h-[78dvh] max-h-[720px] overflow-hidden">
+        <DrawerHeader>
+          <DrawerTitle>{tr("Manage chart records", "จัดการข้อมูลบนกราฟ")}</DrawerTitle>
         </DrawerHeader>
 
         <DrawerPanel>
@@ -381,7 +369,7 @@ export function PatientVitalsManager({
 
             {loading ? (
               <div className="space-y-2">
-                {Array.from({ length: 4 }).map((_, index) => (
+                {Array.from({ length: loadingRecordRows }).map((_, index) => (
                   <div key={index} className="rounded-xl border border-border/70 p-4">
                     <Skeleton className="h-4 w-44" />
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
