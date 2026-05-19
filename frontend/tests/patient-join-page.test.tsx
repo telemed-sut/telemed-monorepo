@@ -52,6 +52,9 @@ vi.mock("@/lib/zego-uikit", () => ({
   },
   getAdaptiveMediaConstraints: () => ({}),
   getMediaReleaseDelay: () => 0,
+  destroyZegoInstanceSafely: (instance: { destroy: () => void }) => {
+    instance.destroy();
+  },
   API_TIMEOUT_MS: 5000,
 }));
 

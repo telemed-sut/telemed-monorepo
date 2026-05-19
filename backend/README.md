@@ -186,12 +186,12 @@ cause startup loops:
   `venv/bin/alembic upgrade head`, then
   `python scripts/seed_device_demo_flow.py`. It creates one demo doctor,
   patient, registered lung device, assignment, and open device exam session,
-  then prints the simulator command. Redis is optional for this local script.
+  then prints the simulator command.
 - `SUPER_ADMIN_EMAILS` is bootstrap and break-glass fallback only. Production
   privileged access is assigned in the database.
 - When admin SSO is enabled, the backend uses PKCE and stores OIDC login/logout
-  artifacts server-side. Configure `REDIS_URL` for multi-instance environments
-  and `ADMIN_OIDC_CACHE_TTL_SECONDS` to tune OIDC metadata/JWKS caching.
+  artifacts server-side in local process memory. Configure
+  `ADMIN_OIDC_CACHE_TTL_SECONDS` to tune OIDC metadata/JWKS caching.
 
 JWT payload: sub (user id), role, exp. Token type bearer.
 

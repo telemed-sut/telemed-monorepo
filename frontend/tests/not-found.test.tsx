@@ -4,19 +4,18 @@ import { describe, expect, it } from "vitest";
 import NotFound from "@/app/not-found";
 
 describe("NotFound", () => {
-  it("renders bilingual recovery actions", () => {
+  it("renders a minimal home recovery action", () => {
     render(<NotFound />);
 
-    expect(screen.getByText("ไม่พบหน้าที่คุณต้องการ")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "404" })).toBeInTheDocument();
     expect(
-      screen.getByText(
-        "The page you requested does not exist, has moved, or requires a valid session."
-      )
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: "กลับไปหน้าเข้าสู่ระบบ" })
-    ).toHaveAttribute("href", "/login");
-    expect(screen.getByRole("link", { name: "ไปที่แดชบอร์ด" })).toHaveAttribute(
+      screen
+        .getByRole("img", {
+          name: "ภาพประกอบหน้า 404 ไม่พบหน้าที่ต้องการ",
+        })
+        .getAttribute("src")
+    ).toContain("not-found-illustration-transparent.png");
+    expect(screen.getByRole("link", { name: "กลับไปหน้าหลัก" })).toHaveAttribute(
       "href",
       "/overview"
     );

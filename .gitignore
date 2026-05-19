@@ -88,15 +88,10 @@ Thumbs.db
 # Git
 .git/
 
-# Skills
-skills/
-
 # Bruno local secrets
 Telemed Device API/environments/*.bru
 !Telemed Device API/environments/*.example.bru
 
-
-AGENTS.md
 
 # Keep frontend shared libs tracked (rule above is for root-level Python /lib/)
 !frontend/lib/

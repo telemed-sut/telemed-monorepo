@@ -1,0 +1,201 @@
+- generic [active] [ref=e1]:
+  - alert [ref=e2]
+  - generic [ref=e3]:
+    - generic [ref=e6]:
+      - generic [ref=e8]:
+        - img "E Med Help logo" [ref=e9]
+        - generic [ref=e10]: E Med Help
+      - list [ref=e14]:
+        - listitem [ref=e15]:
+          - button "Overview" [ref=e16] [cursor=pointer]:
+            - img [ref=e17]
+            - generic [ref=e20]: Overview
+        - listitem [ref=e21]:
+          - button "Patients" [ref=e22] [cursor=pointer]:
+            - img [ref=e23]
+            - generic [ref=e28]: Patients
+            - img [ref=e29]
+        - listitem [ref=e31]:
+          - button "Meetings" [ref=e32] [cursor=pointer]:
+            - img [ref=e33]
+            - generic [ref=e35]: Meetings
+      - button "?? Loading..." [ref=e38] [cursor=pointer]:
+        - generic [ref=e40]: "??"
+        - paragraph [ref=e42]: Loading...
+        - img [ref=e43]
+    - generic [ref=e47]:
+      - banner [ref=e49]:
+        - button "Toggle Sidebar" [ref=e50] [cursor=pointer]:
+          - img
+          - generic [ref=e51]: Toggle Sidebar
+        - heading "Patients" [level=1] [ref=e53]
+        - generic [ref=e54]:
+          - button "English" [ref=e55] [cursor=pointer]:
+            - img [ref=e56]
+            - generic [ref=e60]: English
+          - button "Edit Layout" [ref=e61] [cursor=pointer]:
+            - img [ref=e62]
+            - generic [ref=e66]: Edit Layout
+      - main [ref=e68]:
+        - generic [ref=e69]:
+          - generic [ref=e70]:
+            - generic [ref=e71]:
+              - img [ref=e73]
+              - generic [ref=e80]:
+                - generic [ref=e81]: Total Patients
+                - img [ref=e83]
+              - generic [ref=e90]:
+                - generic [ref=e91]: "0"
+                - paragraph [ref=e92]:
+                  - generic [ref=e93]: Synced
+                  - text: in system
+            - generic [ref=e94]:
+              - img [ref=e96]
+              - generic [ref=e99]:
+                - generic [ref=e100]: Profile Coverage
+                - img [ref=e102]
+              - generic [ref=e105]:
+                - generic [ref=e106]: "0"
+                - paragraph [ref=e107]:
+                  - generic [ref=e108]: 0%
+                  - text: records include profile markers
+            - generic [ref=e109]:
+              - img [ref=e111]
+              - generic [ref=e116]:
+                - generic [ref=e117]: New This Week
+                - img [ref=e119]
+              - generic [ref=e123]:
+                - generic [ref=e124]: "0"
+                - paragraph [ref=e125]:
+                  - generic [ref=e126]: "+0"
+                  - text: last 7 days
+          - generic [ref=e127]:
+            - generic [ref=e129]:
+              - generic [ref=e130]:
+                - generic [ref=e131]:
+                  - img [ref=e133]
+                  - text: Patient Directory
+                - generic [ref=e138]: This list shows only patients assigned to your account. Open this page to reveal contact details, or open a workspace for the full record.
+              - generic [ref=e139]:
+                - button "Open this page" [disabled]:
+                  - generic:
+                    - generic:
+                      - img
+                  - text: Open this page
+                - generic [ref=e140]:
+                  - img [ref=e141]
+                  - textbox "Search patients..." [ref=e144]
+                - button "Add Patient" [ref=e145] [cursor=pointer]:
+                  - img
+                  - text: Add Patient
+                - button "Reset Filters" [ref=e146] [cursor=pointer]:
+                  - img
+            - table [ref=e149]:
+              - rowgroup [ref=e150]:
+                - row "# Patient Age & DOB Gender Contact Actions" [ref=e151]:
+                  - columnheader "#" [ref=e152]
+                  - columnheader "Patient" [ref=e153]:
+                    - generic [ref=e154]:
+                      - img [ref=e155]
+                      - text: Patient
+                  - columnheader "Age & DOB" [ref=e158]:
+                    - generic [ref=e159]:
+                      - img [ref=e160]
+                      - text: Age & DOB
+                  - columnheader "Gender" [ref=e164]
+                  - columnheader "Contact" [ref=e165]:
+                    - generic [ref=e166]:
+                      - img [ref=e167]
+                      - text: Contact
+                  - columnheader "Actions" [ref=e171]
+              - rowgroup [ref=e172]:
+                - row [ref=e173]:
+                  - cell [ref=e174]
+                  - cell [ref=e176]
+                  - cell [ref=e182]
+                  - cell [ref=e186]
+                  - cell [ref=e188]
+                  - cell [ref=e192]
+                - row [ref=e194]:
+                  - cell [ref=e195]
+                  - cell [ref=e197]
+                  - cell [ref=e203]
+                  - cell [ref=e207]
+                  - cell [ref=e209]
+                  - cell [ref=e213]
+                - row [ref=e215]:
+                  - cell [ref=e216]
+                  - cell [ref=e218]
+                  - cell [ref=e224]
+                  - cell [ref=e228]
+                  - cell [ref=e230]
+                  - cell [ref=e234]
+                - row [ref=e236]:
+                  - cell [ref=e237]
+                  - cell [ref=e239]
+                  - cell [ref=e245]
+                  - cell [ref=e249]
+                  - cell [ref=e251]
+                  - cell [ref=e255]
+                - row [ref=e257]:
+                  - cell [ref=e258]
+                  - cell [ref=e260]
+                  - cell [ref=e266]
+                  - cell [ref=e270]
+                  - cell [ref=e272]
+                  - cell [ref=e276]
+                - row [ref=e278]:
+                  - cell [ref=e279]
+                  - cell [ref=e281]
+                  - cell [ref=e287]
+                  - cell [ref=e291]
+                  - cell [ref=e293]
+                  - cell [ref=e297]
+                - row [ref=e299]:
+                  - cell [ref=e300]
+                  - cell [ref=e302]
+                  - cell [ref=e308]
+                  - cell [ref=e312]
+                  - cell [ref=e314]
+                  - cell [ref=e318]
+                - row [ref=e320]:
+                  - cell [ref=e321]
+                  - cell [ref=e323]
+                  - cell [ref=e329]
+                  - cell [ref=e333]
+                  - cell [ref=e335]
+                  - cell [ref=e339]
+                - row [ref=e341]:
+                  - cell [ref=e342]
+                  - cell [ref=e344]
+                  - cell [ref=e350]
+                  - cell [ref=e354]
+                  - cell [ref=e356]
+                  - cell [ref=e360]
+                - row [ref=e362]:
+                  - cell [ref=e363]
+                  - cell [ref=e365]
+                  - cell [ref=e371]
+                  - cell [ref=e375]
+                  - cell [ref=e377]
+                  - cell [ref=e381]
+            - generic [ref=e383]:
+              - generic [ref=e385]:
+                - button "Previous page" [disabled]:
+                  - img
+                - generic [ref=e386]:
+                  - button "1" [disabled]
+                - button "Next page" [disabled]:
+                  - img
+              - generic [ref=e387]:
+                - generic [ref=e388]: Showing 0-0 of 0
+                - generic [ref=e389]:
+                  - combobox [ref=e390] [cursor=pointer]:
+                    - generic [ref=e391]:
+                      - img
+                      - generic [ref=e392]: Newest First
+                    - img
+                  - textbox [ref=e393]: created_at-desc
+                  - button "10 / page" [ref=e394] [cursor=pointer]:
+                    - text: 10 / page
+                    - img [ref=e395]

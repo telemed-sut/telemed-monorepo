@@ -52,6 +52,7 @@ const {
     includeCancelled: false,
     setIncludeCancelled: vi.fn(),
     setMeetings: vi.fn(),
+    upsertMeeting: vi.fn(),
     meetings: [],
   },
 }));
@@ -248,7 +249,7 @@ describe("Meetings content search", () => {
       target: { value: "10:00" },
     });
 
-    fireEvent.click(screen.getAllByRole("button", { name: /^Schedule$/i }).at(-1)!);
+    fireEvent.click(screen.getByRole("button", { name: /Create Event/i }));
     fireEvent.click(await screen.findByRole("button", { name: "Choose patient" }));
 
     const searchInput = await screen.findByPlaceholderText("Search patients...");
@@ -272,5 +273,55 @@ describe("Meetings content search", () => {
     });
 
     expect((await screen.findAllByText("Papon Moonkonburee")).length).toBeGreaterThan(0);
+  }, 15000);
+
+  it("adds a newly created meeting to the calendar store before waiting for the next fetch", async () => {
+    const createdMeeting = {
+      id: "meeting-new",
+      date_time: "2026-03-07T10:00:00.000Z",
+      doctor_id: "doctor-1",
+      user_id: "patient-1",
+      description: "Fresh follow-up",
+      note: null,
+      room: null,
+      status: "scheduled",
+      doctor: {
+        id: "doctor-1",
+        email: "doctor@example.com",
+        first_name: "Alice",
+        last_name: "Doctor",
+        role: "doctor",
+        is_active: true,
+      },
+      patient: {
+        id: "patient-1",
+        first_name: "Papon",
+        last_name: "Moonkonburee",
+        email: "papon@example.com",
+        phone: "0812345678",
+        is_active: true,
+      },
+    };
+
+    mockCreateMeeting.mockResolvedValue(createdMeeting);
+    mockFetchAllMeetings.mockResolvedValue([]);
+
+    await renderMeetingsContent();
+
+    fireEvent.click(screen.getByRole("button", { name: /Create Event/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Choose doctor" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /Alice Doctor/i }))[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Choose patient" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /Papon Moonkonburee/i }))[0]);
+    fireEvent.change(screen.getByPlaceholderText("Follow-up consultation"), {
+      target: { value: "Fresh follow-up" },
+    });
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Schedule$/i }).at(-1)!);
+
+    await waitFor(() => {
+      expect(mockCreateMeeting).toHaveBeenCalled();
+    });
+    expect(mockCalendarState.upsertMeeting).toHaveBeenCalledWith(createdMeeting);
   }, 15000);
 });

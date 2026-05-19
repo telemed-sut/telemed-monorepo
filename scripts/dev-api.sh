@@ -3,5 +3,5 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-cd "$ROOT_DIR"
-exec ./scripts/run-with-infisical.sh --cwd backend ./venv/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 "$@"
+cd "$ROOT_DIR/backend"
+exec ./venv/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 "$@"

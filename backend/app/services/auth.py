@@ -37,7 +37,7 @@ from app.services.auth_privileges import (
 )
 from app.services import auth_sessions
 from app.services import patient as patient_service
-from .auth_2fa import (
+from .auth_session_freshness import (
     get_request_auth_payload,
     require_recent_privileged_session,
     require_recent_sensitive_session,

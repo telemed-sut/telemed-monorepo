@@ -1,3 +1,4 @@
+import json
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -474,7 +475,13 @@ def test_zego_provider_uses_generate_token04(
     monkeypatch.setenv("ZEGO_APP_ID", "1477525628")
     monkeypatch.setenv("ZEGO_SERVER_SECRET", "92010c8a7aa686718d08b4ff247e462f")
     get_settings.cache_clear()
-    monkeypatch.setattr(zego_token, "generate_token04", lambda **_kwargs: "04.mock.zego")
+    captured_kwargs = {}
+
+    def fake_generate_token04(**kwargs):
+        captured_kwargs.update(kwargs)
+        return "04.mock.zego"
+
+    monkeypatch.setattr(zego_token, "generate_token04", fake_generate_token04)
 
     doctor = _create_user(db, "doctor-video-zego@example.com", UserRole.doctor)
     patient = _create_patient(db, "Zego", "Provider")
@@ -490,6 +497,14 @@ def test_zego_provider_uses_generate_token04(
     assert body["provider"] == "zego"
     assert body["app_id"] == 1477525628
     assert body["token"] == "04.mock.zego"
+    assert captured_kwargs["app_id"] == 1477525628
+    assert captured_kwargs["user_id"] == body["user_id"]
+    assert captured_kwargs["effective_time_in_seconds"] == 900
+    assert json.loads(captured_kwargs["payload"]) == {
+        "room_id": body["room_id"],
+        "privilege": {"1": 1, "2": 1},
+        "stream_id_list": None,
+    }
 
     get_settings.cache_clear()
 

@@ -57,7 +57,7 @@ require operator validation in the deployed environment.
 
 - Exact production CORS and allowed-host configuration
 - Cookie flags and HTTPS behavior on the real deployment host
-- Redis-backed rate limiting in the deployed environment
+- Deployment-scoped rate limiting in the deployed environment
 - Log redaction behavior in the production sink
 - Monitoring, alerting, and request-ID propagation in production
 - Archived dependency audit results from CI or a network-enabled workstation

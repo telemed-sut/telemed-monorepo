@@ -72,7 +72,7 @@ def check_vitals_and_alert(
         db.commit()
 
         # Real-time push to the patient's mobile app: create a PatientNotification
-        # which fans out via Redis pub/sub to /patient-app/me/stream listeners.
+        # which fans out through the in-process patient event hub to stream listeners.
         # Local import avoids any future circular dependency risk.
         try:
             from app.services import patient_notification as patient_notification_service

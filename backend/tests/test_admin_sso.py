@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlparse
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -42,17 +41,19 @@ def test_admin_sso_status_disabled_by_default(client: TestClient):
     }
 
 
-def test_admin_sso_store_requires_redis_backed_state_outside_dev(monkeypatch):
-    monkeypatch.setattr(admin_sso_store, "_allows_local_fallback", lambda: False)
-    monkeypatch.setattr(admin_sso_store, "get_redis_client", lambda: None)
+def test_admin_sso_store_uses_local_runtime_state():
+    admin_sso_store.store_login_artifact(
+        state_token="prod-like-state",
+        nonce="nonce",
+        code_verifier="code-verifier",
+        next_path="/patients",
+    )
 
-    with pytest.raises(RuntimeError, match="admin SSO artifact store requires Redis-backed shared runtime state"):
-        admin_sso_store.store_login_artifact(
-            state_token="prod-like-state",
-            nonce="nonce",
-            code_verifier="code-verifier",
-            next_path="/patients",
-        )
+    artifact = admin_sso_store.pop_login_artifact("prod-like-state")
+    assert artifact is not None
+    assert artifact.nonce == "nonce"
+    assert artifact.code_verifier == "code-verifier"
+    assert artifact.next_path == "/patients"
 
 
 def test_admin_sso_health_reports_disabled_by_default(client: TestClient, monkeypatch):
@@ -475,7 +476,6 @@ def test_admin_sso_logout_post_uses_server_side_logout_hint(
         ttl_seconds=3600,
     )
     client.cookies.set(auth_api.settings.auth_cookie_name, token)
-    client.cookies.set(auth_api.settings.trusted_device_cookie_name, "trusted-cookie")
     monkeypatch.setattr(
         "app.services.admin_sso.build_logout_redirect_url",
         lambda *, id_token_hint: f"https://auth.example.com/logout?id_token_hint={id_token_hint}",
@@ -495,7 +495,6 @@ def test_admin_sso_logout_post_uses_server_side_logout_hint(
     cookie_header = response.headers.get("set-cookie", "")
     assert f"{auth_api.settings.auth_cookie_name}=" in cookie_header
     assert f"{auth_api.CSRF_COOKIE_NAME}=" in cookie_header
-    assert f"{auth_api.settings.trusted_device_cookie_name}=" in cookie_header
     assert admin_sso_store.pop_logout_hint(session_id) is None
     me_response = client.get(
         "/auth/me",

@@ -1,5 +1,5 @@
 from datetime import date, datetime, timedelta, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -10,10 +10,12 @@ from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole
 from app.models.patient import Patient
 from app.models.patient_app_registration import PatientAppRegistration
+from app.models.patient_screening import PatientScreening
 from app.models.user import User
 from app.models.weight_record import WeightRecord
 from app.services import patient_app as patient_app_service
 from app.services import patient_app_sessions as patient_app_session_service
+from app.services import trend as trend_service
 from app.services.auth import create_login_response
 
 
@@ -736,10 +738,13 @@ def test_patient_app_can_record_own_weight_without_patient_id(
         phone="+66812345678",
         pin="123456",
     )
+    patient.pin_hash = "123456"
+    db.add(patient)
+    db.commit()
     login_user_agent = "patient-app-weight-agent/1.0"
     login_response = client.post(
         "/patient-app/login",
-        json={"phone": "0812345678", "pin": "123456"},
+        json={"phone": "+66812345678", "pin": "123456"},
         headers={"user-agent": login_user_agent},
     )
     assert login_response.status_code == 200, login_response.text
@@ -768,6 +773,72 @@ def test_patient_app_can_record_own_weight_without_patient_id(
     assert record.weight_kg == 72.5
     assert record.height_cm == 170
     assert record.bmi == 25.1
+
+    trends = trend_service.get_patient_vitals_trends(db, patient.id, days=30)
+    assert trends.trends
+    latest = trends.trends[-1]
+    assert latest.weight_kg == 72.5
+    assert latest.height_cm == 170
+    assert latest.bmi == 25.1
+
+
+def test_patient_app_screening_is_available_to_patient_trends(
+    client: TestClient,
+    db: Session,
+):
+    patient = _create_patient(
+        db,
+        first_name="Screening",
+        last_name="Mobile",
+        phone="+66812345678",
+        pin="123456",
+    )
+    patient.pin_hash = "123456"
+    db.add(patient)
+    db.commit()
+    login_user_agent = "patient-app-screening-agent/1.0"
+    login_response = client.post(
+        "/patient-app/login",
+        json={"phone": "+66812345678", "pin": "123456"},
+        headers={"user-agent": login_user_agent},
+    )
+    assert login_response.status_code == 200, login_response.text
+    token = login_response.json()["access_token"]
+
+    response = client.post(
+        "/patient-app/me/screenings",
+        json={
+            "symptom_more_tired": True,
+            "systolic_bp": 128,
+            "diastolic_bp": 82,
+            "heart_rate": 78,
+            "oxygen_saturation": 97,
+            "weight_kg": 70.5,
+            "notes": "เหนื่อยกว่าปกติเล็กน้อย",
+        },
+        headers=_patient_headers(token, user_agent=login_user_agent),
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["patient_id"] == str(patient.id)
+    screening = db.scalar(
+        select(PatientScreening).where(PatientScreening.id == UUID(body["id"]))
+    )
+    assert screening is not None
+    assert screening.patient_id == patient.id
+    assert screening.weight_kg == 70.5
+    assert screening.systolic_bp == 128
+    assert screening.diastolic_bp == 82
+    assert screening.heart_rate == 78
+
+    trends = trend_service.get_patient_vitals_trends(db, patient.id, days=30)
+    assert trends.trends
+    latest = trends.trends[-1]
+    assert latest.weight_kg == 70.5
+    assert latest.sys_pressure == 128
+    assert latest.dia_pressure == 82
+    assert latest.heart_rate == 78
 
 
 def test_admin_can_generate_patient_app_registration_code(

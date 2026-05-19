@@ -1,42 +1,41 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { format, parseISO } from "date-fns";
 import { th as thLocale, enGB } from "date-fns/locale";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  PencilEdit02Icon,
+  Add01Icon,
+  Cancel01Icon,
   Delete02Icon,
+  PencilEdit02Icon,
   RefreshIcon,
   Tick02Icon,
-  Cancel01Icon,
 } from "@hugeicons/core-free-icons";
 
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-} from "@/components/ui/sheet";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  Drawer,
+  DrawerClose,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerPanel,
+  DrawerPopup,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/toast";
 import {
+  createPatientWeightRecord,
+  deletePatientWeightRecord,
   fetchPatientWeightRecords,
   updatePatientWeightRecord,
-  deletePatientWeightRecord,
 } from "@/lib/api-patients";
+import { getErrorMessage, type ApiError } from "@/lib/api";
 import type { AppLanguage } from "@/store/language-config";
-import type { WeightRecord } from "@/lib/api-types";
+import type { WeightRecord, WeightRecordPayload } from "@/lib/api-types";
 import { useAuthStore } from "@/store/auth-store";
 
 interface PatientVitalsManagerProps {
@@ -44,8 +43,28 @@ interface PatientVitalsManagerProps {
   language: AppLanguage;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onRecordsChanged: () => void; // Trigger graph reload
+  onRecordsChanged: () => void;
 }
+
+type FormValues = {
+  weight: string;
+  height: string;
+};
+
+const EMPTY_FORM: FormValues = { weight: "", height: "" };
+
+const parseOptionalNumber = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+};
+
+const formatNumber = (value: number) =>
+  Number.isInteger(value) ? value.toString() : value.toFixed(1).replace(/\.0$/, "");
+
+const isNotFoundError = (error: unknown): error is ApiError =>
+  error instanceof Error && (error as ApiError).status === 404;
 
 export function PatientVitalsManager({
   patientId,
@@ -57,222 +76,451 @@ export function PatientVitalsManager({
   const { token } = useAuthStore();
   const [records, setRecords] = useState<WeightRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-
-  // Edit form state
-  const [editWeight, setEditWeight] = useState("");
-  const [editHeight, setEditHeight] = useState("");
+  const [newForm, setNewForm] = useState<FormValues>(EMPTY_FORM);
+  const [editForm, setEditForm] = useState<FormValues>(EMPTY_FORM);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const isTh = language === "th";
   const dateLocale = isTh ? thLocale : enGB;
+  const tr = useCallback((en: string, th: string) => (isTh ? th : en), [isTh]);
 
-  const tr = (en: string, th: string) => (isTh ? th : en);
+  const latestRecord = records[0] ?? null;
+  const loadingRecordRows = Math.max(records.length, 1);
+  const averageWeight = useMemo(() => {
+    if (records.length === 0) return null;
+    const total = records.reduce((sum, record) => sum + record.weight_kg, 0);
+    return total / records.length;
+  }, [records]);
 
-  const loadRecords = async () => {
+  const formatDateTime = (dateValue: string | null) =>
+    dateValue
+      ? format(parseISO(dateValue), "d MMM yyyy, HH:mm", { locale: dateLocale })
+      : tr("No timestamp", "ไม่มีเวลาบันทึก");
+
+  const validateForm = (values: FormValues): WeightRecordPayload | null => {
+    const weight = parseOptionalNumber(values.weight);
+    const height = parseOptionalNumber(values.height);
+
+    if (weight === null || Number.isNaN(weight) || weight <= 0 || weight > 500) {
+      setFormError(tr("Enter a valid weight between 0 and 500 kg.", "กรอกน้ำหนักให้ถูกต้องระหว่าง 0 ถึง 500 กก."));
+      return null;
+    }
+
+    if (height !== null && (Number.isNaN(height) || height <= 0 || height > 260)) {
+      setFormError(tr("Enter a valid height between 0 and 260 cm.", "กรอกส่วนสูงให้ถูกต้องระหว่าง 0 ถึง 260 ซม."));
+      return null;
+    }
+
+    setFormError(null);
+    return { weight_kg: weight, height_cm: height };
+  };
+
+  const loadRecords = useCallback(async (options: { silent?: boolean } = {}) => {
     if (!token || !open) return;
-    setLoading(true);
+    if (!options.silent) {
+      setLoading(true);
+    }
+    setLoadError(null);
+
     try {
       const res = await fetchPatientWeightRecords(patientId, token);
       setRecords(res.items);
     } catch (err) {
-      console.error("Failed to load weight records", err);
+      const message = getErrorMessage(
+        err,
+        tr("Weight records could not be loaded.", "ยังไม่สามารถโหลดข้อมูลน้ำหนักได้")
+      );
+      setLoadError(message);
+      toast.error(message);
     } finally {
-      setLoading(false);
+      if (!options.silent) {
+        setLoading(false);
+      }
+    }
+  }, [open, patientId, token, tr]);
+
+  useEffect(() => {
+    if (!open) return;
+    setEditingId(null);
+    setNewForm(EMPTY_FORM);
+    setEditForm(EMPTY_FORM);
+    setFormError(null);
+    void loadRecords();
+  }, [open, patientId, token, loadRecords]);
+
+  const refreshGraphAndList = async () => {
+    await loadRecords({ silent: true });
+    onRecordsChanged();
+  };
+
+  const handleCreate = async () => {
+    if (!token || saving) return;
+    const payload = validateForm(newForm);
+    if (!payload) return;
+
+    setSaving(true);
+    try {
+      await createPatientWeightRecord(patientId, payload, token);
+      setNewForm(EMPTY_FORM);
+      toast.success(tr("Weight record added", "เพิ่มข้อมูลน้ำหนักแล้ว"));
+      await refreshGraphAndList();
+    } catch (err) {
+      toast.error(
+        getErrorMessage(err, tr("Failed to add weight record", "เพิ่มข้อมูลน้ำหนักไม่สำเร็จ"))
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
-  useEffect(() => {
-    if (open) {
-      loadRecords();
-      setEditingId(null);
-    }
-  }, [open, patientId, token]);
-
   const handleEditClick = (record: WeightRecord) => {
     setEditingId(record.id);
-    setEditWeight(record.weight_kg.toString());
-    setEditHeight(record.height_cm ? record.height_cm.toString() : "");
+    setFormError(null);
+    setEditForm({
+      weight: formatNumber(record.weight_kg),
+      height: record.height_cm != null ? formatNumber(record.height_cm) : "",
+    });
   };
 
   const handleCancelEdit = () => {
     setEditingId(null);
+    setEditForm(EMPTY_FORM);
+    setFormError(null);
   };
 
   const handleSaveEdit = async (recordId: string) => {
-    if (!token) return;
-    try {
-      const w = parseFloat(editWeight);
-      const h = editHeight ? parseFloat(editHeight) : null;
-      if (isNaN(w)) return;
+    if (!token || saving) return;
+    const payload = validateForm(editForm);
+    if (!payload) return;
 
-      await updatePatientWeightRecord(
-        patientId,
-        recordId,
-        {
-          weight_kg: w,
-          height_cm: h,
-        },
-        token
-      );
+    setSaving(true);
+    try {
+      await updatePatientWeightRecord(patientId, recordId, payload, token);
       setEditingId(null);
-      await loadRecords();
-      onRecordsChanged(); // Notify parent to reload graph
+      setEditForm(EMPTY_FORM);
+      toast.success(tr("Weight record updated", "แก้ไขข้อมูลน้ำหนักแล้ว"));
+      await refreshGraphAndList();
     } catch (err) {
-      console.error("Failed to update record", err);
+      toast.error(
+        getErrorMessage(err, tr("Failed to update weight record", "แก้ไขข้อมูลน้ำหนักไม่สำเร็จ"))
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleDelete = async (recordId: string) => {
-    if (!token) return;
-    if (!confirm(tr("Are you sure you want to delete this record?", "คุณแน่ใจหรือไม่ที่จะลบข้อมูลนี้?"))) {
-      return;
-    }
+  const handleDelete = async (record: WeightRecord) => {
+    if (!token || deletingId) return;
+    setDeletingId(record.id);
     try {
-      await deletePatientWeightRecord(patientId, recordId, token);
-      await loadRecords();
-      onRecordsChanged(); // Notify parent
+      await deletePatientWeightRecord(patientId, record.id, token);
+      toast.success(tr("Weight record deleted", "ลบข้อมูลน้ำหนักแล้ว"));
+      await refreshGraphAndList();
     } catch (err) {
-      console.error("Failed to delete record", err);
+      if (isNotFoundError(err)) {
+        setRecords((current) => current.filter((item) => item.id !== record.id));
+        if (editingId === record.id) {
+          handleCancelEdit();
+        }
+        toast.info(tr("Record already removed", "รายการนี้ถูกลบไปแล้ว"), {
+          description: tr(
+            "The list has been refreshed.",
+            "รีเฟรชรายการให้แล้ว"
+          ),
+        });
+        await refreshGraphAndList();
+        return;
+      }
+      toast.error(
+        getErrorMessage(err, tr("Failed to delete weight record", "ลบข้อมูลน้ำหนักไม่สำเร็จ"))
+      );
+    } finally {
+      setDeletingId(null);
     }
+  };
+
+  const handleDeleteAction = (record: WeightRecord) => {
+    toast.destructiveAction(tr("Delete this weight record?", "ลบข้อมูลน้ำหนักรายการนี้ใช่ไหม?"), {
+      description: tr(
+        "The trend chart will update after this record is deleted.",
+        "กราฟแนวโน้มจะอัปเดตหลังลบรายการนี้"
+      ),
+      button: {
+        title: tr("Delete", "ลบ"),
+        onClick: () => {
+          void handleDelete(record);
+        },
+      },
+      duration: 9000,
+    });
   };
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full sm:max-w-xl overflow-y-auto">
-        <SheetHeader className="mb-6">
-          <SheetTitle>{tr("Manage Vitals Records", "จัดการข้อมูลสัญญาณชีพ")}</SheetTitle>
-          <SheetDescription>
-            {tr(
-              "View, edit, or delete historical weight and height records. Changes will be reflected on the trend chart immediately.",
-              "ดู แก้ไข หรือลบประวัติข้อมูลน้ำหนักและส่วนสูง การเปลี่ยนแปลงจะแสดงผลบนกราฟทันที"
+    <Drawer open={open} onOpenChange={onOpenChange}>
+      <DrawerPopup showBar className="h-[78dvh] max-h-[720px] overflow-hidden">
+        <DrawerHeader>
+          <DrawerTitle>{tr("Manage chart records", "จัดการข้อมูลบนกราฟ")}</DrawerTitle>
+        </DrawerHeader>
+
+        <DrawerPanel>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+              <p className="text-xs font-medium text-muted-foreground">{tr("Latest weight", "น้ำหนักล่าสุด")}</p>
+              <p className="mt-1 text-xl font-semibold text-foreground">
+                {latestRecord ? `${formatNumber(latestRecord.weight_kg)} kg` : "—"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {latestRecord ? formatDateTime(latestRecord.measured_at ?? latestRecord.created_at) : tr("No record yet", "ยังไม่มีข้อมูล")}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+              <p className="text-xs font-medium text-muted-foreground">{tr("Latest BMI", "BMI ล่าสุด")}</p>
+              <p className="mt-1 text-xl font-semibold text-foreground">
+                {latestRecord?.bmi != null ? formatNumber(latestRecord.bmi) : "—"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {latestRecord?.height_cm != null
+                  ? `${tr("Height", "ส่วนสูง")} ${formatNumber(latestRecord.height_cm)} cm`
+                  : tr("Height not recorded", "ยังไม่บันทึกส่วนสูง")}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+              <p className="text-xs font-medium text-muted-foreground">{tr("Records", "จำนวนรายการ")}</p>
+              <p className="mt-1 text-xl font-semibold text-foreground">{records.length}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {averageWeight != null
+                  ? `${tr("Average", "เฉลี่ย")} ${formatNumber(averageWeight)} kg`
+                  : tr("Waiting for data", "รอข้อมูล")}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border/70 bg-card p-4">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  {tr("Add a new weight reading", "เพิ่มค่าน้ำหนักใหม่")}
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {tr(
+                    "The server will timestamp this as a new clinical record.",
+                    "ระบบจะบันทึกเวลาให้อัตโนมัติเป็นรายการใหม่"
+                  )}
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => loadRecords()} disabled={loading || saving}>
+                <HugeiconsIcon icon={RefreshIcon} className="mr-2 size-4" />
+                {tr("Refresh", "รีเฟรช")}
+              </Button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+              <div className="space-y-2">
+                <Label htmlFor="new-weight">{tr("Weight (kg)", "น้ำหนัก (กก.)")}</Label>
+                <Input
+                  id="new-weight"
+                  inputMode="decimal"
+                  type="number"
+                  min="0"
+                  max="500"
+                  step="0.1"
+                  value={newForm.weight}
+                  onChange={(event) => setNewForm((current) => ({ ...current, weight: event.target.value }))}
+                  placeholder="72.5"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-height">{tr("Height (cm)", "ส่วนสูง (ซม.)")}</Label>
+                <Input
+                  id="new-height"
+                  inputMode="decimal"
+                  type="number"
+                  min="0"
+                  max="260"
+                  step="0.1"
+                  value={newForm.height}
+                  onChange={(event) => setNewForm((current) => ({ ...current, height: event.target.value }))}
+                  placeholder="170"
+                />
+              </div>
+              <Button className="sm:min-w-28" onClick={handleCreate} disabled={saving || loading}>
+                <HugeiconsIcon icon={Add01Icon} className="mr-2 size-4" />
+                {saving ? tr("Saving", "กำลังบันทึก") : tr("Add", "เพิ่ม")}
+              </Button>
+            </div>
+
+            {formError ? <p className="mt-3 text-sm text-red-600">{formError}</p> : null}
+            {loadError ? <p className="mt-3 text-sm text-red-600">{loadError}</p> : null}
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-foreground">
+                {tr("Record history", "ประวัติข้อมูล")}
+              </h3>
+              <span className="text-xs text-muted-foreground">
+                {tr("Newest first", "รายการล่าสุดอยู่บนสุด")}
+              </span>
+            </div>
+
+            {loading ? (
+              <div className="space-y-2">
+                {Array.from({ length: loadingRecordRows }).map((_, index) => (
+                  <div key={index} className="rounded-xl border border-border/70 p-4">
+                    <Skeleton className="h-4 w-44" />
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : records.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border/80 px-4 py-8 text-center">
+                <p className="text-sm font-medium text-foreground">
+                  {tr("No weight records yet", "ยังไม่มีข้อมูลน้ำหนัก")}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {tr("Add the first reading above to start the trend.", "เพิ่มรายการแรกด้านบนเพื่อเริ่มกราฟแนวโน้ม")}
+                </p>
+              </div>
+            ) : (
+              records.map((record) => {
+                const isEditing = editingId === record.id;
+                const isDeleting = deletingId === record.id;
+
+                return (
+                  <div key={record.id} className="rounded-xl border border-border/70 bg-card p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">
+                          {formatDateTime(record.measured_at ?? record.created_at)}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {record.recorded_by
+                            ? tr("Recorded by care team", "บันทึกโดยทีมดูแล")
+                            : tr("Recorded by patient app or system", "บันทึกจากแอปผู้ป่วยหรือระบบ")}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        {isEditing ? (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+                              onClick={() => handleSaveEdit(record.id)}
+                              disabled={saving}
+                              aria-label={tr("Save record", "บันทึกรายการ")}
+                            >
+                              <HugeiconsIcon icon={Tick02Icon} className="size-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-muted-foreground"
+                              onClick={handleCancelEdit}
+                              disabled={saving}
+                              aria-label={tr("Cancel edit", "ยกเลิกการแก้ไข")}
+                            >
+                              <HugeiconsIcon icon={Cancel01Icon} className="size-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-muted-foreground hover:text-blue-600"
+                              onClick={() => handleEditClick(record)}
+                              aria-label={tr("Edit record", "แก้ไขรายการ")}
+                            >
+                              <HugeiconsIcon icon={PencilEdit02Icon} className="size-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 text-muted-foreground hover:bg-red-50 hover:text-red-600"
+                              onClick={() => handleDeleteAction(record)}
+                              disabled={isDeleting}
+                              aria-label={tr("Delete record", "ลบรายการ")}
+                            >
+                              <HugeiconsIcon icon={Delete02Icon} className="size-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {isEditing ? (
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor={`edit-weight-${record.id}`}>{tr("Weight (kg)", "น้ำหนัก (กก.)")}</Label>
+                          <Input
+                            id={`edit-weight-${record.id}`}
+                            inputMode="decimal"
+                            type="number"
+                            min="0"
+                            max="500"
+                            step="0.1"
+                            value={editForm.weight}
+                            onChange={(event) => setEditForm((current) => ({ ...current, weight: event.target.value }))}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`edit-height-${record.id}`}>{tr("Height (cm)", "ส่วนสูง (ซม.)")}</Label>
+                          <Input
+                            id={`edit-height-${record.id}`}
+                            inputMode="decimal"
+                            type="number"
+                            min="0"
+                            max="260"
+                            step="0.1"
+                            value={editForm.height}
+                            onChange={(event) => setEditForm((current) => ({ ...current, height: event.target.value }))}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                        <div className="rounded-lg bg-muted/40 p-3">
+                          <p className="text-xs text-muted-foreground">{tr("Weight", "น้ำหนัก")}</p>
+                          <p className="mt-1 text-base font-semibold text-foreground">
+                            {formatNumber(record.weight_kg)} kg
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-muted/40 p-3">
+                          <p className="text-xs text-muted-foreground">{tr("Height", "ส่วนสูง")}</p>
+                          <p className="mt-1 text-base font-semibold text-foreground">
+                            {record.height_cm != null ? `${formatNumber(record.height_cm)} cm` : "—"}
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-muted/40 p-3">
+                          <p className="text-xs text-muted-foreground">BMI</p>
+                          <p className="mt-1 text-base font-semibold text-foreground">
+                            {record.bmi != null ? formatNumber(record.bmi) : "—"}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
-          </SheetDescription>
-        </SheetHeader>
-
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-sm font-medium">
-            {tr("Record History", "ประวัติการบันทึกข้อมูล")}
-          </h3>
-          <Button variant="ghost" size="sm" onClick={loadRecords} disabled={loading}>
-            <HugeiconsIcon icon={RefreshIcon} className="size-4 mr-2" />
-            {tr("Refresh", "รีเฟรช")}
-          </Button>
-        </div>
-
-        <div className="rounded-md border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{tr("Date", "วันที่")}</TableHead>
-                <TableHead>{tr("Weight (kg)", "น้ำหนัก (กก.)")}</TableHead>
-                <TableHead>{tr("Height (cm)", "ส่วนสูง (ซม.)")}</TableHead>
-                <TableHead className="text-right">{tr("Actions", "จัดการ")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                Array.from({ length: 3 }).map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell><Skeleton className="h-4 w-24" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-12" /></TableCell>
-                    <TableCell><Skeleton className="h-4 w-12" /></TableCell>
-                    <TableCell><Skeleton className="h-8 w-16 ml-auto" /></TableCell>
-                  </TableRow>
-                ))
-              ) : records.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">
-                    {tr("No records found", "ไม่พบข้อมูล")}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                records.map((record) => (
-                  <TableRow key={record.id}>
-                    <TableCell className="font-medium whitespace-nowrap">
-                      {format(parseISO(record.measured_at || record.created_at), "d MMM yyyy, HH:mm", {
-                        locale: dateLocale,
-                      })}
-                    </TableCell>
-                    
-                    {/* Weight Column */}
-                    <TableCell>
-                      {editingId === record.id ? (
-                        <Input
-                          type="number"
-                          step="0.1"
-                          value={editWeight}
-                          onChange={(e) => setEditWeight(e.target.value)}
-                          className="w-20 h-8"
-                        />
-                      ) : (
-                        record.weight_kg
-                      )}
-                    </TableCell>
-
-                    {/* Height Column */}
-                    <TableCell>
-                      {editingId === record.id ? (
-                        <Input
-                          type="number"
-                          step="0.1"
-                          value={editHeight}
-                          onChange={(e) => setEditHeight(e.target.value)}
-                          className="w-20 h-8"
-                        />
-                      ) : (
-                        record.height_cm || "—"
-                      )}
-                    </TableCell>
-
-                    {/* Actions Column */}
-                    <TableCell className="text-right">
-                      {editingId === record.id ? (
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
-                            onClick={() => handleSaveEdit(record.id)}
-                          >
-                            <HugeiconsIcon icon={Tick02Icon} className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-slate-500"
-                            onClick={handleCancelEdit}
-                          >
-                            <HugeiconsIcon icon={Cancel01Icon} className="size-4" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-slate-500 hover:text-blue-600"
-                            onClick={() => handleEditClick(record)}
-                          >
-                            <HugeiconsIcon icon={PencilEdit02Icon} className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-slate-500 hover:text-red-600 hover:bg-red-50"
-                            onClick={() => handleDelete(record.id)}
-                          >
-                            <HugeiconsIcon icon={Delete02Icon} className="size-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </SheetContent>
-    </Sheet>
+          </div>
+        </DrawerPanel>
+        <DrawerFooter>
+          <DrawerClose render={<Button variant="outline" />}>
+            {tr("Close", "ปิด")}
+          </DrawerClose>
+        </DrawerFooter>
+      </DrawerPopup>
+    </Drawer>
   );
 }

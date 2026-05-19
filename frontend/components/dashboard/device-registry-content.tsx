@@ -841,7 +841,8 @@ export function DeviceRegistryContent() {
     setRowSelection({});
   }, [devices]);
 
-  const handlePageSizeChange = useCallback((value: string) => {
+  const handlePageSizeChange = useCallback((value: string | null) => {
+    if (!value) return;
     const nextPageSize = Number(value);
     if (!PAGE_SIZE_OPTIONS.includes(nextPageSize as (typeof PAGE_SIZE_OPTIONS)[number])) {
       return;

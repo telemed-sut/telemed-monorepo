@@ -28,7 +28,6 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  ReferenceLine,
 } from "recharts";
 import {
   DropdownMenu,
@@ -56,7 +55,6 @@ interface VitalsTrendChartProps {
 }
 
 type ChartType = "bar" | "line" | "area";
-type DataSeries = "weight" | "heart_rate" | "sys_pressure";
 type TimePeriod = "7d" | "14d" | "30d";
 
 const isTh = (language: AppLanguage) => language === "th";
@@ -76,23 +74,33 @@ const PERIOD_LABEL = (language: AppLanguage): Record<TimePeriod, string> => ({
 const isWeightAbnormal = (w: number) => w < 40 || w > 120;
 const isHrAbnormal = (hr: number) => hr < 60 || hr > 100;
 const isSysAbnormal = (sys: number) => sys >= 140 || sys < 90;
+const isDiaAbnormal = (dia: number) => dia >= 90 || dia < 60;
+
+function formatBloodPressure(
+  language: AppLanguage,
+  sysPressure: number | null,
+  diaPressure: number | null
+) {
+  if (sysPressure != null && diaPressure != null) {
+    return `${sysPressure}/${diaPressure}`;
+  }
+  if (sysPressure != null) {
+    return `${tr(language, "SYS", "บน")} ${sysPressure}`;
+  }
+  if (diaPressure != null) {
+    return `${tr(language, "DIA", "ล่าง")} ${diaPressure}`;
+  }
+  return null;
+}
 
 function CustomTooltip({
   active,
   payload,
   label,
-  language,
-  showWeight,
-  showHeartRate,
-  showSys,
 }: {
   active?: boolean;
   payload?: Array<{ dataKey: string; name: string; value: number; color: string }>;
   label?: string;
-  language: AppLanguage;
-  showWeight: boolean;
-  showHeartRate: boolean;
-  showSys: boolean;
 }) {
   if (!active || !payload?.length) return null;
 
@@ -110,7 +118,8 @@ function CustomTooltip({
           const abnormal =
             (entry.dataKey === "weight_kg" && isWeightAbnormal(entry.value)) ||
             (entry.dataKey === "heart_rate" && isHrAbnormal(entry.value)) ||
-            (entry.dataKey === "sys_pressure" && isSysAbnormal(entry.value));
+            (entry.dataKey === "sys_pressure" && isSysAbnormal(entry.value)) ||
+            (entry.dataKey === "dia_pressure" && isDiaAbnormal(entry.value));
           return (
             <div key={entry.dataKey} className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
@@ -145,7 +154,7 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
   const [smoothCurve, setSmoothCurve] = useState(true);
   const [showWeight, setShowWeight] = useState(true);
   const [showHeartRate, setShowHeartRate] = useState(true);
-  const [showSys, setShowSys] = useState(true);
+  const [showBloodPressure, setShowBloodPressure] = useState(true);
   const [showManager, setShowManager] = useState(false);
 
   const isDark = theme === "dark";
@@ -159,11 +168,13 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
 
   const filteredData = useMemo(() => {
     const sorted = [...data].sort(
-      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+      (a, b) =>
+        new Date(a.recorded_at ?? a.date).getTime() -
+        new Date(b.recorded_at ?? b.date).getTime()
     );
     return sorted.slice(-periodDays).map((d) => ({
       ...d,
-      label: format(parseISO(d.date), "d MMM", { locale: dateLocale }),
+      label: format(parseISO(d.recorded_at ?? d.date), "d MMM HH:mm", { locale: dateLocale }),
     }));
   }, [data, periodDays, dateLocale]);
 
@@ -172,15 +183,30 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
     () => [...data].reverse().find((d) => d.weight_kg != null)?.weight_kg ?? null,
     [data]
   );
+  const latestHeartRate = useMemo(
+    () => [...data].reverse().find((d) => d.heart_rate != null)?.heart_rate ?? null,
+    [data]
+  );
+  const latestSysPressure = useMemo(
+    () => [...data].reverse().find((d) => d.sys_pressure != null)?.sys_pressure ?? null,
+    [data]
+  );
+  const latestDiaPressure = useMemo(
+    () => [...data].reverse().find((d) => d.dia_pressure != null)?.dia_pressure ?? null,
+    [data]
+  );
   const latestHeight = useMemo(
     () => [...data].reverse().find((d) => d.height_cm != null)?.height_cm ?? null,
     [data]
   );
+  const latestBloodPressure = formatBloodPressure(language, latestSysPressure, latestDiaPressure);
 
   const hasWeight = data.some((d) => d.weight_kg != null);
   const hasHr = data.some((d) => d.heart_rate != null);
   const hasSys = data.some((d) => d.sys_pressure != null);
-  const hasAny = hasWeight || hasHr || hasSys;
+  const hasDia = data.some((d) => d.dia_pressure != null);
+  const hasBloodPressure = hasSys || hasDia;
+  const hasAny = hasWeight || hasHr || hasBloodPressure;
 
   // Abnormal count for badge
   const abnormalCount = useMemo(() => {
@@ -189,6 +215,7 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
       if (d.weight_kg != null && isWeightAbnormal(d.weight_kg)) count++;
       if (d.heart_rate != null && isHrAbnormal(d.heart_rate)) count++;
       if (d.sys_pressure != null && isSysAbnormal(d.sys_pressure)) count++;
+      if (d.dia_pressure != null && isDiaAbnormal(d.dia_pressure)) count++;
     }
     return count;
   }, [data]);
@@ -200,8 +227,10 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
     setSmoothCurve(true);
     setShowWeight(true);
     setShowHeartRate(true);
-    setShowSys(true);
+    setShowBloodPressure(true);
   };
+
+  const effectiveChartType: ChartType = filteredData.length < 2 ? "bar" : chartType;
 
   if (isLoading) {
     return (
@@ -238,6 +267,7 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
   const weightColor = "#10b981"; // emerald
   const hrColor = "#ef4444";     // red
   const sysColor = "#f59e0b";    // amber
+  const diaColor = "#f97316";    // orange
 
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
@@ -284,15 +314,23 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
               <div className="flex items-center gap-1.5">
                 <div className="size-3 rounded-full" style={{ backgroundColor: hrColor }} />
                 <span className="text-sm font-medium text-muted-foreground">
-                  {tr(language, "Heart Rate", "ชีพจร")}
+                  {tr(language, "Heart Rate", "หัวใจ")}
+                  {latestHeartRate != null && (
+                    <span className="ml-1 font-semibold text-foreground">{latestHeartRate} bpm</span>
+                  )}
                 </span>
               </div>
             )}
-            {showSys && hasSys && (
+            {showBloodPressure && hasBloodPressure && (
               <div className="flex items-center gap-1.5">
                 <div className="size-3 rounded-full" style={{ backgroundColor: sysColor }} />
                 <span className="text-sm font-medium text-muted-foreground">
-                  {tr(language, "SYS Pressure", "ความดัน SYS")}
+                  {tr(language, "Blood Pressure", "ความดัน")}
+                  {latestBloodPressure != null && (
+                    <span className="ml-1 font-semibold text-foreground">
+                      {latestBloodPressure} mmHg
+                    </span>
+                  )}
                 </span>
               </div>
             )}
@@ -380,13 +418,13 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
                 {hasHr && (
                   <DropdownMenuCheckboxItem checked={showHeartRate} onCheckedChange={setShowHeartRate}>
                     <div className="size-3 rounded-full mr-2" style={{ backgroundColor: hrColor }} />
-                    {tr(language, "Show Heart Rate", "แสดงชีพจร")}
+                    {tr(language, "Show Heart Rate", "แสดงหัวใจ")}
                   </DropdownMenuCheckboxItem>
                 )}
-                {hasSys && (
-                  <DropdownMenuCheckboxItem checked={showSys} onCheckedChange={setShowSys}>
+                {hasBloodPressure && (
+                  <DropdownMenuCheckboxItem checked={showBloodPressure} onCheckedChange={setShowBloodPressure}>
                     <div className="size-3 rounded-full mr-2" style={{ backgroundColor: sysColor }} />
-                    {tr(language, "Show SYS Pressure", "แสดงความดัน SYS")}
+                    {tr(language, "Show Blood Pressure", "แสดงความดัน")}
                   </DropdownMenuCheckboxItem>
                 )}
               </DropdownMenuGroup>
@@ -405,7 +443,7 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
       {/* Chart area — same size as FinancialFlowChart */}
       <div className="h-[220px] px-2 pb-4 sm:h-[260px]">
         <ResponsiveContainer width="100%" height="100%">
-          {chartType === "bar" ? (
+          {effectiveChartType === "bar" ? (
             <BarChart data={filteredData} barGap={4}>
               <defs>
                 <linearGradient id="vtWeightGrad" x1="0" y1="0" x2="0" y2="1">
@@ -420,45 +458,51 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
                   <stop offset="0%" stopColor={sysColor} stopOpacity={1} />
                   <stop offset="100%" stopColor={sysColor} stopOpacity={0.6} />
                 </linearGradient>
+                <linearGradient id="vtDiaGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={diaColor} stopOpacity={0.9} />
+                  <stop offset="100%" stopColor={diaColor} stopOpacity={0.45} />
+                </linearGradient>
               </defs>
               {showGrid && <CartesianGrid strokeDasharray="0" stroke={gridColor} vertical={false} />}
               <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />
               <YAxis hide />
               <Tooltip
-                content={
-                  <CustomTooltip language={language} showWeight={showWeight} showHeartRate={showHeartRate} showSys={showSys} />
-                }
+                content={<CustomTooltip />}
                 cursor={{ fill: isDark ? "#27272a" : "#f4f4f5", radius: 4 }}
               />
               {showWeight && hasWeight && (
                 <Bar dataKey="weight_kg" name={tr(language, "Weight", "น้ำหนัก")} fill="url(#vtWeightGrad)" radius={[4, 4, 0, 0]} maxBarSize={22} />
               )}
               {showHeartRate && hasHr && (
-                <Bar dataKey="heart_rate" name={tr(language, "Heart Rate", "ชีพจร")} fill="url(#vtHrGrad)" radius={[4, 4, 0, 0]} maxBarSize={22} />
+                <Bar dataKey="heart_rate" name={tr(language, "Heart Rate", "หัวใจ")} fill="url(#vtHrGrad)" radius={[4, 4, 0, 0]} maxBarSize={22} />
               )}
-              {showSys && hasSys && (
-                <Bar dataKey="sys_pressure" name={tr(language, "SYS Pressure", "ความดัน SYS")} fill="url(#vtSysGrad)" radius={[4, 4, 0, 0]} maxBarSize={22} />
+              {showBloodPressure && hasSys && (
+                <Bar dataKey="sys_pressure" name={tr(language, "Systolic BP", "ความดันบน")} fill="url(#vtSysGrad)" radius={[4, 4, 0, 0]} maxBarSize={22} />
+              )}
+              {showBloodPressure && hasDia && (
+                <Bar dataKey="dia_pressure" name={tr(language, "Diastolic BP", "ความดันล่าง")} fill="url(#vtDiaGrad)" radius={[4, 4, 0, 0]} maxBarSize={22} />
               )}
             </BarChart>
-          ) : chartType === "line" ? (
+          ) : effectiveChartType === "line" ? (
             <LineChart data={filteredData}>
               {showGrid && <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />}
               <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />
               <YAxis hide />
               <Tooltip
-                content={
-                  <CustomTooltip language={language} showWeight={showWeight} showHeartRate={showHeartRate} showSys={showSys} />
-                }
+                content={<CustomTooltip />}
                 cursor={{ stroke: "#d4d4d8" }}
               />
               {showWeight && hasWeight && (
                 <Line type={curveType} dataKey="weight_kg" name={tr(language, "Weight", "น้ำหนัก")} stroke={weightColor} strokeWidth={2} dot={{ r: 3, fill: weightColor, strokeWidth: 0 }} activeDot={{ r: 6, fill: weightColor, stroke: "white", strokeWidth: 2 }} connectNulls />
               )}
               {showHeartRate && hasHr && (
-                <Line type={curveType} dataKey="heart_rate" name={tr(language, "Heart Rate", "ชีพจร")} stroke={hrColor} strokeWidth={2} dot={{ r: 3, fill: hrColor, strokeWidth: 0 }} activeDot={{ r: 6, fill: hrColor, stroke: "white", strokeWidth: 2 }} connectNulls />
+                <Line type={curveType} dataKey="heart_rate" name={tr(language, "Heart Rate", "หัวใจ")} stroke={hrColor} strokeWidth={2} dot={{ r: 3, fill: hrColor, strokeWidth: 0 }} activeDot={{ r: 6, fill: hrColor, stroke: "white", strokeWidth: 2 }} connectNulls />
               )}
-              {showSys && hasSys && (
-                <Line type={curveType} dataKey="sys_pressure" name={tr(language, "SYS Pressure", "ความดัน SYS")} stroke={sysColor} strokeWidth={2} dot={{ r: 3, fill: sysColor, strokeWidth: 0 }} activeDot={{ r: 6, fill: sysColor, stroke: "white", strokeWidth: 2 }} connectNulls />
+              {showBloodPressure && hasSys && (
+                <Line type={curveType} dataKey="sys_pressure" name={tr(language, "Systolic BP", "ความดันบน")} stroke={sysColor} strokeWidth={2} dot={{ r: 3, fill: sysColor, strokeWidth: 0 }} activeDot={{ r: 6, fill: sysColor, stroke: "white", strokeWidth: 2 }} connectNulls />
+              )}
+              {showBloodPressure && hasDia && (
+                <Line type={curveType} dataKey="dia_pressure" name={tr(language, "Diastolic BP", "ความดันล่าง")} stroke={diaColor} strokeWidth={2} strokeDasharray="4 4" dot={{ r: 3, fill: diaColor, strokeWidth: 0 }} activeDot={{ r: 6, fill: diaColor, stroke: "white", strokeWidth: 2 }} connectNulls />
               )}
             </LineChart>
           ) : (
@@ -476,24 +520,29 @@ export function VitalsTrendChart({ data, language, isLoading, patientId, onRefre
                   <stop offset="0%" stopColor={sysColor} stopOpacity={0.2} />
                   <stop offset="100%" stopColor={sysColor} stopOpacity={0.03} />
                 </linearGradient>
+                <linearGradient id="vtDiaArea" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={diaColor} stopOpacity={0.16} />
+                  <stop offset="100%" stopColor={diaColor} stopOpacity={0.02} />
+                </linearGradient>
               </defs>
               {showGrid && <CartesianGrid strokeDasharray="0" stroke={gridColor} vertical={false} />}
               <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: axisColor, fontSize: 12 }} dy={10} />
               <YAxis hide />
               <Tooltip
-                content={
-                  <CustomTooltip language={language} showWeight={showWeight} showHeartRate={showHeartRate} showSys={showSys} />
-                }
+                content={<CustomTooltip />}
                 cursor={{ stroke: "#d4d4d8" }}
               />
               {showWeight && hasWeight && (
                 <Area type={curveType} dataKey="weight_kg" name={tr(language, "Weight", "น้ำหนัก")} stroke={weightColor} strokeWidth={2} fill="url(#vtWeightArea)" dot={{ r: 3, fill: weightColor, strokeWidth: 0 }} activeDot={{ r: 6, fill: weightColor, stroke: "white", strokeWidth: 2 }} connectNulls />
               )}
               {showHeartRate && hasHr && (
-                <Area type={curveType} dataKey="heart_rate" name={tr(language, "Heart Rate", "ชีพจร")} stroke={hrColor} strokeWidth={2} fill="url(#vtHrArea)" dot={{ r: 3, fill: hrColor, strokeWidth: 0 }} activeDot={{ r: 6, fill: hrColor, stroke: "white", strokeWidth: 2 }} connectNulls />
+                <Area type={curveType} dataKey="heart_rate" name={tr(language, "Heart Rate", "หัวใจ")} stroke={hrColor} strokeWidth={2} fill="url(#vtHrArea)" dot={{ r: 3, fill: hrColor, strokeWidth: 0 }} activeDot={{ r: 6, fill: hrColor, stroke: "white", strokeWidth: 2 }} connectNulls />
               )}
-              {showSys && hasSys && (
-                <Area type={curveType} dataKey="sys_pressure" name={tr(language, "SYS Pressure", "ความดัน SYS")} stroke={sysColor} strokeWidth={2} fill="url(#vtSysArea)" dot={{ r: 3, fill: sysColor, strokeWidth: 0 }} activeDot={{ r: 6, fill: sysColor, stroke: "white", strokeWidth: 2 }} connectNulls />
+              {showBloodPressure && hasSys && (
+                <Area type={curveType} dataKey="sys_pressure" name={tr(language, "Systolic BP", "ความดันบน")} stroke={sysColor} strokeWidth={2} fill="url(#vtSysArea)" dot={{ r: 3, fill: sysColor, strokeWidth: 0 }} activeDot={{ r: 6, fill: sysColor, stroke: "white", strokeWidth: 2 }} connectNulls />
+              )}
+              {showBloodPressure && hasDia && (
+                <Area type={curveType} dataKey="dia_pressure" name={tr(language, "Diastolic BP", "ความดันล่าง")} stroke={diaColor} strokeWidth={2} strokeDasharray="4 4" fill="url(#vtDiaArea)" dot={{ r: 3, fill: diaColor, strokeWidth: 0 }} activeDot={{ r: 6, fill: diaColor, stroke: "white", strokeWidth: 2 }} connectNulls />
               )}
             </AreaChart>
           )}

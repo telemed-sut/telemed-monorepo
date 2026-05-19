@@ -53,7 +53,6 @@ meeting_signing_secret = (os.environ.get("MEETING_SIGNING_SECRET") or "").strip(
 meeting_signing_allow_jwt_secret_fallback = (
     os.environ.get("MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK") or ""
 ).strip().lower() in {"1", "true", "yes", "on"}
-redis_url = (os.environ.get("REDIS_URL") or "").strip()
 azure_blob_storage_connection_string = (
     os.environ.get("AZURE_BLOB_STORAGE_CONNECTION_STRING") or ""
 ).strip()
@@ -149,17 +148,6 @@ else:
         "MEETING_SIGNING_SECRET is not set. Local backend can still run, but meeting invite signing flows will stay disabled.",
     )
 
-if redis_url:
-    if "replace_with" in redis_url.lower():
-        add_issue("invalid", "REDIS_URL still contains placeholder text like 'replace_with'.")
-elif app_env == "production":
-    add_issue("missing", "REDIS_URL")
-else:
-    add_issue(
-        "warning",
-        "REDIS_URL is not set. Local backend can still run, but production-grade rate limiting and shared transient state are unavailable.",
-    )
-
 if not azure_blob_storage_connection_string:
     add_issue("missing", "AZURE_BLOB_STORAGE_CONNECTION_STRING")
 elif "replace_with" in azure_blob_storage_connection_string.lower():
@@ -209,7 +197,7 @@ check_backend_env() {
   fi
 
   if ((${#missing[@]} > 0 || ${#invalid[@]} > 0)); then
-    echo "This repo expects Docker Compose runtime secrets to come from local .env files, exported shell variables, or Infisical." >&2
+    echo "This repo expects Docker Compose runtime secrets to come from local .env files or exported shell variables." >&2
     echo "Add the missing keys to your .env file, or export them before running ./scripts/dev-backend.sh." >&2
     echo >&2
     echo "Heart-sound uploads require AZURE_BLOB_STORAGE_CONNECTION_STRING and AZURE_BLOB_STORAGE_CONTAINER at startup." >&2
@@ -227,7 +215,6 @@ check_identity_env() {
   local missing=()
 
   [[ -n "${AUTHENTIK_POSTGRES_PASSWORD:-}" ]] || missing+=("AUTHENTIK_POSTGRES_PASSWORD")
-  [[ -n "${AUTHENTIK_REDIS_PASSWORD:-}" ]] || missing+=("AUTHENTIK_REDIS_PASSWORD")
   [[ -n "${AUTHENTIK_SECRET_KEY:-}" ]] || missing+=("AUTHENTIK_SECRET_KEY")
 
   if ((${#missing[@]} > 0)); then
@@ -237,7 +224,7 @@ check_identity_env() {
       echo "  - $item" >&2
     done
     echo >&2
-    echo "Set these keys in your .env file or Infisical before running with COMPOSE_PROFILES=identity." >&2
+    echo "Set these keys in your .env file before running with COMPOSE_PROFILES=identity." >&2
     exit 1
   fi
 }

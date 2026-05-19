@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
@@ -10,22 +9,7 @@ from threading import Lock
 from typing import Any, TypedDict
 from uuid import UUID
 
-from app.core.config import get_settings
-from app.db.session import get_redis_client
-from app.services.redis_runtime import (
-    allows_local_runtime_fallback,
-    decode_cached_value,
-    get_redis_client_or_log,
-    log_redis_operation_failure,
-    parse_cached_datetime,
-    raise_redis_runtime_required,
-)
-
-logger = logging.getLogger(__name__)
-
 _UPLOAD_SESSION_PREFIX = "heart_sound_upload_session:v1:"
-_REDIS_SCOPE = "heart sound upload session store"
-_FALLBACK_LABEL = "local in-memory upload session store"
 _local_store: dict[str, tuple[float, str]] = {}
 _local_store_lock = Lock()
 
@@ -59,78 +43,14 @@ def _local_cleanup(now: float | None = None) -> None:
         _local_store.pop(key, None)
 
 
-def _allows_local_fallback() -> bool:
-    return allows_local_runtime_fallback(get_settings().app_env)
-
-
-def _get_store_redis_client():
-    if _allows_local_fallback():
-        return get_redis_client_or_log(
-            logger,
-            scope=_REDIS_SCOPE,
-            fallback_label=_FALLBACK_LABEL,
-        )
-    return get_redis_client()
-
-
-def _require_shared_redis_state() -> None:
-    raise_redis_runtime_required(
-        logger,
-        scope=_REDIS_SCOPE,
-        app_env=get_settings().app_env,
-    )
-
-
 def _set_json(key: str, payload: dict[str, Any], ttl_seconds: int) -> None:
-    client = _get_store_redis_client()
     encoded = json.dumps(payload)
-    if client is not None:
-        try:
-            client.setex(key, max(ttl_seconds, 1), encoded)
-            return
-        except Exception:
-            if not _allows_local_fallback():
-                _require_shared_redis_state()
-            log_redis_operation_failure(
-                logger,
-                scope=_REDIS_SCOPE,
-                operation="write",
-                fallback_label=_FALLBACK_LABEL,
-            )
-
-    if not _allows_local_fallback():
-        _require_shared_redis_state()
-
     with _local_store_lock:
         _local_cleanup()
         _local_store[key] = (time.time() + max(ttl_seconds, 1), encoded)
 
 
 def _get_json(key: str) -> dict[str, Any] | None:
-    client = _get_store_redis_client()
-    if client is not None:
-        try:
-            payload = client.get(key)
-            if payload is None:
-                return None
-            decoded_payload = decode_cached_value(payload)
-            if decoded_payload is None:
-                return None
-            decoded = json.loads(decoded_payload)
-            return decoded if isinstance(decoded, dict) else None
-        except Exception:
-            if not _allows_local_fallback():
-                _require_shared_redis_state()
-            log_redis_operation_failure(
-                logger,
-                scope=_REDIS_SCOPE,
-                operation="read",
-                fallback_label=_FALLBACK_LABEL,
-            )
-
-    if not _allows_local_fallback():
-        _require_shared_redis_state()
-
     with _local_store_lock:
         _local_cleanup()
         entry = _local_store.get(key)
@@ -142,24 +62,6 @@ def _get_json(key: str) -> dict[str, Any] | None:
 
 
 def _delete_json(key: str) -> None:
-    client = _get_store_redis_client()
-    if client is not None:
-        try:
-            client.delete(key)
-            return
-        except Exception:
-            if not _allows_local_fallback():
-                _require_shared_redis_state()
-            log_redis_operation_failure(
-                logger,
-                scope=_REDIS_SCOPE,
-                operation="delete",
-                fallback_label=_FALLBACK_LABEL,
-            )
-
-    if not _allows_local_fallback():
-        _require_shared_redis_state()
-
     with _local_store_lock:
         _local_store.pop(key, None)
 
@@ -201,19 +103,27 @@ def get_upload_session(session_id: str) -> HeartSoundUploadSessionPayload | None
     if not payload:
         return None
 
-    expires_at = parse_cached_datetime(payload.get("expires_at"))
+    expires_at_raw = payload.get("expires_at")
+    try:
+        expires_at = (
+            datetime.fromisoformat(expires_at_raw)
+            if isinstance(expires_at_raw, str) and expires_at_raw
+            else None
+        )
+    except ValueError:
+        expires_at = None
     if expires_at is None or expires_at <= datetime.now(timezone.utc):
         delete_upload_session(session_id)
         return None
 
-    normalized_session_id = decode_cached_value(payload.get("session_id"))
-    patient_id = decode_cached_value(payload.get("patient_id"))
-    user_id = decode_cached_value(payload.get("user_id"))
-    filename = decode_cached_value(payload.get("filename"))
-    blob_url = decode_cached_value(payload.get("blob_url"))
-    storage_key = decode_cached_value(payload.get("storage_key"))
-    mime_type = decode_cached_value(payload.get("mime_type"))
-    recorded_at = decode_cached_value(payload.get("recorded_at"))
+    normalized_session_id = payload.get("session_id")
+    patient_id = payload.get("patient_id")
+    user_id = payload.get("user_id")
+    filename = payload.get("filename")
+    blob_url = payload.get("blob_url")
+    storage_key = payload.get("storage_key")
+    mime_type = payload.get("mime_type")
+    recorded_at = payload.get("recorded_at")
 
     if not all([normalized_session_id, patient_id, user_id, filename, blob_url, storage_key]):
         delete_upload_session(session_id)

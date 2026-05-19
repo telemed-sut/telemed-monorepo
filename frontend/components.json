@@ -12,6 +12,8 @@
   },
   "iconLibrary": "hugeicons",
   "rtl": false,
+  "menuColor": "inverted-translucent",
+  "menuAccent": "subtle",
   "aliases": {
     "components": "@/components",
     "utils": "@/lib/utils",
@@ -19,9 +21,8 @@
     "lib": "@/lib",
     "hooks": "@/hooks"
   },
-  "menuColor": "inverted-translucent",
-  "menuAccent": "subtle",
   "registries": {
-    "@lucide-animated": "https://lucide-animated.com/r/{name}.json"
+    "@lucide-animated": "https://lucide-animated.com/r/{name}.json",
+    "@coss": "https://coss.com/ui/r/{name}.json"
   }
 }

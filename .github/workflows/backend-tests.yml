@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -57,10 +57,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Set up Python 3.13
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.13'
         cache: 'pip'
@@ -77,10 +77,11 @@ jobs:
       DEVICE_API_SECRET: test-device-api-secret-must-be-at-least-32-chars
       DATABASE_URL: postgresql+psycopg://test_user:test_password@localhost:5432/test_db
       TEST_DATABASE_URL: postgresql+psycopg://test_user:test_password@localhost:5432/test_db
-      REDIS_URL: redis://localhost:6379/0
       JWT_SECRET: test-jwt-secret-key-must-be-at-least-32-chars
       JWT_EXPIRES_IN: 3600
       RUN_TEST_MIGRATIONS: "true"
+      SEED_ADMIN_PASSWORD: test-seed-admin-password-min-32-characters-long
+      SEED_DOCTOR_PASSWORD: test-seed-doctor-password-min-32-characters-long
       GITHUB_EVENT_BEFORE: ${{ github.event.before }}
     
     services:
@@ -97,23 +98,14 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
     
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.11'
         cache: 'pip'
@@ -178,7 +170,7 @@ jobs:
         python -m compileall -q app
     
     - name: Upload coverage reports
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v6
       with:
         file: ./backend/coverage.xml
         fail_ci_if_error: false
@@ -187,7 +179,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Set up Bun
       uses: oven-sh/setup-bun@v2
@@ -222,10 +214,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.11'
         cache: 'pip'
@@ -256,10 +248,10 @@ jobs:
       DEVICE_API_SECRET: test_device_secret_001_1234567890abcdef1234567890abc
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Set up Python 3.11
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: "3.11"
         cache: "pip"
@@ -279,7 +271,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Build backend image
       run: docker build -t telemed-backend:ci ./backend

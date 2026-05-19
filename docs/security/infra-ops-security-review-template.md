@@ -47,7 +47,7 @@ Check the controls that matter for closed-system and health-sensitive data.
 | Backup schedule is active | | | |
 | Restore procedure is documented | | | |
 | Latest restore or DR drill succeeded | | | |
-| Redis availability and persistence match release expectations | | | |
+| Runtime state availability and persistence match release expectations | | | |
 
 ## Monitoring and incident readiness
 

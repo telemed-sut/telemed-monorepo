@@ -588,7 +588,7 @@ export function PatientHeartSoundContent({
           // CRITICAL: Must match BOTH device_id AND session_id to be considered live for THIS patient
           if (latestRecord && 
               latestRecord.device_id === currentActive.device_id && 
-              latestRecord.device_exam_session_id === currentActive.session_id) {
+              (latestRecord as any).device_exam_session_id === currentActive.session_id) {
             
             const isRecent = Date.now() - new Date(latestRecord.recorded_at).getTime() < 30000;
             if (isRecent && activePosition !== latestRecord.position && !playingRecordId) {

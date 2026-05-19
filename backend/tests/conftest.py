@@ -1,7 +1,5 @@
 import os
-import sys
 from pathlib import Path
-from types import SimpleNamespace
 from typing import MutableMapping
 
 # Load .env.test before any app imports
@@ -93,7 +91,6 @@ from app.api import pressure as pressure_api
 from app.services.auth import get_db
 from app.services import admin_sso, admin_sso_store, passkey_store
 from app.services import heart_sound_upload_sessions as heart_sound_upload_session_service
-from app.services import redis_runtime as redis_runtime_service
 
 # Disable rate limiting during tests
 app.state.limiter.enabled = False
@@ -185,13 +182,11 @@ def reset_admin_sso_runtime_state():
     admin_sso_store.reset_runtime_state()
     passkey_store.reset_runtime_state()
     heart_sound_upload_session_service.reset_runtime_state()
-    redis_runtime_service.reset_runtime_diagnostics()
     yield
     admin_sso.reset_runtime_caches()
     admin_sso_store.reset_runtime_state()
     passkey_store.reset_runtime_state()
     heart_sound_upload_session_service.reset_runtime_state()
-    redis_runtime_service.reset_runtime_diagnostics()
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -248,47 +243,3 @@ def _truncate_all_tables():
     joined_tables = ", ".join(f'"{name}"' for name in table_names)
     with engine.begin() as connection:
         connection.execute(text(f"TRUNCATE {joined_tables} RESTART IDENTITY CASCADE"))
-
-
-class FakeRedisConnectionPool:
-    created_pools = []
-
-    def __init__(self, url: str, **kwargs):
-        self.url = url
-        self.kwargs = kwargs
-        self.disconnected = False
-        type(self).created_pools.append(self)
-
-    @classmethod
-    def from_url(cls, url: str, **kwargs):
-        return cls(url, **kwargs)
-
-    def disconnect(self):
-        self.disconnected = True
-
-
-class FakeRedisClient:
-    created_clients = []
-
-    def __init__(self, connection_pool=None, **kwargs):
-        self.connection_pool = connection_pool
-        self.kwargs = kwargs
-        type(self).created_clients.append(self)
-
-    @classmethod
-    def from_url(cls, url: str, **kwargs):
-        pool = FakeRedisConnectionPool.from_url(url, **kwargs)
-        return cls(connection_pool=pool, **kwargs)
-
-
-@pytest.fixture
-def mock_redis_module(monkeypatch):
-    FakeRedisConnectionPool.created_pools.clear()
-    FakeRedisClient.created_clients.clear()
-    module = SimpleNamespace(
-        ConnectionPool=FakeRedisConnectionPool,
-        Redis=FakeRedisClient,
-        connection=SimpleNamespace(ConnectionPool=FakeRedisConnectionPool),
-    )
-    monkeypatch.setitem(sys.modules, "redis", module)
-    return module

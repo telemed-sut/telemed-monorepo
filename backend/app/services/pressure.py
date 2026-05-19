@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -13,7 +14,9 @@ from app.schemas.pressure import PressureCreate, PressureRecordOut, PressureRisk
 
 from app.services.device_exam_session import device_exam_session_service
 from app.services.device_session_events import publish_device_session_event_sync
-from app.services.pubsub import publish_realtime_event, get_patient_channel
+from app.services.patient_events import publish_patient_event_sync
+
+logger = logging.getLogger(__name__)
 
 class PressureService:
     def classify_heart_rate(self, heart_rate: int) -> tuple[PressureRiskLevel, list[str]]:
@@ -73,6 +76,15 @@ class PressureService:
             risk=self.assess_risk(record),
         )
 
+    def build_trend_point(self, record: PressureRecord) -> dict[str, object]:
+        return {
+            "date": record.measured_at.date().isoformat(),
+            "recorded_at": record.measured_at.isoformat(),
+            "heart_rate": record.heart_rate,
+            "sys_pressure": record.sys_rate,
+            "dia_pressure": record.dia_rate,
+        }
+
     def list_patient_pressure_records(
         self,
         db: Session,
@@ -81,6 +93,16 @@ class PressureService:
         limit: int,
         offset: int,
     ) -> tuple[list[PressureRecord], int]:
+        active_patient_id = db.scalar(
+            select(Patient.id).where(
+                Patient.id == patient_id,
+                Patient.deleted_at.is_(None),
+                Patient.is_active == True,  # noqa: E712
+            )
+        )
+        if active_patient_id is None:
+            return [], 0
+
         total = db.scalar(
             select(func.count(PressureRecord.id)).where(PressureRecord.patient_id == patient_id)
         ) or 0
@@ -102,11 +124,13 @@ class PressureService:
             measurement_type=DeviceExamMeasurementType.blood_pressure,
         )
         # Check if patient exists
-        patient = db.query(Patient).filter(
-            Patient.id == resolved_patient_id,
-            Patient.deleted_at.is_(None),
-            Patient.is_active == True,  # noqa: E712
-        ).first()
+        patient = db.scalar(
+            select(Patient).where(
+                Patient.id == resolved_patient_id,
+                Patient.deleted_at.is_(None),
+                Patient.is_active == True,  # noqa: E712
+            )
+        )
         if not patient:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -140,22 +164,18 @@ class PressureService:
             )
             db.commit()
             db.refresh(db_obj)
-            
-            # Publish real-time event
-            event_data = {
-                "id": str(db_obj.id),
-                "patient_id": str(db_obj.patient_id),
-                "device_exam_session_id": str(db_obj.device_exam_session_id) if db_obj.device_exam_session_id else None,
-                "sys_rate": db_obj.sys_rate,
-                "dia_rate": db_obj.dia_rate,
-                "heart_rate": db_obj.heart_rate,
-                "measured_at": db_obj.measured_at.isoformat(),
-            }
-            publish_realtime_event(
-                get_patient_channel(str(db_obj.patient_id)),
-                "new_pressure_reading",
-                event_data
+
+            publish_patient_event_sync(
+                patient_id=resolved_patient_id,
+                event_type="new_pressure_reading",
+                recorded_at=db_obj.measured_at,
+                data={
+                    "pressure_id": str(db_obj.id),
+                    "pressure_record": self.serialize_pressure_record(db_obj).model_dump(mode="json"),
+                    "trend_point": self.build_trend_point(db_obj),
+                },
             )
+            
             if resolved_session_id is not None:
                 publish_device_session_event_sync(
                     event_type="device_session.measurement_received",
@@ -167,10 +187,12 @@ class PressureService:
             db.rollback()
             # If unique constraint violation (duplicate device_id + measured_at)
             # Find the existing record to be idempotent
-            existing = db.query(PressureRecord).filter(
-                PressureRecord.device_id == pressure_in.device_id,
-                PressureRecord.measured_at == measured_at
-            ).first()
+            existing = db.scalar(
+                select(PressureRecord).where(
+                    PressureRecord.device_id == pressure_in.device_id,
+                    PressureRecord.measured_at == measured_at,
+                )
+            )
             if existing:
                 return existing
             

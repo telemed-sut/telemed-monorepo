@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.security import generate_totp_secret, get_password_hash
+from app.core.security import get_password_hash
 from app.models.enums import PrivilegedRole, UserRole
 from app.models.user import User
 from app.models.user_privileged_role_assignment import UserPrivilegedRoleAssignment

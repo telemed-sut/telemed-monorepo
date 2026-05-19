@@ -68,7 +68,8 @@ x-backend-common-env: &backend-common-env
   MEETING_VIDEO_ROOM_PREFIX: "${MEETING_VIDEO_ROOM_PREFIX:-telemed}"
   ZEGO_APP_ID: "${ZEGO_APP_ID:-}"
   ZEGO_SERVER_SECRET: "${ZEGO_SERVER_SECRET:-}"
-  REDIS_URL: "${REDIS_URL:-}"
+  PATIENT_PIN_PEPPER: "${PATIENT_PIN_PEPPER:-}"
+  STORAGE_PROVIDER: "${STORAGE_PROVIDER:-azure}"
   AZURE_BLOB_STORAGE_CONNECTION_STRING: "${AZURE_BLOB_STORAGE_CONNECTION_STRING:-}"
   AZURE_BLOB_STORAGE_CONTAINER: "${AZURE_BLOB_STORAGE_CONTAINER:-}"
   AZURE_BLOB_STORAGE_PATH_PREFIX: "${AZURE_BLOB_STORAGE_PATH_PREFIX:-}"
@@ -138,8 +139,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     healthcheck:
       test:
         [
@@ -177,8 +176,8 @@ services:
     image: postgres:15-alpine
     container_name: patient-db
     environment:
-      POSTGRES_USER: "${POSTGRES_USER:-user}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-password}"
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
       POSTGRES_DB: "${POSTGRES_DB:-patient_db}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -186,7 +185,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-patient_db}",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-patient_db}",
         ]
       interval: 5s
       timeout: 5s
@@ -225,30 +224,6 @@ services:
     networks:
       - db-net
 
-  authentik-redis:
-    profiles: ["identity"]
-    init: true
-    image: redis:7-alpine
-    container_name: telemed-authentik-redis
-    environment:
-      AUTHENTIK_REDIS_PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-telemed-dev-auth-password}"
-    command:
-      [
-        "sh",
-        "-c",
-        "exec redis-server --save '' --appendonly no --requirepass \"$${AUTHENTIK_REDIS_PASSWORD}\"",
-      ]
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 256M
-        reservations:
-          cpus: "0.25"
-          memory: 128M
-    networks:
-      - db-net
-
   authentik-server:
     profiles: ["identity"]
     init: true
@@ -261,14 +236,11 @@ services:
       AUTHENTIK_POSTGRESQL__USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
       AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-telemed-dev-auth-password}"
       AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB:-authentik}"
-      AUTHENTIK_REDIS__HOST: authentik-redis
-      AUTHENTIK_REDIS__PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-telemed-dev-auth-password}"
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
     ports:
       - "127.0.0.1:9000:9000"
     depends_on:
       - authentik-postgresql
-      - authentik-redis
     healthcheck:
       test:
         [
@@ -315,12 +287,9 @@ services:
       AUTHENTIK_POSTGRESQL__USER: "${AUTHENTIK_POSTGRES_USER:-authentik}"
       AUTHENTIK_POSTGRESQL__PASSWORD: "${AUTHENTIK_POSTGRES_PASSWORD:-telemed-dev-auth-password}"
       AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB:-authentik}"
-      AUTHENTIK_REDIS__HOST: authentik-redis
-      AUTHENTIK_REDIS__PASSWORD: "${AUTHENTIK_REDIS_PASSWORD:-telemed-dev-auth-password}"
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
     depends_on:
       - authentik-postgresql
-      - authentik-redis
     deploy:
       resources:
         limits:
@@ -342,28 +311,6 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-
-
-  redis:
-    image: redis:7-alpine
-    container_name: telemed-redis
-    restart: unless-stopped
-    environment:
-      REDIS_PASSWORD: "${REDIS_PASSWORD:-telemed-dev-redis-password}"
-    command:
-      [
-        "sh",
-        "-c",
-        "exec redis-server --save '' --appendonly no --requirepass \"$${REDIS_PASSWORD}\"",
-      ]
-    networks:
-      - backend-net
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 5s
 volumes:
   postgres_data:
   authentik_postgres_data:

@@ -1498,7 +1498,7 @@ export function DeviceMonitorLiveOps({
                       <TableRow key={session.id}>
                         <TableCell>
                           <div className="space-y-1">
-                            <div className="font-medium text-slate-900">{session.patient_name || session.patient_id}</div>
+                            <div className="font-medium text-slate-900">{(session as any).patient_name || session.patient_id}</div>
                             <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                               <MeasurementIcon className="size-3" />
                               {measurementLabel(session.measurement_type, language)}

@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 from uuid import UUID
@@ -97,17 +98,19 @@ def _apply_list_filters(
 
 
 from fastapi import HTTPException, status
-from app.core.redis_client import distributed_lock
 
-from app.services.redis_cache import clear_dashboard_stats_cache
+
+@contextmanager
+def _local_meeting_creation_lock(lock_name: str):
+    yield True
 
 def create_meeting(db: Session, payload: MeetingCreate) -> Meeting:
-    # 1. Use a distributed lock to prevent concurrent creation for the same doctor at the same time
+    # 1. Keep the critical section shape while relying on the database uniqueness check.
     # Normalize time to minutes to prevent minor variations from bypassing the lock
     time_str = payload.date_time.strftime("%Y%m%d%H%M")
     lock_name = f"create_meeting:{payload.doctor_id}:{time_str}"
     
-    with distributed_lock(lock_name, expire_seconds=30) as acquired:
+    with _local_meeting_creation_lock(lock_name) as acquired:
         if not acquired:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -145,9 +148,6 @@ def create_meeting(db: Session, payload: MeetingCreate) -> Meeting:
             meeting=meeting,
         )
         
-    # Invalidate stats cache
-    clear_dashboard_stats_cache()
-    
     # Reload with relationships
     return get_meeting(db, str(meeting.id))
 

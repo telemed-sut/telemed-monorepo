@@ -9,17 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.patient_app_session import PatientAppSession
-from app.services.redis_runtime import (
-    decode_cached_value,
-    get_redis_client_or_log,
-    parse_cached_datetime,
-)
 from app.services.session_registry_common import (
-    build_session_cache_key,
-    cache_session_hash,
     cleanup_stale_sessions,
-    clear_cached_session_hash,
-    load_cached_session_hash,
     now_utc,
     normalize_dt,
     revoke_owner_sessions,
@@ -27,7 +18,6 @@ from app.services.session_registry_common import (
 
 logger = logging.getLogger(__name__)
 
-_PATIENT_SESSION_REDIS_PREFIX = "patient_app_session:v1:"
 _PATIENT_SESSION_DB_FLUSH_INTERVAL_SECONDS = 30
 
 
@@ -39,48 +29,12 @@ def _normalize_dt(dt: datetime) -> datetime:
     return normalize_dt(dt)
 
 
-def _session_cache_key(session_id: str) -> str:
-    return build_session_cache_key(_PATIENT_SESSION_REDIS_PREFIX, session_id)
-
-
-def _get_patient_session_redis_client():
-    return get_redis_client_or_log(
-        logger,
-        scope="patient_app_session_cache",
-        fallback_label="database",
-    )
-
-
 def _cache_patient_session_state(session: PatientAppSession) -> None:
-    expires_at = _normalize_dt(session.expires_at)
-    cache_key = _session_cache_key(session.session_id)
-
-    payload = {
-        "patient_id": str(session.patient_id),
-        "session_id": session.session_id,
-        "last_seen_at": _normalize_dt(session.last_seen_at).isoformat(),
-        "expires_at": expires_at.isoformat(),
-    }
-    if session.revoked_at is not None:
-        payload["revoked_at"] = _normalize_dt(session.revoked_at).isoformat()
-
-    cache_session_hash(
-        redis_client_getter=_get_patient_session_redis_client,
-        logger=logger,
-        scope="patient_app_session_cache",
-        cache_key=cache_key,
-        expires_at=expires_at,
-        payload=payload,
-    )
+    return None
 
 
 def _clear_patient_session_cache(session_id: str | None) -> None:
-    clear_cached_session_hash(
-        redis_client_getter=_get_patient_session_redis_client,
-        logger=logger,
-        scope="patient_app_session_cache",
-        cache_key=_session_cache_key(session_id) if session_id else None,
-    )
+    return None
 
 
 def _load_cached_patient_session(
@@ -88,34 +42,7 @@ def _load_cached_patient_session(
     patient_id: UUID,
     session_id: str,
 ) -> PatientAppSession | None:
-    payload = load_cached_session_hash(
-        redis_client_getter=_get_patient_session_redis_client,
-        logger=logger,
-        scope="patient_app_session_cache",
-        cache_key=_session_cache_key(session_id),
-    )
-    if not payload:
-        return None
-
-    cached_patient_id = decode_cached_value(payload.get("patient_id"))
-    if cached_patient_id != str(patient_id):
-        return None
-
-    expires_at = parse_cached_datetime(payload.get("expires_at"))
-    revoked_at = parse_cached_datetime(payload.get("revoked_at"))
-    now = _now_utc()
-    if expires_at is None or expires_at <= now or revoked_at is not None:
-        _clear_patient_session_cache(session_id)
-        return None
-
-    last_seen_at = parse_cached_datetime(payload.get("last_seen_at")) or now
-    return PatientAppSession(
-        patient_id=patient_id,
-        session_id=session_id,
-        last_seen_at=last_seen_at,
-        expires_at=expires_at,
-        revoked_at=revoked_at,
-    )
+    return None
 
 
 def _should_flush_last_seen(last_seen_at: datetime | None, now: datetime) -> bool:

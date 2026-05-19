@@ -13,7 +13,6 @@ from app.core.logging_config import (
 from app.core.config import get_settings
 from app.services import auth_privileges
 from app.services import novu as novu_service
-from app.services import redis_runtime as redis_runtime_service
 
 
 def test_redact_sensitive_data_redacts_nested_sensitive_fields():
@@ -211,74 +210,3 @@ def test_novu_send_failure_log_does_not_include_exception_message(monkeypatch, c
     assert "secret token should not appear" not in caplog.text
     assert getattr(record, "exception_type", None) == "RuntimeError"
 
-
-def test_redis_runtime_snapshot_event_uses_structured_logging(caplog, monkeypatch):
-    redis_runtime_service.reset_runtime_diagnostics()
-    monkeypatch.setattr(
-        redis_runtime_service,
-        "get_redis_client",
-        lambda: (_ for _ in ()).throw(RuntimeError("redis unavailable")),
-    )
-
-    logger = logging.getLogger("test")
-    redis_runtime_service.get_redis_client_or_log(
-        logger,
-        scope="stats cache",
-        fallback_label="database query",
-    )
-    redis_runtime_service.log_redis_operation_failure(
-        logger,
-        scope="idempotency cache",
-        operation="write",
-        fallback_label="stateless processing",
-    )
-
-    with caplog.at_level(logging.INFO):
-        emitted = redis_runtime_service.emit_runtime_diagnostics_event(logger)
-
-    assert emitted is True
-    snapshot_records = [
-        record for record in caplog.records if record.getMessage() == "redis_runtime_snapshot"
-    ]
-    assert len(snapshot_records) == 1
-
-    payload = json.loads(RedactingJsonFormatter().format(snapshot_records[0]))
-    assert payload["event"] == "redis_runtime_snapshot"
-    assert payload["redis_unavailable_scope_total"] == 1
-    assert payload["redis_degraded_scope_count"] == 1
-    assert payload["redis_operation_failure_total"] == 1
-    assert payload["redis_unavailable_scopes"] == ["stats cache"]
-
-
-def test_redis_runtime_alert_event_uses_structured_logging(caplog):
-    logger = logging.getLogger("test")
-    diagnostics = {
-        "degraded_scope_count": 1,
-        "operation_failure_total": 2,
-    }
-    alert = {
-        "status": "critical",
-        "should_alert": True,
-        "reasons": ["degraded_scope_count=1 reached threshold 1"],
-        "degraded_scope_threshold": 1,
-        "operation_failure_threshold": 5,
-    }
-
-    with caplog.at_level(logging.WARNING):
-        emitted = redis_runtime_service.emit_runtime_alert_event(
-            logger,
-            diagnostics=diagnostics,
-            alert=alert,
-        )
-
-    assert emitted is True
-    alert_records = [
-        record for record in caplog.records if record.getMessage() == "redis_runtime_alert"
-    ]
-    assert len(alert_records) == 1
-
-    payload = json.loads(RedactingJsonFormatter().format(alert_records[0]))
-    assert payload["event"] == "redis_runtime_alert"
-    assert payload["severity"] == "critical"
-    assert payload["redis_degraded_scope_count"] == 1
-    assert payload["redis_operation_failure_total"] == 2

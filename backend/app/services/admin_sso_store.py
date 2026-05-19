@@ -1,27 +1,14 @@
 import hashlib
 import json
-import logging
 import time
 from dataclasses import asdict, dataclass
 from threading import Lock
 from typing import Any
 
 from app.core.config import get_settings
-from app.db.session import get_redis_client
-from app.services.redis_runtime import (
-    allows_local_runtime_fallback,
-    decode_cached_value,
-    get_redis_client_or_log,
-    log_redis_operation_failure,
-    raise_redis_runtime_required,
-)
-
-logger = logging.getLogger(__name__)
 
 _STATE_PREFIX = "admin_sso:state:"
 _LOGOUT_HINT_PREFIX = "admin_sso:logout_hint:"
-_REDIS_SCOPE = "admin SSO artifact store"
-_FALLBACK_LABEL = "local in-memory artifact store"
 
 _local_store: dict[str, tuple[float, str]] = {}
 _local_store_lock = Lock()
@@ -46,79 +33,14 @@ def _local_cleanup(now: float | None = None) -> None:
         _local_store.pop(key, None)
 
 
-def _allows_local_fallback() -> bool:
-    settings = get_settings()
-    return allows_local_runtime_fallback(settings.app_env)
-
-
-def _get_store_redis_client():
-    if _allows_local_fallback():
-        return get_redis_client_or_log(
-            logger,
-            scope=_REDIS_SCOPE,
-            fallback_label=_FALLBACK_LABEL,
-        )
-    return get_redis_client()
-
-
-def _require_shared_redis_state() -> None:
-    raise_redis_runtime_required(
-        logger,
-        scope=_REDIS_SCOPE,
-        app_env=get_settings().app_env,
-    )
-
-
 def _set_json(key: str, payload: dict[str, Any], ttl_seconds: int) -> None:
-    client = _get_store_redis_client()
     encoded = json.dumps(payload)
-    if client is not None:
-        try:
-            client.setex(key, max(ttl_seconds, 1), encoded)
-            return
-        except Exception:
-            if not _allows_local_fallback():
-                _require_shared_redis_state()
-            log_redis_operation_failure(
-                logger,
-                scope=_REDIS_SCOPE,
-                operation="write",
-                fallback_label=_FALLBACK_LABEL,
-            )
-
-    if not _allows_local_fallback():
-        _require_shared_redis_state()
-
     with _local_store_lock:
         _local_cleanup()
         _local_store[key] = (time.time() + max(ttl_seconds, 1), encoded)
 
 
 def _pop_json(key: str) -> dict[str, Any] | None:
-    client = _get_store_redis_client()
-    if client is not None:
-        try:
-            payload = client.getdel(key)
-            if payload is None:
-                return None
-            decoded_payload = decode_cached_value(payload)
-            if decoded_payload is None:
-                return None
-            decoded = json.loads(decoded_payload)
-            return decoded if isinstance(decoded, dict) else None
-        except Exception:
-            if not _allows_local_fallback():
-                _require_shared_redis_state()
-            log_redis_operation_failure(
-                logger,
-                scope=_REDIS_SCOPE,
-                operation="read",
-                fallback_label=_FALLBACK_LABEL,
-            )
-
-    if not _allows_local_fallback():
-        _require_shared_redis_state()
-
     with _local_store_lock:
         _local_cleanup()
         entry = _local_store.pop(key, None)
@@ -130,24 +52,6 @@ def _pop_json(key: str) -> dict[str, Any] | None:
 
 
 def _delete_key(key: str) -> None:
-    client = _get_store_redis_client()
-    if client is not None:
-        try:
-            client.delete(key)
-            return
-        except Exception:
-            if not _allows_local_fallback():
-                _require_shared_redis_state()
-            log_redis_operation_failure(
-                logger,
-                scope=_REDIS_SCOPE,
-                operation="delete",
-                fallback_label=_FALLBACK_LABEL,
-            )
-
-    if not _allows_local_fallback():
-        _require_shared_redis_state()
-
     with _local_store_lock:
         _local_store.pop(key, None)
 

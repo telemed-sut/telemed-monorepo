@@ -72,7 +72,6 @@ from app.services import patient_notification as patient_notification_service
 from app.services import patient_screening as patient_screening_service
 from app.services import weight as weight_service
 from app.services.auth import get_current_user, get_db
-from app.db.session import SessionLocal
 from app.core.request_utils import get_client_ip
 
 logger = logging.getLogger(__name__)
@@ -630,113 +629,66 @@ def delete_my_notification(
 # ---------- Patient: real-time SSE stream ----------
 
 _SSE_KEEPALIVE_SECONDS = 20.0
-_SSE_PUBSUB_POLL_SECONDS = 1.0
+_SSE_DB_POLL_SECONDS = 1.0
 
 
 @router.get("/me/stream")
 async def stream_patient_app_events(
     request: Request,
+    db: Session = Depends(get_db),
     token: str | None = Depends(get_patient_app_bearer_token),
 ):
     """Server-Sent Events stream for the authenticated patient.
 
     Emits:
       - `event: notification\\ndata: {json}` whenever a new patient notification
-        is created and published to the per-patient Redis channel.
+        is created for this patient.
       - `event: heart_alert\\ndata: {json}` whenever a heart alert is published.
       - `: keepalive` comments every ~20s so clients/proxies do not idle-close.
 
     The mobile client (`lib/services/notification_service.dart`) subscribes here
     when the app is foregrounded.
     """
-    # Auth runs against a short-lived session so we never hold a DB connection
-    # for the lifetime of the SSE stream — that used to pin one pool slot per
-    # open client and starve the rest of the API.
-    with SessionLocal() as auth_db:
-        patient = _resolve_authenticated_patient(
-            request=request, db=auth_db, token=token
-        )
-        patient_id: UUID = patient.id
+    patient = _resolve_authenticated_patient(request=request, db=db, token=token)
 
-    channel = patient_notification_service.patient_stream_channel(patient_id)
-
-    pubsub = None
-    try:
-        from app.services.redis import redis_manager  # local to avoid hard dep at import
-
-        pubsub = redis_manager.client.pubsub(ignore_subscribe_messages=True)
-        await asyncio.to_thread(pubsub.subscribe, channel)
-        redis_available = True
-    except Exception:
-        logger.warning(
-            "Patient SSE stream falling back to keepalive-only (Redis unavailable)",
-            extra={"patient_id": str(patient_id)},
-            exc_info=True,
-        )
-        redis_available = False
+    latest_seen_at = patient_notification_service.latest_created_at(
+        db=db,
+        patient_id=patient.id,
+    )
 
     async def event_generator() -> AsyncGenerator[dict, None]:
+        nonlocal latest_seen_at
         last_keepalive = asyncio.get_event_loop().time()
         try:
-            # Initial comment so the client knows the connection is alive.
             yield {"comment": "patient-app stream connected"}
 
             while True:
                 if await request.is_disconnected():
                     break
 
-                if redis_available and pubsub is not None:
-                    try:
-                        # Blocking redis-py call — must run off the event loop,
-                        # otherwise every other request stalls for the timeout.
-                        message = await asyncio.to_thread(
-                            pubsub.get_message,
-                            ignore_subscribe_messages=True,
-                            timeout=_SSE_PUBSUB_POLL_SECONDS,
-                        )
-                    except Exception:
-                        logger.warning(
-                            "Patient SSE pubsub.get_message failed; closing stream",
-                            extra={"patient_id": str(patient_id)},
-                            exc_info=True,
-                        )
-                        break
-
-                    if message and message.get("type") == "message":
-                        raw = message.get("data")
-                        if isinstance(raw, bytes):
-                            raw = raw.decode("utf-8", errors="replace")
-                        try:
-                            envelope = json.loads(raw) if raw else {}
-                        except (TypeError, ValueError):
-                            envelope = {}
-
-                        event_name = envelope.get("event") or "message"
-                        data_payload = envelope.get("data", envelope)
-                        yield {
-                            "event": event_name,
-                            "data": json.dumps(data_payload, default=str),
-                        }
-                        last_keepalive = asyncio.get_event_loop().time()
-                        continue
-                else:
-                    await asyncio.sleep(_SSE_PUBSUB_POLL_SECONDS)
+                await asyncio.sleep(_SSE_DB_POLL_SECONDS)
+                notifications = patient_notification_service.list_created_after(
+                    db=db,
+                    patient_id=patient.id,
+                    created_after=latest_seen_at,
+                )
+                for notification in notifications:
+                    yield {
+                        "event": "notification",
+                        "data": json.dumps(
+                            patient_notification_service.serialize(notification),
+                            default=str,
+                        ),
+                    }
+                    latest_seen_at = notification.created_at
+                    last_keepalive = asyncio.get_event_loop().time()
 
                 now = asyncio.get_event_loop().time()
                 if now - last_keepalive >= _SSE_KEEPALIVE_SECONDS:
                     yield {"comment": "keepalive"}
                     last_keepalive = now
         finally:
-            if pubsub is not None:
-                try:
-                    await asyncio.to_thread(pubsub.unsubscribe, channel)
-                    await asyncio.to_thread(pubsub.close)
-                except Exception:
-                    logger.debug(
-                        "Patient SSE pubsub cleanup failed",
-                        extra={"patient_id": str(patient_id)},
-                        exc_info=True,
-                    )
+            logger.debug("Patient app stream closed", extra={"patient_id": str(patient.id)})
 
     return EventSourceResponse(event_generator())
 

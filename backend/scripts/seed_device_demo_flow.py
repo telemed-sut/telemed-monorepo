@@ -22,7 +22,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.core.secret_crypto import has_reserved_secret_prefix
 from app.core.security import get_password_hash
-from app.db.session import SessionLocal, get_redis_client, settings
+from app.db.session import SessionLocal, settings
 from app.models.device_exam_session import DeviceExamSession
 from app.models.device_registration import DeviceRegistration
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
@@ -38,8 +38,6 @@ DEFAULT_DOCTOR_PASSWORD = "DeviceDemoPass123"
 DEFAULT_PATIENT_EMAIL = "device-demo-patient@example.com"
 DEFAULT_DEVICE_ID = "lung-demo-01"
 DEFAULT_DEVICE_SECRET = "demo-lung-device-secret-1234567890abcdef"
-DEVICE_SECRET_CACHE_PREFIX = "device_secret:v1:"
-DASHBOARD_STATS_NAMESPACE_KEY = "stats:overview:v3:namespace"
 REQUIRED_TABLES = (
     "users",
     "patients",
@@ -99,40 +97,12 @@ def _assert_required_tables_exist(db: Session) -> None:
     )
 
 
-def _get_available_redis_client():
-    if _is_truthy(os.getenv("DEMO_SEED_DISABLE_REDIS")):
-        return None
-    if not (settings.redis_url or "").strip():
-        return None
-
-    try:
-        redis_client = get_redis_client()
-        if redis_client is None:
-            return None
-        redis_client.ping()
-        return redis_client
-    except Exception:
-        return None
-
-
 def _clear_dashboard_stats_cache_quietly() -> None:
-    redis_client = _get_available_redis_client()
-    if redis_client is None:
-        return
-    try:
-        redis_client.incr(DASHBOARD_STATS_NAMESPACE_KEY)
-    except Exception:
-        return
+    return None
 
 
 def _clear_device_secret_cache_quietly(device_id: str) -> None:
-    redis_client = _get_available_redis_client()
-    if redis_client is None:
-        return
-    try:
-        redis_client.delete(f"{DEVICE_SECRET_CACHE_PREFIX}{device_id}")
-    except Exception:
-        return
+    return None
 
 
 def _normalize_email(value: str) -> str:

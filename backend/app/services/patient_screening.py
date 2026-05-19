@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.models.patient_screening import PatientScreening
 from app.schemas.patient_screening import PatientScreeningCreate
 from app.services import patient_notification as patient_notification_service
+from app.services.patient_events import publish_patient_event_sync
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,17 @@ def _serialize(record: PatientScreening) -> dict[str, Any]:
         "created_at": record.created_at,
         "has_any_symptom": _has_any_symptom(record),
         "has_any_warning_sign": _has_any_warning_sign(record),
+    }
+
+
+def _trend_point(record: PatientScreening) -> dict[str, Any]:
+    return {
+        "date": record.recorded_at.date().isoformat(),
+        "recorded_at": record.recorded_at.isoformat(),
+        "heart_rate": record.heart_rate,
+        "sys_pressure": record.systolic_bp,
+        "dia_pressure": record.diastolic_bp,
+        "weight_kg": record.weight_kg,
     }
 
 
@@ -158,6 +170,16 @@ def submit(
     db.add(record)
     db.commit()
     db.refresh(record)
+
+    publish_patient_event_sync(
+        patient_id=patient_id,
+        event_type="new_patient_screening",
+        recorded_at=record.recorded_at,
+        data={
+            "screening_id": str(record.id),
+            "trend_point": _trend_point(record),
+        },
+    )
 
     _maybe_notify_screening(db=db, patient_id=patient_id, record=record)
 

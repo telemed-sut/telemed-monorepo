@@ -6,10 +6,6 @@ TMP_ROOT="${TMPDIR:-/tmp}"
 TUNNEL_LOG_FILE="$TMP_ROOT/telemed-cloudflared.log"
 TUNNEL_PID_FILE="$TMP_ROOT/telemed-cloudflared.pid"
 FRONTEND_URL="${FRONTEND_URL:-http://localhost:3000}"
-SYNC_INFISICAL="${SYNC_INFISICAL:-false}"
-INFISICAL_ENV="${INFISICAL_ENV:-dev}"
-INFISICAL_PATH="${INFISICAL_PATH:-/}"
-INFISICAL_PROJECT_ID="${INFISICAL_PROJECT_ID:-}"
 VERIFY_TUNNEL="${VERIFY_TUNNEL:-true}"
 TUNNEL_VERIFY_ATTEMPTS="${TUNNEL_VERIFY_ATTEMPTS:-90}"
 
@@ -40,8 +36,6 @@ detect_lan_origin() {
 }
 
 extract_tunnel_url() {
-  # cloudflared logs can contain NUL bytes; force text mode to avoid
-  # grep returning "Binary file ... matches".
   LC_ALL=C grep -aEo 'https://[a-z0-9-]+\.trycloudflare\.com' "$TUNNEL_LOG_FILE" 2>/dev/null | head -n 1 || true
 }
 
@@ -60,50 +54,17 @@ stop_previous_tunnel_if_any() {
   fi
 }
 
-build_infisical_flags() {
-  INFISICAL_FLAGS=(--env "$INFISICAL_ENV" --path "$INFISICAL_PATH")
-  if [[ -n "$INFISICAL_PROJECT_ID" ]]; then
-    INFISICAL_FLAGS+=(--projectId "$INFISICAL_PROJECT_ID")
-  fi
-}
-
-upsert_infisical_value() {
-  local key="$1"
-  local value="$2"
-  build_infisical_flags
-  infisical secrets set "${key}=${value}" "${INFISICAL_FLAGS[@]}" >/dev/null
-}
-
-apply_backend_env_changes() {
-  echo "Applying backend config..."
-
-  if is_enabled "$SYNC_INFISICAL"; then
-    require_command infisical
-    echo "- Updating Infisical secrets..."
-    upsert_infisical_value "FRONTEND_BASE_URL" "http://localhost:3000"
-    upsert_infisical_value "MEETING_PATIENT_JOIN_BASE_URL" "$1"
-    upsert_infisical_value "CORS_ORIGINS" "$2"
-  else
-    echo "- Using runtime-only compose overrides (Infisical sync disabled)"
-  fi
-}
-
 restart_backend_to_apply_changes() {
   local meeting_patient_join_base_url="$1"
   local cors_origins="$2"
   echo "Restarting backend to apply env..."
   (
     cd "$ROOT_DIR"
-    if is_enabled "$SYNC_INFISICAL"; then
-      build_infisical_flags
-      infisical run "${INFISICAL_FLAGS[@]}" -- env COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d backend >/dev/null
-    else
-      FRONTEND_BASE_URL="http://localhost:3000" \
-      MEETING_PATIENT_JOIN_BASE_URL="$meeting_patient_join_base_url" \
-      MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK="${MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK:-true}" \
-      CORS_ORIGINS="$cors_origins" \
-      ./scripts/start-compose.sh -d backend >/dev/null
-    fi
+    FRONTEND_BASE_URL="http://localhost:3000" \
+    MEETING_PATIENT_JOIN_BASE_URL="$meeting_patient_join_base_url" \
+    MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK="${MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK:-true}" \
+    CORS_ORIGINS="$cors_origins" \
+    ./scripts/start-compose.sh -d backend >/dev/null
   )
 }
 
@@ -248,14 +209,8 @@ main() {
   echo "Starting backend containers (with backend rebuild)..."
   (
     cd "$ROOT_DIR"
-    if is_enabled "$SYNC_INFISICAL"; then
-      require_command infisical
-      build_infisical_flags
-      infisical run "${INFISICAL_FLAGS[@]}" -- env COMPOSE_DISABLE_ENV_FILE=1 docker compose up -d --build db backend >/dev/null
-    else
-      MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK="${MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK:-true}" \
-      ./scripts/start-compose.sh -d db backend >/dev/null
-    fi
+    MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK="${MEETING_SIGNING_ALLOW_JWT_SECRET_FALLBACK:-true}" \
+    ./scripts/start-compose.sh -d db backend >/dev/null
   )
 
   echo "Starting Cloudflare tunnel..."
@@ -293,7 +248,6 @@ main() {
   fi
   cors_origins="${cors_origins},${tunnel_url}"
 
-  apply_backend_env_changes "$tunnel_url" "$cors_origins"
   restart_backend_to_apply_changes "$tunnel_url" "$cors_origins"
   verify_backend_tunnel_env "$tunnel_url"
   verify_tunnel_url "$tunnel_url"
@@ -304,7 +258,6 @@ Ready.
 - Tunnel URL: $tunnel_url
 - Cloudflared PID: $tunnel_pid
 - Tunnel log: $TUNNEL_LOG_FILE
-- Sync Infisical: $SYNC_INFISICAL
 
 Use:
 1) Doctor opens http://localhost:3000/meetings

@@ -19,7 +19,7 @@
 - Enforced CI lint gating on all frontend files and made dependency vulnerability scans blocking.
 - Tuned database connection pool (pool_size, max_overflow, pool_recycle) to prevent stale connections on Cloud Run.
 - Bounded IP ban cache to 10,000 entries using LRU eviction to prevent memory exhaustion during attacks.
-- Added Redis-backed rate limiting shared across Cloud Run instances with fail-fast validation at startup.
+- Added deployment-scoped rate limiting with fail-fast validation at startup.
 - Moved meeting presence reconciliation from inline GET handler to a background lifecycle worker.
 - Cascade delete pressure_records and heart_sound_records when soft-deleting a patient.
 - Enabled React StrictMode in production builds to catch concurrency bugs.

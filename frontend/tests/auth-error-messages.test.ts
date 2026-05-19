@@ -23,16 +23,6 @@ describe("getAuthErrorMessage", () => {
     expect(getAuthErrorMessage("th", error, "step-up")).toBe("รหัสผ่านของบัญชีนี้ไม่ถูกต้อง");
   });
 
-  it("maps step-up 2FA failures to an authenticator-specific message", () => {
-    const error = Object.assign(new Error("Invalid two-factor authentication code"), {
-      status: 401,
-      detail: { code: "invalid_two_factor_code" },
-    }) as ApiError;
-
-    expect(getAuthErrorMessage("en", error, "step-up")).toBe("Authenticator code or backup code is incorrect.");
-    expect(getAuthErrorMessage("th", error, "step-up")).toBe("รหัสจากแอปยืนยันตัวตนหรือรหัสสำรองไม่ถูกต้อง");
-  });
-
   it("maps invalid reset tokens to a privacy-safe reset message", () => {
     const error = Object.assign(new Error("Invalid or expired reset token"), {
       status: 400,

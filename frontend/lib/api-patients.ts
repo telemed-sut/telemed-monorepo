@@ -26,6 +26,7 @@ import type {
   UploadPatientHeartSoundPayload,
   PatientVitalsTrendResponse,
   WeightRecord,
+  WeightRecordPayload,
   WeightRecordListResponse,
 } from "./api-types";
 
@@ -318,7 +319,7 @@ export async function generatePatientRegistrationCode(
 export async function fetchPatientVitalsTrends(patientId: string, days: number, token: string) {
   return apiFetch<PatientVitalsTrendResponse>(
     `/patients/${patientId}/trends/vitals?days=${days}`,
-    { method: "GET" },
+    { method: "GET", skipCache: true },
     token
   );
 }
@@ -326,18 +327,36 @@ export async function fetchPatientVitalsTrends(patientId: string, days: number, 
 export async function fetchPatientWeightRecords(patientId: string, token: string) {
   return apiFetch<WeightRecordListResponse>(
     `/patients/${patientId}/weight-records`,
-    { method: "GET" },
+    { method: "GET", skipCache: true },
     token
   );
+}
+
+export async function createPatientWeightRecord(
+  patientId: string,
+  payload: WeightRecordPayload,
+  token: string
+) {
+  const response = await apiFetch<WeightRecord>(
+    `/patients/${patientId}/weight-records`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token
+  );
+  invalidateCache(`/patients/${patientId}/weight-records`);
+  invalidateCache(`/patients/${patientId}/trends/vitals`);
+  return response;
 }
 
 export async function updatePatientWeightRecord(
   patientId: string,
   recordId: string,
-  payload: Partial<WeightRecord>,
+  payload: Partial<WeightRecordPayload>,
   token: string
 ) {
-  return apiFetch<WeightRecord>(
+  const response = await apiFetch<WeightRecord>(
     `/patients/${patientId}/weight-records/${recordId}`,
     {
       method: "PUT",
@@ -345,6 +364,9 @@ export async function updatePatientWeightRecord(
     },
     token
   );
+  invalidateCache(`/patients/${patientId}/weight-records`);
+  invalidateCache(`/patients/${patientId}/trends/vitals`);
+  return response;
 }
 
 export async function deletePatientWeightRecord(
@@ -352,9 +374,12 @@ export async function deletePatientWeightRecord(
   recordId: string,
   token: string
 ) {
-  return apiFetch<void>(
+  const response = await apiFetch<void>(
     `/patients/${patientId}/weight-records/${recordId}`,
     { method: "DELETE" },
     token
   );
+  invalidateCache(`/patients/${patientId}/weight-records`);
+  invalidateCache(`/patients/${patientId}/trends/vitals`);
+  return response;
 }

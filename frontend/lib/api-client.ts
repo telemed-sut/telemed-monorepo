@@ -12,7 +12,7 @@ export const API_BASE_URL =
       process.env.NEXT_SERVER_API_BASE_URL ||
       process.env.NEXT_SERVER_API_PROXY_TARGET ||
       process.env.NEXT_PUBLIC_API_BASE_URL ||
-      "http://localhost:8000"
+      "http://127.0.0.1:8000"
     );
 
 export type ApiError = Error & { status?: number; detail?: unknown; code?: string };
@@ -170,13 +170,6 @@ const TRANSLATED_MESSAGE_RULES: Array<{
     },
   },
   {
-    pattern: /invalid two-factor authentication code/i,
-    messages: {
-      en: "Secure verification failed. Please try again.",
-      th: "ยืนยันตัวตนไม่สำเร็จ กรุณาลองใหม่",
-    },
-  },
-  {
     pattern: /organization sso|admin account must continue with organization sso/i,
     messages: {
       en: "Please continue with Organization SSO.",
@@ -279,7 +272,6 @@ const AUTH_ERROR_RULES: Array<{
   {
     contexts: ["login", "step-up"],
     codes: ["mfa_verification_failed"],
-    patterns: [/invalid two-factor authentication code|invalid two-factor code/i],
     messages: {
       en: "Secure verification failed. Please try again.",
       th: "ยืนยันตัวตนไม่สำเร็จ กรุณาลองใหม่",

@@ -9,26 +9,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.user_session import UserSession
-from app.services.redis_runtime import (
-    decode_cached_value,
-    get_redis_client_or_log,
-    parse_cached_datetime,
-)
 from app.services.session_registry_common import (
-    build_session_cache_key,
-    cache_session_hash,
     cleanup_stale_sessions,
-    clear_cached_session_hash,
-    load_cached_session_hash,
     now_utc,
     normalize_dt,
     revoke_owner_sessions,
 )
 
 logger = logging.getLogger(__name__)
-
-_USER_SESSION_REDIS_PREFIX = "user_session:v1:"
-
 
 def _now_utc() -> datetime:
     return now_utc()
@@ -38,81 +26,16 @@ def _normalize_dt(dt: datetime) -> datetime:
     return normalize_dt(dt)
 
 
-def _session_cache_key(session_id: str) -> str:
-    return build_session_cache_key(_USER_SESSION_REDIS_PREFIX, session_id)
-
-
-def _get_session_redis_client():
-    return get_redis_client_or_log(
-        logger,
-        scope="user_session_cache",
-        fallback_label="database",
-    )
-
-
 def _cache_session_state(session: UserSession) -> None:
-    expires_at = _normalize_dt(session.expires_at)
-    cache_key = _session_cache_key(session.session_id)
-
-    payload = {
-        "user_id": str(session.user_id),
-        "session_id": session.session_id,
-        "auth_source": session.auth_source,
-        "last_seen_at": _normalize_dt(session.last_seen_at).isoformat(),
-        "expires_at": expires_at.isoformat(),
-    }
-    if session.revoked_at is not None:
-        payload["revoked_at"] = _normalize_dt(session.revoked_at).isoformat()
-
-    cache_session_hash(
-        redis_client_getter=_get_session_redis_client,
-        logger=logger,
-        scope="user_session_cache",
-        cache_key=cache_key,
-        expires_at=expires_at,
-        payload=payload,
-    )
+    return None
 
 
 def _clear_session_cache(session_id: str | None) -> None:
-    clear_cached_session_hash(
-        redis_client_getter=_get_session_redis_client,
-        logger=logger,
-        scope="user_session_cache",
-        cache_key=_session_cache_key(session_id) if session_id else None,
-    )
+    return None
 
 
 def _load_cached_session(*, user_id: UUID, session_id: str) -> UserSession | None:
-    payload = load_cached_session_hash(
-        redis_client_getter=_get_session_redis_client,
-        logger=logger,
-        scope="user_session_cache",
-        cache_key=_session_cache_key(session_id),
-    )
-    if not payload:
-        return None
-
-    cached_user_id = decode_cached_value(payload.get("user_id"))
-    if cached_user_id != str(user_id):
-        return None
-
-    expires_at = parse_cached_datetime(payload.get("expires_at"))
-    revoked_at = parse_cached_datetime(payload.get("revoked_at"))
-    now = _now_utc()
-    if expires_at is None or expires_at <= now or revoked_at is not None:
-        _clear_session_cache(session_id)
-        return None
-
-    last_seen_at = parse_cached_datetime(payload.get("last_seen_at")) or now
-    return UserSession(
-        user_id=user_id,
-        session_id=session_id,
-        auth_source=decode_cached_value(payload.get("auth_source")) or "local",
-        last_seen_at=last_seen_at,
-        expires_at=expires_at,
-        revoked_at=revoked_at,
-    )
+    return None
 
 
 def register_session(

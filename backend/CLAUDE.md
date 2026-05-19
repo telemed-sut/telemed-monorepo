@@ -12,7 +12,7 @@ A FastAPI backend for a hospital telemedicine platform. It powers three clients:
 - **Mobile / patient app** (`../mobile`) — phone+PIN auth, joins video meetings via signed invites.
 - **IoT pressure devices** — physical blood‑pressure machines that POST signed payloads to `/device/v1/pressure`.
 
-It owns: auth (JWT + 2FA), users, patients, doctor‑patient assignments, dense‑mode clinical views (timeline, encounters, labs, meds), video meetings (Zego), device ingest, audit logs, IP/account lockout, security admin endpoints, and Novu notifications.
+It owns: auth (JWT + passkeys + admin SSO), users, patients, doctor‑patient assignments, dense‑mode clinical views (timeline, encounters, labs, meds), video meetings (Zego), device ingest, audit logs, IP/account lockout, security admin endpoints, and Novu notifications.
 
 Hard constraint: this is **regulated clinical data**. Most "obvious cleanups" (logging, error messages, audit details) carry compliance/PHI implications. Read the conventions in §6 before touching them.
 
@@ -25,7 +25,7 @@ Hard constraint: this is **regulated clinical data**. Most "obvious cleanups" (l
 - **SQLAlchemy 2.x** (Mapped/select style) + **Alembic** 1.13.
 - **PostgreSQL** via `psycopg[binary]` (driver URL is normalized to `postgresql+psycopg://…` in `app/core/config.py`). Production targets Neon/Supabase.
 - **JWT** via `python-jose` (HS256). **bcrypt** via `passlib[bcrypt]==1.7.4 / bcrypt==3.2.2` — do not bump independently, the pair is pinned for a reason.
-- **slowapi** for rate limiting (memory or Redis backend).
+- **slowapi** for in-process rate limiting.
 - **Novu** SDK for notifications (optional, gated by `NOVU_ENABLED`).
 - **pycryptodomex** for the Zego token signer.
 - Tests: `pytest`, `pytest-asyncio` (asyncio_mode=auto), `httpx`, FastAPI `TestClient`.
@@ -113,11 +113,12 @@ Service‑layer enforcement is intentional: routers call `verify_doctor_patient_
 - Auth is accepted via Bearer header **or** the `access_token` cookie (httponly, secure controlled by `AUTH_COOKIE_SECURE`).
 - When auth comes from the cookie, `_validate_cookie_csrf` enforces an `Origin`/`Referer` allowlist built from `FRONTEND_BASE_URL` + `CORS_ORIGINS` for state‑changing methods. Non‑browser clients (no Origin/Referer) are allowed. Don't remove this — it's the only CSRF defense for cookie auth.
 
-### 6.3 2FA / TOTP / backup codes / trusted devices
-- Admin 2FA is required by default (`ADMIN_2FA_REQUIRED=true`). Enabling/disabling and resets all write `AuditLog` rows; preserve those entries when refactoring.
-- TOTP is implemented inline in `app/core/security.py` (no `pyotp` dep). Backup codes are 10‑char base32 strings (`generate_backup_code`). Codes are stored as SHA‑256 hashes (`UserBackupCode.code_hash`).
-- Trusted devices: cookie `trusted_device_token`, hash stored server‑side, optional UA‑hash binding (`hash_user_agent`). Days configurable per role (`ADMIN_TRUSTED_DEVICE_DAYS=7`, `USER_TRUSTED_DEVICE_DAYS=30`).
-- Login flow that handles 2FA challenge, trusted‑device cookie, backup‑code use, lockout, and audit is in `app/api/auth.py:546-736`. Read it end‑to‑end before changing any branch.
+### 6.3 MFA: passkeys + step-up + admin SSO
+- Legacy TOTP/2FA (with `users.two_factor_*` columns, backup codes, trusted‑device cookies) was removed by migration `88a6342a6f1c_remove_2fa.py`. Don't reintroduce TOTP helpers, `otp_code` login fields, or `trusted_device_*` cookies — they're gone on purpose.
+- The replacement is **passkeys** (WebAuthn) for primary MFA and **admin SSO** (OIDC) for admin enforcement. Passkey routes live in `app/api/passkeys.py`; admin SSO in `app/services/admin_sso.py` and `app/api/auth.py` (`/auth/admin/sso/*`).
+- Tokens carry `mfa_verified` + `mfa_authenticated_at`. `app/services/auth_session_freshness.py` (formerly `auth_2fa.py`) gates sensitive endpoints via `require_recent_privileged_session` / `require_recent_sensitive_session`. `PRIVILEGED_ACTION_MFA_MAX_AGE_SECONDS` controls the freshness window. Stale sessions get 401, not 403.
+- A passkey assertion (and admin SSO callbacks marked `mfa`/`otp`/`webauthn`/`fido` via `_claims_indicate_mfa` in `admin_sso.py`) sets `mfa_verified=True` on the resulting session. Token refresh preserves these timestamps — don't reset them on `/auth/refresh`.
+- Audit conventions still apply: enabling/disabling passkeys, admin SSO logins, and step‑up failures all write `AuditLog` rows. Preserve them when refactoring.
 
 ### 6.4 Account lockout & IP ban
 - Per‑user: `MAX_LOGIN_ATTEMPTS=10` / `ACCOUNT_LOCKOUT_MINUTES=15` (admin: 15 / 3). Locked account → HTTP **423** (not 401/403). Logic in `app/services/security.py:handle_failed_login` and `check_account_locked`.

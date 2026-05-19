@@ -1,12 +1,12 @@
 # Dependencies stage
-FROM oven/bun:1.3.9-alpine@sha256:9028ee7a60a04777190f0c3129ce49c73384d3fc918f3e5c75f5af188e431981 AS deps
+FROM oven/bun:1.3.14-alpine@sha256:5acc90a93e91ff07bf72aa90a7c9f0fa189765aec90b47bdbf2152d2196383c0 AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 # Build stage
-FROM oven/bun:1.3.9-alpine@sha256:9028ee7a60a04777190f0c3129ce49c73384d3fc918f3e5c75f5af188e431981 AS builder
+FROM oven/bun:1.3.14-alpine@sha256:5acc90a93e91ff07bf72aa90a7c9f0fa189765aec90b47bdbf2152d2196383c0 AS builder
 WORKDIR /app
 ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ARG NEXT_SERVER_API_PROXY_TARGET=http://backend:8000
@@ -20,7 +20,7 @@ ENV NEXT_TELEMETRY_DISABLED=1 \
 RUN bun run build
 
 # Production stage
-FROM node:24-alpine@sha256:01743339035a5c3c11a373cd7c83aeab6ed1457b55da6a69e014a95ac4e4700b AS runner
+FROM node:26-alpine@sha256:e71ac5e964b9201072425d59d2e876359efa25dc96bb1768cb73295728d6e4ea AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
   NEXT_TELEMETRY_DISABLED=1 \

@@ -1,21 +1,39 @@
 import type { HTMLAttributes, ReactNode } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockPush,
   mockPrefetch,
   mockReplace,
+  mockRouter,
   mockFetchPatient,
   mockFetchMeetings,
+  mockFetchPressureReadings,
+  mockFetchVitalsTrends,
+  mockFetchPatientWeightRecords,
+  mockCreatePatientWeightRecord,
+  mockUpdatePatientWeightRecord,
+  mockDeletePatientWeightRecord,
   mockAuthState,
   mockLanguageState,
 } = vi.hoisted(() => ({
   mockPush: vi.fn(),
   mockPrefetch: vi.fn(),
   mockReplace: vi.fn(),
+  mockRouter: {} as {
+    push: ReturnType<typeof vi.fn>;
+    prefetch: ReturnType<typeof vi.fn>;
+    replace: ReturnType<typeof vi.fn>;
+  },
   mockFetchPatient: vi.fn(),
   mockFetchMeetings: vi.fn(),
+  mockFetchPressureReadings: vi.fn(),
+  mockFetchVitalsTrends: vi.fn(),
+  mockFetchPatientWeightRecords: vi.fn(),
+  mockCreatePatientWeightRecord: vi.fn(),
+  mockUpdatePatientWeightRecord: vi.fn(),
+  mockDeletePatientWeightRecord: vi.fn(),
   mockAuthState: {
     token: "test-token" as string | null,
     userId: "user-a" as string | null,
@@ -27,16 +45,13 @@ const {
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    push: mockPush,
-    prefetch: mockPrefetch,
-    replace: mockReplace,
-  }),
+  useRouter: () => mockRouter,
   usePathname: () => "/patients/patient-1",
 }));
 
 vi.mock("@/store/auth-store", () => ({
-  useAuthStore: (selector: (state: typeof mockAuthState) => unknown) => selector(mockAuthState),
+  useAuthStore: (selector?: (state: typeof mockAuthState) => unknown) =>
+    typeof selector === "function" ? selector(mockAuthState) : mockAuthState,
 }));
 
 vi.mock("@/store/language-store", () => ({
@@ -57,14 +72,66 @@ vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
+    API_BASE_URL: "/api",
     fetchPatient: mockFetchPatient,
     fetchMeetings: mockFetchMeetings,
+    fetchPatientPressureReadings: mockFetchPressureReadings,
+    fetchPatientVitalsTrends: mockFetchVitalsTrends,
   };
 });
+
+vi.mock("@/lib/api-patients", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api-patients")>();
+  return {
+    ...actual,
+    fetchPatientWeightRecords: mockFetchPatientWeightRecords,
+    createPatientWeightRecord: mockCreatePatientWeightRecord,
+    updatePatientWeightRecord: mockUpdatePatientWeightRecord,
+    deletePatientWeightRecord: mockDeletePatientWeightRecord,
+  };
+});
+
+let mockStreamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+
+const textEncoder = new TextEncoder();
+
+const createPatientStreamResponse = () => {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      mockStreamController = controller;
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+};
+
+const emitPatientStreamEvent = (payload: unknown) => {
+  mockStreamController?.enqueue(
+    textEncoder.encode(`event: message\r\ndata: ${JSON.stringify(payload)}\r\n\r\n`)
+  );
+};
+
+class MockResizeObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
 
 describe("patient workspace overview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal("ResizeObserver", MockResizeObserver);
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(createPatientStreamResponse())));
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    mockRouter.push = mockPush;
+    mockRouter.prefetch = mockPrefetch;
+    mockRouter.replace = mockReplace;
+    mockStreamController = null;
     window.localStorage.clear();
     mockAuthState.token = "test-token";
     mockAuthState.userId = "user-a";
@@ -84,10 +151,51 @@ describe("patient workspace overview", () => {
       page: 1,
       limit: 100,
     });
+    mockFetchPressureReadings.mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 10,
+      offset: 0,
+      latest: null,
+    });
+    mockFetchVitalsTrends.mockResolvedValue({
+      patient_id: "patient-1",
+      days: 30,
+      trends: [],
+    });
+    mockFetchPatientWeightRecords.mockResolvedValue({
+      total: 1,
+      items: [
+        {
+          id: "weight-1",
+          patient_id: "patient-1",
+          weight_kg: 72,
+          height_cm: 170,
+          measured_at: "2026-05-06T07:00:00Z",
+          created_at: "2026-05-06T07:00:00Z",
+          recorded_by: "doctor-1",
+          bmi: 24.9,
+        },
+      ],
+    });
+    mockCreatePatientWeightRecord.mockResolvedValue({
+      id: "weight-2",
+      patient_id: "patient-1",
+      weight_kg: 73.5,
+      height_cm: 171,
+      measured_at: "2026-05-07T07:00:00Z",
+      created_at: "2026-05-07T07:00:00Z",
+      recorded_by: "doctor-1",
+      bmi: 25.1,
+    });
+    mockUpdatePatientWeightRecord.mockResolvedValue({});
+    mockDeletePatientWeightRecord.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("renders workspace navigation and focus mode entry", async () => {
@@ -102,6 +210,220 @@ describe("patient workspace overview", () => {
     expect(screen.getByRole("button", { name: "Devices" })).toBeDisabled();
     expect(screen.getByText("Open Heart Sound")).toBeInTheDocument();
     expect(screen.getByText("Open Advanced Focus Mode")).toBeInTheDocument();
+  });
+
+  it("refreshes patient vitals from patient stream events", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "http://localhost:8000");
+    mockAuthState.token = "header.payload.signature";
+    mockFetchVitalsTrends.mockResolvedValue({
+      patient_id: "patient-1",
+      days: 30,
+      trends: [
+        {
+          date: "2026-05-05",
+          recorded_at: "2026-05-05T07:00:00Z",
+          weight_kg: 120,
+          height_cm: 175,
+          bmi: 39.2,
+        },
+      ],
+    });
+    const { PatientDetailContent } = await import("@/components/dashboard/patient-detail");
+    render(<PatientDetailContent patientId="patient-1" />);
+
+    expect(await screen.findByText("Patient Workspace")).toBeInTheDocument();
+    await waitFor(() => expect(mockFetchPressureReadings).toHaveBeenCalledTimes(1));
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/patients/patient-1/stream",
+      expect.objectContaining({
+        credentials: "include",
+        headers: { Authorization: "Bearer header.payload.signature" },
+        method: "GET",
+      })
+    );
+    await waitFor(() => expect(mockFetchVitalsTrends).toHaveBeenCalled());
+    expect(await screen.findByText("Realtime connected")).toBeInTheDocument();
+    expect(screen.getByText(/Last synced/)).toBeInTheDocument();
+    const initialVitalsTrendCalls = mockFetchVitalsTrends.mock.calls.length;
+
+    act(() => {
+      emitPatientStreamEvent({ type: "new_heart_sound", data: { id: "heart-1" } });
+    });
+    expect(mockFetchPressureReadings).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      emitPatientStreamEvent({
+        type: "new_pressure_reading",
+        data: {
+          trend_point: {
+            date: "2026-05-06",
+            recorded_at: "2026-05-06T07:15:00Z",
+            heart_rate: 88,
+            sys_pressure: 132,
+            dia_pressure: 82,
+          },
+          pressure_record: {
+            id: "pressure-1",
+            patient_id: "patient-1",
+            device_exam_session_id: null,
+            device_id: "device-1",
+            heart_rate: 88,
+            sys_rate: 132,
+            dia_rate: 82,
+            measured_at: "2026-05-06T07:15:00Z",
+            created_at: "2026-05-06T07:15:00Z",
+            risk: {
+              level: "moderate",
+              heart_rate_level: "normal",
+              blood_pressure_level: "moderate",
+              reasons: ["sys_rate between 120-139 mmHg (132)"],
+            },
+          },
+        },
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("132/82")).toBeInTheDocument());
+    expect(screen.getByText("88 bpm")).toBeInTheDocument();
+    expect(screen.getByText("132/82 mmHg")).toBeInTheDocument();
+    expect(mockFetchPressureReadings).toHaveBeenCalledTimes(1);
+    expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls);
+
+    act(() => {
+      emitPatientStreamEvent({
+        type: "new_weight_record",
+        data: {
+          trend_point: {
+            date: "2026-05-06",
+            recorded_at: "2026-05-06T07:16:00Z",
+            weight_kg: 121,
+            height_cm: 175,
+            bmi: 39.5,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("121 kg")).toBeInTheDocument());
+    expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls);
+
+    act(() => {
+      emitPatientStreamEvent({
+        type: "new_patient_screening",
+        data: {
+          trend_point: {
+            date: "2026-05-06",
+            recorded_at: "2026-05-06T07:17:00Z",
+            heart_rate: 115,
+            sys_pressure: 140,
+            dia_pressure: 90,
+            weight_kg: 122,
+          },
+        },
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("122 kg")).toBeInTheDocument());
+    expect(screen.getByText("115 bpm")).toBeInTheDocument();
+    expect(screen.getByText("140/90 mmHg")).toBeInTheDocument();
+    expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls);
+
+    act(() => {
+      emitPatientStreamEvent({ type: "new_weight_record", data: { id: "legacy-weight-1" } });
+    });
+
+    await waitFor(() =>
+      expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls + 1)
+    );
+  });
+
+  it("lets doctors manually sync vitals without reloading the patient workspace", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "http://localhost:8000");
+    mockAuthState.token = "header.payload.signature";
+    mockFetchVitalsTrends.mockResolvedValue({
+      patient_id: "patient-1",
+      days: 30,
+      trends: [
+        {
+          date: "2026-05-07",
+          recorded_at: "2026-05-07T15:22:00Z",
+          weight_kg: 75,
+          height_cm: 175,
+          heart_rate: 78,
+          sys_pressure: 128,
+          dia_pressure: 82,
+        },
+      ],
+    });
+    const { PatientDetailContent } = await import("@/components/dashboard/patient-detail");
+    render(<PatientDetailContent patientId="patient-1" />);
+
+    expect(await screen.findByText("Patient Workspace")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Realtime connected")).toBeInTheDocument());
+    await waitFor(() => expect(mockFetchPressureReadings).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mockFetchVitalsTrends).toHaveBeenCalled());
+    expect(await screen.findByText("75 kg")).toBeInTheDocument();
+
+    mockFetchVitalsTrends.mockResolvedValue({
+      patient_id: "patient-1",
+      days: 30,
+      trends: [
+        {
+          date: "2026-05-07",
+          recorded_at: "2026-05-07T15:50:00Z",
+          weight_kg: 80,
+          height_cm: 175,
+          heart_rate: 82,
+          sys_pressure: 135,
+          dia_pressure: 84,
+        },
+      ],
+    });
+    const initialVitalsTrendCalls = mockFetchVitalsTrends.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Sync now" }));
+
+    await waitFor(() => expect(mockFetchPressureReadings).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls + 1)
+    );
+    expect(await screen.findByText("80 kg")).toBeInTheDocument();
+    expect(screen.getByText("82 bpm")).toBeInTheDocument();
+    expect(screen.getByText("135/84 mmHg")).toBeInTheDocument();
+    expect(screen.getByText("Patient Workspace")).toBeInTheDocument();
+  });
+
+  it("opens the records manager and lets doctors add an editable weight record", async () => {
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "http://localhost:8000");
+    mockAuthState.token = "header.payload.signature";
+    const { PatientDetailContent } = await import("@/components/dashboard/patient-detail");
+    render(<PatientDetailContent patientId="patient-1" />);
+
+    expect(await screen.findByText("Patient Workspace")).toBeInTheDocument();
+    const initialVitalsTrendCalls = mockFetchVitalsTrends.mock.calls.length;
+
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Records" }));
+
+    expect(await screen.findByText("Manage chart records")).toBeInTheDocument();
+    await waitFor(() => expect(mockFetchPatientWeightRecords).toHaveBeenCalledWith("patient-1", "header.payload.signature"));
+    expect(screen.getAllByText("72 kg").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("24.9").length).toBeGreaterThan(0);
+
+    fireEvent.change(screen.getByLabelText("Weight (kg)"), { target: { value: "73.5" } });
+    fireEvent.change(screen.getByLabelText("Height (cm)"), { target: { value: "171" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() =>
+      expect(mockCreatePatientWeightRecord).toHaveBeenCalledWith(
+        "patient-1",
+        { weight_kg: 73.5, height_cm: 171 },
+        "header.payload.signature"
+      )
+    );
+    await waitFor(() =>
+      expect(mockFetchVitalsTrends).toHaveBeenCalledTimes(initialVitalsTrendCalls + 1)
+    );
   });
 
   it("localizes patient load errors instead of surfacing mixed-language API text", async () => {

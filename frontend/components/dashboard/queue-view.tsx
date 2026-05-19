@@ -1102,6 +1102,10 @@ export function QueueView({
       const pn = [meeting.patient?.first_name, meeting.patient?.last_name].filter(Boolean).join(" ");
       if (pn) callParams.set("pn", pn);
       if (meeting.date_time) callParams.set("pt", meeting.date_time);
+      const returnTo = `${window.location.pathname}${window.location.search}`;
+      if (returnTo === "/meetings" || returnTo.startsWith("/meetings?")) {
+        callParams.set("returnTo", returnTo);
+      }
       const qs = callParams.toString();
       void preloadMeetingCallExperience();
       window.location.assign(`/meetings/call/${meeting.id}${qs ? `?${qs}` : ""}`);

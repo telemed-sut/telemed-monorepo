@@ -24,7 +24,6 @@ from app.models.patient import Patient
 from app.models.user import User
 from app.services.device_session_events import publish_device_session_event_sync
 from app.services.patient import verify_doctor_patient_access
-from app.services.redis import redis_manager
 
 
 settings = get_settings()
@@ -315,53 +314,42 @@ class DeviceExamSessionService:
 
         now = _now_utc()
         
-        # Phase 1: Redis Distributed Lock
-        lock_owner = str(actor.id)
-        if not redis_manager.acquire_lock(f"device:{device_id}", lock_owner, ttl_seconds=10):
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Device {device_id} is currently being updated by another operation."
-            )
+        preempted_sessions: list[DeviceExamSession] = []
+        session = DeviceExamSession(
+            patient_id=patient_id,
+            encounter_id=encounter_id,
+            device_id=device_id,
+            measurement_type=measurement_type,
+            status=DeviceExamSessionStatus.active if activate_now else DeviceExamSessionStatus.pending_pair,
+            pairing_code=_build_pairing_code(),
+            notes=notes,
+            started_by=actor.id if activate_now else None,
+            started_at=now if activate_now else None,
+        )
 
-        try:
-            preempted_sessions: list[DeviceExamSession] = []
-            session = DeviceExamSession(
-                patient_id=patient_id,
-                encounter_id=encounter_id,
-                device_id=device_id,
-                measurement_type=measurement_type,
-                status=DeviceExamSessionStatus.active if activate_now else DeviceExamSessionStatus.pending_pair,
-                pairing_code=_build_pairing_code(),
-                notes=notes,
-                started_by=actor.id if activate_now else None,
-                started_at=now if activate_now else None,
-            )
-
-            self._lock_registered_device(db, device_id=device_id)
-            open_sessions = list(
-                db.scalars(
-                    select(DeviceExamSession)
-                    .where(
-                        DeviceExamSession.device_id == device_id,
-                        DeviceExamSession.status.in_(OPEN_DEVICE_SESSION_STATUSES),
-                    )
-                    .order_by(DeviceExamSession.created_at.desc())
-                    .with_for_update()
-                ).all()
-            )
-            for existing in open_sessions:
-                existing.status = DeviceExamSessionStatus.review_needed
-                existing.resolution_reason = DeviceExamSessionResolutionReason.preempted_by_new_session
-                existing.ended_by = actor.id
-                existing.ended_at = now
-                existing.last_seen_at = existing.last_seen_at or now
-                db.add(existing)
-                preempted_sessions.append(existing)
-            db.add(session)
-            db.commit()
-            db.refresh(session)
-        finally:
-            redis_manager.release_lock(f"device:{device_id}", lock_owner)
+        self._lock_registered_device(db, device_id=device_id)
+        open_sessions = list(
+            db.scalars(
+                select(DeviceExamSession)
+                .where(
+                    DeviceExamSession.device_id == device_id,
+                    DeviceExamSession.status.in_(OPEN_DEVICE_SESSION_STATUSES),
+                )
+                .order_by(DeviceExamSession.created_at.desc())
+                .with_for_update()
+            ).all()
+        )
+        for existing in open_sessions:
+            existing.status = DeviceExamSessionStatus.review_needed
+            existing.resolution_reason = DeviceExamSessionResolutionReason.preempted_by_new_session
+            existing.ended_by = actor.id
+            existing.ended_at = now
+            existing.last_seen_at = existing.last_seen_at or now
+            db.add(existing)
+            preempted_sessions.append(existing)
+        db.add(session)
+        db.commit()
+        db.refresh(session)
 
         for preempted_session in preempted_sessions:
             publish_device_session_event_sync(
@@ -634,11 +622,6 @@ class DeviceExamSessionService:
         resolved_seen_at = seen_at or _now_utc()
         if device_id:
             self._touch_registration_last_seen(db, device_id=device_id, seen_at=resolved_seen_at)
-            # Phase 1: Redis Presence Update
-            try:
-                redis_manager.set_device_presence(device_id, ttl_seconds=60)
-            except Exception as e:
-                logger.warning(f"Failed to update device presence in Redis: {e}")
 
         if session_id is None:
             return

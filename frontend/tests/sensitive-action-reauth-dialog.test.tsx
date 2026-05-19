@@ -95,109 +95,6 @@ describe("SensitiveActionReauthDialog", () => {
     cleanup();
   });
 
-  it("allows users to trust the device for future secure actions after an OTP challenge", async () => {
-    const onOpenChange = vi.fn();
-    const onSuccess = vi.fn();
-    mockStepUpAuth
-      .mockRejectedValueOnce({
-        detail: {
-          code: "two_factor_required",
-        },
-      })
-      .mockResolvedValueOnce({
-        access_token: "fresh-token",
-        token_type: "bearer",
-        expires_in: 3600,
-        user: {
-          email: "admin@example.com",
-          mfa_verified: true,
-        },
-      });
-
-    const { SensitiveActionReauthDialog } = await import(
-      "@/components/dashboard/sensitive-action-reauth-dialog"
-    );
-
-    render(
-      <SensitiveActionReauthDialog
-        open
-        onOpenChange={onOpenChange}
-        onSuccess={onSuccess}
-      />
-    );
-
-    await waitFor(() => {
-      expect(mockFetchCurrentUser).toHaveBeenCalledWith("session-token");
-      expect(screen.getByDisplayValue("admin@example.com")).toBeInTheDocument();
-    });
-
-    fireEvent.change(screen.getByLabelText("Current account password"), {
-      target: { value: "TestPass123" },
-    });
-    const form = screen.getByRole("button", { name: "Continue securely" }).closest("form");
-    expect(form).not.toBeNull();
-    fireEvent.submit(form!);
-
-    await waitFor(() =>
-      expect(mockStepUpAuth).toHaveBeenCalledWith(
-        "TestPass123",
-        "",
-        false,
-        "session-token",
-      )
-    );
-
-    await waitFor(() =>
-      expect(screen.getByLabelText("Authenticator or backup code")).toBeInTheDocument()
-    );
-
-    expect(
-      screen.getByText(
-        "Password confirmed. Step 2 of 2: enter the current code from your authenticator app or a backup code to finish."
-      )
-    ).toBeInTheDocument();
-
-    expect(
-      screen.getByText(
-        "Use the current 6-digit code from your authenticator app, or one of your backup codes from Security settings."
-      )
-    ).toBeInTheDocument();
-
-    expect(
-      screen.getByRole("checkbox", { name: "Trust this device for secure actions" })
-    ).toBeInTheDocument();
-
-    fireEvent.click(
-      screen.getByRole("checkbox", { name: "Trust this device for secure actions" })
-    );
-    fireEvent.change(screen.getByLabelText("Authenticator or backup code"), {
-      target: { value: "123456" },
-    });
-    fireEvent.submit(screen.getByRole("button", { name: "Verify code and continue" }).closest("form")!);
-
-    await waitFor(() =>
-      expect(mockStepUpAuth).toHaveBeenLastCalledWith(
-        "TestPass123",
-        "123456",
-        true,
-        "session-token",
-      )
-    );
-
-    expect(mockSetSession).toHaveBeenCalledWith({
-      access_token: "fresh-token",
-      token_type: "bearer",
-      expires_in: 3600,
-      user: {
-        email: "admin@example.com",
-        mfa_verified: true,
-      },
-    });
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-    expect(onSuccess).toHaveBeenCalled();
-    expect(mockToastSuccess).toHaveBeenCalled();
-  });
-
   it("blocks submit when the password is missing", async () => {
     const onOpenChange = vi.fn();
     const { SensitiveActionReauthDialog } = await import(
@@ -218,7 +115,7 @@ describe("SensitiveActionReauthDialog", () => {
 
     expect(
       screen.getByText(
-        "Use the same password you use to sign in as admin@example.com. This is not the OTP or verification code."
+        "Use the same password you use to sign in as admin@example.com."
       )
     ).toBeInTheDocument();
 

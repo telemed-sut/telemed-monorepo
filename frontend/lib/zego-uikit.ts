@@ -8,10 +8,115 @@ export type ZegoUIKitPrebuiltStatic = typeof ZegoUIKitPrebuilt;
 declare global {
   interface Window {
     ZegoUIKitPrebuilt?: ZegoUIKitPrebuiltStatic;
+    __telemedZegoRuntimeGuardInstalled?: boolean;
   }
 }
 
 let zegoModulePromise: Promise<ZegoUIKitPrebuiltStatic> | null = null;
+
+function stringifyRuntimeErrorReason(reason: unknown): string {
+  if (typeof reason === "string") {
+    return reason;
+  }
+  if (reason instanceof Error) {
+    return `${reason.name}: ${reason.message}\n${reason.stack ?? ""}`;
+  }
+  if (reason && typeof reason === "object") {
+    const record = reason as Record<string, unknown>;
+    const name = typeof record.name === "string" ? record.name : "";
+    const message = typeof record.message === "string" ? record.message : "";
+    const stack = typeof record.stack === "string" ? record.stack : "";
+    return `${name} ${message}\n${stack}`.trim();
+  }
+  return String(reason);
+}
+
+export function isZegoTelemetryCreateSpanNullError(reason: unknown): boolean {
+  const normalized = stringifyRuntimeErrorReason(reason).toLowerCase();
+  return (
+    normalized.includes("cannot read properties of null") &&
+    normalized.includes("createspan")
+  );
+}
+
+export function installZegoRuntimeErrorGuard(): void {
+  if (typeof window === "undefined" || window.__telemedZegoRuntimeGuardInstalled) {
+    return;
+  }
+
+  window.__telemedZegoRuntimeGuardInstalled = true;
+
+  const suppressEvent = (
+    event: Event & {
+      error?: unknown;
+      reason?: unknown;
+      message?: string;
+    }
+  ) => {
+    const reason = event.error ?? event.reason ?? event.message;
+    if (!isZegoTelemetryCreateSpanNullError(reason)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+
+  window.addEventListener("error", suppressEvent, true);
+  window.addEventListener("unhandledrejection", suppressEvent, true);
+}
+
+function runZegoCallbackSafely<T extends unknown[]>(
+  callback: (...args: T) => void,
+  args: T
+): void {
+  try {
+    callback(...args);
+  } catch (error: unknown) {
+    if (isZegoTelemetryCreateSpanNullError(error)) {
+      return;
+    }
+    throw error;
+  }
+}
+
+export function destroyZegoInstanceSafely(
+  instance: Pick<ZegoUIKitPrebuiltInstance, "destroy">
+): void {
+  if (typeof window === "undefined") {
+    instance.destroy();
+    return;
+  }
+
+  installZegoRuntimeErrorGuard();
+
+  const originalSetTimeout = window.setTimeout.bind(window);
+  const wrappedSetTimeout = ((
+    handler: TimerHandler,
+    timeout?: number,
+    ...args: unknown[]
+  ) => {
+    if (typeof handler === "function") {
+      return originalSetTimeout(
+        () => runZegoCallbackSafely(handler as (...args: unknown[]) => void, args),
+        timeout
+      );
+    }
+
+    return originalSetTimeout(handler, timeout, ...args);
+  }) as typeof window.setTimeout;
+
+  window.setTimeout = wrappedSetTimeout;
+  try {
+    instance.destroy();
+  } catch (error: unknown) {
+    if (!isZegoTelemetryCreateSpanNullError(error)) {
+      throw error;
+    }
+  } finally {
+    window.setTimeout = originalSetTimeout as typeof window.setTimeout;
+  }
+}
 
 type NavigatorConnection = {
   effectiveType?: string;
@@ -317,6 +422,8 @@ export async function loadZegoUIKitPrebuilt(): Promise<ZegoUIKitPrebuiltStatic> 
     throw new Error("Browser environment is required.");
   }
 
+  installZegoRuntimeErrorGuard();
+
   if (window.ZegoUIKitPrebuilt) {
     return window.ZegoUIKitPrebuilt;
   }
@@ -348,6 +455,8 @@ export function preloadZegoUIKitPrebuilt(): void {
   if (typeof window === "undefined") {
     return;
   }
+
+  installZegoRuntimeErrorGuard();
 
   void loadZegoUIKitPrebuilt().catch(() => {
     // Ignore prefetch failures; the real join flow will surface user-facing errors.

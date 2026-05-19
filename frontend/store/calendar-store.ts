@@ -30,6 +30,7 @@ interface CalendarState {
   setIncludeCancelled: (includeCancelled: boolean) => void;
   setDisplayTimezone: (tz: DisplayTimezone) => void;
   setMeetings: (meetings: Meeting[]) => void;
+  upsertMeeting: (meeting: Meeting) => void;
   setSelectedMeeting: (meeting: Meeting | null) => void;
   getWeekDays: () => Date[];
   getFilteredMeetings: () => Meeting[];
@@ -58,6 +59,17 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   setIncludeCancelled: (includeCancelled) => set({ includeCancelled }),
   setDisplayTimezone: (tz) => set({ displayTimezone: tz }),
   setMeetings: (meetings) => set({ meetings }),
+  upsertMeeting: (meeting) =>
+    set((state) => {
+      const index = state.meetings.findIndex((item) => item.id === meeting.id);
+      if (index === -1) {
+        return { meetings: [...state.meetings, meeting] };
+      }
+
+      const meetings = [...state.meetings];
+      meetings[index] = meeting;
+      return { meetings };
+    }),
   setSelectedMeeting: (meeting) => set({ selectedMeeting: meeting }),
 
   getWeekDays: () => {

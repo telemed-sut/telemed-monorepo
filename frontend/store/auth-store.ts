@@ -326,7 +326,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       get().hydrated &&
       get().token &&
       get().lastVerifiedAt &&
-      Date.now() - get().lastVerifiedAt < AUTH_SNAPSHOT_REVALIDATE_AFTER_MS
+      Date.now() - (get().lastVerifiedAt as number) < AUTH_SNAPSHOT_REVALIDATE_AFTER_MS
     ) {
       return;
     }

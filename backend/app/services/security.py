@@ -11,120 +11,29 @@ from app.models.ip_ban import IPBan
 from app.models.login_attempt import LoginAttempt
 from app.models.enums import UserRole
 from app.models.user import User
-from app.services.redis_runtime import (
-    decode_cached_value,
-    get_redis_client_or_log,
-    log_redis_operation_failure,
-)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-_LOGIN_FAIL_COUNTER_PREFIX = "security:login_fail:v1:"
-_IP_BAN_PREFIX = "security:ip_ban:v1:"
-_REDIS_SCOPE = "security runtime"
-_FALLBACK_LABEL = "database-only counters"
 
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _get_security_redis_client():
-    return get_redis_client_or_log(
-        logger,
-        scope=_REDIS_SCOPE,
-        fallback_label=_FALLBACK_LABEL,
-    )
-
-
-def _login_fail_counter_key(ip: str) -> str:
-    return f"{_LOGIN_FAIL_COUNTER_PREFIX}{ip}"
-
-
-def _ip_ban_key(ip: str) -> str:
-    return f"{_IP_BAN_PREFIX}{ip}"
-
-
 def cache_ip_ban(ip: str, *, banned_until: datetime) -> None:
-    redis_client = _get_security_redis_client()
-    if redis_client is None:
-        return
-
-    normalized = banned_until if banned_until.tzinfo is not None else banned_until.replace(tzinfo=timezone.utc)
-    ttl_seconds = max(1, int((normalized - _now_utc()).total_seconds()))
-    try:
-        redis_client.setex(_ip_ban_key(ip), ttl_seconds, normalized.isoformat())
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope=_REDIS_SCOPE,
-            operation="cache_ip_ban",
-            fallback_label=_FALLBACK_LABEL,
-        )
+    return None
 
 
 def clear_ip_ban_runtime_state(ip: str) -> None:
-    redis_client = _get_security_redis_client()
-    if redis_client is None:
-        return
-
-    try:
-        redis_client.delete(_ip_ban_key(ip))
-        redis_client.delete(_login_fail_counter_key(ip))
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope=_REDIS_SCOPE,
-            operation="clear_ip_state",
-            fallback_label=_FALLBACK_LABEL,
-        )
+    return None
 
 
 def _get_cached_ip_ban(ip: str) -> datetime | None:
-    redis_client = _get_security_redis_client()
-    if redis_client is None:
-        return None
-
-    try:
-        value = redis_client.get(_ip_ban_key(ip))
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope=_REDIS_SCOPE,
-            operation="read_ip_ban",
-            fallback_label=_FALLBACK_LABEL,
-        )
-        return None
-
-    value = decode_cached_value(value)
-    if not isinstance(value, str) or not value.strip():
-        return None
-
-    try:
-        parsed = datetime.fromisoformat(value.strip())
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+    return None
 
 
 def _increment_failed_login_counter(ip: str) -> int | None:
-    redis_client = _get_security_redis_client()
-    if redis_client is None:
-        return None
-
-    try:
-        count = int(redis_client.incr(_login_fail_counter_key(ip)))
-        if count == 1:
-            redis_client.expire(_login_fail_counter_key(ip), settings.ip_attempt_window_minutes * 60)
-        return count
-    except Exception:
-        log_redis_operation_failure(
-            logger,
-            scope=_REDIS_SCOPE,
-            operation="increment_failed_login",
-            fallback_label=_FALLBACK_LABEL,
-        )
-        return None
+    return None
 
 
 def is_ip_whitelisted(ip: str) -> bool:

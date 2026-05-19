@@ -33,6 +33,35 @@ _REQUEST_ID_CONTEXT: ContextVar[str | None] = ContextVar(
 )
 _ORIGINAL_LOG_RECORD_FACTORY = logging.getLogRecordFactory()
 _REQUEST_ID_FACTORY_CONFIGURED = False
+_HEALTH_ACCESS_FILTER_CONFIGURED = False
+_HEALTH_LOG_PATHS = ("/health", "/health/live")
+
+
+class _HealthAccessLogFilter(logging.Filter):
+    """Drop uvicorn access-log lines for noisy health-check endpoints."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3:
+            request_line = args[2]
+            if isinstance(request_line, str):
+                for path in _HEALTH_LOG_PATHS:
+                    if f" {path} " in request_line:
+                        return False
+        message = record.getMessage()
+        for path in _HEALTH_LOG_PATHS:
+            if f" {path} " in message:
+                return False
+        return True
+
+
+def _configure_health_access_filter() -> None:
+    global _HEALTH_ACCESS_FILTER_CONFIGURED
+    if _HEALTH_ACCESS_FILTER_CONFIGURED:
+        return
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.addFilter(_HealthAccessLogFilter())
+    _HEALTH_ACCESS_FILTER_CONFIGURED = True
 
 
 def _is_sensitive_field(field_name: str) -> bool:
@@ -122,6 +151,7 @@ class RedactingJsonFormatter(BaseJsonFormatter):
 
 def configure_logging(app_env: str) -> None:
     _configure_request_id_log_record_factory()
+    _configure_health_access_filter()
 
     global _CONFIGURED_ENV
     normalized_env = (app_env or "").strip().lower()
@@ -147,3 +177,4 @@ def configure_logging(app_env: str) -> None:
 
 
 _configure_request_id_log_record_factory()
+_configure_health_access_filter()

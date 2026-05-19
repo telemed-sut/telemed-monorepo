@@ -193,6 +193,7 @@ export interface HeartSoundListResponse {
 
 export interface VitalTrendDataPoint {
   date: string;
+  recorded_at?: string | null;
   heart_rate?: number | null;
   sys_pressure?: number | null;
   dia_pressure?: number | null;
@@ -963,6 +964,11 @@ export interface WeightRecord {
   created_at: string;
   recorded_by: string | null;
   bmi: number | null;
+}
+
+export interface WeightRecordPayload {
+  weight_kg: number;
+  height_cm?: number | null;
 }
 
 export interface WeightRecordListResponse {

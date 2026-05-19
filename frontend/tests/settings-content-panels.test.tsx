@@ -13,9 +13,7 @@ const {
   mockToastError,
   mockToastSuccess,
   mockFetchAccessProfile,
-  mockFetch2FAStatus,
   mockFetchCurrentUser,
-  mockFetchTrustedDevices,
   mockListPasskeys,
   mockUpdateUser,
   mockAuthState,
@@ -37,9 +35,7 @@ const {
     mockToastError: vi.fn(),
     mockToastSuccess: vi.fn(),
     mockFetchAccessProfile: vi.fn(),
-    mockFetch2FAStatus: vi.fn(),
     mockFetchCurrentUser: vi.fn(),
-    mockFetchTrustedDevices: vi.fn(),
     mockListPasskeys: vi.fn(),
     mockUpdateUser: vi.fn(),
     mockAuthState: {
@@ -54,7 +50,6 @@ const {
         last_name: "Doctor",
         role: "doctor",
         verification_status: "verified",
-        two_factor_enabled: true,
         mfa_verified: true,
         mfa_recent_for_privileged_actions: true,
         mfa_authenticated_at: "2026-04-17T03:30:00.000Z",
@@ -113,9 +108,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return {
     ...actual,
     fetchAccessProfile: mockFetchAccessProfile,
-    fetch2FAStatus: mockFetch2FAStatus,
     fetchCurrentUser: mockFetchCurrentUser,
-    fetchTrustedDevices: mockFetchTrustedDevices,
     updateUser: mockUpdateUser,
   };
 });
@@ -154,7 +147,6 @@ describe("SettingsContent panels", () => {
       last_name: "Doctor",
       role: "doctor",
       verification_status: "verified",
-      two_factor_enabled: true,
       mfa_verified: true,
       mfa_recent_for_privileged_actions: true,
       mfa_authenticated_at: "2026-04-17T03:30:00.000Z",
@@ -173,19 +165,6 @@ describe("SettingsContent panels", () => {
       can_manage_privileged_admins: false,
       can_manage_security_operations: false,
       can_bootstrap_privileged_roles: false,
-    });
-    mockFetch2FAStatus.mockResolvedValue({
-      required: false,
-      enabled: true,
-      setup_required: false,
-      issuer: "Telemed",
-      account_email: "doctor@example.com",
-      provisioning_uri: null,
-      trusted_device_days: 7,
-    });
-    mockFetchTrustedDevices.mockResolvedValue({
-      items: [],
-      total: 0,
     });
     mockListPasskeys.mockResolvedValue({
       items: [],
@@ -208,7 +187,7 @@ describe("SettingsContent panels", () => {
     await renderSettingsContent();
     await waitFor(() => {
       expect(
-        screen.getByText("Manage MFA, backup codes, and trusted devices."),
+        screen.getByText("Manage passkeys for faster, phishing-resistant sign-in."),
       ).toBeInTheDocument();
     });
     expect(screen.getByRole("button", { name: /Security/ })).toBeInTheDocument();
@@ -233,7 +212,7 @@ describe("SettingsContent panels", () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          "Edit your profile and review sign-in details, MFA status, and the current session in one place.",
+          "Edit your profile and review sign-in details and the current session in one place.",
         ),
       ).toBeInTheDocument();
     });

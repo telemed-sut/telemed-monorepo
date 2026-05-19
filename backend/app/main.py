@@ -4,7 +4,7 @@ import logging
 import os
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,18 +19,12 @@ from app.api import security as security_api
 from app.core.config import get_settings
 from app.core.limiter import limiter, get_strict_client_ip_rate_limit_key
 from app.core.logging_config import configure_logging, redact_sensitive_data, reset_request_id, set_request_id
-from app.db.session import SessionLocal, get_redis_client
+from app.db.session import SessionLocal
 from app.middleware import IPBanMiddleware, SecurityAuditMiddleware, SecurityHeadersMiddleware
 from app.models.device_error_log import DeviceErrorLog
 from app.schemas.health import HealthCheckResponse, LiveHealthCheckResponse, RootResponse
 from app.services import auth as auth_service
 from app.services import meeting_presence as meeting_presence_service
-from app.services.redis_runtime import (
-    emit_runtime_alert_event,
-    emit_runtime_diagnostics_event,
-    evaluate_runtime_alert,
-    get_runtime_diagnostics,
-)
 from app.services.security import record_login_attempt
 from app.core.request_utils import get_client_ip
 
@@ -218,18 +212,6 @@ def _run_database_healthcheck() -> str:
     return "ok"
 
 
-def _run_redis_healthcheck(settings) -> str:
-    if not (settings.redis_url or "").strip():
-        return "disabled"
-
-    redis_client = get_redis_client()
-    if redis_client is None:
-        return "error"
-
-    redis_client.ping()
-    return "ok"
-
-
 @asynccontextmanager
 async def _application_lifespan(app: FastAPI):
     settings = get_settings()
@@ -287,6 +269,9 @@ def create_app() -> FastAPI:
         finally:
             reset_request_id(request_id_token)
 
+        if response is None:
+            return Response(status_code=499)
+
         response.headers["X-Request-Id"] = request_id
         return response
 
@@ -316,15 +301,6 @@ def create_app() -> FastAPI:
         checks = {
             "status": "ok",
             "db": "ok",
-            "redis": "disabled",
-            "redis_runtime": get_runtime_diagnostics(),
-            "redis_runtime_alert": {
-                "status": "ok",
-                "should_alert": False,
-                "reasons": [],
-                "degraded_scope_threshold": max(int(settings.redis_runtime_degraded_scope_alert_threshold), 1),
-                "operation_failure_threshold": max(int(settings.redis_runtime_operation_failure_alert_threshold), 1),
-            },
         }
         status_code = 200
 
@@ -336,26 +312,6 @@ def create_app() -> FastAPI:
             status_code = 503
             logger.exception("Database health check failed")
 
-        try:
-            checks["redis"] = _run_redis_healthcheck(settings)
-        except Exception:
-            checks["redis"] = "error"
-            checks["status"] = "degraded"
-            status_code = 503
-            logger.exception("Redis health check failed")
-
-        checks["redis_runtime"] = get_runtime_diagnostics()
-        checks["redis_runtime_alert"] = evaluate_runtime_alert(
-            checks["redis_runtime"],
-            degraded_scope_threshold=settings.redis_runtime_degraded_scope_alert_threshold,
-            operation_failure_threshold=settings.redis_runtime_operation_failure_alert_threshold,
-        )
-        emit_runtime_diagnostics_event(logger)
-        emit_runtime_alert_event(
-            logger,
-            diagnostics=checks["redis_runtime"],
-            alert=checks["redis_runtime_alert"],
-        )
         return JSONResponse(status_code=status_code, content=checks)
 
     @app.get("/health/live", response_model=LiveHealthCheckResponse)
