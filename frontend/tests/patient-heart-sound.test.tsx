@@ -8,6 +8,8 @@ const {
   mockFetchPatient,
   mockFetchPatientHeartSounds,
   mockUploadPatientHeartSound,
+  mockFetchDeviceLiveSessions,
+  mockFetchDeviceInventory,
   mockAuthState,
   mockLanguageState,
 } = vi.hoisted(() => ({
@@ -17,6 +19,8 @@ const {
   mockFetchPatient: vi.fn(),
   mockFetchPatientHeartSounds: vi.fn(),
   mockUploadPatientHeartSound: vi.fn(),
+  mockFetchDeviceLiveSessions: vi.fn(),
+  mockFetchDeviceInventory: vi.fn(),
   mockAuthState: {
     token: "test-token" as string | null,
     userId: "user-a" as string | null,
@@ -51,8 +55,17 @@ vi.mock("@/lib/api", async (importOriginal) => {
     fetchPatient: mockFetchPatient,
     fetchPatientHeartSounds: mockFetchPatientHeartSounds,
     uploadPatientHeartSound: mockUploadPatientHeartSound,
+    fetchDeviceLiveSessions: mockFetchDeviceLiveSessions,
+    fetchDeviceInventory: mockFetchDeviceInventory,
   };
 });
+
+class MockEventSource {
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onerror: ((err: Event) => void) | null = null;
+  close() {}
+}
+(globalThis as unknown as Record<string, unknown>).EventSource = MockEventSource;
 
 describe("patient heart sound page", () => {
   beforeEach(() => {
@@ -99,6 +112,8 @@ describe("patient heart sound page", () => {
       recorded_at: "2026-04-19T14:30:00Z",
       created_at: "2026-04-19T14:30:00Z",
     });
+    mockFetchDeviceLiveSessions.mockResolvedValue({ items: [] });
+    mockFetchDeviceInventory.mockResolvedValue({ items: [] });
   });
 
   afterEach(() => {
@@ -314,10 +329,11 @@ describe("patient heart sound page", () => {
         items: [],
       });
 
-    let intervalCallback: (() => void) | null = null;
+    const intervalCallbacks: Array<() => void> = [];
     const setIntervalMock = ((handler: TimerHandler) => {
-      intervalCallback =
-        typeof handler === "function" ? () => handler() : null;
+      if (typeof handler === "function" && (handler as Function).name === "refreshVisibleRecords") {
+        intervalCallbacks.push(() => handler());
+      }
       return 1;
     }) as unknown as typeof window.setInterval;
     const setIntervalSpy = vi
@@ -339,11 +355,8 @@ describe("patient heart sound page", () => {
     });
 
     const callsBeforeInterval = mockFetchPatientHeartSounds.mock.calls.length;
-    expect(intervalCallback).toBeTruthy();
-    if (!intervalCallback) {
-      throw new Error("Expected interval callback to be registered");
-    }
-    (intervalCallback as () => void)();
+    expect(intervalCallbacks.length).toBeGreaterThan(0);
+    intervalCallbacks[0]();
 
     await waitFor(() => {
       expect(mockFetchPatientHeartSounds.mock.calls.length).toBe(

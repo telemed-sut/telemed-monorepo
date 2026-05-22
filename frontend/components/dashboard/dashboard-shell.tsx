@@ -6,13 +6,52 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTokenRefresh } from "@/hooks/use-token-refresh";
 import { useAuthStore } from "@/store/auth-store";
 
-import { DashboardHeader } from "@/components/dashboard/header";
+import { AppShell } from "@/components/app-shell";
+import {
+  DashboardPageSkeleton,
+  type DashboardPageSkeletonVariant,
+} from "@/components/dashboard/dashboard-page-skeletons";
 import { PageTransition } from "@/components/dashboard/page-transition";
-import { DashboardSidebar } from "@/components/dashboard/sidebar";
-import { WorkspaceTabs } from "@/components/dashboard/workspace-tabs";
-import { SidebarProvider } from "@/components/ui/sidebar";
 
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+function getDashboardSkeletonVariant(
+  pathname: string
+): DashboardPageSkeletonVariant {
+  if (pathname === "/" || pathname === "/overview") {
+    return "overview";
+  }
+
+  if (pathname === "/meetings") {
+    return "calendar";
+  }
+
+  if (pathname.startsWith("/meetings/call/")) {
+    return "call";
+  }
+
+  if (pathname === "/settings" || pathname === "/profile" || pathname === "/security") {
+    return "form";
+  }
+
+  if (pathname === "/device-monitor") {
+    return "monitor";
+  }
+
+  if (pathname.startsWith("/patients/")) {
+    return "detail";
+  }
+
+  return "table";
+}
+
+export function DashboardShell({
+  children,
+  serverRole,
+  sidebarDefaultOpen,
+}: {
+  children: React.ReactNode;
+  serverRole: string | null;
+  sidebarDefaultOpen: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -34,7 +73,23 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     }
   }, [hydrated, token, router]);
 
-  if (!hydrated || !token) {
+  if (!hydrated) {
+    if (isCallPopupWindow) {
+      return (
+        <main className="h-svh w-full bg-background" aria-busy="true">
+          <DashboardPageSkeleton variant="call" />
+        </main>
+      );
+    }
+
+    return (
+      <AppShell serverRole={serverRole} sidebarDefaultOpen={sidebarDefaultOpen}>
+        <DashboardPageSkeleton variant={getDashboardSkeletonVariant(pathname)} />
+      </AppShell>
+    );
+  }
+
+  if (!token) {
     return <main className="min-h-screen bg-background" aria-busy="true" />;
   }
 
@@ -43,17 +98,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <SidebarProvider className="bg-sidebar">
-      <DashboardSidebar />
-      <div className="h-svh overflow-hidden lg:p-2 w-full">
-        <div className="lg:border lg:rounded-md overflow-hidden flex flex-col items-center justify-start bg-container h-full w-full bg-background">
-          <div className="sticky top-0 z-30 w-full bg-background/95 supports-backdrop-filter:backdrop-blur-md">
-            <WorkspaceTabs />
-            <DashboardHeader />
-          </div>
-          <PageTransition>{children}</PageTransition>
-        </div>
-      </div>
-    </SidebarProvider>
+    <AppShell serverRole={serverRole} sidebarDefaultOpen={sidebarDefaultOpen}>
+      <PageTransition>{children}</PageTransition>
+    </AppShell>
   );
 }

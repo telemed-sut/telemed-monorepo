@@ -39,10 +39,11 @@ export function isPasskeyCeremonyCancelled(error: unknown): boolean {
   );
 }
 
-export async function getPasskeyRegistrationOptions() {
+export async function getPasskeyRegistrationOptions(token?: string) {
   return apiFetch<PublicKeyCredentialCreationOptionsJSON & { temp_sid: string }>(
     "/passkeys/register-options",
     { skipCache: true },
+    token,
   );
 }
 
@@ -50,15 +51,20 @@ export async function verifyPasskeyRegistration(
   tempSid: string,
   name: string,
   registrationResponse: RegistrationResponseJSON,
+  token?: string,
 ) {
   const query = `?temp_sid=${encodeURIComponent(tempSid)}`;
-  return apiFetch(`/passkeys/register-verify${query}`, {
-    method: "POST",
-    body: JSON.stringify({
-      name,
-      registration_response: registrationResponse,
-    }),
-  });
+  return apiFetch(
+    `/passkeys/register-verify${query}`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        registration_response: registrationResponse,
+      }),
+    },
+    token,
+  );
 }
 
 export async function getPasskeyLoginOptions(email?: string) {
@@ -82,30 +88,41 @@ export async function verifyPasskeyLogin(
   });
 }
 
-export async function listPasskeys() {
-  return apiFetch<PasskeyListResponse>("/passkeys/");
+export async function listPasskeys(token?: string) {
+  return apiFetch<PasskeyListResponse>("/passkeys", {}, token);
 }
 
-export async function deletePasskey(passkeyId: string) {
-  return apiFetch(`/passkeys/${passkeyId}`, {
-    method: "DELETE",
-  });
+export async function deletePasskey(passkeyId: string, token?: string) {
+  return apiFetch(
+    `/passkeys/${passkeyId}`,
+    {
+      method: "DELETE",
+    },
+    token,
+  );
 }
 
-export async function dismissPasskeyOnboarding() {
-  return apiFetch("/passkeys/onboarding/dismiss", {
-    method: "POST",
-  });
+export async function dismissPasskeyOnboarding(token?: string) {
+  return apiFetch(
+    "/passkeys/onboarding/dismiss",
+    {
+      method: "POST",
+    },
+    token,
+  );
 }
 
 /**
  * Higher-level helper to register a new Passkey
  */
-export async function registerNewPasskey(name: string = "My Device") {
-  const optionsResp = await getPasskeyRegistrationOptions();
+export async function registerNewPasskey(
+  name: string = "My Device",
+  token?: string,
+) {
+  const optionsResp = await getPasskeyRegistrationOptions(token);
   const { temp_sid, ...options } = optionsResp;
   const regResp = await startRegistration({ optionsJSON: options });
-  return await verifyPasskeyRegistration(temp_sid, name, regResp);
+  return await verifyPasskeyRegistration(temp_sid, name, regResp, token);
 }
 
 /**

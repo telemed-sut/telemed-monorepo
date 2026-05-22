@@ -9,6 +9,7 @@ from sse_starlette.sse import EventSourceResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.limiter import limiter
 from app.models.patient_screening import PatientScreening
 from app.models.pressure_record import PressureRecord
 from app.models.weight_record import WeightRecord
@@ -65,6 +66,7 @@ def _build_patient_stream_event(
     )
 
 @router.get("/patients/{patient_id}/stream")
+@limiter.limit("30/minute")
 async def stream_patient_events(
     request: Request,
     patient_id: UUID,

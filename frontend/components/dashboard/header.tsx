@@ -1,7 +1,6 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Check, Languages, LayoutTemplate, RefreshCw } from "lucide-react";
 import {
   DropdownMenu,
@@ -108,8 +107,6 @@ export function DashboardHeader() {
 
   return (
     <header className="flex w-full items-center gap-3 border-b border-slate-200/70 bg-white/85 px-3 py-3 sm:px-6">
-      <SidebarTrigger className="-ml-1 rounded-xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.06)] hover:bg-slate-50 sm:-ml-2" />
-
       <div className="min-w-0">
         <h1 className="truncate text-lg font-semibold text-slate-900 sm:text-[1.05rem]">
           {pageTitle}

@@ -5,6 +5,7 @@ import { fetchCurrentUserSessionServer } from "@/app/server-api";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 
 const AUTH_COOKIE_NAME = "access_token";
+const SIDEBAR_COOKIE_NAME = "sidebar_state";
 
 export default async function DashboardLayout({
   children,
@@ -22,5 +23,15 @@ export default async function DashboardLayout({
     redirect("/login");
   }
 
-  return <DashboardShell>{children}</DashboardShell>;
+  const sidebarDefaultOpen =
+    cookieStore.get(SIDEBAR_COOKIE_NAME)?.value !== "false";
+
+  return (
+    <DashboardShell
+      serverRole={session.role}
+      sidebarDefaultOpen={sidebarDefaultOpen}
+    >
+      {children}
+    </DashboardShell>
+  );
 }

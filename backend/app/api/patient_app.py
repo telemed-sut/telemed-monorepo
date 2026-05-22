@@ -633,6 +633,7 @@ _SSE_DB_POLL_SECONDS = 1.0
 
 
 @router.get("/me/stream")
+@limiter.limit("30/minute")
 async def stream_patient_app_events(
     request: Request,
     db: Session = Depends(get_db),

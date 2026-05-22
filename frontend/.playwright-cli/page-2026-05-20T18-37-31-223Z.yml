@@ -1,0 +1,26 @@
+- generic [active] [ref=e1]:
+  - alert [ref=e2]
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e7]:
+        - button "ไทย" [ref=e8] [cursor=pointer]
+        - button "English" [ref=e9] [cursor=pointer]
+      - img "E Med Help logo" [ref=e13]
+      - generic [ref=e14]:
+        - heading "Welcome Back" [level=2] [ref=e15]
+        - paragraph [ref=e16]: Sign in to continue securely.
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e20]: Email address
+        - textbox "Email address" [ref=e21]:
+          - /placeholder: Enter your email
+      - generic [ref=e22]:
+        - generic [ref=e24]: Password
+        - generic [ref=e25]:
+          - textbox "Password" [ref=e26]:
+            - /placeholder: Enter your password
+          - button "Show password" [ref=e27] [cursor=pointer]:
+            - img [ref=e28]
+        - link "Forgot password?" [ref=e32] [cursor=pointer]:
+          - /url: /forgot-password
+      - button "Continue" [disabled]

@@ -62,7 +62,7 @@ export function useSettingsSecurity({
     if (!token) return;
     setPasskeyLoading(true);
     try {
-      const response = await listPasskeys();
+      const response = await listPasskeys(token);
       setPasskeys(response.items);
     } catch (error: unknown) {
       showGenericError(error);
@@ -92,7 +92,7 @@ export function useSettingsSecurity({
     setPasskeyBusy(true);
     try {
       const name = `${tr(language, "My Device", "อุปกรณ์ของฉัน")} (${new Date().toLocaleDateString()})`;
-      await registerNewPasskey(name);
+      await registerNewPasskey(name, token);
       toast.success(
         tr(language, "Passkey registered successfully", "ลงทะเบียน Passkey สำเร็จแล้ว"),
       );
@@ -121,7 +121,7 @@ export function useSettingsSecurity({
       if (!token || passkeyBusy) return;
       setPasskeyBusy(true);
       try {
-        await deletePasskey(passkeyId);
+        await deletePasskey(passkeyId, token);
         toast.success(tr(language, "Passkey deleted", "ลบ Passkey เรียบร้อยแล้ว"));
         await loadPasskeys();
       } catch (error: unknown) {

@@ -28,6 +28,11 @@ checks.
 - Set `AUTH_COOKIE_SECURE=true`.
 - Set explicit `ALLOWED_HOSTS` and `CORS_ORIGINS` for the deployed origins.
 - Confirm rate limiting, sessions, and realtime delivery are sized for the deployment topology.
+- Keep `RATE_LIMIT_STORAGE_URI=memory://` when Azure Front Door WAF or API
+  Management provides the deployment-wide rate limit.
+- Confirm the Azure Front Door WAF or API Management policy in
+  [api-gateway-policy.md](./api-gateway-policy.md) is active before exposing
+  the backend publicly.
 - Set `API_DOCS_ENABLED=false` unless there is an approved exception.
 
 ## Session and auth policy

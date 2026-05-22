@@ -129,7 +129,10 @@ def get_device_ingest_rate_limit_key(request: Request):
 
 
 def _build_limiter_storage_configuration() -> tuple[str, dict[str, object]]:
-    return "memory://", {}
+    storage_uri = (settings.rate_limit_storage_uri or "memory://").strip()
+    if not storage_uri:
+        storage_uri = "memory://"
+    return storage_uri, {}
 
 
 storage_uri, storage_options = _build_limiter_storage_configuration()

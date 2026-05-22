@@ -122,9 +122,15 @@ run_seed() {
 start_api() {
   echo "🚀 Starting application..."
   FORWARDED_ALLOW_IPS="${FORWARDED_ALLOW_IPS:-${TRUSTED_PROXY_IPS:-127.0.0.1,::1}}"
+  reload_args=""
+  if is_enabled "${UVICORN_RELOAD:-false}"; then
+    reload_args="--reload"
+  fi
+  # shellcheck disable=SC2086
   exec uvicorn app.main:app \
     --host 0.0.0.0 \
     --port 8000 \
+    $reload_args \
     --proxy-headers \
     --forwarded-allow-ips "$FORWARDED_ALLOW_IPS"
 }

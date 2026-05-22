@@ -627,6 +627,8 @@ export function PatientHeartSoundContent({
     },
     [applyFetchedHeartSounds, clearToken, language, patientId, router, token, activePosition, playingRecordId]
   );
+  const refreshHeartSoundsRef = useRef(refreshHeartSounds);
+  refreshHeartSoundsRef.current = refreshHeartSounds;
 
   useEffect(() => {
     if (!token) {
@@ -710,7 +712,7 @@ export function PatientHeartSoundContent({
         if (eventData.type === "new_heart_sound") {
           console.log("Phase 3: Real-time notification received via SSE!");
           // Immediately refresh to show the new record
-          void refreshHeartSounds({ clearRecordsOnError: false });
+          void refreshHeartSoundsRef.current({ clearRecordsOnError: false });
         }
       } catch (e) {
         console.error("Failed to parse SSE message:", e);
@@ -725,7 +727,7 @@ export function PatientHeartSoundContent({
       if (document.visibilityState !== "visible") {
         return;
       }
-      void refreshHeartSounds({ clearRecordsOnError: false });
+      void refreshHeartSoundsRef.current({ clearRecordsOnError: false });
     };
 
     // Polling is now a slow fallback (30s) because we have real-time SSE
@@ -736,7 +738,7 @@ export function PatientHeartSoundContent({
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        void refreshHeartSounds({ clearRecordsOnError: false });
+        void refreshHeartSoundsRef.current({ clearRecordsOnError: false });
       }
     };
 
@@ -749,7 +751,7 @@ export function PatientHeartSoundContent({
       window.removeEventListener("focus", refreshVisibleRecords);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [patientId, refreshHeartSounds, token, activeSession]);
+  }, [patientId, token, activeSession]);
 
   const displayRecords = useMemo<DisplayHeartSoundRecord[]>(() => {
     return [...draftRecords, ...records].sort((left, right) => {

@@ -4,7 +4,7 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 import anyio
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,6 +27,9 @@ from app.models.enums import UserRole
 from app.models.user import User
 from app.schemas.auth import (
     AccessProfileResponse,
+    AdminSSOHealthResponse,
+    AdminSSOLogoutResponse,
+    AdminSSOStatusResponse,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
     InviteAcceptRequest,
@@ -42,6 +45,7 @@ from app.schemas.auth import (
 from app.schemas.user import CLINICAL_ROLES
 from app.services import auth as auth_service
 from app.services import auth_sessions
+from app.services import admin_sso
 from app.services import admin_sso_store
 from app.services import security as security_service
 from app.services.user_events import publish_user_registered
@@ -336,6 +340,533 @@ def _can_return_dev_reset_token(request: Request) -> bool:
         return False
     hostname = (request.url.hostname or "").strip().lower()
     return hostname in {"localhost", "127.0.0.1", "::1"}
+
+
+@router.get("/admin/sso/status", response_model=AdminSSOStatusResponse)
+def get_admin_sso_status():
+    return AdminSSOStatusResponse(**admin_sso.get_status_payload())
+
+
+@router.get("/admin/sso/health", response_model=AdminSSOHealthResponse)
+def get_admin_sso_health():
+    oidc_settings = get_settings()
+    issuer = (oidc_settings.admin_oidc_issuer_url or "").strip() or None
+    metadata_endpoint = _admin_sso_metadata_endpoint(issuer)
+    if not admin_sso.is_enabled():
+        return AdminSSOHealthResponse(
+            status="disabled",
+            provider=None,
+            issuer=None,
+            metadata_endpoint=None,
+        )
+
+    try:
+        admin_sso._fetch_metadata()
+    except admin_sso.AdminSsoConfigurationError as exc:
+        _log_admin_sso_event(
+            "Admin SSO health check misconfigured",
+            level=logging.WARNING,
+            event="admin_sso_health_check",
+            reason="misconfigured",
+            provider=oidc_settings.admin_oidc_provider_name,
+            metadata_endpoint=metadata_endpoint,
+            details=str(exc),
+        )
+        return AdminSSOHealthResponse(
+            status="misconfigured",
+            provider=oidc_settings.admin_oidc_provider_name,
+            issuer=issuer,
+            details=str(exc),
+            metadata_endpoint=metadata_endpoint,
+        )
+    except Exception:
+        _log_admin_sso_event(
+            "Admin SSO health check could not reach metadata endpoint",
+            level=logging.WARNING,
+            event="admin_sso_health_check",
+            reason="unreachable",
+            provider=oidc_settings.admin_oidc_provider_name,
+            metadata_endpoint=metadata_endpoint,
+            details="OIDC metadata endpoint is unreachable.",
+            exc_info=True,
+        )
+        return AdminSSOHealthResponse(
+            status="unreachable",
+            provider=oidc_settings.admin_oidc_provider_name,
+            issuer=issuer,
+            details="OIDC metadata endpoint is unreachable.",
+            metadata_endpoint=metadata_endpoint,
+        )
+
+    _log_admin_sso_event(
+        "Admin SSO health check healthy",
+        event="admin_sso_health_check",
+        reason="healthy",
+        provider=oidc_settings.admin_oidc_provider_name,
+        metadata_endpoint=metadata_endpoint,
+    )
+    return AdminSSOHealthResponse(
+        status="healthy",
+        provider=oidc_settings.admin_oidc_provider_name,
+        issuer=issuer,
+        metadata_endpoint=metadata_endpoint,
+    )
+
+
+@router.get("/admin/sso/login")
+def start_admin_sso_login(
+    next_path: str | None = Query(default="/patients", alias="next"),
+):
+    if not admin_sso.is_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin SSO is disabled.")
+
+    nonce = generate_security_token(16)
+    code_verifier = admin_sso.generate_pkce_code_verifier()
+    code_challenge = admin_sso.create_pkce_code_challenge(code_verifier)
+    sanitized_next_path = _sanitize_next_path(next_path)
+    state_token = _build_admin_sso_state_token(
+        nonce=nonce,
+        next_path=sanitized_next_path,
+    )
+    admin_sso_store.store_login_artifact(
+        state_token=state_token,
+        nonce=nonce,
+        code_verifier=code_verifier,
+        next_path=sanitized_next_path,
+    )
+    try:
+        authorize_url = admin_sso.build_authorize_url(
+            state_token=state_token,
+            nonce=nonce,
+            code_challenge=code_challenge,
+        )
+    except admin_sso.AdminSsoConfigurationError as exc:
+        admin_sso_store.clear_login_artifact(state_token)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+
+    response = RedirectResponse(url=authorize_url, status_code=status.HTTP_303_SEE_OTHER)
+    _set_admin_sso_state_cookie(response, state_token)
+    return response
+
+
+@router.get("/admin/sso/callback")
+@limiter.limit("10/minute", key_func=get_strict_client_ip_rate_limit_key)
+def complete_admin_sso_login(
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    error_description: str | None = Query(default=None),
+):
+    state_cookie = _get_admin_sso_state_cookie(request)
+    oidc_settings = get_settings()
+    if error:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={
+                "reason": "provider_error",
+                "provider_error": error,
+                "provider_error_description": error_description or "",
+            },
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=provider_error",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="provider_error",
+            provider=oidc_settings.admin_oidc_provider_name,
+            provider_error=error,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="provider_error")
+
+    if not code or not state:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "invalid_state"},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=invalid_state_missing_code_or_state",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="invalid_state",
+            provider=oidc_settings.admin_oidc_provider_name,
+            missing_field="code_or_state",
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="invalid_state")
+
+    if not state_cookie:
+        admin_sso_store.clear_login_artifact(state)
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "missing_state_cookie"},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=missing_state_cookie",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="missing_state_cookie",
+            provider=oidc_settings.admin_oidc_provider_name,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="missing_state_cookie")
+
+    if state != state_cookie:
+        admin_sso_store.clear_login_artifact(state)
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "invalid_state"},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=invalid_state_mismatch",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="invalid_state",
+            provider=oidc_settings.admin_oidc_provider_name,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="invalid_state")
+
+    try:
+        state_payload = _decode_admin_sso_state_token(state)
+    except HTTPException:
+        admin_sso_store.clear_login_artifact(state)
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "invalid_state_token"},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=invalid_state_token",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="invalid_state_token",
+            provider=oidc_settings.admin_oidc_provider_name,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="invalid_state")
+
+    login_artifact = admin_sso_store.pop_login_artifact(state)
+    if login_artifact is None:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "expired_sso_session"},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=expired_sso_session",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="expired_sso_session",
+            provider=oidc_settings.admin_oidc_provider_name,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="expired_sso_session")
+
+    if login_artifact.nonce != state_payload["nonce"] or login_artifact.next_path != state_payload["next_path"]:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "invalid_state"},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=invalid_state_artifact_mismatch",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="invalid_state",
+            provider=oidc_settings.admin_oidc_provider_name,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="invalid_state")
+
+    try:
+        identity = admin_sso.complete_callback(
+            code=code,
+            expected_nonce=state_payload["nonce"],
+            code_verifier=login_artifact.code_verifier,
+        )
+    except (admin_sso.AdminSsoConfigurationError, admin_sso.AdminSsoExchangeError) as exc:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "token_exchange_failed", "message": str(exc)},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=token_exchange_failed",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="token_exchange_failed",
+            provider=oidc_settings.admin_oidc_provider_name,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="provider_exchange")
+
+    if not identity.email_verified:
+        _write_auth_audit(
+            db,
+            action="admin_sso_claim_mismatch",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "email_not_verified", "email": identity.email},
+        )
+        _log_admin_sso_event(
+            "Admin SSO claim mismatch: reason=email_not_verified",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="email_not_verified",
+            provider=identity.provider,
+            email=identity.email,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="email_not_verified")
+
+    if not admin_sso.email_domain_allowed(identity.email):
+        _write_auth_audit(
+            db,
+            action="admin_sso_claim_mismatch",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "email_domain_not_allowed", "email": identity.email},
+        )
+        _log_admin_sso_event(
+            "Admin SSO claim mismatch: reason=email_domain_not_allowed",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="email_domain_not_allowed",
+            provider=identity.provider,
+            email=identity.email,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="email_domain_not_allowed")
+
+    if not admin_sso.required_group_present(identity.groups):
+        _write_auth_audit(
+            db,
+            action="admin_sso_group_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "required_group_missing", "email": identity.email, "groups": list(identity.groups)},
+        )
+        _log_admin_sso_event(
+            "Admin SSO group denied: reason=required_group_missing",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="required_group_missing",
+            provider=identity.provider,
+            email=identity.email,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="required_group_missing")
+
+    user = db.scalar(select(User).where(User.email == identity.email, User.deleted_at.is_(None)))
+    if user is None:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            details={"reason": "admin_account_not_found", "email": identity.email},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=admin_account_not_found",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="admin_account_not_found",
+            provider=identity.provider,
+            email=identity.email,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="admin_account_not_found")
+
+    if user.role != UserRole.admin:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            user=user,
+            details={"reason": "admin_role_required", "email": identity.email},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=admin_role_required",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="admin_role_required",
+            provider=identity.provider,
+            email=identity.email,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="admin_role_required")
+
+    if not user.is_active:
+        _write_auth_audit(
+            db,
+            action="admin_sso_login_denied",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            user=user,
+            details={"reason": "account_deactivated", "email": identity.email},
+        )
+        _log_admin_sso_event(
+            "Admin SSO login denied: reason=account_deactivated",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="account_deactivated",
+            provider=identity.provider,
+            email=identity.email,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="account_deactivated")
+
+    if auth_service.requires_token_mfa(user) and not identity.mfa_verified:
+        _write_auth_audit(
+            db,
+            action="admin_sso_claim_mismatch",
+            ip_address=_client_ip(request),
+            status_value="failure",
+            user=user,
+            details={"reason": "mfa_claim_required", "email": identity.email, "amr": list(identity.amr)},
+        )
+        _log_admin_sso_event(
+            "Admin SSO claim mismatch: reason=mfa_claim_required",
+            level=logging.WARNING,
+            event="admin_sso_login_denied",
+            reason="mfa_claim_required",
+            provider=identity.provider,
+            email=identity.email,
+            mfa_verified=identity.mfa_verified,
+        )
+        db.commit()
+        return _admin_sso_failure_redirect(reason="mfa_required")
+
+    login_response = auth_service.create_login_response(
+        user,
+        db=db,
+        mfa_verified=identity.mfa_verified,
+        mfa_authenticated_at=identity.auth_time,
+        auth_source="sso",
+        sso_provider=identity.provider,
+    )
+    success_response = RedirectResponse(
+        url=_frontend_url_for(login_artifact.next_path),
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
+    _set_auth_cookie(
+        success_response,
+        login_response["access_token"],
+        max_age_seconds=login_response["expires_in"],
+    )
+    _set_csrf_cookie(success_response, max_age_seconds=login_response["expires_in"])
+    _clear_admin_sso_state_cookie(success_response)
+    try:
+        session_id = decode_token(login_response["access_token"]).get("session_id")
+    except Exception:
+        session_id = None
+    if identity.id_token and isinstance(session_id, str) and session_id:
+        admin_sso_store.store_logout_hint(
+            session_id=session_id,
+            id_token_hint=identity.id_token,
+            ttl_seconds=login_response["expires_in"],
+        )
+
+    _write_auth_audit(
+        db,
+        action="admin_sso_login_success",
+        ip_address=_client_ip(request),
+        status_value="success",
+        user=user,
+        details={
+            "provider": identity.provider,
+            "auth_source": "sso",
+            "mfa_verified": identity.mfa_verified,
+            "amr": list(identity.amr),
+        },
+    )
+    _log_admin_sso_event(
+        "Admin SSO login success",
+        event="admin_sso_login_success",
+        reason="success",
+        provider=identity.provider,
+        email=identity.email,
+        mfa_verified=identity.mfa_verified,
+    )
+    db.commit()
+    return success_response
+
+
+@router.post("/admin/sso/logout", response_model=AdminSSOLogoutResponse)
+@limiter.limit("60/minute")
+def logout_admin_sso(
+    request: Request,
+    response: Response,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User = Depends(auth_service.get_current_user),
+):
+    session_id = _get_session_id_from_request(request)
+    logout_hint = admin_sso_store.pop_logout_hint(session_id)
+    try:
+        redirect_url = admin_sso.build_logout_redirect_url(id_token_hint=logout_hint) or _frontend_url_for("/login")
+    except admin_sso.AdminSsoConfigurationError:
+        redirect_url = _frontend_url_for("/login")
+
+    auth_sessions.revoke_session(db, session_id=session_id)
+    _write_auth_audit(
+        db,
+        action="admin_sso_logout",
+        ip_address=_client_ip(request),
+        status_value="success",
+        user=current_user,
+        details={"provider": get_settings().admin_oidc_provider_name, "session_revoked": bool(session_id)},
+    )
+    db.commit()
+    _clear_auth_cookie(response)
+    _clear_csrf_cookie(response)
+    _clear_admin_sso_state_cookie(response)
+    return AdminSSOLogoutResponse(redirect_url=redirect_url)
+
+
+@router.get("/admin/sso/logout")
+def deprecated_logout_admin_sso_get(
+    request: Request,
+    db: Session = Depends(auth_service.get_db),
+    current_user: User | None = Depends(auth_service.get_optional_current_user),
+):
+    _write_auth_audit(
+        db,
+        action="admin_sso_logout_deprecated_get",
+        ip_address=_client_ip(request),
+        status_value="failure",
+        user=current_user,
+        details={"reason": "deprecated_logout_method"},
+    )
+    db.commit()
+    return _admin_sso_login_redirect(
+        "/login",
+        error="admin_sso_failed",
+        reason="deprecated_logout_method",
+    )
 
 
 @router.get("/me", response_model=UserMeResponse)

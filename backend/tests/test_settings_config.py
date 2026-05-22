@@ -40,6 +40,7 @@ ISOLATED_ENV_KEYS = {
     "ADMIN_OIDC_CLIENT_SECRET",
     "ADMIN_OIDC_REDIRECT_URI",
     "ADMIN_OIDC_POST_LOGOUT_REDIRECT_URI",
+    "RATE_LIMIT_STORAGE_URI",
 }
 
 
@@ -250,6 +251,14 @@ def test_settings_accept_explicit_allowed_hosts(monkeypatch):
         "frontend",
         "patient-frontend",
     ]
+
+
+def test_settings_accepts_rate_limit_storage_uri(monkeypatch):
+    _apply_env(monkeypatch, RATE_LIMIT_STORAGE_URI="memory://")
+
+    settings = _build_settings()
+
+    assert settings.rate_limit_storage_uri == "memory://"
 
 
 def test_settings_enable_secure_auth_cookies_by_default(monkeypatch):

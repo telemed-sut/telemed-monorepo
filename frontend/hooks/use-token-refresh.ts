@@ -5,11 +5,28 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/store/auth-store";
 import { getLoginRedirectPath, refreshToken } from "@/lib/api";
 
+function isTransientRefreshError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+
+  const status = "status" in error ? Number((error as { status?: unknown }).status) : null;
+  if (status === 0) return true;
+  if (status !== null && Number.isFinite(status) && status >= 500) return true;
+
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return (
+    message.includes("network") ||
+    message.includes("failed to fetch") ||
+    message.includes("request failed") ||
+    message.includes("timed out") ||
+    message.includes("abort")
+  );
+}
+
 /**
  * Proactively refreshes the JWT token before it expires.
  * Runs a check every 30 seconds; when TTL drops below the buffer (5 min),
  * it calls /auth/refresh while the old token is still valid.
- * If refresh fails (token already expired), clears auth and redirects to /login.
+ * If refresh is rejected by auth, clears auth and redirects to /login.
  */
 export function useTokenRefresh() {
   const router = useRouter();
@@ -43,8 +60,12 @@ export function useTokenRefresh() {
           if (res?.user) {
             setSession(res);
           }
-        } catch {
-          // Refresh failed — token may already be expired
+        } catch (error) {
+          if (isTransientRefreshError(error)) {
+            return;
+          }
+
+          // Refresh was rejected by auth — token may already be expired.
           clearToken();
           router.replace(getLoginRedirectPath("refresh_failed"));
         } finally {

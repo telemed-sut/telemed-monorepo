@@ -22,6 +22,13 @@ export class ServerApiError extends Error {
   }
 }
 
+function isFetchUnavailableError(error: unknown): boolean {
+  return (
+    error instanceof TypeError ||
+    (typeof DOMException !== "undefined" && error instanceof DOMException && error.name === "AbortError")
+  );
+}
+
 export async function serverApiFetch<T>(
   path: string,
   token: string,
@@ -30,11 +37,20 @@ export async function serverApiFetch<T>(
   const headers = new Headers(init?.headers);
   headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(`${getServerApiBaseUrl()}${path}`, {
-    ...init,
-    headers,
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${getServerApiBaseUrl()}${path}`, {
+      ...init,
+      headers,
+      cache: "no-store",
+    });
+  } catch (error) {
+    if (isFetchUnavailableError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
 
   if (response.status === 401 || response.status === 403 || response.status === 404) {
     return null;

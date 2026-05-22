@@ -19,7 +19,7 @@ from app.schemas.device_exam_session import (
     DeviceExamSessionStatusUpdate,
 )
 from app.services import audit as audit_service
-from app.services.auth import get_current_user, get_db
+from app.services.auth import get_current_user, get_current_user_once, get_db
 from app.services.device_exam_session import device_exam_session_service
 from app.services.device_session_events import device_session_event_hub
 
@@ -174,11 +174,12 @@ def list_device_exam_sessions(
 
 
 @router.get("/events/stream")
+@limiter.limit("30/minute")
 async def stream_device_session_events(
     request: Request,
     session_id: UUID | None = Query(default=None),
     device_id: str | None = Query(default=None, min_length=1, max_length=128),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_once),
 ):
     _require_session_operator(current_user)
     headers = {

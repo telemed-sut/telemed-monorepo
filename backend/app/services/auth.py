@@ -1,6 +1,8 @@
 """Core authentication facade and access-control dependencies."""
 
 import secrets
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import List, Optional
 from uuid import UUID
@@ -12,21 +14,15 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.request_utils import get_client_ip
 from app.core.security import decode_token
 from app.db.session import SessionLocal
 from app.models.audit_log import AuditLog
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import UserRole
 from app.models.user import User
-from app.core.request_utils import get_client_ip
-from app.services.authz import (
-    can_manage_users,
-    can_receive_patient_assignments,
-    can_receive_user_invite,
-    can_view_clinical_data,
-    can_write_clinical_data,
-    is_medical_student_role,
-)
+from app.services import auth_sessions
+from app.services import patient as patient_service
 from app.services.auth_privileges import (
     backfill_bootstrap_privileged_roles,
     build_access_profile,
@@ -35,13 +31,15 @@ from app.services.auth_privileges import (
     is_admin_sso_enforced_for_user,
     requires_token_mfa,
 )
-from app.services import auth_sessions
-from app.services import patient as patient_service
-from .auth_session_freshness import (
-    get_request_auth_payload,
-    require_recent_privileged_session,
-    require_recent_sensitive_session,
+from app.services.authz import (
+    can_manage_users,
+    can_receive_patient_assignments,
+    can_receive_user_invite,
+    can_view_clinical_data,
+    can_write_clinical_data,
+    is_medical_student_role,
 )
+
 from .auth_login import (
     authenticate_user,
     consume_invite,
@@ -49,6 +47,11 @@ from .auth_login import (
     get_active_invite_by_token,
     hash_invite_token,
     reset_user_password,
+)
+from .auth_session_freshness import (
+    get_request_auth_payload,
+    require_recent_privileged_session,
+    require_recent_sensitive_session,
 )
 from .auth_tokens import (
     PasswordResetTokenClaims,
@@ -96,16 +99,57 @@ def get_db():
         db.close()
 
 
-def get_current_user(
-    request: Request,
-    token: str | None = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
-) -> User:
-    credentials_exception = HTTPException(
+@contextmanager
+def _request_db_context(request: Request) -> Iterator[Session]:
+    override = getattr(getattr(request, "app", None), "dependency_overrides", {}).get(get_db)
+    if override is None:
+        db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+        return
+
+    provided = override()
+    if hasattr(provided, "__enter__") and hasattr(provided, "__exit__"):
+        with provided as db:
+            yield db
+        return
+
+    if hasattr(provided, "__next__"):
+        db = next(provided)
+        try:
+            yield db
+        finally:
+            try:
+                next(provided)
+            except StopIteration:
+                pass
+        return
+
+    try:
+        yield provided
+    finally:
+        close = getattr(provided, "close", None)
+        if callable(close):
+            close()
+
+
+def _credentials_exception() -> HTTPException:
+    return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired token",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def _resolve_current_user_from_db(
+    request: Request,
+    *,
+    token: str | None,
+    db: Session,
+    credentials_exception: HTTPException,
+) -> User:
     cookie_token = request.cookies.get(settings.auth_cookie_name)
     raw_token = token or cookie_token
     if not raw_token:
@@ -151,6 +195,34 @@ def get_current_user(
         credentials_exception=credentials_exception,
     )
     return user
+
+
+def get_current_user(
+    request: Request,
+    token: str | None = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    return _resolve_current_user_from_db(
+        request,
+        token=token,
+        db=db,
+        credentials_exception=_credentials_exception(),
+    )
+
+
+def get_current_user_once(
+    request: Request,
+    token: str | None = Depends(oauth2_scheme),
+) -> User:
+    with _request_db_context(request) as db:
+        user = _resolve_current_user_from_db(
+            request,
+            token=token,
+            db=db,
+            credentials_exception=_credentials_exception(),
+        )
+        db.expunge(user)
+        return user
 
 
 def get_optional_current_user(

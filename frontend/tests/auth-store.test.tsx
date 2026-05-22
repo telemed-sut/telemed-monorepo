@@ -12,10 +12,14 @@ const COMPOSER_DRAFT_KEY = "month-calendar-popover-composer:doctor-1";
 const CREATE_EVENT_DRAFT_KEY = "meetings-create-event-draft:doctor-1";
 
 vi.mock("@/lib/api", () => ({
-  fetchCurrentUser: fetchCurrentUserMock,
   getLoginRedirectPath: vi.fn(
     (reason = "session_missing") => `/login?error=session_expired&reason=${reason}`,
   ),
+  refreshToken: refreshTokenMock,
+}));
+
+vi.mock("@/lib/api-auth", () => ({
+  fetchCurrentUser: fetchCurrentUserMock,
   refreshToken: refreshTokenMock,
 }));
 
@@ -74,7 +78,7 @@ describe("auth store hydration", () => {
   });
 
   it("keeps a cookie-backed session and persists a local snapshot when /auth/me succeeds", async () => {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       AUTH_SNAPSHOT_STORAGE_KEY,
       JSON.stringify({
         token: "__cookie_session__",
@@ -116,13 +120,13 @@ describe("auth store hydration", () => {
     expect(state.userId).toBe("doctor-1");
     expect(state.currentUser?.email).toBe("doctor@example.com");
     expect(state.sessionExpiresAt).toBeNull();
-    expect(window.sessionStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY)).toContain(
+    expect(window.localStorage.getItem(AUTH_SNAPSHOT_STORAGE_KEY)).toContain(
       "\"userId\":\"doctor-1\""
     );
   });
 
   it("treats a persisted snapshot as an auth candidate until remote validation succeeds", async () => {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       AUTH_SNAPSHOT_STORAGE_KEY,
       JSON.stringify({
         token: "__cookie_session__",
@@ -134,7 +138,7 @@ describe("auth store hydration", () => {
         authSource: "local",
         ssoProvider: null,
         sessionExpiresAt: null,
-        lastVerifiedAt: Date.now(),
+        lastVerifiedAt: Date.now() - 10 * 60 * 1000,
       })
     );
     fetchCurrentUserMock.mockImplementation(() => new Promise(() => undefined));
@@ -144,8 +148,8 @@ describe("auth store hydration", () => {
     void useAuthStore.getState().hydrate();
     await Promise.resolve();
 
-    expect(useAuthStore.getState().hydrated).toBe(false);
-    expect(useAuthStore.getState().token).toBeNull();
+    expect(useAuthStore.getState().hydrated).toBe(true);
+    expect(useAuthStore.getState().token).toBe("__cookie_session__");
   });
 
   it("skips remote auth probes when there is no known session snapshot", async () => {
@@ -162,7 +166,7 @@ describe("auth store hydration", () => {
   });
 
   it("clears persisted auth and protected cache when remote revalidation fails", async () => {
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       AUTH_SNAPSHOT_STORAGE_KEY,
       JSON.stringify({
         token: "__cookie_session__",
@@ -174,7 +178,7 @@ describe("auth store hydration", () => {
         authSource: "local",
         ssoProvider: null,
         sessionExpiresAt: null,
-        lastVerifiedAt: Date.now(),
+        lastVerifiedAt: Date.now() - 10 * 60 * 1000,
       })
     );
     window.localStorage.setItem(
@@ -395,5 +399,114 @@ describe("auth store hydration", () => {
     expect(replaceMock).toHaveBeenCalledWith(
       "/login?error=session_expired&reason=token_expired",
     );
+  });
+
+  it("keeps the current session when proactive refresh only hits a network failure", async () => {
+    const { useAuthStore } = await import("@/store/auth-store");
+    const { useTokenRefresh } = await import("@/hooks/use-token-refresh");
+    const networkError = Object.assign(new Error("Network request failed"), {
+      status: 0,
+    });
+
+    function Harness() {
+      useTokenRefresh();
+      return null;
+    }
+
+    refreshTokenMock.mockRejectedValue(networkError);
+    useAuthStore.setState({
+      token: "__cookie_session__",
+      role: "admin",
+      userId: "admin-1",
+      mfaVerified: true,
+      mfaRecentForPrivilegedActions: true,
+      mfaAuthenticatedAt: "2026-03-30T01:00:00.000Z",
+      authSource: "local",
+      ssoProvider: null,
+      hydrated: true,
+      sessionExpiresAt: Date.now() + 60_000,
+      lastVerifiedAt: Date.now(),
+    });
+
+    render(<Harness />);
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+
+    expect(refreshTokenMock).toHaveBeenCalledTimes(1);
+    expect(replaceMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBe("__cookie_session__");
+    expect(useAuthStore.getState().userId).toBe("admin-1");
+  });
+
+  it("keeps the current session when proactive refresh hits a proxy failure", async () => {
+    const { useAuthStore } = await import("@/store/auth-store");
+    const { useTokenRefresh } = await import("@/hooks/use-token-refresh");
+    const proxyError = Object.assign(new Error("Internal Server Error"), {
+      status: 502,
+    });
+
+    function Harness() {
+      useTokenRefresh();
+      return null;
+    }
+
+    refreshTokenMock.mockRejectedValue(proxyError);
+    useAuthStore.setState({
+      token: "__cookie_session__",
+      role: "admin",
+      userId: "admin-1",
+      mfaVerified: true,
+      mfaRecentForPrivilegedActions: true,
+      mfaAuthenticatedAt: "2026-03-30T01:00:00.000Z",
+      authSource: "local",
+      ssoProvider: null,
+      hydrated: true,
+      sessionExpiresAt: Date.now() + 60_000,
+      lastVerifiedAt: Date.now(),
+    });
+
+    render(<Harness />);
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+
+    expect(refreshTokenMock).toHaveBeenCalledTimes(1);
+    expect(replaceMock).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().token).toBe("__cookie_session__");
+    expect(useAuthStore.getState().userId).toBe("admin-1");
+  });
+
+  it("routes refresh authorization failures to login", async () => {
+    const { useAuthStore } = await import("@/store/auth-store");
+    const { useTokenRefresh } = await import("@/hooks/use-token-refresh");
+    const authError = Object.assign(new Error("Invalid or expired token"), {
+      status: 401,
+    });
+
+    function Harness() {
+      useTokenRefresh();
+      return null;
+    }
+
+    refreshTokenMock.mockRejectedValue(authError);
+    useAuthStore.setState({
+      token: "__cookie_session__",
+      role: "admin",
+      userId: "admin-1",
+      mfaVerified: true,
+      mfaRecentForPrivilegedActions: true,
+      mfaAuthenticatedAt: "2026-03-30T01:00:00.000Z",
+      authSource: "local",
+      ssoProvider: null,
+      hydrated: true,
+      sessionExpiresAt: Date.now() + 60_000,
+      lastVerifiedAt: Date.now(),
+    });
+
+    render(<Harness />);
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+
+    expect(refreshTokenMock).toHaveBeenCalledTimes(1);
+    expect(replaceMock).toHaveBeenCalledWith(
+      "/login?error=session_expired&reason=refresh_failed",
+    );
+    expect(useAuthStore.getState().token).toBeNull();
   });
 });

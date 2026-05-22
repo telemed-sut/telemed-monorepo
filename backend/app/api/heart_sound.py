@@ -512,7 +512,9 @@ async def upload_patient_heart_sound_local_proxy(
 
 
 @router.get("/heart-sounds/local/{storage_key:path}")
+@limiter.limit("60/minute")
 def serve_local_heart_sound(
+    request: Request,
     storage_key: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(verify_patient_access),

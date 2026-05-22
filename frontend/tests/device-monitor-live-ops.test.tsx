@@ -251,6 +251,51 @@ describe("DeviceMonitorLiveOps", () => {
     expect(screen.getByText("Transition overlap")).toBeInTheDocument();
   });
 
+  it("starts a session after selecting a patient and available device", async () => {
+    const user = userEvent.setup();
+    mockFetchDeviceInventory.mockResolvedValue({
+      items: [
+        {
+          device_id: "lung-cart-03",
+          device_display_name: "Lung Cart 03",
+          default_measurement_type: "lung_sound",
+          is_active: true,
+          device_last_seen_at: "2026-04-22T07:29:45.000Z",
+          availability_status: "idle",
+          session_id: null,
+          patient_id: null,
+          patient_name: null,
+          measurement_type: null,
+          session_started_at: null,
+          session_last_seen_at: null,
+          freshness_status: null,
+        },
+      ],
+      total: 1,
+      idle_count: 1,
+      in_use_count: 0,
+      busy_count: 0,
+      inactive_count: 0,
+      generated_at: "2026-04-22T07:31:20.000Z",
+    });
+
+    await renderLiveOps();
+
+    await screen.findByText("Nora Chen");
+    await user.click(screen.getByRole("button", { name: /Nora Chen/i }));
+    await user.click(screen.getByRole("button", { name: /Start session/i }));
+
+    await waitFor(() => {
+      expect(mockCreateDeviceExamSession).toHaveBeenCalledWith("test-token", {
+        patient_id: "patient-2",
+        device_id: "lung-cart-03",
+        measurement_type: "lung_sound",
+        notes: null,
+        activate_now: true,
+      });
+    });
+  });
+
   it("completes an active session from the live session row", async () => {
     const user = userEvent.setup();
     await renderLiveOps();

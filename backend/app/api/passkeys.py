@@ -28,6 +28,7 @@ from webauthn.helpers.structs import (
 )
 
 from app.core.config import LOOPBACK_ORIGIN_ALIASES, get_settings
+from app.core.limiter import get_strict_client_ip_rate_limit_key, limiter
 from app.models.user import User
 from app.models.user_passkey import UserPasskey
 from app.schemas.passkey import (
@@ -274,6 +275,7 @@ def _build_credential_descriptor(passkey: UserPasskey) -> PublicKeyCredentialDes
     )
 
 @router.get("/register-options", response_model=PasskeyRegistrationOptionsResponse)
+@limiter.limit("20/minute")
 def get_registration_options(
     request: Request,
     db: Session = Depends(auth_service.get_db),
@@ -326,6 +328,7 @@ def get_registration_options(
         raise HTTPException(status_code=500, detail="Unable to generate passkey registration options")
 
 @router.post("/register-verify", status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
 def verify_registration(
     request: Request,
     payload: PasskeyRegistrationVerifyRequest,
@@ -380,6 +383,7 @@ def verify_registration(
         )
 
 @router.get("/login-options", response_model=PasskeyAuthenticationOptionsResponse)
+@limiter.limit("20/minute", key_func=get_strict_client_ip_rate_limit_key)
 def get_login_options(
     request: Request,
     email: str | None = None,
@@ -423,6 +427,7 @@ def get_login_options(
         raise HTTPException(status_code=500, detail="Unable to generate passkey login options")
 
 @router.post("/login-verify")
+@limiter.limit("10/minute", key_func=get_strict_client_ip_rate_limit_key)
 def verify_login(
     request: Request,
     response: Response,
@@ -503,8 +508,11 @@ def verify_login(
         )
         raise HTTPException(status_code=400, detail="Login verification failed")
 
-@router.get("/", response_model=PasskeyListResponse)
+@router.get("", response_model=PasskeyListResponse)
+@router.get("/", response_model=PasskeyListResponse, include_in_schema=False)
+@limiter.limit("60/minute")
 def list_passkeys(
+    request: Request,
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):
@@ -524,7 +532,9 @@ def list_passkeys(
     return PasskeyListResponse(items=items, total=len(items))
 
 @router.delete("/{passkey_id}")
+@limiter.limit("20/minute")
 def delete_passkey(
+    request: Request,
     passkey_id: UUID,
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_current_user),
@@ -540,7 +550,9 @@ def delete_passkey(
     return {"message": "Passkey deleted"}
 
 @router.post("/onboarding/dismiss")
+@limiter.limit("30/minute")
 def dismiss_onboarding(
+    request: Request,
     db: Session = Depends(auth_service.get_db),
     current_user: User = Depends(auth_service.get_current_user),
 ):

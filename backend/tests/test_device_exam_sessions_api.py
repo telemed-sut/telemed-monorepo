@@ -1,16 +1,18 @@
 from datetime import date
 
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
-
 from app.core.security import get_password_hash
-from app.models.device_registration import DeviceRegistration
+from app.main import app
 from app.models.device_exam_session import DeviceExamSession
+from app.models.device_registration import DeviceRegistration
 from app.models.doctor_patient_assignment import DoctorPatientAssignment
 from app.models.enums import DeviceExamSessionStatus, UserRole
 from app.models.patient import Patient
 from app.models.user import User
-from app.services.auth import create_login_response
+from app.services import auth as auth_service
+from app.services.auth import create_login_response, get_db
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+from starlette.requests import Request
 
 
 def _create_user(db: Session, *, email: str, role: UserRole) -> User:
@@ -107,6 +109,56 @@ def test_doctor_can_create_and_complete_device_exam_session(client: TestClient, 
     completed = complete_response.json()
     assert completed["status"] == "completed"
     assert completed["ended_at"] is not None
+
+
+def test_device_session_stream_auth_closes_db_before_returning_user(
+    db: Session,
+):
+    admin = _create_user(db, email="admin-device-stream@example.com", role=UserRole.admin)
+    headers = _auth_headers(admin, db)
+    token = headers["Authorization"].removeprefix("Bearer ")
+    previous_override = app.dependency_overrides.get(get_db)
+    state = {"opened": False, "closed": False}
+
+    def tracking_get_db():
+        state["opened"] = True
+        try:
+            yield db
+        finally:
+            state["closed"] = True
+
+    app.dependency_overrides[get_db] = tracking_get_db
+    try:
+        request = Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/device-sessions/events/stream",
+                "headers": [],
+                "app": app,
+            }
+        )
+        current_user = auth_service.get_current_user_once(request, token=token)
+
+        assert current_user.id == admin.id
+        assert current_user.role == UserRole.admin
+        assert state == {"opened": True, "closed": True}
+    finally:
+        if previous_override is None:
+            app.dependency_overrides.pop(get_db, None)
+        else:
+            app.dependency_overrides[get_db] = previous_override
+
+
+def test_device_session_event_stream_uses_one_shot_auth_dependency():
+    route = next(
+        route
+        for route in app.routes
+        if getattr(route, "path", None) == "/device-sessions/events/stream"
+    )
+
+    dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
+    assert auth_service.get_current_user_once in dependency_calls
 
 
 def test_creating_second_session_preempts_existing_open_session(client: TestClient, db: Session):
