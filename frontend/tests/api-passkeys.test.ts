@@ -37,6 +37,36 @@ describe("api-passkeys", () => {
     expect(apiFetchMock).toHaveBeenCalledWith(
       "/passkeys/register-options",
       { skipCache: true },
+      undefined,
+    );
+  });
+
+  it("passes the active session marker for authenticated passkey management calls", async () => {
+    apiFetchMock.mockResolvedValue({ items: [], total: 0 });
+    const { listPasskeys, deletePasskey, dismissPasskeyOnboarding } =
+      await import("@/lib/api-passkeys");
+
+    await listPasskeys("__cookie_session__");
+    await deletePasskey("passkey-1", "__cookie_session__");
+    await dismissPasskeyOnboarding("__cookie_session__");
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/passkeys",
+      {},
+      "__cookie_session__",
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/passkeys/passkey-1",
+      expect.objectContaining({ method: "DELETE" }),
+      "__cookie_session__",
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/passkeys/onboarding/dismiss",
+      expect.objectContaining({ method: "POST" }),
+      "__cookie_session__",
     );
   });
 
@@ -103,6 +133,43 @@ describe("api-passkeys", () => {
       2,
       "/passkeys/login-verify?temp_sid=login-3",
       expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("carries the active session marker through passkey registration", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({
+        temp_sid: "reg-2",
+        challenge: "challenge",
+      })
+      .mockResolvedValueOnce({ ok: true });
+    startRegistrationMock.mockResolvedValue({
+      id: "credential-id",
+      rawId: "credential-id",
+      response: {
+        attestationObject: "attestation-object",
+        clientDataJSON: "client-data",
+        transports: ["internal"],
+      },
+      type: "public-key",
+      clientExtensionResults: {},
+    });
+
+    const { registerNewPasskey } = await import("@/lib/api-passkeys");
+
+    await registerNewPasskey("MacBook", "__cookie_session__");
+
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/passkeys/register-options",
+      { skipCache: true },
+      "__cookie_session__",
+    );
+    expect(apiFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/passkeys/register-verify?temp_sid=reg-2",
+      expect.objectContaining({ method: "POST" }),
+      "__cookie_session__",
     );
   });
 });

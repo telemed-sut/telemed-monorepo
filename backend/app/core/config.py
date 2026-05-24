@@ -128,8 +128,8 @@ class Settings(BaseSettings):
     auth_cookie_name: str = "access_token"
     auth_cookie_secure: bool = True
     auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
-    db_pool_size: int = 20
-    db_max_overflow: int = 20
+    db_pool_size: int = 5
+    db_max_overflow: int = 5
     db_pool_recycle_seconds: int = 300
     admin_oidc_enabled: bool = False
     admin_oidc_enforced: bool = False
@@ -147,6 +147,7 @@ class Settings(BaseSettings):
 
     # Rate Limiting
     rate_limit_whitelist: Union[List[str], str] = ["127.0.0.1", "::1"]
+    rate_limit_storage_uri: str = "memory://"
     # Video meeting integration
     meeting_video_provider: Literal["disabled", "mock", "zego"] = "disabled"
     zego_app_id: int | None = None

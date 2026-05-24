@@ -6,6 +6,7 @@ from typing import AsyncIterator, Dict
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
+from app.core.limiter import limiter
 from app.models.user import User
 from app.services.auth import get_admin_user
 from app.services.user_events import user_event_hub
@@ -44,6 +45,7 @@ async def _user_event_stream(request: Request) -> AsyncIterator[str]:
 
 
 @router.get("/users")
+@limiter.limit("30/minute")
 async def stream_user_events(
     request: Request,
     current_user: User = Depends(get_admin_user),

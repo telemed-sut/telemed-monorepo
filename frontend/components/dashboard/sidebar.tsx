@@ -81,6 +81,9 @@ const adminOnlyRoutes: NavItem[] = [
   { id: "audit-logs", icon: ScrollText, link: "/audit-logs" },
 ];
 
+const COLLAPSED_RAIL_ITEM_CLASS =
+  "mx-auto size-10! shrink-0 flex items-center justify-center gap-0! p-0! overflow-hidden";
+
 const SIDEBAR_LABELS: Record<
   AppLanguage,
   {
@@ -222,13 +225,18 @@ function SidebarUserMenu({
   ];
 
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div
+      ref={containerRef}
+      className={cn("relative", isCollapsed ? "w-10" : "w-full")}
+    >
       <button
         id="sidebar-user-menu-button"
         type="button"
         className={cn(
-          "w-full cursor-pointer rounded-lg p-2 text-left transition-colors hover:bg-accent sm:p-3",
-          isCollapsed ? "flex justify-center" : "flex items-center gap-2 sm:gap-3",
+          "cursor-pointer rounded-lg text-left transition-colors hover:bg-accent",
+          isCollapsed
+            ? cn("flex", COLLAPSED_RAIL_ITEM_CLASS)
+            : "flex w-full items-center gap-2 p-2 sm:gap-3 sm:p-3",
           isOpen && "bg-accent"
         )}
         aria-haspopup="menu"
@@ -348,7 +356,7 @@ function SidebarUserMenu({
 }
 
 export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
-  const { state, isMobile, setOpenMobile } = useSidebar();
+  const { state, isMobile, setOpenMobile, toggleSidebar } = useSidebar();
   const pathname = usePathname();
   const router = useRouter();
   const language = useLanguageStore((state) => state.language);
@@ -448,28 +456,73 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
     pathname.startsWith("/settings") || pathname.startsWith("/profile")
       ? "settings"
       : null;
+  const handleSidebarSurfaceClick = React.useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const target = event.target;
+
+      if (!(target instanceof Element)) {
+        return;
+      }
+
+      if (
+        target.closest(
+          "a, button, input, textarea, select, [role='button'], [role='menuitem']"
+        )
+      ) {
+        return;
+      }
+
+      toggleSidebar();
+    },
+    [toggleSidebar]
+  );
 
   return (
-    <Sidebar collapsible="icon" className="lg:border-r-0!" {...props}>
+    <Sidebar
+      collapsible="icon"
+      className="cursor-ew-resize lg:border-r-0! group-data-[collapsible=icon]:border-r-0 group-data-[collapsible=icon]:p-2 group-data-[collapsible=icon]:[&_[data-slot=sidebar-inner]]:overflow-hidden group-data-[collapsible=icon]:[&_[data-slot=sidebar-inner]]:rounded-[18px] group-data-[collapsible=icon]:[&_[data-slot=sidebar-inner]]:border group-data-[collapsible=icon]:[&_[data-slot=sidebar-inner]]:border-slate-200/70 group-data-[collapsible=icon]:[&_[data-slot=sidebar-inner]]:bg-white group-data-[collapsible=icon]:[&_[data-slot=sidebar-inner]]:shadow-[0_10px_34px_rgba(15,23,42,0.08)]"
+      onClick={handleSidebarSurfaceClick}
+      {...props}
+    >
       {/* ── Header: Logo ── */}
       <SidebarHeader className={cn(
-        "pb-0 transition-all duration-200",
-        isCollapsed ? "px-2 pt-4" : "p-3 sm:p-4 lg:p-5"
+        "pb-0 transition-[padding] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+        isCollapsed ? "px-0 pt-3" : "p-3 sm:p-4 lg:p-5"
       )}>
-        <div className={cn("flex items-center", isCollapsed ? "justify-center" : "gap-2")}>
-          <Logo className={cn("transition-all duration-200", isCollapsed ? "h-14 w-14" : "h-12 w-12")} />
-          {!isCollapsed && <span className="font-semibold text-lg sm:text-xl">E Med Help</span>}
+        <div className={cn(
+          "flex min-w-0 items-center transition-[gap,width,height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+          isCollapsed
+            ? COLLAPSED_RAIL_ITEM_CLASS
+            : "w-full justify-start gap-2"
+        )}>
+          <Logo
+            className={cn(
+              "shrink-0 transition-[width,height,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+              isCollapsed ? "size-9" : "h-12 w-12"
+            )}
+          />
+          <span
+            aria-hidden={isCollapsed}
+            className={cn(
+              "block overflow-hidden whitespace-nowrap text-lg font-semibold transition-[max-width,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] sm:text-xl",
+              isCollapsed
+                ? "max-w-0 -translate-x-1 opacity-0"
+                : "max-w-40 translate-x-0 opacity-100"
+            )}
+          >
+            E Med Help
+          </span>
         </div>
       </SidebarHeader>
 
       <SidebarContent className={cn(
         "transition-[padding] duration-200",
-        isCollapsed ? "px-2" : "px-3 sm:px-4 lg:px-5"
+        isCollapsed ? "items-center px-0" : "px-3 sm:px-4 lg:px-5"
       )}>
         {/* ── Menu ── */}
         <SidebarGroup className="p-0">
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className={cn(isCollapsed && "items-center")}>
               {navRoutes.map((route) => {
                 const active = isActive(route.link);
                 const Icon = route.icon;
@@ -486,17 +539,41 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
                       onMouseEnter={() => router.prefetch(route.link)}
                       onClick={() => handleRouteChange(route.link)}
                       className={cn(
-                        "h-9 border border-sidebar-border/60 transition-[padding,border-color,background-color] duration-200 hover:border-sidebar-border sm:h-[38px] data-[active=true]:border-sidebar-border data-[active=true]:shadow-[0_0_0_1px_hsl(var(--sidebar-border))]",
-                        isCollapsed && "justify-center px-0"
+                        "h-10 rounded-xl border border-transparent bg-transparent px-2.5 text-sidebar-foreground/80 shadow-none transition-[background-color,color,padding,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground active:scale-[0.99] sm:h-10 data-[active=true]:bg-sidebar-accent/80 data-[active=true]:text-sidebar-accent-foreground data-[active=true]:shadow-none",
+                        isCollapsed &&
+                          cn(
+                            COLLAPSED_RAIL_ITEM_CLASS,
+                            "rounded-xl text-slate-800 hover:bg-slate-100 data-[active=true]:bg-[#e8f7ff] data-[active=true]:text-[#083b66]"
+                          )
                       )}
                     >
-                      <Icon className="size-4 sm:size-5" />
-                      {!isCollapsed && (
-                        <span className="text-[0.95rem]">{getRouteTitle(route.id, language)}</span>
-                      )}
-                      {!isCollapsed && active && (
-                        <ChevronRight className="ml-auto size-4 text-muted-foreground opacity-60" />
-                      )}
+                      <Icon
+                        className={cn(
+                          "size-4 shrink-0 transition-[width,height,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                          isCollapsed &&
+                            "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
+                          !isCollapsed && "sm:size-5"
+                        )}
+                      />
+                      <span
+                        className={cn(
+                          "block min-w-0 overflow-hidden whitespace-nowrap text-[0.95rem] transition-[max-width,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                          isCollapsed
+                            ? "max-w-0 -translate-x-1 opacity-0"
+                            : "max-w-44 translate-x-0 opacity-100"
+                        )}
+                      >
+                        {getRouteTitle(route.id, language)}
+                      </span>
+                      <ChevronRight
+                        aria-hidden="true"
+                        className={cn(
+                          "h-4 shrink-0 text-muted-foreground transition-[margin,width,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                          active && !isCollapsed
+                            ? "ml-auto w-4 translate-x-0 opacity-55"
+                            : "ml-0 w-0 -translate-x-1 opacity-0"
+                        )}
+                      />
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
@@ -509,7 +586,7 @@ export function DashboardSidebar(props: React.ComponentProps<typeof Sidebar>) {
       {/* ── Footer: User Profile ── */}
       <SidebarFooter className={cn(
         "pb-3 transition-[padding] duration-200 sm:pb-4 lg:pb-5",
-        isCollapsed ? "px-2" : "px-3 sm:px-4 lg:px-5"
+        isCollapsed ? "items-center px-0" : "px-3 sm:px-4 lg:px-5"
       )}>
         <SidebarUserMenu
           isCollapsed={isCollapsed}

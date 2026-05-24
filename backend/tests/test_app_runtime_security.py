@@ -49,6 +49,17 @@ def test_create_app_sets_content_security_policy_header(monkeypatch):
     assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
 
 
+def test_create_app_rejects_untrusted_host_header(monkeypatch):
+    monkeypatch.setattr(app_main, "_run_database_healthcheck", lambda: "ok")
+    app = create_app()
+
+    with TestClient(app) as client:
+        response = client.get("/health", headers={"host": "untrusted.example.com"})
+
+    assert response.status_code == 400
+    assert "Invalid host header" in response.text
+
+
 def test_ip_ban_middleware_uses_shared_security_runtime_state(monkeypatch):
     ip_ban_app = FastAPI()
     ip_ban_app.add_middleware(app_middleware.IPBanMiddleware)

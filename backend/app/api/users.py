@@ -11,6 +11,7 @@ from sqlalchemy import func, select, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.limiter import limiter
 from app.core.search import normalize_search_term
 from app.core.security import get_password_hash
 from app.models.audit_log import AuditLog
@@ -269,6 +270,7 @@ def _assign_patients_to_new_doctor(
 # ---------------------------------------------------------------------------
 
 @router.get("", response_model=UserListResponse)
+@limiter.limit("60/minute")
 def get_users(
     request: Request,
     db: Session = Depends(auth_service.get_db),
@@ -375,6 +377,7 @@ def get_users(
 # ---------------------------------------------------------------------------
 
 @router.post("", response_model=UserCreateResponse)
+@limiter.limit("20/minute")
 def create_user(
     *,
     request: Request,
@@ -497,6 +500,7 @@ def create_user(
 # ---------------------------------------------------------------------------
 
 @router.post("/invites", response_model=UserInviteCreateResponse)
+@limiter.limit("20/minute")
 def create_user_invite(
     *,
     request: Request,
@@ -579,7 +583,9 @@ def create_user_invite(
 # ---------------------------------------------------------------------------
 
 @router.get("/{user_id:uuid}", response_model=UserOut)
+@limiter.limit("60/minute")
 def read_user_by_id(
+    request: Request,
     user_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(auth_service.get_db),
@@ -600,6 +606,7 @@ def read_user_by_id(
 # ---------------------------------------------------------------------------
 
 @router.put("/{user_id:uuid}", response_model=UserOut)
+@limiter.limit("30/minute")
 def update_user(
     *,
     request: Request,
@@ -770,6 +777,7 @@ def update_user(
 # ---------------------------------------------------------------------------
 
 @router.post("/{user_id:uuid}/verify", response_model=UserOut)
+@limiter.limit("20/minute")
 def verify_user(
     *,
     request: Request,
@@ -806,6 +814,7 @@ def verify_user(
 # ---------------------------------------------------------------------------
 
 @router.delete("/{user_id:uuid}", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("20/minute")
 def delete_user(
     *,
     request: Request,
@@ -885,6 +894,7 @@ def delete_user(
 # ---------------------------------------------------------------------------
 
 @router.post("/{user_id:uuid}/restore", response_model=UserOut)
+@limiter.limit("20/minute")
 def restore_user(
     *,
     request: Request,
@@ -987,6 +997,7 @@ class InviteActionResponse(BaseModel):
 
 
 @router.get("/invites", response_model=UserInviteListResponse)
+@limiter.limit("60/minute")
 def list_user_invites(
     *,
     request: Request,
@@ -1043,6 +1054,7 @@ def list_user_invites(
 
 
 @router.post("/invites/{invite_id}/resend", response_model=UserInviteCreateResponse)
+@limiter.limit("20/minute")
 def resend_user_invite(
     *,
     request: Request,
@@ -1111,6 +1123,7 @@ def resend_user_invite(
 
 
 @router.post("/invites/{invite_id}/revoke", response_model=InviteActionResponse)
+@limiter.limit("20/minute")
 def revoke_user_invite(
     *,
     request: Request,
@@ -1160,6 +1173,7 @@ def revoke_user_invite(
 
 
 @router.post("/bulk-delete", response_model=BulkDeleteResponse)
+@limiter.limit("10/minute")
 def bulk_delete_users(
     *,
     request: Request,
@@ -1298,6 +1312,7 @@ def bulk_delete_users(
 
 
 @router.post("/{user_id:uuid}/purge", response_model=PurgeDeletedUserResponse)
+@limiter.limit("10/minute")
 def purge_deleted_user(
     *,
     request: Request,
@@ -1369,6 +1384,7 @@ def purge_deleted_user(
 
 
 @router.post("/bulk-restore", response_model=BulkRestoreResponse)
+@limiter.limit("10/minute")
 def bulk_restore_users(
     *,
     request: Request,
@@ -1467,6 +1483,7 @@ def bulk_restore_users(
 
 
 @router.post("/purge-deleted", response_model=PurgeDeletedUsersResponse)
+@limiter.limit("10/minute")
 def purge_deleted_users(
     *,
     request: Request,

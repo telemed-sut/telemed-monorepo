@@ -86,6 +86,28 @@ def test_passkey_registration_options_success(client: TestClient, db: Session):
     assert stored["rp_id"] == data["rp"]["id"] == urlparse(stored["origin"]).hostname
 
 
+def test_passkey_list_accepts_no_slash_path_without_redirect(client: TestClient, db: Session):
+    user = User(
+        email="list_passkeys@example.com",
+        password_hash=get_password_hash("password123"),
+        role=UserRole.doctor,
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+
+    login_resp = client.post("/auth/login", json={
+        "email": "list_passkeys@example.com",
+        "password": "password123",
+    })
+    assert login_resp.status_code == 200
+
+    response = client.get("/passkeys")
+    assert response.status_code == 200
+    assert response.history == []
+    assert response.json() == {"items": [], "total": 0}
+
+
 def test_passkey_registration_options_include_existing_credentials(client: TestClient, db: Session):
     user = User(
         email="existing_passkey@example.com",

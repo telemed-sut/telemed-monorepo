@@ -21,7 +21,7 @@ const tr = (language: string, en: string, th: string) =>
   language === "th" ? th : en;
 
 export function PasskeyOnboardingNudge() {
-  const { currentUser, setCurrentUser } = useAuthStore();
+  const { currentUser, setCurrentUser, token } = useAuthStore();
   const language = useLanguageStore((state) => state.language);
   const [isVisible, setIsVisible] = useState(
     currentUser?.role === "admin" &&
@@ -35,7 +35,7 @@ export function PasskeyOnboardingNudge() {
   const refreshCurrentUser = async () => {
     try {
       const { fetchCurrentUser } = await import("@/lib/api");
-      const nextUser = await fetchCurrentUser();
+      const nextUser = await fetchCurrentUser(token ?? undefined);
       setCurrentUser(nextUser ?? null);
     } catch {
       // Best-effort refresh only; the nudge can still close locally.
@@ -46,7 +46,7 @@ export function PasskeyOnboardingNudge() {
     setLoading(true);
     try {
       const name = tr(language, "My Device", "อุปกรณ์ของฉัน") + " (" + new Date().toLocaleDateString() + ")";
-      await registerNewPasskey(name);
+      await registerNewPasskey(name, token ?? undefined);
       toast.success(tr(language, "Passkey registered successfully!", "ลงทะเบียน Passkey สำเร็จแล้ว!"));
       await refreshCurrentUser();
       setIsVisible(false);
@@ -63,7 +63,7 @@ export function PasskeyOnboardingNudge() {
 
   const handleDismiss = async () => {
     try {
-      await dismissPasskeyOnboarding();
+      await dismissPasskeyOnboarding(token ?? undefined);
       setIsVisible(false);
       await refreshCurrentUser();
     } catch (error) {

@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("next/font/google", () => ({
+  Noto_Sans_Thai: vi.fn(() => ({
+    className: "mock-font-class",
+    style: { fontFamily: "mock" },
+    variable: "--font-sans",
+  })),
+}));
 
 import { metadata, viewport } from "@/app/layout";
 

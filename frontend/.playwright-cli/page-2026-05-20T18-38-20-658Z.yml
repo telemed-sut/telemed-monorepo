@@ -1,0 +1,147 @@
+- generic [active] [ref=e1]:
+  - alert [ref=e2]
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e7]:
+        - button "ไทย" [ref=e8] [cursor=pointer]
+        - button "English" [ref=e9] [cursor=pointer]
+      - img "E Med Help logo" [ref=e13]
+      - generic [ref=e14]:
+        - heading "Welcome Back" [level=2] [ref=e15]
+        - paragraph [ref=e16]: Sign in to continue securely.
+    - generic [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e20]: Email address
+        - textbox "Email address" [ref=e21]:
+          - /placeholder: Enter your email
+          - text: doctor@example.com
+      - generic [ref=e22]:
+        - generic [ref=e24]: Password
+        - generic [ref=e25]:
+          - textbox "Password" [ref=e26]:
+            - /placeholder: Enter your password
+            - text: DoctorPass123
+          - button "Show password" [ref=e27] [cursor=pointer]:
+            - img [ref=e28]
+        - link "Forgot password?" [ref=e32] [cursor=pointer]:
+          - /url: /forgot-password
+      - alert [ref=e42]: Invalid email or password
+      - button "Continue" [ref=e41] [cursor=pointer]
+  - region "Notifications alt+T"
+  - status [ref=e33]
+  - alert [ref=e34]
+  - button "v3.0.2 Output Detail Standard React Components Hide Until Restart Marker Color Clear on copy/send Block page interactions Manage MCP & Webhooks Manage MCP & Webhooks MCP Connection Disconnected MCP connection allows agents to receive and act on annotations. Learn more Webhooks Auto-Send The webhook URL will receive live annotation changes and annotation data." [ref=e36] [cursor=pointer]:
+    - img [ref=e38]
+    - generic:
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button [disabled]:
+          - img
+      - generic:
+        - button:
+          - img
+      - generic:
+        - button:
+          - img
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - link:
+              - /url: https://agentation.com
+              - img
+            - paragraph: v3.0.2
+            - button "Switch to light mode":
+              - generic:
+                - generic:
+                  - img
+          - generic:
+            - generic:
+              - generic:
+                - text: Output Detail
+                - generic:
+                  - img
+              - button "Standard":
+                - generic: Standard
+            - generic:
+              - generic:
+                - text: React Components
+                - generic:
+                  - img
+              - generic:
+                - checkbox [checked]
+            - generic:
+              - generic:
+                - text: Hide Until Restart
+                - generic:
+                  - img
+              - generic:
+                - checkbox
+          - generic:
+            - generic: Marker Color
+            - generic:
+              - button "Indigo"
+              - button "Blue"
+              - button "Cyan"
+              - button "Green"
+              - button "Yellow"
+              - button "Orange"
+              - button "Red"
+          - generic:
+            - generic:
+              - generic:
+                - checkbox "Clear on copy/send"
+                - img
+              - generic: Clear on copy/send
+              - generic:
+                - img
+            - generic:
+              - generic:
+                - checkbox "Block page interactions" [checked]
+                - img
+              - generic: Block page interactions
+          - button "Manage MCP & Webhooks":
+            - generic: Manage MCP & Webhooks
+            - generic:
+              - img
+        - generic:
+          - button "Manage MCP & Webhooks":
+            - img
+            - generic: Manage MCP & Webhooks
+          - generic:
+            - generic:
+              - generic:
+                - text: MCP Connection
+                - generic:
+                  - img
+              - generic "Disconnected"
+            - paragraph:
+              - text: MCP connection allows agents to receive and act on annotations.
+              - link "Learn more":
+                - /url: https://agentation.dev/mcp
+          - generic:
+            - generic:
+              - generic:
+                - text: Webhooks
+                - generic:
+                  - img
+              - generic:
+                - generic: Auto-Send
+                - generic:
+                  - checkbox "Auto-Send" [checked] [disabled]
+            - paragraph: The webhook URL will receive live annotation changes and annotation data.
+            - textbox "Webhook URL"
