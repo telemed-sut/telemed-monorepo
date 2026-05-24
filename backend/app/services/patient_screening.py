@@ -94,15 +94,55 @@ _WARNING_LABELS_TH = {
 }
 
 
+# Vital-sign thresholds — mirror the simple backend's heart `_classify_reading`
+# (HR + BP) and extend with SpO2, so abnormal *numbers* trigger a notification
+# even when the patient did not tick the "abnormal vitals" warning box.
+def _classify_vitals(record: PatientScreening) -> tuple[list[str], list[str]]:
+    """Returns (critical_reasons, warning_reasons) derived from the vitals.
+
+    Thresholds follow generic adult guidance — tune per clinic policy.
+    """
+    critical: list[str] = []
+    warning: list[str] = []
+
+    hr = record.heart_rate
+    if hr is not None:
+        if hr >= 120 or hr <= 45:
+            critical.append(f"ชีพจร {hr} ครั้ง/นาที ผิดปกติ")
+        elif hr > 100 or hr < 60:
+            warning.append(f"ชีพจร {hr} ครั้ง/นาที อยู่นอกเกณฑ์ปกติ")
+
+    sbp, dbp = record.systolic_bp, record.diastolic_bp
+    if sbp is not None and dbp is not None:
+        if sbp >= 180 or dbp >= 120:
+            critical.append(f"ความดันโลหิต {sbp}/{dbp} mmHg ระดับวิกฤต")
+        elif sbp >= 140 or dbp >= 90:
+            critical.append(f"ความดันโลหิต {sbp}/{dbp} mmHg สูงระดับ 2")
+        elif sbp >= 130 or dbp >= 80:
+            warning.append(f"ความดันโลหิต {sbp}/{dbp} mmHg สูงระดับ 1")
+        elif sbp <= 90 or dbp <= 60:
+            warning.append(f"ความดันโลหิต {sbp}/{dbp} mmHg ต่ำกว่าปกติ")
+
+    spo2 = record.oxygen_saturation
+    if spo2 is not None:
+        if spo2 < 90:
+            critical.append(f"ออกซิเจนในเลือด {spo2}% ต่ำมาก")
+        elif spo2 < 95:
+            warning.append(f"ออกซิเจนในเลือด {spo2}% ต่ำกว่าปกติ")
+
+    return critical, warning
+
+
 def _maybe_notify_screening(*, db: Session, patient_id: UUID, record: PatientScreening) -> None:
     """If the submitted screening is concerning enough, push a real-time
     notification to the patient via `patient_notification_service.create_for_patient`.
 
     Heuristics:
-        - any warning sign     → category=critical (suggest seeing a doctor)
-        - 3+ symptoms          → category=warning  (encourage close monitoring)
-        - 1-2 symptoms only    → no notification (reduces noise; the patient
-                                  themselves checked the boxes a moment ago)
+        - any warning sign, or a vital in the CRITICAL range  → category=critical
+        - 3+ symptoms, or a vital in the WARNING range        → category=warning
+        - otherwise                                           → no notification
+
+    Vital ranges come from `_classify_vitals` (HR / BP / SpO2).
     """
     symptoms_present = [
         label for field, label in _SYMPTOM_LABELS_TH.items() if getattr(record, field)
@@ -110,15 +150,16 @@ def _maybe_notify_screening(*, db: Session, patient_id: UUID, record: PatientScr
     warnings_present = [
         label for field, label in _WARNING_LABELS_TH.items() if getattr(record, field)
     ]
+    critical_vitals, warning_vitals = _classify_vitals(record)
 
-    if warnings_present:
+    if warnings_present or critical_vitals:
         category = "critical"
-        title = "พบอาการเตือน — ควรพบแพทย์"
-        body_parts = warnings_present + symptoms_present
-    elif len(symptoms_present) >= 3:
+        title = "พบสัญญาณผิดปกติ — ควรพบแพทย์"
+        body_parts = warnings_present + critical_vitals + warning_vitals + symptoms_present
+    elif len(symptoms_present) >= 3 or warning_vitals:
         category = "warning"
-        title = "บันทึกอาการผิดปกติหลายข้อ"
-        body_parts = symptoms_present
+        title = "พบค่าที่ควรเฝ้าระวัง"
+        body_parts = warning_vitals + symptoms_present
     else:
         return
 
@@ -148,8 +189,9 @@ def submit(
 ) -> dict[str, Any]:
     """Create a new screening row. recorded_at is always server-generated.
 
-    Side effect: if the screening is abnormal (warning signs or 3+ symptoms),
-    a real-time `PatientNotification` is created and fanned out via SSE.
+    Side effect: if the screening is abnormal (warning signs, abnormal vitals,
+    or 3+ symptoms), a real-time `PatientNotification` is created and fanned
+    out via SSE.
     """
     record = PatientScreening(
         patient_id=patient_id,
