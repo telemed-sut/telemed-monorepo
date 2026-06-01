@@ -43,4 +43,20 @@ describe("server API helpers", () => {
       ServerApiError
     );
   });
+
+  it("returns null when the backend session endpoint returns an internal error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(null, {
+          status: 500,
+          statusText: "Internal Server Error",
+        })
+      )
+    );
+
+    const { fetchCurrentUserSessionServer } = await import("@/app/server-api");
+
+    await expect(fetchCurrentUserSessionServer("opaque-cookie-token")).resolves.toBeNull();
+  });
 });

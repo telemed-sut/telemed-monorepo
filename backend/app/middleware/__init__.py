@@ -21,6 +21,7 @@ from app.core.request_utils import get_client_ip as _get_client_ip
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+PUBLIC_HEALTH_PATHS = {"/", "/health", "/health/live"}
 
 
 def _build_sanitized_query_metadata(query: str) -> dict[str, object]:
@@ -184,6 +185,10 @@ class SecurityAuditMiddleware(BaseHTTPMiddleware):
 
 class IPBanMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        path = request.url.path
+        if path in PUBLIC_HEALTH_PATHS or path.startswith(("/docs", "/openapi", "/redoc")):
+            return await call_next(request)
+
         ip = _get_client_ip(request)
 
         if security_service.is_ip_whitelisted(ip):

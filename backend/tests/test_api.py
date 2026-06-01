@@ -2,11 +2,12 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.api import auth as auth_api
 from app.core.security import decode_token
+from app.main import app
 from app.models.audit_log import AuditLog
 from app.models.invite import UserInvite
 from app.models.patient import Patient
@@ -73,6 +74,38 @@ def test_admin_login_uses_extended_session_ttl(client: TestClient, db: Session):
     data = response.json()
     assert data["expires_in"] == auth_api.settings.admin_jwt_expires_in
     assert f"Max-Age={auth_api.settings.admin_jwt_expires_in}" in response.headers["set-cookie"]
+
+
+def test_get_me_tolerates_missing_passkey_table(client: TestClient, db: Session):
+    user = User(
+        email="legacy-passkey-schema@example.com",
+        password_hash=get_password_hash("TestPassword123"),
+        role=UserRole.medical_student,
+    )
+    db.add(user)
+    db.commit()
+
+    login_response = client.post(
+        "/auth/login",
+        json={
+            "email": "legacy-passkey-schema@example.com",
+            "password": "TestPassword123",
+        },
+    )
+    assert login_response.status_code == 200, login_response.text
+    token = login_response.json()["access_token"]
+
+    db.execute(text("DROP TABLE user_passkeys"))
+    db.commit()
+
+    with TestClient(app, raise_server_exceptions=False) as tolerant_client:
+        response = tolerant_client.get(
+            "/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["passkey_count"] == 0
 
 
 def test_login_invalid_credentials(client: TestClient, db: Session):

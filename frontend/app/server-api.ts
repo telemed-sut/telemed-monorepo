@@ -67,9 +67,17 @@ export async function serverApiFetch<T>(
 }
 
 export async function fetchCurrentUserRoleServer(token: string): Promise<string | null> {
-  const payload = await serverApiFetch<{ role?: unknown }>("/auth/me", token, {
-    method: "GET",
-  });
+  let payload: { role?: unknown } | null;
+  try {
+    payload = await serverApiFetch<{ role?: unknown }>("/auth/me", token, {
+      method: "GET",
+    });
+  } catch (error) {
+    if (error instanceof ServerApiError) {
+      return null;
+    }
+    throw error;
+  }
   return typeof payload?.role === "string" ? payload.role : null;
 }
 
@@ -95,9 +103,17 @@ function readJwtBooleanClaim(token: string, claim: string): boolean | null {
 }
 
 export async function fetchCurrentUserSessionServer(token: string): Promise<CurrentUserSessionServer | null> {
-  const payload = await serverApiFetch<{ role?: unknown; mfa_verified?: unknown }>("/auth/me", token, {
-    method: "GET",
-  });
+  let payload: { role?: unknown; mfa_verified?: unknown } | null;
+  try {
+    payload = await serverApiFetch<{ role?: unknown; mfa_verified?: unknown }>("/auth/me", token, {
+      method: "GET",
+    });
+  } catch (error) {
+    if (error instanceof ServerApiError) {
+      return null;
+    }
+    throw error;
+  }
   if (typeof payload?.role !== "string") {
     return null;
   }

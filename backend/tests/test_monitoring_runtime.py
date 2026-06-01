@@ -46,10 +46,22 @@ def test_deep_health_check_reports_degraded_when_database_fails(monkeypatch):
 
 
 def test_live_health_check_stays_shallow(monkeypatch):
-    _bypass_ip_ban_middleware(monkeypatch)
+    ip_ban_checked = False
+
+    def fail_if_ip_ban_checked(db, ip):
+        nonlocal ip_ban_checked
+        ip_ban_checked = True
+        raise RuntimeError("ip ban database should not run")
+
+    monkeypatch.setattr(app_middleware.security_service, "is_ip_whitelisted", lambda ip: False)
     monkeypatch.setattr(
         "app.main._run_database_healthcheck",
         lambda: (_ for _ in ()).throw(RuntimeError("should not run")),
+    )
+    monkeypatch.setattr(
+        app_middleware.security_service,
+        "check_ip_banned",
+        fail_if_ip_ban_checked,
     )
 
     app = create_app()
@@ -59,6 +71,7 @@ def test_live_health_check_stays_shallow(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+    assert ip_ban_checked is False
 
 
 def test_request_id_header_is_present_on_root_route(monkeypatch):

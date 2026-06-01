@@ -61,11 +61,9 @@ export function AgentationClient() {
     };
   }, [endpoint, isDevelopment, isSyncEnabled]);
 
-  if (!isDevelopment) {
+  if (!isDevelopment || !isSyncEnabled || !isAvailable) {
     return null;
   }
 
-  return (
-    <AgentationOverlay endpoint={isSyncEnabled && isAvailable ? endpoint : undefined} />
-  );
+  return <AgentationOverlay endpoint={endpoint} />;
 }

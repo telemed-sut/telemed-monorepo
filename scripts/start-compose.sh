@@ -49,8 +49,16 @@ load_env_file_if_present() {
 
     key="${key#"${key%%[![:space:]]*}"}"
     key="${key%"${key##*[![:space:]]}"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
 
     [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+    if [[ "$value" == \'*\' && "${#value}" -ge 2 ]]; then
+      value="${value:1:${#value}-2}"
+    elif [[ "$value" == \"*\" && "${#value}" -ge 2 ]]; then
+      value="${value:1:${#value}-2}"
+    fi
 
     if [[ -n "${!key+x}" && "$REPO_ENV_LOADED_KEYS" != *"|$key|"* ]]; then
       continue

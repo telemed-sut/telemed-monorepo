@@ -1,5 +1,4 @@
 x-backend-common-env: &backend-common-env
-  DATABASE_URL: "${DOCKER_DATABASE_URL:-${DATABASE_URL:?DATABASE_URL is required for backend startup}}"
   JWT_SECRET: "${JWT_SECRET:-replace_with_a_minimum_32_character_random_secret}"
   JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-3600}"
   ADMIN_JWT_EXPIRES_IN: "${ADMIN_JWT_EXPIRES_IN:-14400}"
@@ -133,8 +132,10 @@ services:
     container_name: patient-backend
     ports:
       - "127.0.0.1:8000:8000"
+    env_file:
+      - path: ./backend/.env
+        format: raw
     environment:
-      <<: *backend-common-env
       RUN_MIGRATIONS_ON_STARTUP: "${RUN_MIGRATIONS_ON_STARTUP:-true}"
       RUN_SEED_ON_STARTUP: "${RUN_SEED_ON_STARTUP:-false}"
     depends_on:

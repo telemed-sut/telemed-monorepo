@@ -97,3 +97,6 @@ Telemed Device API/environments/*.bru
 !frontend/lib/
 !frontend/lib/**
 .codex/config.toml
+.antigravitycli/
+.playwright-cli/
+

@@ -6,7 +6,8 @@ from uuid import UUID
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -25,6 +26,7 @@ from app.core.security import (
 from app.models.audit_log import AuditLog
 from app.models.enums import UserRole
 from app.models.user import User
+from app.models.user_passkey import UserPasskey
 from app.schemas.auth import (
     AccessProfileResponse,
     AdminSSOHealthResponse,
@@ -138,6 +140,20 @@ def _clear_auth_cookie(response: Response) -> None:
         secure=settings.auth_cookie_secure,
         samesite=settings.auth_cookie_samesite,
     )
+
+
+def _count_user_passkeys(db: Session, user: User) -> int:
+    try:
+        return int(
+            db.scalar(
+                select(func.count(UserPasskey.id)).where(UserPasskey.user_id == user.id)
+            )
+            or 0
+        )
+    except SQLAlchemyError:
+        db.rollback()
+        logger.warning("Could not load passkey count for /auth/me.", exc_info=True)
+        return 0
 
 
 def _clear_csrf_cookie(response: Response) -> None:
@@ -892,7 +908,7 @@ def get_me(
         auth_source=str(payload.get("auth_source") or "local"),
         sso_provider=payload.get("sso_provider"),
         passkey_onboarding_dismissed=bool(current_user.passkey_onboarding_dismissed),
-        passkey_count=len(current_user.passkeys) if hasattr(current_user, "passkeys") else 0,
+        passkey_count=_count_user_passkeys(db, current_user),
     )
 
 
